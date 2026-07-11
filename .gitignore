@@ -12,3 +12,4 @@ coverage/
 packages/db/generated/
 apps/client-macos/.build/
 apps/client-macos/DerivedData/
+apps/client-macos/dist/

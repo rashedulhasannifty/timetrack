@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Bundle metadata for the packaged .app. Replace CFBundleIdentifier / copyright with
+     your team's values. LSUIElement=1 makes it a menu-bar agent with no Dock icon,
+     matching the .accessory activation policy in App/main.swift. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>TimeTrack</string>
+  <key>CFBundleDisplayName</key>
+  <string>TimeTrack</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.example.timetrack</string>
+  <key>CFBundleExecutable</key>
+  <string>TimeTrack</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright © TimeTrack.</string>
+  <!-- Screen Recording (ScreenCaptureKit) and Accessibility (window titles + idle) are
+       granted by the user in System Settings > Privacy & Security at first use; they are
+       TCC permissions, not Info.plist usage strings. Capture never starts until granted
+       AND the monitoring policy is acknowledged (Policy/AckGate). -->
+</dict>
+</plist>
