@@ -8,6 +8,7 @@ macOS menu bar client (Swift) + NestJS API + Next.js dashboard.
 - `PRD.md` — product spec, architecture, repo structure (§7.1), retention (§10)
 - `CLAUDE.md` — engineering rules for humans and AI agents. §0 is non-negotiable.
 - `docs/ROADMAP.md` — how we build it, phase by phase; links to per-phase plans and the deployment runbook
+- `docs/PROJECT-PLAYBOOK.md` — reusable guide for setting up a new project like this one (stack-agnostic)
 
 ## Stack (pinned, stable as of 2026-07-11)
 
