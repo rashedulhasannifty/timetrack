@@ -1,31 +1,33 @@
 # PRD: Internal Time Tracking & Workforce Analytics Tool
 
-**Status:** Draft v2 (stack-aligned)
+**Status:** Draft v2 (stack-aligned) · foundation + auth built, feature work per `docs/ROADMAP.md`
 **Owner:** [fill in]
-**Last updated:** 2026-07-11
+**Last updated:** 2026-07-12
 **Target platforms:** macOS (native menu bar client), Web (manager/admin dashboard)
+
+> As-built refinements to this spec are listed in **§7.9**. Engineering rules live in `CLAUDE.md`; the phased build plan in `docs/ROADMAP.md`.
 
 ---
 
 ## 0. Stack Decision (locked)
 
-| Layer | Choice | Version (stable as of 2026-07-11) |
-|---|---|---|
-| Runtime | Node.js | **24.x LTS** |
-| API | NestJS | **11.1.x** (v12 targets Q3 2026 — ESM/Vitest/oxlint; do **not** adopt pre-release) |
-| HTTP adapter | Fastify (`@nestjs/platform-fastify`) | 11.x |
-| ORM | Prisma | **7.8.x** (TypeScript query compiler, no Rust engine) |
-| Database | PostgreSQL | **18** |
-| Validation | Zod | **4.4.x** |
-| Logging | Pino | **10.3.x** + `nestjs-pino` |
-| Frontend | Next.js (App Router) + React | **16.2.x** / React 19 |
-| Styling | Tailwind CSS | 4.x |
-| Charts | Recharts | latest stable |
-| Queue | BullMQ + Redis | latest stable |
-| Object storage | MinIO (S3-compatible, self-hosted) | latest stable |
-| Client (macOS) | Swift 6 / SwiftUI + AppKit | Xcode 16+, macOS 14+ target |
-| Package manager | pnpm workspaces | 10.x |
-| Testing | Vitest (unit/integration) + Playwright (e2e) | latest stable |
+| Layer           | Choice                                       | Version (stable as of 2026-07-11)                                                  |
+| --------------- | -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Runtime         | Node.js                                      | **24.x LTS**                                                                       |
+| API             | NestJS                                       | **11.1.x** (v12 targets Q3 2026 — ESM/Vitest/oxlint; do **not** adopt pre-release) |
+| HTTP adapter    | Fastify (`@nestjs/platform-fastify`)         | 11.x                                                                               |
+| ORM             | Prisma                                       | **7.8.x** (TypeScript query compiler, no Rust engine)                              |
+| Database        | PostgreSQL                                   | **18**                                                                             |
+| Validation      | Zod                                          | **4.4.x**                                                                          |
+| Logging         | Pino                                         | **10.3.x** + `nestjs-pino`                                                         |
+| Frontend        | Next.js (App Router) + React                 | **16.2.x** / React 19                                                              |
+| Styling         | Tailwind CSS                                 | 4.x                                                                                |
+| Charts          | Recharts                                     | latest stable                                                                      |
+| Queue           | BullMQ + Redis                               | latest stable                                                                      |
+| Object storage  | MinIO (S3-compatible, self-hosted)           | latest stable                                                                      |
+| Client (macOS)  | Swift 6 / SwiftUI + AppKit                   | Xcode 16+, macOS 14+ target                                                        |
+| Package manager | pnpm workspaces                              | 10.x                                                                               |
+| Testing         | Vitest (unit/integration) + Playwright (e2e) | latest stable                                                                      |
 
 **Why Swift for the client:** screenshot capture (`ScreenCaptureKit`), idle detection (`CGEventSource`), and app/window sampling (`NSWorkspace`, Accessibility API) have no viable cross-platform equivalent. Electron would double resource usage and still need native shims. The client is the only non-TypeScript surface.
 
@@ -48,7 +50,7 @@ An internal, self-hosted tool for tracking employee time, activity, and producti
 ## 3. Non-Goals (v1)
 
 - No GPS/location tracking.
-- No keystroke *content* logging — event counts only, never keys pressed.
+- No keystroke _content_ logging — event counts only, never keys pressed.
 - No webcam capture.
 - No mobile app.
 - No AI-based productivity scoring.
@@ -72,11 +74,11 @@ This is a product/engineering note, not legal advice — loop in legal/HR before
 
 ## 5. Personas
 
-| Persona | Needs |
-|---|---|
-| Employee | Simple start/stop, clear visibility into what's captured, minimal interruption |
-| Manager | Team dashboards, per-person drill-down, exportable reports, timesheet approvals |
-| Admin/IT | Deployment, provisioning, policy config, retention, audit |
+| Persona  | Needs                                                                           |
+| -------- | ------------------------------------------------------------------------------- |
+| Employee | Simple start/stop, clear visibility into what's captured, minimal interruption  |
+| Manager  | Team dashboards, per-person drill-down, exportable reports, timesheet approvals |
+| Admin/IT | Deployment, provisioning, policy config, retention, audit                       |
 
 ---
 
@@ -85,12 +87,14 @@ This is a product/engineering note, not legal advice — loop in legal/HR before
 ### 6.1 Time Tracking
 
 **Manual**
+
 - Start / stop / pause from the menu bar dropdown.
 - Assign entry to a project/task (searchable dropdown).
 - Optional note per entry.
 - Edit past entries — every edit writes an `audit_log` row with before/after diff.
 
 **Automatic**
+
 - Active application detected via `NSWorkspace`.
 - Auto-start on login (configurable, defaults **off**).
 - Auto-pause on system sleep/lock.
@@ -289,7 +293,7 @@ packages/db/
 
 packages/logger/src/index.ts  Pino config; redact: authorization, cookie,
                               *.password, *.refreshToken, *.windowTitle
-packages/config/src/env.ts    z.object({...}).parse(process.env) — fail fast at boot
+packages/config/src/index.ts  z.object({...}).parse(process.env) — fail fast at boot
 ```
 
 #### 7.1.6 apps/client-macos
@@ -491,6 +495,21 @@ POST   /admin/users/:id/erase
 
 ---
 
+### 7.9 As-built refinements (kept in sync with the code)
+
+Where the implementation refines this spec:
+
+- **API is versioned.** Every route in §7.8 is served under `/v1` (e.g. `POST /v1/auth/login`); `/health` and `/health/ready` are version-neutral. A shipped client pins `/v1`, so `/v1` is never broken — breaking changes go to `/v2`.
+- **Prisma 7 config.** The DB connection URL lives in `packages/db/prisma.config.ts` (not a `datasource.url` in `schema.prisma`), and the client connects via the `@prisma/adapter-pg` driver adapter. `packages/db` is an **ESM** package; the CJS apps consume it via `require(esm)`.
+- **Env schema file** is `packages/config/src/index.ts` (not `env.ts`).
+- **`policy` module** implements `/policy/effective` as its own vertical slice.
+- **`RefreshToken` model** was added to §7.7's model for rotating, HMAC-hashed refresh tokens (§6.8).
+- **Security baseline** in `apps/api/src/main.ts`: `@fastify/helmet`, a `@fastify/cors` origin allowlist (`CORS_ORIGINS`), and strict-body Zod validation (unknown fields rejected). Resource authorization is a reusable `@ResourceScope` decorator + global `ResourceGuard` (`common/authz/`), not per-route logic.
+- **Packages build to `dist`** and apps consume the built output (turbo `^build`), not source.
+- **Repo tooling:** husky + lint-staged, gitleaks secret scanning, `pnpm audit --prod` + Dependabot in CI, and Developer ID signing/notarization scaffolding for the client (`apps/client-macos/SIGNING.md`).
+
+---
+
 ## 8. Non-Functional Requirements
 
 - **Client performance:** <2% average CPU for the background agent; no measurable battery-life regression in a 4h test.
@@ -523,12 +542,12 @@ POST   /admin/users/:id/erase
 
 ## 11. Rollout Plan
 
-| Phase | Scope |
-|---|---|
+| Phase   | Scope                                                                            |
+| ------- | -------------------------------------------------------------------------------- |
 | 1 (MVP) | Auth, manual + automatic time tracking, project/task assignment, basic dashboard |
-| 2 | Screenshots, activity monitoring, idle alerts, employee self-view (transparency) |
-| 3 | Distraction alerts, reporting/CSV exports, approvals workflow |
-| 4 | SSO (SAML/OIDC), advanced admin controls, retention automation, audit log UI |
+| 2       | Screenshots, activity monitoring, idle alerts, employee self-view (transparency) |
+| 3       | Distraction alerts, reporting/CSV exports, approvals workflow                    |
+| 4       | SSO (SAML/OIDC), advanced admin controls, retention automation, audit log UI     |
 
 Phase 2 does not ship until the employee self-view ships. Monitoring you can't inspect is the thing the whole category gets sued over.
 
@@ -546,7 +565,7 @@ Phase 2 does not ship until the employee self-view ships. Monitoring you can't i
 
 ## 13. Open Questions
 
-- Multi-device conflict resolution — deferred; v1 assumes one device per user. UUIDv7 keys mean we *could* merge later without a data migration.
+- Multi-device conflict resolution — deferred; v1 assumes one device per user. UUIDv7 keys mean we _could_ merge later without a data migration.
 - SSO timeline: launch or Phase 4?
 - Compliance drivers from client contracts (SOC 2, HIPAA)? Affects retention, audit depth, and hosting.
 - Do we store `windowTitle` at all, or hash/truncate it? Titles leak document names, ticket subjects, and URLs — arguably the most sensitive field in the schema. Recommend: per-team opt-out, default **on** but truncated to 120 chars.
