@@ -17,7 +17,7 @@ jobs:
         options: >-
           --health-cmd="pg_isready -U timetrack" --health-interval=5s --health-retries=10
       redis:
-        image: redis:7-alpine
+        image: redis:8-alpine
         ports: ['6379:6379']
     env:
       DATABASE_URL: postgresql://timetrack:timetrack@localhost:5432/timetrack_test?schema=public
