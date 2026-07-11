@@ -45,9 +45,26 @@ model User {
   deactivatedAt   DateTime?
   createdAt       DateTime  @default(now())
   timeEntries     TimeEntry[]
+  refreshTokens   RefreshToken[]
 
   @@index([teamId, deactivatedAt])
   @@map("users")
+}
+
+/// PRD §6.8 — rotating refresh tokens, hashed at rest and revocable per session.
+/// Each row is one device/session; `tokenHash` is an HMAC of the opaque token, never
+/// the token itself.
+model RefreshToken {
+  id        String    @id @default(uuid(7))
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }
 
 model Team {

@@ -59,5 +59,11 @@ export default tseslint.config(
     },
   },
   { files: ['scripts/**/*.ts'], rules: { 'no-console': 'off' } },
+  {
+    // Asserting on a mocked method (`expect(repo.foo).toHaveBeenCalled()`) reads the
+    // method unbound — a false positive for this rule in tests.
+    files: ['**/*.spec.ts', '**/*.e2e-spec.ts'],
+    rules: { '@typescript-eslint/unbound-method': 'off' },
+  },
   { ignores: ['**/dist/**', '**/.next/**', '**/node_modules/**', 'apps/client-macos/**'] },
 );
