@@ -1,37 +1,24 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { CreateTimeEntry, ListTimeEntriesQuery, TimeEntry } from '@timetrack/contracts';
 import { TimeEntriesRepository } from './time-entries.repository.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 
 /**
  * CLAUDE.md §3 — services hold business logic. No Prisma; go through the repository.
+ * Resource authorization is enforced by `@ResourceScope` on the controller (the global
+ * ResourceGuard), so the service does not re-implement the self/team/admin rule.
  */
 @Injectable()
 export class TimeEntriesService {
   constructor(private readonly repo: TimeEntriesRepository) {}
 
   upsert(dto: CreateTimeEntry, user: SessionUser): Promise<TimeEntry> {
+    // A time entry is always attributed to the authenticated user (no cross-user writes).
     return this.repo.upsert(dto, user.id);
   }
 
-  async list(query: ListTimeEntriesQuery, user: SessionUser): Promise<TimeEntry[]> {
+  list(query: ListTimeEntriesQuery, user: SessionUser): Promise<TimeEntry[]> {
     const targetId = query.userId ?? user.id;
-    await this.assertCanRead(targetId, user);
     return this.repo.list({ ...query, userId: targetId });
-  }
-
-  /**
-   * Employees may read only themselves. Managers only their own team. Admins anyone.
-   * Write the test for the 403 case, not just the 200 case.
-   */
-  private async assertCanRead(targetUserId: string, user: SessionUser): Promise<void> {
-    if (user.role === 'ADMIN') return;
-    if (targetUserId === user.id) return;
-    if (user.role === 'MANAGER' && (await this.repo.isInTeam(targetUserId, user.teamId))) return;
-    throw new ForbiddenException({
-      type: 'https://timetrack.internal/errors/forbidden',
-      title: 'Not permitted to read this user',
-      status: 403,
-    });
   }
 }

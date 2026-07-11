@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, UsePipes } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import {
   ActivityBatchSchema,
   type ActivityBatch,
@@ -15,9 +15,8 @@ export class ActivityController {
   /** PRD §7.8 — max 500 samples per batch (enforced by ActivityBatchSchema). */
   @Post('batch')
   @HttpCode(202)
-  @UsePipes(new ZodValidationPipe(ActivityBatchSchema))
   ingest(
-    @Body() batch: ActivityBatch,
+    @Body(new ZodValidationPipe(ActivityBatchSchema)) batch: ActivityBatch,
     @CurrentUser() user: SessionUser,
   ): Promise<ActivityIngestResult> {
     return this.service.ingest(batch, user);

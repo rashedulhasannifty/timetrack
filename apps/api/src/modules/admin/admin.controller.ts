@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, UsePipes } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   AuditLogQuerySchema,
   EraseUserSchema,
@@ -21,15 +21,15 @@ export class AdminController {
   constructor(private readonly service: AdminService) {}
 
   @Get('audit-log')
-  @UsePipes(new ZodValidationPipe(AuditLogQuerySchema))
-  auditLog(@Query() query: AuditLogQuery): Promise<AuditLogEntry[]> {
+  auditLog(
+    @Query(new ZodValidationPipe(AuditLogQuerySchema)) query: AuditLogQuery,
+  ): Promise<AuditLogEntry[]> {
     return this.service.listAudit(query);
   }
 
   @Patch('settings')
-  @UsePipes(new ZodValidationPipe(UpdateSettingsSchema))
   updateSettings(
-    @Body() patch: UpdateSettings,
+    @Body(new ZodValidationPipe(UpdateSettingsSchema)) patch: UpdateSettings,
     @CurrentUser() actor: SessionUser,
   ): Promise<TeamSettings> {
     return this.service.updateSettings(patch, actor);

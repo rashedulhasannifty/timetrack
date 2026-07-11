@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, UsePipes } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import {
   LoginSchema,
   RefreshSchema,
@@ -13,6 +13,7 @@ import { AuthService } from './auth.service.js';
 /**
  * PRD §6.8 — email/password at launch. All three routes are @Public (they mint the
  * session that everything else requires). SSO (SAML/OIDC) is Phase 4.
+ * The Zod pipe is scoped to the @Body param, not method-level @UsePipes.
  */
 @Controller('auth')
 export class AuthController {
@@ -21,24 +22,21 @@ export class AuthController {
   @Post('login')
   @Public()
   @HttpCode(200)
-  @UsePipes(new ZodValidationPipe(LoginSchema))
-  login(@Body() dto: Login): Promise<TokenPair> {
+  login(@Body(new ZodValidationPipe(LoginSchema)) dto: Login): Promise<TokenPair> {
     return this.service.login(dto);
   }
 
   @Post('refresh')
   @Public()
   @HttpCode(200)
-  @UsePipes(new ZodValidationPipe(RefreshSchema))
-  refresh(@Body() dto: Refresh): Promise<TokenPair> {
+  refresh(@Body(new ZodValidationPipe(RefreshSchema)) dto: Refresh): Promise<TokenPair> {
     return this.service.refresh(dto);
   }
 
   @Post('logout')
   @Public()
   @HttpCode(204)
-  @UsePipes(new ZodValidationPipe(RefreshSchema))
-  logout(@Body() dto: Refresh): Promise<void> {
+  logout(@Body(new ZodValidationPipe(RefreshSchema)) dto: Refresh): Promise<void> {
     return this.service.logout(dto);
   }
 }

@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotImplementedException } from '@nestjs/common';
+import { Injectable, NotImplementedException } from '@nestjs/common';
 import type { ListScreenshotsQuery, RedactScreenshot, Screenshot } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { ScreenshotsRepository, type ScreenshotRow } from './screenshots.repository.js';
@@ -10,11 +10,11 @@ export class ScreenshotsService {
   /**
    * PRD §4.3 — symmetric transparency: an employee can list every screenshot recorded
    * about them through this same endpoint (scoped to self). Managers see their team;
-   * admins see anyone. Presigned URLs are added when upload/storage is wired.
+   * admins see anyone — enforced by @ResourceScope on the controller (ResourceGuard).
+   * Presigned URLs are added when upload/storage is wired.
    */
   async list(query: ListScreenshotsQuery, user: SessionUser): Promise<Screenshot[]> {
     const targetId = query.userId ?? user.id;
-    this.assertCanRead(targetId, user);
     const rows = await this.repo.listByUser(targetId, new Date(query.from), new Date(query.to));
     return rows.map(toScreenshot);
   }
@@ -28,16 +28,6 @@ export class ScreenshotsService {
   redact(_id: string, _dto: RedactScreenshot, _user: SessionUser): Promise<Screenshot> {
     // TODO(scaffold): mark REDACTED with reason; owner-only; never silently remove.
     throw new NotImplementedException('screenshots.redact not yet implemented');
-  }
-
-  private assertCanRead(targetUserId: string, user: SessionUser): void {
-    if (user.role === 'ADMIN' || targetUserId === user.id) return;
-    // TODO(scaffold): MANAGER may read own-team members — needs a team-membership check.
-    throw new ForbiddenException({
-      type: 'https://timetrack.internal/errors/forbidden',
-      title: 'Not permitted to read these screenshots',
-      status: 403,
-    });
   }
 }
 

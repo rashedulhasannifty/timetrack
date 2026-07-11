@@ -7,6 +7,8 @@ import { loadEnv } from '@timetrack/config';
 import { PrismaModule } from './infra/prisma/prisma.module.js';
 import { JwtAuthGuard } from './common/guards/jwt.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
+import { ResourceGuard } from './common/guards/resource.guard.js';
+import { AuthzModule } from './common/authz/authz.module.js';
 import { RequestIdInterceptor } from './common/interceptors/request-id.interceptor.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { UsersModule } from './modules/users/users.module.js';
@@ -32,6 +34,7 @@ const env = loadEnv();
     LoggerModule.forRoot({ pinoHttp: pinoConfig(env) }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PrismaModule,
+    AuthzModule,
     AuthModule,
     UsersModule,
     TeamsModule,
@@ -48,6 +51,7 @@ const env = loadEnv();
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: ResourceGuard },
     { provide: APP_INTERCEPTOR, useClass: RequestIdInterceptor },
   ],
 })

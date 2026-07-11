@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UsePipes } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import {
   ListScreenshotsQuerySchema,
   RedactScreenshotSchema,
@@ -8,6 +8,7 @@ import {
 } from '@timetrack/contracts';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CurrentUser, type SessionUser } from '../../common/decorators/current-user.decorator.js';
+import { ResourceScope } from '../../common/decorators/resource-scope.decorator.js';
 import { ScreenshotsService } from './screenshots.service.js';
 
 @Controller('screenshots')
@@ -15,9 +16,9 @@ export class ScreenshotsController {
   constructor(private readonly service: ScreenshotsService) {}
 
   @Get()
-  @UsePipes(new ZodValidationPipe(ListScreenshotsQuerySchema))
+  @ResourceScope({ source: 'query', key: 'userId' })
   list(
-    @Query() query: ListScreenshotsQuery,
+    @Query(new ZodValidationPipe(ListScreenshotsQuerySchema)) query: ListScreenshotsQuery,
     @CurrentUser() user: SessionUser,
   ): Promise<Screenshot[]> {
     return this.service.list(query, user);

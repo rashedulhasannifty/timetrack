@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UsePipes } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import {
   CreateProjectSchema,
   CreateTaskSchema,
@@ -23,15 +23,19 @@ export class ProjectsController {
 
   @Post()
   @Roles('MANAGER', 'ADMIN')
-  @UsePipes(new ZodValidationPipe(CreateProjectSchema))
-  createProject(@Body() dto: CreateProject, @CurrentUser() actor: SessionUser): Promise<Project> {
+  createProject(
+    @Body(new ZodValidationPipe(CreateProjectSchema)) dto: CreateProject,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<Project> {
     return this.service.createProject(dto, actor);
   }
 
   @Post('tasks')
   @Roles('MANAGER', 'ADMIN')
-  @UsePipes(new ZodValidationPipe(CreateTaskSchema))
-  createTask(@Body() dto: CreateTask, @CurrentUser() actor: SessionUser): Promise<Task> {
+  createTask(
+    @Body(new ZodValidationPipe(CreateTaskSchema)) dto: CreateTask,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<Task> {
     return this.service.createTask(dto, actor);
   }
 }

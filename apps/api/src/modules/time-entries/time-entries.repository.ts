@@ -26,8 +26,16 @@ export class TimeEntriesRepository {
       },
       update: { endTime: dto.endTime ? new Date(dto.endTime) : null, note: dto.note ?? null },
       select: {
-        id: true, userId: true, projectId: true, taskId: true, startTime: true,
-        endTime: true, source: true, note: true, editedById: true, editedAt: true,
+        id: true,
+        userId: true,
+        projectId: true,
+        taskId: true,
+        startTime: true,
+        endTime: true,
+        source: true,
+        note: true,
+        editedById: true,
+        editedAt: true,
       },
     });
     return serialize(row);
@@ -42,24 +50,34 @@ export class TimeEntriesRepository {
       },
       orderBy: { startTime: 'asc' },
       select: {
-        id: true, userId: true, projectId: true, taskId: true, startTime: true,
-        endTime: true, source: true, note: true, editedById: true, editedAt: true,
+        id: true,
+        userId: true,
+        projectId: true,
+        taskId: true,
+        startTime: true,
+        endTime: true,
+        source: true,
+        note: true,
+        editedById: true,
+        editedAt: true,
       },
     });
     return rows.map(serialize);
-  }
-
-  async isInTeam(userId: string, teamId: string): Promise<boolean> {
-    const n = await this.prisma.user.count({ where: { id: userId, teamId } });
-    return n > 0;
   }
 }
 
 // Never select `*` back to the client — always `select` the fields you need.
 function serialize(row: {
-  id: string; userId: string; projectId: string | null; taskId: string | null;
-  startTime: Date; endTime: Date | null; source: 'MANUAL' | 'AUTO';
-  note: string | null; editedById: string | null; editedAt: Date | null;
+  id: string;
+  userId: string;
+  projectId: string | null;
+  taskId: string | null;
+  startTime: Date;
+  endTime: Date | null;
+  source: 'MANUAL' | 'AUTO';
+  note: string | null;
+  editedById: string | null;
+  editedAt: Date | null;
 }): TimeEntry {
   return {
     id: row.id,

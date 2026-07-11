@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UsePipes } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import {
   AckMonitoringSchema,
   InviteUserSchema,
@@ -23,8 +23,10 @@ export class UsersController {
 
   @Post('invite')
   @Roles('ADMIN')
-  @UsePipes(new ZodValidationPipe(InviteUserSchema))
-  invite(@Body() dto: InviteUser, @CurrentUser() actor: SessionUser): Promise<User> {
+  invite(
+    @Body(new ZodValidationPipe(InviteUserSchema)) dto: InviteUser,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<User> {
     return this.service.invite(dto, actor);
   }
 
