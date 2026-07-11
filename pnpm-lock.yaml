@@ -125,6 +125,9 @@ importers:
       '@testcontainers/postgresql':
         specifier: ^11.5.0
         version: 11.14.0
+      '@testcontainers/redis':
+        specifier: ^11.5.0
+        version: 11.14.0
       supertest:
         specifier: ^7.1.4
         version: 7.2.2
@@ -2482,6 +2485,12 @@ packages:
     resolution:
       {
         integrity: sha512-wYbJn8GRTj8qfqzfVubxioYWlHJU/ImIjuzPwyy9C5Qfo6g3GLduPZAj+BifvqTZjgT3gd4gFVLCPhBji7dc1w==,
+      }
+
+  '@testcontainers/redis@11.14.0':
+    resolution:
+      {
+        integrity: sha512-WX005slz2JMQPw2avbSjf5awVjpmFhOs5xCxeGSYLcV5ia4W1edv/P6MdOw4dZnvDQDuN5LfqNoV/ut3XGb2pA==,
       }
 
   '@tokenizer/inflate@0.4.1':
@@ -8746,6 +8755,15 @@ snapshots:
       tailwindcss: 4.3.2
 
   '@testcontainers/postgresql@11.14.0':
+    dependencies:
+      testcontainers: 11.14.0
+    transitivePeerDependencies:
+      - bare-abort-controller
+      - bare-buffer
+      - react-native-b4a
+      - supports-color
+
+  '@testcontainers/redis@11.14.0':
     dependencies:
       testcontainers: 11.14.0
     transitivePeerDependencies:

@@ -1,46 +1,47 @@
 import { execSync } from 'node:child_process';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { RedisContainer } from '@testcontainers/redis';
 import { PrismaClient, pgAdapter } from '@timetrack/db';
+
+export interface StartTestDbOptions {
+  redis?: boolean;
+}
 
 export interface TestDb {
   prisma: PrismaClient;
   url: string;
+  redisUrl?: string;
   close(): Promise<void>;
 }
 
-/**
- * Boot a throwaway Postgres 18, apply all migrations, and return a connected
- * Prisma client. Integration/e2e specs use this instead of a mocked Prisma
- * (CLAUDE.md §5). One container per spec file — vitest.e2e.config has
- * fileParallelism off, so containers never run concurrently.
- */
-export async function startTestDb(): Promise<TestDb> {
-  const container = await new PostgreSqlContainer('postgres:18-alpine').start();
-  const url = container.getConnectionUri();
+export async function startTestDb(opts: StartTestDbOptions = {}): Promise<TestDb> {
+  const pg = await new PostgreSqlContainer('postgres:18-alpine').start();
+  const url = pg.getConnectionUri();
+  process.env.DATABASE_URL = url;
 
-  // prisma.config.ts reads DATABASE_URL via env('DATABASE_URL') and its dotenv call
-  // never overwrites an already-set var, so the migrate child inherits this URL.
   execSync('pnpm --filter @timetrack/db exec prisma migrate deploy', {
     env: { ...process.env, DATABASE_URL: url },
     stdio: 'inherit',
   });
 
   const prisma = new PrismaClient({ adapter: pgAdapter(url) });
+
+  const redis = opts.redis ? await new RedisContainer('redis:8-alpine').start() : undefined;
+  const redisUrl = redis?.getConnectionUrl();
+  if (redisUrl) process.env.REDIS_URL = redisUrl;
+
   return {
     prisma,
     url,
+    redisUrl,
     async close() {
       await prisma.$disconnect();
-      await container.stop();
+      await pg.stop();
+      if (redis) await redis.stop();
     },
   };
 }
 
-/**
- * Truncate every application table (partitions cascade) between tests, leaving
- * Prisma's migration bookkeeping intact. The table set is read from the catalog
- * so newly-added tables and monthly partitions are covered automatically.
- */
 export async function truncateAll(prisma: PrismaClient): Promise<void> {
   const rows = await prisma.$queryRawUnsafe<{ tablename: string }[]>(
     `SELECT tablename FROM pg_tables

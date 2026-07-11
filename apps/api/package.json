@@ -39,6 +39,7 @@
     "@nestjs/cli": "^11.0.10",
     "@nestjs/testing": "^11.1.6",
     "@testcontainers/postgresql": "^11.5.0",
+    "@testcontainers/redis": "^11.5.0",
     "supertest": "^7.1.4",
     "vitest": "^3.2.4"
   }
