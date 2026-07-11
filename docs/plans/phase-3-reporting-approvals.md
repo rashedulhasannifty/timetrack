@@ -1,0 +1,78 @@
+# Phase 3 — Reporting + approvals
+
+**Goal:** turn captured data into decisions — team/project reports, CSV export, timesheet approvals — plus gentle, **local** distraction nudges surfaced only in the end-of-day summary.
+
+**PRD:** §6.4 (distraction alerts), §6.5 (reports, approvals), §7.8 (report endpoints).
+
+**Exit criteria:** managers view project/team reports (Recharts), export a filterable date-range CSV, and approve/flag timesheets for payroll; distraction alerts are local-only and never streamed live to managers.
+
+---
+
+## Slice 3.1 — Reports aggregation + dashboard
+
+**Goal:** real `team-summary` and project/task rollups.
+
+**Steps:**
+
+1. **API — `GET /reports/team-summary?from=&to=`:** implement in `ReportsService`/`ReportsRepository`. Aggregate tracked seconds per user (sum of entry durations) joined to users, plus activity % from `ActivityDailySummary` (Phase 2). **One query**, not N+1 — use a grouped SQL/`$queryRaw`. Scope: MANAGER → own team, ADMIN → any.
+2. **API — project view:** `GET /reports/projects?from=&to=` — hours per project across the team.
+3. **Contracts:** `TeamSummarySchema` exists; add `ProjectSummarySchema`.
+4. **Dashboard:** `(app)/reports` — date-range picker, per-user and per-project charts (Recharts via the `charts/` components), filter by user/project/team.
+5. **Tests:** aggregation correctness (duration sums, running-entry handling), team-scope 403, timezone/day-boundary handling.
+
+**Done when:** managers see accurate per-user and per-project rollups for any date range, scoped to what they may see.
+
+---
+
+## Slice 3.2 — CSV export
+
+**Goal:** filterable date-range CSV for billing/payroll.
+
+**Steps:**
+
+1. **API — `GET /reports/export.csv?...`:** stream **RFC 4180** rows (never buffer the whole set — async generator → Fastify stream). Filters: user/project/team + range. MANAGER/ADMIN only; same authorization scope as reports.
+2. **Repository:** a cursor/stream query in `ReportsRepository` (`prisma` cursor pagination or `$queryRaw` streaming).
+3. **Dashboard:** "Export CSV" button on `/reports` that hits the endpoint with current filters and downloads.
+4. **Tests:** CSV shape (headers, escaping), filter application, large-set streaming (no full buffer), authorization.
+
+**Done when:** a manager exports a correct, filtered CSV that streams without loading everything into memory.
+
+---
+
+## Slice 3.3 — Approvals workflow
+
+**Goal:** approve/flag timesheets for payroll.
+
+**Steps:**
+
+1. **Schema:** add a `Timesheet`/`Approval` concept — e.g. `TimesheetApproval { id, userId, periodStart, periodEnd, status (PENDING|APPROVED|FLAGGED), reviewerId?, note?, decidedAt? }` + migration. (Decide period granularity: weekly per PRD.)
+2. **Contracts:** `TimesheetApprovalSchema`, `DecisionSchema { status, note? }`.
+3. **API — `modules/approvals`** (new module, six-file shape): list pending timesheets for the manager's team; `POST /approvals/:id/decide` (MANAGER/ADMIN, must own the team) → set status + `AuditLog`. Employees see their own approval status (self-scope).
+4. **Dashboard:** `(app)/approvals` — queue of pending timesheets, approve/flag with a note; employee sees status on `/me`.
+5. **Tests:** manager can only decide own-team timesheets (403 otherwise); decision writes an audit row; employee read is self-scoped.
+
+**Done when:** managers approve or flag timesheets with an audit trail; employees see their status; cross-team decisions are rejected.
+
+---
+
+## Slice 3.4 — Distraction alerts (local, end-of-day)
+
+**Goal:** gentle focus nudges that **build trust, not surveillance** — local only, surfaced in the end-of-day summary, never streamed live to managers (`PRD §6.4`).
+
+**Steps:**
+
+1. **Client:** detect sustained time on a flagged app/site (from `TeamSettings` productive/unproductive lists) → a **local** notification. Aggregate into the client's end-of-day summary.
+2. **Explicitly not:** no real-time manager feed of distraction events. This is a deliberate product constraint (`PRD §6.4`) — do not add a live endpoint.
+3. **Tests (XCTest):** threshold triggers a local nudge; nothing is sent to the server in real time.
+
+**Done when:** distraction nudges are local and time-delayed; managers only ever see them (if at all) in aggregate end-of-day data, never live.
+
+---
+
+## Phase 3 Definition of Done
+
+- [ ] 3.1 Reports aggregation + charts.
+- [ ] 3.2 Streaming CSV export.
+- [ ] 3.3 Approvals workflow with audit.
+- [ ] 3.4 Local distraction nudges (no live manager feed).
+- [ ] Green gate; all report/approval endpoints authorization-tested; distraction data never streamed live.
