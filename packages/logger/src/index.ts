@@ -17,6 +17,8 @@ export const REDACT_PATHS = [
   '*.accessToken',
   '*.windowTitle',
   'windowTitle',
+  '*.inviteToken',
+  'inviteToken',
   '*.SEED_ADMIN_PASSWORD',
   'SEED_ADMIN_PASSWORD',
 ];
