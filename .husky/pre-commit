@@ -1,4 +1,3 @@
-#!/bin/sh
 # CLAUDE.md §0 — never commit as an AI identity.
 AUTHOR="$(git var GIT_AUTHOR_IDENT | sed 's/>.*/>/')"
 if echo "$AUTHOR" | grep -Eiq 'claude|anthropic|noreply@anthropic'; then
@@ -8,7 +7,10 @@ if echo "$AUTHOR" | grep -Eiq 'claude|anthropic|noreply@anthropic'; then
 fi
 
 # No secrets / .env — but .env.example is the template and belongs in the repo.
-if git diff --cached --name-only | grep -E '(^|/)\.env($|\.)' | grep -qv '\.env\.example$' ; then
+if git diff --cached --name-only | grep -E '(^|/)\.env($|\.)' | grep -qv '\.env\.example$'; then
   echo "✖ pre-commit rejected: .env file staged. Secrets never enter the repo."
   exit 1
 fi
+
+# Format + lint staged files (see the lint-staged config in package.json).
+pnpm exec lint-staged
