@@ -74,8 +74,25 @@ model Team {
   settings Json      @default("{}")
   users    User[]
   projects Project[]
+  invites  Invite[]
 
   @@map("teams")
+}
+
+model Invite {
+  id         String    @id @default(uuid(7))
+  email      String
+  name       String
+  role       Role      @default(EMPLOYEE)
+  teamId     String
+  team       Team      @relation(fields: [teamId], references: [id])
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email])
+  @@map("invites")
 }
 
 model Project {
