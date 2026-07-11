@@ -25,6 +25,13 @@ export class EmailProcessor extends WorkerHost {
         // TODO(scaffold): send missing-timesheet reminders.
         this.logger.log({ jobId: job.id }, 'missing-timesheet received');
         break;
+      case 'invite':
+        // TODO(scaffold): render + send the invite email with the accept link. SMTP is later.
+        this.logger.log(
+          { jobId: job.id, email: (job.data as { email?: string }).email },
+          'invite email received',
+        );
+        break;
       default:
         this.logger.warn({ jobName: job.name }, 'unknown email job');
     }
