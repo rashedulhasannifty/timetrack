@@ -1,20 +1,36 @@
 import { ForbiddenException, Injectable, NotImplementedException } from '@nestjs/common';
-import type { AckMonitoring, InviteUser, User } from '@timetrack/contracts';
+import { loadEnv } from '@timetrack/config';
+import type { AckMonitoring, InviteResult, InviteUser, User } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
+import { InvitesService } from '../invites/invites.service.js';
 import { UsersRepository } from './users.repository.js';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly repo: UsersRepository) {}
+  constructor(
+    private readonly repo: UsersRepository,
+    private readonly invites: InvitesService,
+  ) {}
 
   /** Managers and admins list their own team; the controller gates the role. */
   list(user: SessionUser): Promise<User[]> {
     return this.repo.listByTeam(user.teamId);
   }
 
-  invite(_dto: InviteUser, _actor: SessionUser): Promise<User> {
-    // TODO(scaffold): admin-only create + invite email. Enforce teamId ownership.
-    throw new NotImplementedException('users.invite not yet implemented');
+  async invite(dto: InviteUser, actor: SessionUser): Promise<InviteResult> {
+    const { invite, token } = await this.invites.create(dto, actor);
+    const result: InviteResult = {
+      invite: {
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+        teamId: invite.teamId,
+        expiresAt: invite.expiresAt.toISOString(),
+      },
+    };
+    // Dev-only fallback so the flow is testable before SMTP exists. Strictly development.
+    if (loadEnv().NODE_ENV === 'development') result.devToken = token;
+    return result;
   }
 
   /**

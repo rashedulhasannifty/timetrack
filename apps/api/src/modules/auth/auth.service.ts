@@ -2,8 +2,9 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { createHmac, randomBytes } from 'node:crypto';
 import * as argon2 from 'argon2';
-import type { JwtClaims, Login, Refresh, TokenPair } from '@timetrack/contracts';
+import type { AcceptInvite, JwtClaims, Login, Refresh, TokenPair } from '@timetrack/contracts';
 import { loadEnv } from '@timetrack/config';
+import { InvitesService } from '../invites/invites.service.js';
 import { AuthRepository, type AuthIdentity } from './auth.repository.js';
 import { durationToSeconds } from './token.util.js';
 
@@ -27,7 +28,13 @@ export class AuthService {
   constructor(
     private readonly jwt: JwtService,
     private readonly repo: AuthRepository,
+    private readonly invites: InvitesService,
   ) {}
+
+  async acceptInvite(dto: AcceptInvite): Promise<TokenPair> {
+    const { userId, role, teamId } = await this.invites.accept(dto.token, dto.password);
+    return this.issueTokens({ id: userId, role, teamId, deactivatedAt: null });
+  }
 
   async login(dto: Login): Promise<TokenPair> {
     const user = await this.repo.findByEmail(dto.email);

@@ -1,7 +1,9 @@
 import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import {
+  AcceptInviteSchema,
   LoginSchema,
   RefreshSchema,
+  type AcceptInvite,
   type Login,
   type Refresh,
   type TokenPair,
@@ -31,6 +33,15 @@ export class AuthController {
   @HttpCode(200)
   refresh(@Body(new ZodValidationPipe(RefreshSchema)) dto: Refresh): Promise<TokenPair> {
     return this.service.refresh(dto);
+  }
+
+  @Post('accept-invite')
+  @Public()
+  @HttpCode(200)
+  acceptInvite(
+    @Body(new ZodValidationPipe(AcceptInviteSchema)) dto: AcceptInvite,
+  ): Promise<TokenPair> {
+    return this.service.acceptInvite(dto);
   }
 
   @Post('logout')

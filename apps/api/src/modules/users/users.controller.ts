@@ -3,6 +3,7 @@ import {
   AckMonitoringSchema,
   InviteUserSchema,
   type AckMonitoring,
+  type InviteResult,
   type InviteUser,
   type User,
 } from '@timetrack/contracts';
@@ -26,7 +27,7 @@ export class UsersController {
   invite(
     @Body(new ZodValidationPipe(InviteUserSchema)) dto: InviteUser,
     @CurrentUser() actor: SessionUser,
-  ): Promise<User> {
+  ): Promise<InviteResult> {
     return this.service.invite(dto, actor);
   }
 

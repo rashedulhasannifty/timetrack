@@ -30,9 +30,17 @@ const USER = {
   deactivatedAt: null,
 };
 const IDENTITY = { id: 'u1', role: 'EMPLOYEE' as const, teamId: 't1', deactivatedAt: null };
-const liveToken = { id: 'rt1', userId: 'u1', expiresAt: new Date(Date.now() + 1_000_000), revokedAt: null };
+const liveToken = {
+  id: 'rt1',
+  userId: 'u1',
+  expiresAt: new Date(Date.now() + 1_000_000),
+  revokedAt: null,
+};
 
-function makeService(repo: Partial<AuthRepository> = {}) {
+function makeService(
+  repo: Partial<AuthRepository> = {},
+  invites: Partial<{ accept: unknown }> = {},
+) {
   const jwt = { signAsync: vi.fn().mockResolvedValue('access.jwt.token') } as unknown as JwtService;
   const fullRepo = {
     findByEmail: vi.fn(),
@@ -42,7 +50,11 @@ function makeService(repo: Partial<AuthRepository> = {}) {
     revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
     ...repo,
   } as unknown as AuthRepository;
-  return { svc: new AuthService(jwt, fullRepo), repo: fullRepo };
+  const invitesSvc = {
+    accept: vi.fn(),
+    ...invites,
+  } as unknown as import('../invites/invites.service.js').InvitesService;
+  return { svc: new AuthService(jwt, fullRepo, invitesSvc), repo: fullRepo, invites: invitesSvc };
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -125,6 +137,19 @@ describe('AuthService.refresh', () => {
     });
     await expect(svc.refresh({ refreshToken: 'opaque' })).rejects.toThrow(UnauthorizedException);
     expect(repo.revokeRefreshToken).toHaveBeenCalled();
+  });
+});
+
+describe('AuthService.acceptInvite', () => {
+  it('accepts the invite and issues a token pair for the new user', async () => {
+    const { svc, repo, invites } = makeService(
+      {},
+      { accept: vi.fn().mockResolvedValue({ userId: 'u9', role: 'EMPLOYEE', teamId: 't1' }) },
+    );
+    const pair = await svc.acceptInvite({ token: 'tok', password: 'password123' });
+    expect(invites.accept).toHaveBeenCalledWith('tok', 'password123');
+    expect(pair.accessToken).toBe('access.jwt.token');
+    expect(repo.createRefreshToken).toHaveBeenCalledOnce();
   });
 });
 
