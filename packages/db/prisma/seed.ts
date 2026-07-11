@@ -26,12 +26,12 @@ async function main(): Promise<void> {
   // @timetrack/config (packages import only contracts), so it validates inline.
   const email = process.env.SEED_ADMIN_EMAIL;
   const password = process.env.SEED_ADMIN_PASSWORD;
-  if (email && password && password.length >= 8) {
+  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && password && password.length >= 8) {
     const admin = await seedAdmin(prisma, { email, password, teamId: team.id });
     process.stdout.write(`seeded admin ${admin.email}\n`);
   } else if (email || password) {
     process.stdout.write(
-      'SEED_ADMIN_EMAIL/PASSWORD incomplete (need both; password >= 8 chars) — skipping admin\n',
+      'SEED_ADMIN_EMAIL/PASSWORD invalid or incomplete (need a valid email and password >= 8 chars) — skipping admin\n',
     );
   } else {
     process.stdout.write('no SEED_ADMIN_* set — skipping admin seed\n');
