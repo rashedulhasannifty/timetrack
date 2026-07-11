@@ -32,7 +32,17 @@ export const JwtClaimsSchema = z.object({
   teamId: z.uuid(),
 });
 
+/**
+ * PRD §6.8 — an invited user sets their own password with the one-time token from
+ * their invite email. Password bounds mirror LoginSchema. Accept auto-logs-in (TokenPair).
+ */
+export const AcceptInviteSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8).max(200),
+});
+
 export type Login = z.infer<typeof LoginSchema>;
 export type Refresh = z.infer<typeof RefreshSchema>;
 export type TokenPair = z.infer<typeof TokenPairSchema>;
 export type JwtClaims = z.infer<typeof JwtClaimsSchema>;
+export type AcceptInvite = z.infer<typeof AcceptInviteSchema>;

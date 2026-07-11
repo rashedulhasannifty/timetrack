@@ -17,6 +17,8 @@ import {
   UpdateSettingsSchema,
   ProblemSchema,
   Role,
+  AcceptInviteSchema,
+  InviteResultSchema,
 } from './index.js';
 
 const UUID = '019797a0-0000-7000-8000-000000000001';
@@ -143,6 +145,22 @@ describe('users / projects / reports', () => {
   it('validates a project create and a team summary', () => {
     expect(CreateProjectSchema.safeParse({ teamId: UUID, name: 'Website' }).success).toBe(true);
     expect(TeamSummarySchema.safeParse({ from: ISO, to: ISO, rows: [] }).success).toBe(true);
+  });
+});
+
+describe('invite/accept contracts', () => {
+  it('AcceptInviteSchema requires a token and a min-8 password', () => {
+    expect(AcceptInviteSchema.safeParse({ token: 't', password: 'longenough' }).success).toBe(true);
+    expect(AcceptInviteSchema.safeParse({ token: 't', password: 'short' }).success).toBe(false);
+    expect(AcceptInviteSchema.safeParse({ token: '', password: 'longenough' }).success).toBe(false);
+  });
+
+  it('InviteResultSchema accepts a result with and without an optional devToken', () => {
+    const base = {
+      invite: { id: UUID, email: 'a@b.co', role: 'EMPLOYEE', teamId: UUID, expiresAt: ISO },
+    };
+    expect(InviteResultSchema.safeParse(base).success).toBe(true);
+    expect(InviteResultSchema.safeParse({ ...base, devToken: 'tok' }).success).toBe(true);
   });
 });
 

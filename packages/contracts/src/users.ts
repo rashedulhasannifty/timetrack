@@ -28,6 +28,24 @@ export const AckMonitoringSchema = z.object({
   policyVersion: z.string().min(1),
 });
 
+/**
+ * Response of POST /v1/users/invite. No User exists yet (the user is created on accept),
+ * so this returns the invite metadata. `devToken` is populated ONLY when
+ * NODE_ENV === 'development' so a developer can complete the flow before SMTP exists —
+ * it is a bearer secret and is never logged.
+ */
+export const InviteResultSchema = z.object({
+  invite: z.object({
+    id: z.uuid(),
+    email: z.email(),
+    role: Role,
+    teamId: z.uuid(),
+    expiresAt: z.iso.datetime(),
+  }),
+  devToken: z.string().optional(),
+});
+
 export type User = z.infer<typeof UserSchema>;
 export type InviteUser = z.infer<typeof InviteUserSchema>;
 export type AckMonitoring = z.infer<typeof AckMonitoringSchema>;
+export type InviteResult = z.infer<typeof InviteResultSchema>;
