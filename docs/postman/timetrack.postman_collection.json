@@ -1,0 +1,554 @@
+{
+  "info": {
+    "name": "TimeTrack API",
+    "description": "Self-hosted time tracking API (NestJS, Fastify).\n\nAll application routes are under `/v1` ({{baseUrl}}); health probes are VERSION_NEUTRAL at `{{apiRoot}}/health`. Deny-by-default: every route needs a Bearer access token except the `Auth` and `Health` folders (which are @Public).\n\nQuick start:\n1. Seed an admin (`SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` + `pnpm db:seed`) and set the `seedAdminEmail`/`seedAdminPassword` collection variables.\n2. Run `Auth > Login` — its test script captures `accessToken`/`refreshToken` automatically.\n3. `Users > Invite user` (admin) captures the dev-only `inviteToken`; `Auth > Accept invite` consumes it and auto-logs-in the new user.\n\nKeep this collection in sync with the controllers whenever a route changes.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "apiRoot", "value": "http://localhost:3001", "type": "string" },
+    { "key": "baseUrl", "value": "{{apiRoot}}/v1", "type": "string" },
+    { "key": "accessToken", "value": "", "type": "string" },
+    { "key": "refreshToken", "value": "", "type": "string" },
+    { "key": "inviteToken", "value": "", "type": "string" },
+    { "key": "seedAdminEmail", "value": "admin@example.com", "type": "string" },
+    { "key": "seedAdminPassword", "value": "change-me-min-8-chars", "type": "string" },
+    { "key": "teamId", "value": "019797a0-0000-7000-8000-000000000001", "type": "string" },
+    { "key": "userId", "value": "", "type": "string" },
+    { "key": "projectId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{apiRoot}}/health", "host": ["{{apiRoot}}"], "path": ["health"] },
+            "description": "Liveness probe — is the process up. @Public, VERSION_NEUTRAL (not under /v1)."
+          }
+        },
+        {
+          "name": "Readiness",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{apiRoot}}/health/ready",
+              "host": ["{{apiRoot}}"],
+              "path": ["health", "ready"]
+            },
+            "description": "Readiness probe — are dependencies (DB/Redis) reachable. @Public."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "auth": { "type": "noauth" },
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const b = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', b.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', b.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{seedAdminEmail}}\",\n  \"password\": \"{{seedAdminPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Email/password login. Returns { accessToken, refreshToken, expiresIn }. The test script stores the tokens."
+          }
+        },
+        {
+          "name": "Refresh",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const b = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', b.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', b.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "refresh"]
+            },
+            "description": "Single-use refresh-token rotation. Revokes the presented token and returns a fresh pair."
+          }
+        },
+        {
+          "name": "Accept invite",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const b = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', b.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', b.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{inviteToken}}\",\n  \"password\": \"new-user-password\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/accept-invite",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "accept-invite"]
+            },
+            "description": "@Public. Consumes a one-time invite token (single-use, 72h), sets the invitee's Argon2id password, creates the user, and auto-logs-in (returns a TokenPair). Populate {{inviteToken}} via Users > Invite user (dev only)."
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "logout"]
+            },
+            "description": "Revokes the presented refresh token (idempotent). 204."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "List users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"] },
+            "description": "MANAGER/ADMIN — lists the actor's team."
+          }
+        },
+        {
+          "name": "Invite user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "  const b = pm.response.json();",
+                  "  if (b.devToken) pm.collectionVariables.set('inviteToken', b.devToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newhire@example.com\",\n  \"name\": \"New Hire\",\n  \"role\": \"EMPLOYEE\",\n  \"teamId\": \"{{teamId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/invite",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "invite"]
+            },
+            "description": "ADMIN only, own team. Creates a one-time invite and enqueues the invite email. In NODE_ENV=development the response includes `devToken`; the test script stores it as {{inviteToken}} for Auth > Accept invite."
+          }
+        },
+        {
+          "name": "Acknowledge monitoring",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"policyVersion\": \"2026-01-01\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/{{userId}}/ack-monitoring",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "{{userId}}", "ack-monitoring"]
+            },
+            "description": "Self-only (id must equal the session user). Sets monitoring_ack_at. No admin override (PRD §4.1)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Teams",
+      "item": [
+        {
+          "name": "Current team",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/teams/current",
+              "host": ["{{baseUrl}}"],
+              "path": ["teams", "current"]
+            },
+            "description": "The session user's team + settings."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Projects",
+      "item": [
+        {
+          "name": "List projects",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/projects", "host": ["{{baseUrl}}"], "path": ["projects"] },
+            "description": "Team projects (with tasks) for assignment."
+          }
+        },
+        {
+          "name": "Create project",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teamId\": \"{{teamId}}\",\n  \"name\": \"Acme Redesign\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/projects", "host": ["{{baseUrl}}"], "path": ["projects"] },
+            "description": "MANAGER/ADMIN, own team."
+          }
+        },
+        {
+          "name": "Create task",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"projectId\": \"{{projectId}}\",\n  \"name\": \"Wireframes\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/projects/tasks",
+              "host": ["{{baseUrl}}"],
+              "path": ["projects", "tasks"]
+            },
+            "description": "MANAGER/ADMIN — task on a project in the actor's team."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Time Entries",
+      "item": [
+        {
+          "name": "Upsert time entry",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{$guid}}\",\n  \"projectId\": null,\n  \"taskId\": null,\n  \"startTime\": \"{{$isoTimestamp}}\",\n  \"endTime\": null,\n  \"source\": \"MANUAL\",\n  \"note\": \"Working on the redesign\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/time-entries",
+              "host": ["{{baseUrl}}"],
+              "path": ["time-entries"]
+            },
+            "description": "Idempotent upsert keyed on the client-minted UUIDv7 `id` ({{$guid}} generates one). `source` is MANUAL or AUTO."
+          }
+        },
+        {
+          "name": "List time entries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/time-entries?from=2026-07-01T00:00:00.000Z&to=2026-07-31T00:00:00.000Z&userId={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["time-entries"],
+              "query": [
+                { "key": "from", "value": "2026-07-01T00:00:00.000Z" },
+                { "key": "to", "value": "2026-07-31T00:00:00.000Z" },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "description": "Own id (employee) or a teammate's (manager/admin). 403 otherwise."
+                },
+                { "key": "projectId", "value": "", "disabled": true }
+              ]
+            },
+            "description": "Authorization is enforced against `userId` (self / manager-of-team / admin)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Activity",
+      "item": [
+        {
+          "name": "Ingest activity batch",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"samples\": [\n    {\n      \"id\": \"{{$guid}}\",\n      \"timestamp\": \"{{$isoTimestamp}}\",\n      \"appName\": \"Xcode\",\n      \"windowTitle\": null,\n      \"activityPct\": 80,\n      \"category\": \"PRODUCTIVE\"\n    }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/activity-samples/batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["activity-samples", "batch"]
+            },
+            "description": "202 Accepted. 1..500 samples per batch. Never send keystroke content — counts/percentages only."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Screenshots",
+      "item": [
+        {
+          "name": "List screenshots",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/screenshots?from=2026-07-01T00:00:00.000Z&to=2026-07-31T00:00:00.000Z&userId={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["screenshots"],
+              "query": [
+                { "key": "from", "value": "2026-07-01T00:00:00.000Z" },
+                { "key": "to", "value": "2026-07-31T00:00:00.000Z" },
+                { "key": "userId", "value": "{{userId}}" }
+              ]
+            },
+            "description": "@ResourceScope on userId (self / manager-of-team / admin)."
+          }
+        },
+        {
+          "name": "Upload screenshot",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [{ "key": "file", "type": "file", "src": [] }]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/screenshots",
+              "host": ["{{baseUrl}}"],
+              "path": ["screenshots"]
+            },
+            "description": "Multipart, streamed to object storage (PRD §7.4). Body parsing is wired when implemented; attach the image as `file`."
+          }
+        },
+        {
+          "name": "Redact screenshot",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Contains sensitive customer data\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/screenshots/:id/redact",
+              "host": ["{{baseUrl}}"],
+              "path": ["screenshots", ":id", "redact"],
+              "variable": [{ "key": "id", "value": "" }]
+            },
+            "description": "Redact a screenshot."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "Team summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/team-summary?from=2026-07-01T00:00:00.000Z&to=2026-07-31T00:00:00.000Z",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "team-summary"],
+              "query": [
+                { "key": "from", "value": "2026-07-01T00:00:00.000Z" },
+                { "key": "to", "value": "2026-07-31T00:00:00.000Z" },
+                { "key": "userId", "value": "", "disabled": true },
+                { "key": "projectId", "value": "", "disabled": true },
+                { "key": "teamId", "value": "", "disabled": true }
+              ]
+            },
+            "description": "MANAGER/ADMIN. Tracked seconds + activity % per user for the range."
+          }
+        },
+        {
+          "name": "Export CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/export.csv?from=2026-07-01T00:00:00.000Z&to=2026-07-31T00:00:00.000Z",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "export.csv"],
+              "query": [
+                { "key": "from", "value": "2026-07-01T00:00:00.000Z" },
+                { "key": "to", "value": "2026-07-31T00:00:00.000Z" }
+              ]
+            },
+            "description": "MANAGER/ADMIN. CSV export of the team summary."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Policy",
+      "item": [
+        {
+          "name": "Effective policy",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/policy/effective",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "effective"]
+            },
+            "description": "The monitoring policy the client must present/ack: { ackRequired, policyVersion, policyText }."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Audit log",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/audit-log",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "audit-log"],
+              "query": [
+                { "key": "targetType", "value": "", "disabled": true },
+                { "key": "targetId", "value": "", "disabled": true },
+                { "key": "from", "value": "", "disabled": true },
+                { "key": "to", "value": "", "disabled": true }
+              ]
+            },
+            "description": "ADMIN. Filterable audit log."
+          }
+        },
+        {
+          "name": "Update team settings",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"screenshotsEnabled\": true,\n  \"screenshotIntervalMinutes\": 10,\n  \"idleThresholdMinutes\": 5\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/settings",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "settings"]
+            },
+            "description": "ADMIN. Partial patch, validated against the merged TeamSettings before write."
+          }
+        },
+        {
+          "name": "Erase user",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"GDPR erasure request\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/users/:id/erase",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "users", ":id", "erase"],
+              "variable": [{ "key": "id", "value": "" }]
+            },
+            "description": "ADMIN. 204."
+          }
+        }
+      ]
+    }
+  ]
+}
