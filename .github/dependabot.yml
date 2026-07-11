@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # JS/TS dependencies (Dependabot reads pnpm-lock.yaml via the npm ecosystem).
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 10
+    groups:
+      # Reduce PR noise: batch dev-tooling bumps together; app deps come individually.
+      dev-dependencies:
+        dependency-type: 'development'
+
+  # Keep GitHub Actions pinned versions current (also a supply-chain surface).
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'

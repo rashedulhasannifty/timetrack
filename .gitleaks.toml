@@ -1,0 +1,22 @@
+# gitleaks configuration — https://github.com/gitleaks/gitleaks
+# Extends the built-in rules; adds allowlists for files that legitimately contain
+# placeholder (non-secret) values.
+title = "TimeTrack"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "The committed env template holds documented placeholders, not real secrets."
+paths = ['''\.env\.example$''']
+
+[[allowlists]]
+description = "Lockfile integrity hashes are not credentials."
+paths = ['''pnpm-lock\.yaml$''']
+
+[[allowlists]]
+description = "Code that references a secret via an env var is not a secret value."
+regexTarget = "match"
+regexes = [
+  '''(this\.env|process\.env|env)\.[A-Z0-9_]+''',
+]

@@ -12,5 +12,16 @@ if git diff --cached --name-only | grep -E '(^|/)\.env($|\.)' | grep -qv '\.env\
   exit 1
 fi
 
+# Content secret scan of staged changes (gitleaks). Runs if installed; CI enforces it
+# as the hard gate on full history (hooks can be skipped with --no-verify).
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks git --staged --redact --no-banner --config .gitleaks.toml; then
+    echo "✖ pre-commit rejected: gitleaks found a potential secret in staged changes."
+    exit 1
+  fi
+else
+  echo "… gitleaks not installed — skipping local secret scan (CI enforces it). Install: brew install gitleaks"
+fi
+
 # Format + lint staged files (see the lint-staged config in package.json).
 pnpm exec lint-staged
