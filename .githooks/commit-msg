@@ -1,0 +1,23 @@
+#!/bin/sh
+# CLAUDE.md §0 — commits are never attributed to an AI.
+# This hook is the enforcement, not the honour system.
+
+MSG_FILE="$1"
+
+if grep -Eiq 'co-authored-by:[[:space:]]*(claude|anthropic|copilot|cursor|codex|gpt|gemini)' "$MSG_FILE" \
+ || grep -Eiq 'generated with .*(claude|copilot|cursor|ai)' "$MSG_FILE" \
+ || grep -Eiq '(claude code|anthropic\.com|🤖 generated)' "$MSG_FILE" ; then
+  echo "✖ commit-msg rejected: AI attribution found in the commit message."
+  echo "  Remove any Co-Authored-By / 'Generated with' / tool-name lines."
+  echo "  See CLAUDE.md §0."
+  exit 1
+fi
+
+# Conventional Commits
+if ! head -1 "$MSG_FILE" | grep -Eq '^(feat|fix|refactor|perf|test|docs|chore|build|ci)(\([a-z-]+\))?: .{1,72}$'; then
+  echo "✖ commit-msg rejected: use Conventional Commits."
+  echo "  <type>(<scope>): <imperative summary, <=72 chars>"
+  echo "  type:  feat fix refactor perf test docs chore build ci"
+  echo "  scope: api worker dashboard client db contracts infra"
+  exit 1
+fi

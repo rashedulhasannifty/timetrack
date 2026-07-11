@@ -1,0 +1,51 @@
+{
+  "name": "timetrack",
+  "private": true,
+  "packageManager": "pnpm@10.13.1",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "format": "prettier --write \"**/*.{ts,tsx,mjs,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,mjs,json,md}\"",
+    "db:generate": "pnpm --filter @timetrack/db exec prisma generate",
+    "db:migrate": "pnpm --filter @timetrack/db exec prisma migrate dev",
+    "db:deploy": "pnpm --filter @timetrack/db exec prisma migrate deploy",
+    "db:studio": "pnpm --filter @timetrack/db exec prisma studio",
+    "db:seed": "pnpm --filter @timetrack/db exec tsx prisma/seed.ts",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.32.0",
+    "eslint-plugin-boundaries": "^5.0.1",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.3",
+    "turbo": "^2.5.5",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.38.0",
+    "vitest": "^3.2.4"
+  },
+  "prettier": {
+    "singleQuote": true,
+    "trailingComma": "all",
+    "printWidth": 100
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "argon2",
+      "esbuild",
+      "prisma",
+      "sharp"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.next/
+next-env.d.ts
+.turbo/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+packages/db/generated/
+apps/client-macos/.build/
+apps/client-macos/DerivedData/

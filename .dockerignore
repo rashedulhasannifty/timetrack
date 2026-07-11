@@ -1,0 +1,13 @@
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+packages/db/generated
+.git
+.github
+**/*.tsbuildinfo
+.env
+.env.*
+!.env.example
+apps/client-macos

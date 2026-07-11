@@ -1,0 +1,51 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: timetrack
+          POSTGRES_PASSWORD: timetrack
+          POSTGRES_DB: timetrack_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U timetrack" --health-interval=5s --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgresql://timetrack:timetrack@localhost:5432/timetrack_test?schema=public
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm db:deploy
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  no-ai-attribution:
+    # CLAUDE.md §0 — enforced in CI as well as locally, because hooks can be skipped with --no-verify.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Scan commit messages and authors
+        run: |
+          RANGE="origin/${{ github.base_ref || 'main' }}..HEAD"
+          if git log --format='%an <%ae>%n%B' $RANGE | grep -Eiq 'claude|anthropic|co-authored-by:.*(copilot|cursor|gpt|gemini)|generated with'; then
+            echo "::error::AI attribution found in commit author or message. See CLAUDE.md §0."
+            git log --format='%h %an <%ae> %s' $RANGE
+            exit 1
+          fi

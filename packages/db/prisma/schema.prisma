@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Prisma 7 — the connection URL lives in prisma.config.ts, not here. The client
+  // connects through the @prisma/adapter-pg driver adapter (packages/db/src).
+}
+
+enum Role {
+  EMPLOYEE
+  MANAGER
+  ADMIN
+}
+
+enum EntrySource {
+  MANUAL
+  AUTO
+}
+
+enum Category {
+  PRODUCTIVE
+  UNPRODUCTIVE
+  NEUTRAL
+}
+
+enum ShotStatus {
+  PENDING
+  READY
+  REDACTED
+}
+
+model User {
+  id              String    @id @default(uuid(7))
+  email           String    @unique
+  name            String
+  role            Role      @default(EMPLOYEE)
+  passwordHash    String
+  /// PRD §4.1 — null means monitoring MUST NOT run. There is no admin override.
+  monitoringAckAt DateTime?
+  teamId          String
+  team            Team      @relation(fields: [teamId], references: [id])
+  deactivatedAt   DateTime?
+  createdAt       DateTime  @default(now())
+  timeEntries     TimeEntry[]
+
+  @@index([teamId, deactivatedAt])
+  @@map("users")
+}
+
+model Team {
+  id       String    @id @default(uuid(7))
+  name     String
+  /// Validated by TeamSettingsSchema (Zod) on read AND write.
+  settings Json      @default("{}")
+  users    User[]
+  projects Project[]
+
+  @@map("teams")
+}
+
+model Project {
+  id       String  @id @default(uuid(7))
+  teamId   String
+  name     String
+  archived Boolean @default(false)
+  team     Team    @relation(fields: [teamId], references: [id])
+  tasks    Task[]
+
+  @@index([teamId, archived])
+  @@map("projects")
+}
+
+model Task {
+  id        String  @id @default(uuid(7))
+  projectId String
+  name      String
+  project   Project @relation(fields: [projectId], references: [id])
+
+  @@map("tasks")
+}
+
+model TimeEntry {
+  /// UUIDv7 minted on the client — the idempotency key for offline sync (PRD §7.5).
+  id         String      @id
+  userId     String
+  projectId  String?
+  taskId     String?
+  startTime  DateTime
+  endTime    DateTime?
+  source     EntrySource
+  note       String?
+  editedById String?
+  editedAt   DateTime?
+  user       User        @relation(fields: [userId], references: [id])
+
+  @@index([userId, startTime])
+  @@map("time_entries")
+}
+
+/// Partitioned monthly on `timestamp` — see migrations/*_partitions.
+/// The partition key must be part of the primary key, hence the composite id.
+model ActivitySample {
+  id          String   @default(uuid(7))
+  userId      String
+  timestamp   DateTime
+  appName     String
+  windowTitle String?
+  activityPct Int
+  category    Category @default(NEUTRAL)
+
+  @@id([id, timestamp])
+  @@index([userId, timestamp])
+  @@map("activity_samples")
+}
+
+/// Partitioned monthly on `timestamp`.
+model Screenshot {
+  id             String     @default(uuid(7))
+  userId         String
+  timestamp      DateTime
+  storageKey     String
+  thumbnailKey   String?
+  blurred        Boolean    @default(false)
+  status         ShotStatus @default(PENDING)
+  redactedReason String?
+
+  @@id([id, timestamp])
+  @@index([userId, timestamp])
+  @@map("screenshots")
+}
+
+model IdleEvent {
+  id             String   @id
+  userId         String
+  startTime      DateTime
+  endTime        DateTime
+  resolvedAction String
+
+  @@index([userId, startTime])
+  @@map("idle_events")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid(7))
+  actorId    String
+  action     String
+  targetType String
+  targetId   String
+  diff       Json?
+  timestamp  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@map("audit_log")
+}
