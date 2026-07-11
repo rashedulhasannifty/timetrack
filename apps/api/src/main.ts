@@ -1,6 +1,9 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
+import { VersioningType } from '@nestjs/common';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import helmet from '@fastify/helmet';
+import cors from '@fastify/cors';
 import { Logger } from 'nestjs-pino';
 import { loadEnv } from '@timetrack/config';
 import { AppModule } from './app.module.js';
@@ -19,8 +22,21 @@ async function bootstrap(): Promise<void> {
   app.useLogger(logger);
   app.useGlobalFilters(new ProblemJsonFilter(logger));
 
+  // Security headers (HSTS, nosniff, frame-deny, referrer policy, ...). CSP is off
+  // by default here — this API serves JSON, and the dashboard sets its own CSP.
+  await app.register(helmet, { contentSecurityPolicy: false });
+
+  // Strict CORS: only the configured dashboard origin(s) may call the API, and only
+  // then are credentials allowed. Never '*' with credentials.
+  await app.register(cors, { origin: env.CORS_ORIGINS, credentials: true });
+
+  // API versioning from day one — a shipped Mac client pins /v1 and cannot be rolled
+  // back, so every route is /v1/* and we add /v2 later without breaking clients.
+  // Health probes are VERSION_NEUTRAL (see HealthController) so infra hits /health.
+  app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
+
   await app.listen({ port: env.API_PORT, host: '0.0.0.0' });
-  logger.log(`api listening on :${env.API_PORT}`);
+  logger.log(`api listening on :${env.API_PORT} (routes under /v1)`);
 }
 
 void bootstrap();

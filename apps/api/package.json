@@ -11,14 +11,16 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.859.0",
+    "@aws-sdk/s3-request-presigner": "^3.859.0",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/helmet": "^13.1.0",
     "@nestjs/common": "^11.1.6",
     "@nestjs/core": "^11.1.6",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-fastify": "^11.1.6",
     "@nestjs/terminus": "^11.0.0",
     "@nestjs/throttler": "^6.4.0",
-    "@aws-sdk/client-s3": "^3.859.0",
-    "@aws-sdk/s3-request-presigner": "^3.859.0",
     "@timetrack/config": "workspace:*",
     "@timetrack/contracts": "workspace:*",
     "@timetrack/db": "workspace:*",

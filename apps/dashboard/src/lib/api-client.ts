@@ -6,7 +6,9 @@ import { z } from 'zod';
  * Types come from @timetrack/contracts. Never hand-write a response interface.
  * Responses are parsed, not cast: an API that drifts fails loudly here.
  */
-const API_URL = process.env.API_URL ?? 'http://localhost:3001';
+// The API serves all routes under /v1 (see apps/api main.ts). Health probes are
+// version-neutral, but data endpoints are versioned.
+const API_URL = `${process.env.API_URL ?? 'http://localhost:3001'}/v1`;
 
 async function get<T>(path: string, schema: z.ZodType<T>, token: string): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {

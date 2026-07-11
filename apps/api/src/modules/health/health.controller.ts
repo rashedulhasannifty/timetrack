@@ -1,12 +1,14 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException, VERSION_NEUTRAL } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 
 /**
  * PRD §8 — `/health` is liveness (is the process up), `/health/ready` is readiness
  * (are its dependencies reachable). Both are @Public — a health probe carries no session.
+ * VERSION_NEUTRAL: probes stay at `/health`, not `/v1/health`, so load balancers and
+ * orchestrators don't need to track the API version.
  */
-@Controller('health')
+@Controller({ path: 'health', version: VERSION_NEUTRAL })
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 

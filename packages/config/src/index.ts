@@ -49,6 +49,18 @@ const EnvSchema = z.object({
 
   API_PORT: z.coerce.number().int().default(3001),
   API_URL: z.url(),
+
+  // Comma-separated CORS origin allowlist. The API accepts cross-origin requests
+  // ONLY from these origins (the dashboard). Never use '*' with credentials.
+  CORS_ORIGINS: z
+    .string()
+    .default('http://localhost:3000')
+    .transform((s) =>
+      s
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean),
+    ),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
