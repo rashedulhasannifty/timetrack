@@ -13,3 +13,6 @@ export type * from '../generated/client/client.js';
 export function pgAdapter(connectionString: string): PrismaPg {
   return new PrismaPg({ connectionString });
 }
+
+export { seedAdmin } from './seed-admin.js';
+export type { SeedAdminInput } from './seed-admin.js';
