@@ -35,6 +35,13 @@ const EnvSchema = z.object({
   DATABASE_URL: z.url(),
   REDIS_URL: z.url(),
 
+  // Bootstrap-admin seed (optional). Consumed by packages/db/prisma/seed.ts, which
+  // reads process.env directly (it cannot import this package — packages import only
+  // contracts). Declared here to keep the canonical env schema complete; the API
+  // runtime ignores them.
+  SEED_ADMIN_EMAIL: z.email().optional(),
+  SEED_ADMIN_PASSWORD: z.string().min(8).optional(),
+
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
   ACCESS_TOKEN_TTL: z.string().default('15m'),
