@@ -17,6 +17,8 @@ export const REDACT_PATHS = [
   '*.accessToken',
   '*.windowTitle',
   'windowTitle',
+  '*.SEED_ADMIN_PASSWORD',
+  'SEED_ADMIN_PASSWORD',
 ];
 
 export function pinoConfig(env: { NODE_ENV: string; LOG_LEVEL: string }): LoggerOptions {
