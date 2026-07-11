@@ -1,5 +1,7 @@
 import './test-env.js'; // must run before anything that calls loadEnv()
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { Queue } from 'bullmq';
 import { InvitesRepository } from '../src/modules/invites/invites.repository.js';
 import { InvitesService } from '../src/modules/invites/invites.service.js';
@@ -52,6 +54,44 @@ describe.runIf(RUN_E2E)('invites accept — real Postgres', () => {
     );
     await db.prisma.invite.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
     await expect(svc().accept(token, 'password123')).rejects.toThrow();
+  });
+
+  it('rejects a second pending invite for the same email with 409', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
+    const invite = { email: 'twice@ex.co', name: 'Twice', role: 'EMPLOYEE' as const, teamId: team.id };
+    await svc().create(invite, { ...admin, teamId: team.id });
+    await expect(svc().create(invite, { ...admin, teamId: team.id })).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('accepting a duplicate invite after the email is taken returns 401, never a 500', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
+    // One invite via the service...
+    const first = await svc().create(
+      { email: 'dup@ex.co', name: 'Dup', role: 'EMPLOYEE', teamId: team.id },
+      { ...admin, teamId: team.id },
+    );
+    // ...and a second pending invite for the SAME email, inserted directly to simulate a
+    // race / a legacy row created before the invite-time guard existed.
+    await db.prisma.invite.create({
+      data: {
+        email: 'dup@ex.co',
+        name: 'Dup',
+        role: 'EMPLOYEE',
+        teamId: team.id,
+        tokenHash: createHash('sha256').update('second-raw-token').digest('hex'),
+        expiresAt: new Date(Date.now() + 3_600_000),
+      },
+    });
+
+    await svc().accept(first.token, 'password123'); // creates the user
+    expect(await db.prisma.user.findUnique({ where: { email: 'dup@ex.co' } })).not.toBeNull();
+
+    // The second accept hits User.email uniqueness → a clean 401, not a raw Prisma P2002/500.
+    await expect(svc().accept('second-raw-token', 'password123')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 });
 

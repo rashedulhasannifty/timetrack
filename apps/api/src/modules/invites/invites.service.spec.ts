@@ -17,6 +17,7 @@ function makeService(repo: Partial<InvitesRepository> = {}) {
       .fn()
       .mockResolvedValue({ id: 'inv1', expiresAt: new Date('2026-07-15T00:00:00Z') }),
     emailExistsAsUser: vi.fn().mockResolvedValue(false),
+    hasActivePendingInvite: vi.fn().mockResolvedValue(false),
     acceptInTransaction: vi.fn(),
     ...repo,
   } as unknown as InvitesRepository;
@@ -43,6 +44,11 @@ describe('InvitesService.create', () => {
 
   it('rejects an email that already belongs to a user', async () => {
     const { svc } = makeService({ emailExistsAsUser: vi.fn().mockResolvedValue(true) });
+    await expect(svc.create(dto, admin)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects a duplicate pending invite for the same email', async () => {
+    const { svc } = makeService({ hasActivePendingInvite: vi.fn().mockResolvedValue(true) });
     await expect(svc.create(dto, admin)).rejects.toBeInstanceOf(ConflictException);
   });
 

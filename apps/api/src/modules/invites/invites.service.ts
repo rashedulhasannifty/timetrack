@@ -42,6 +42,13 @@ export class InvitesService {
         status: 409,
       });
     }
+    if (await this.repo.hasActivePendingInvite(dto.email)) {
+      throw new ConflictException({
+        type: 'https://timetrack.internal/errors/invite-pending',
+        title: 'An invitation for this email is already pending',
+        status: 409,
+      });
+    }
 
     const token = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
