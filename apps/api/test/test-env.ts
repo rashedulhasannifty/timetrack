@@ -9,3 +9,6 @@ process.env.S3_BUCKET ??= 'test-bucket';
 process.env.S3_ACCESS_KEY ??= 'test';
 process.env.S3_SECRET_KEY ??= 'test';
 process.env.API_URL ??= 'http://localhost:3001';
+process.env.DATABASE_URL ??=
+  'postgresql://timetrack:timetrack@localhost:5432/timetrack_test?schema=public';
+process.env.REDIS_URL ??= 'redis://localhost:6379';

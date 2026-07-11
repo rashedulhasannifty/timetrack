@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { pinoConfig } from '@timetrack/logger';
 import { loadEnv } from '@timetrack/config';
 import { PrismaModule } from './infra/prisma/prisma.module.js';
+import { QueueModule } from './infra/queue/queue.module.js';
 import { JwtAuthGuard } from './common/guards/jwt.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
 import { ResourceGuard } from './common/guards/resource.guard.js';
@@ -34,6 +35,7 @@ const env = loadEnv();
     LoggerModule.forRoot({ pinoHttp: pinoConfig(env) }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PrismaModule,
+    QueueModule,
     AuthzModule,
     AuthModule,
     UsersModule,
