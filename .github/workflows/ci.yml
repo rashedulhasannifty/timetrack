@@ -34,6 +34,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: RUN_E2E=1 pnpm --filter @timetrack/api test:e2e
 
   security:
     runs-on: ubuntu-latest
