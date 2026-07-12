@@ -114,6 +114,11 @@
 
 **Done when:** the overview shows live tracking state and today's hours for the team, and drilling into a person shows their timeline — all authorization enforced server-side.
 
+**Carried over from Slice 1.5 (session robustness — 1.6 adds more gated pages, so address here):**
+
+- **Multi-tab refresh race:** single-use refresh rotation with no grace window means 2+ tabs refreshing after the access token expires collide — one rotates the token, the loser gets a 401 and is spuriously logged out (and clobbers the winner's cookie). Fix at the API (a short refresh grace window) or coalesce concurrent `/api/auth/refresh` hits.
+- **Claims-drift redirect loop:** if the API ever issues a token whose claims fail `JwtClaimsSchema`, `getSession()`→null→`/api/auth/refresh` succeeds but the reissued token still fails to decode → tight loop burning a rotation each hop. Add a loop-breaker: refresh falls through to `/login` if the freshly issued token still can't be decoded.
+
 ---
 
 ## Slice 1.7 — macOS client MVP (the tracker)
@@ -157,7 +162,7 @@
 - [ ] 1.2 Users & teams management + settings (API; dashboard after 1.5).
 - [x] 1.3 Projects & tasks CRUD.
 - [x] 1.4 Time entries complete (edit + audit + active-entry).
-- [ ] 1.5 Dashboard session + shell.
+- [x] 1.5 Dashboard session + shell.
 - [ ] 1.6 Team overview + timeline.
 - [ ] 1.7 macOS client MVP (a–d).
 - [ ] Green gate; coverage ≥80% on `apps/api` + `packages/contracts`; end-to-end demo of the full loop.
