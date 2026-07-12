@@ -1,5 +1,8 @@
 import './test-env.js'; // must run before anything that calls loadEnv()
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { ConflictException } from '@nestjs/common';
+import { TimeEntriesRepository } from '../src/modules/time-entries/time-entries.repository.js';
+import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
 
 const RUN_E2E = process.env.RUN_E2E === '1';
@@ -42,6 +45,22 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     };
   }
 
+  function repo(): TimeEntriesRepository {
+    return new TimeEntriesRepository(db.prisma as unknown as PrismaService);
+  }
+
+  function createDto(id: string, over: Partial<{ endTime: string | null; note: string }> = {}) {
+    return {
+      id,
+      projectId: null,
+      taskId: null,
+      startTime: '2026-07-11T09:00:00Z',
+      endTime: null,
+      source: 'AUTO' as const,
+      ...over,
+    };
+  }
+
   it('the partial unique index rejects a second running entry for the same user', async () => {
     const user = await seedUser();
     await db.prisma.timeEntry.create({
@@ -67,6 +86,46 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     await db.prisma.timeEntry.create({ data: closed('019797a0-0000-7000-8000-000000000004') });
     const count = await db.prisma.timeEntry.count({ where: { userId: user.id } });
     expect(count).toBe(2);
+  });
+
+  it('upsert is idempotent on the client id (double POST -> one row)', async () => {
+    const user = await seedUser();
+    const dto = createDto('019797a0-0000-7000-8000-0000000000a1');
+    await repo().upsert(dto, user.id);
+    await repo().upsert(dto, user.id); // retried offline batch
+    expect(await db.prisma.timeEntry.count({ where: { userId: user.id } })).toBe(1);
+  });
+
+  it('upsert rejects a second, different running entry with a 409', async () => {
+    const user = await seedUser();
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a2'), user.id);
+    await expect(
+      repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a3'), user.id),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('findActiveByUser returns the open entry, or null when none is open', async () => {
+    const user = await seedUser();
+    expect(await repo().findActiveByUser(user.id)).toBeNull();
+
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a4'), user.id);
+    const active = await repo().findActiveByUser(user.id);
+    expect(active).toMatchObject({ id: '019797a0-0000-7000-8000-0000000000a4', endTime: null });
+
+    // Close it; now nothing is active.
+    await repo().upsert(
+      createDto('019797a0-0000-7000-8000-0000000000a4', { endTime: '2026-07-11T10:00:00Z' }),
+      user.id,
+    );
+    expect(await repo().findActiveByUser(user.id)).toBeNull();
+  });
+
+  it('findForEdit returns the serialized entry, or null when missing', async () => {
+    const user = await seedUser();
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a5'), user.id);
+    const found = await repo().findForEdit('019797a0-0000-7000-8000-0000000000a5');
+    expect(found).toMatchObject({ userId: user.id, editedById: null, editedAt: null });
+    expect(await repo().findForEdit('019797a0-0000-7000-8000-0000000000ff')).toBeNull();
   });
 });
 
