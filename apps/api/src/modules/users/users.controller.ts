@@ -1,10 +1,12 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import {
   AckMonitoringSchema,
   InviteUserSchema,
+  UpdateUserSchema,
   type AckMonitoring,
   type InviteResult,
   type InviteUser,
+  type UpdateUser,
   type User,
 } from '@timetrack/contracts';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
@@ -20,6 +22,16 @@ export class UsersController {
   @Roles('MANAGER', 'ADMIN')
   list(@CurrentUser() user: SessionUser): Promise<User[]> {
     return this.service.list(user);
+  }
+
+  @Patch(':id')
+  @Roles('ADMIN')
+  update(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateUserSchema)) dto: UpdateUser,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<User> {
+    return this.service.setActive(id, dto, actor);
   }
 
   @Post('invite')

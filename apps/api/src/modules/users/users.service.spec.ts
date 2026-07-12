@@ -5,10 +5,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { nodeEnv } = vi.hoisted(() => ({ nodeEnv: { value: 'development' } }));
 vi.mock('@timetrack/config', () => ({ loadEnv: () => ({ NODE_ENV: nodeEnv.value }) }));
 
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { UsersService } from './users.service.js';
 import type { UsersRepository } from './users.repository.js';
 import type { InvitesService } from '../invites/invites.service.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
+import type { User } from '@timetrack/contracts';
 
 const admin: SessionUser = { id: 'a1', role: 'ADMIN', teamId: 't1' };
 const dto = { email: 'new@ex.co', name: 'New', role: 'EMPLOYEE' as const, teamId: 't1' };
@@ -45,5 +47,82 @@ describe('UsersService.invite devToken gating', () => {
     const { svc } = makeService();
     const result = await svc.invite(dto, admin);
     expect(result.devToken).toBeUndefined();
+  });
+});
+
+const activeEmployee = { id: 'u2', role: 'EMPLOYEE' as const, teamId: 't1', deactivatedAt: null };
+
+function makeSetActiveService(repoOverrides: Partial<UsersRepository>) {
+  const repo = {
+    findForAdmin: vi.fn(),
+    countActiveAdmins: vi.fn(),
+    setActive: vi.fn(),
+    ...repoOverrides,
+  } as unknown as UsersRepository;
+  const invites = {} as unknown as InvitesService;
+  return { svc: new UsersService(repo, invites), repo };
+}
+
+describe('UsersService.setActive guards', () => {
+  it('404 when the target does not exist', async () => {
+    const { svc } = makeSetActiveService({ findForAdmin: vi.fn().mockResolvedValue(null) });
+    await expect(svc.setActive('nope', { deactivated: true }, admin)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('403 when the target is on another team', async () => {
+    const { svc } = makeSetActiveService({
+      findForAdmin: vi.fn().mockResolvedValue({ ...activeEmployee, teamId: 'other' }),
+    });
+    await expect(svc.setActive('u2', { deactivated: true }, admin)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('409 when an admin deactivates their own account', async () => {
+    const { svc } = makeSetActiveService({
+      findForAdmin: vi
+        .fn()
+        .mockResolvedValue({ id: 'a1', role: 'ADMIN', teamId: 't1', deactivatedAt: null }),
+    });
+    await expect(svc.setActive('a1', { deactivated: true }, admin)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('409 when deactivating the last active admin', async () => {
+    const { svc } = makeSetActiveService({
+      findForAdmin: vi
+        .fn()
+        .mockResolvedValue({ id: 'u2', role: 'ADMIN', teamId: 't1', deactivatedAt: null }),
+      countActiveAdmins: vi.fn().mockResolvedValue(1),
+    });
+    await expect(svc.setActive('u2', { deactivated: true }, admin)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('deactivates another admin when others remain', async () => {
+    const user = { id: 'u2' } as User;
+    const { svc, repo } = makeSetActiveService({
+      findForAdmin: vi
+        .fn()
+        .mockResolvedValue({ id: 'u2', role: 'ADMIN', teamId: 't1', deactivatedAt: null }),
+      countActiveAdmins: vi.fn().mockResolvedValue(2),
+      setActive: vi.fn().mockResolvedValue(user),
+    });
+    await expect(svc.setActive('u2', { deactivated: true }, admin)).resolves.toBe(user);
+    expect(repo.setActive).toHaveBeenCalledWith('u2', true, 'a1');
+  });
+
+  it('reactivate skips the lockout guards', async () => {
+    const user = { id: 'u2' } as User;
+    const { svc, repo } = makeSetActiveService({
+      findForAdmin: vi.fn().mockResolvedValue({ ...activeEmployee, deactivatedAt: new Date() }),
+      setActive: vi.fn().mockResolvedValue(user),
+    });
+    await expect(svc.setActive('u2', { deactivated: false }, admin)).resolves.toBe(user);
+    expect(repo.setActive).toHaveBeenCalledWith('u2', false, 'a1');
   });
 });

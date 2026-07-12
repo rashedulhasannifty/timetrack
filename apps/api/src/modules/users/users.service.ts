@@ -1,6 +1,18 @@
-import { ForbiddenException, Injectable, NotImplementedException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  NotImplementedException,
+} from '@nestjs/common';
 import { loadEnv } from '@timetrack/config';
-import type { AckMonitoring, InviteResult, InviteUser, User } from '@timetrack/contracts';
+import type {
+  AckMonitoring,
+  InviteResult,
+  InviteUser,
+  UpdateUser,
+  User,
+} from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { InvitesService } from '../invites/invites.service.js';
 import { UsersRepository } from './users.repository.js';
@@ -15,6 +27,50 @@ export class UsersService {
   /** Managers and admins list their own team; the controller gates the role. */
   list(user: SessionUser): Promise<User[]> {
     return this.repo.listByTeam(user.teamId);
+  }
+
+  /**
+   * Deactivate (revokes sessions) or reactivate a user. ADMIN-gated in the controller;
+   * here we enforce the resource rules: same team only, no self-deactivation, and never
+   * remove the team's last active admin (would lock the org out).
+   */
+  async setActive(id: string, dto: UpdateUser, actor: SessionUser): Promise<User> {
+    const target = await this.repo.findForAdmin(id);
+    if (!target) {
+      throw new NotFoundException({
+        type: 'https://timetrack.internal/errors/not-found',
+        title: 'User not found',
+        status: 404,
+      });
+    }
+    if (target.teamId !== actor.teamId) {
+      throw new ForbiddenException({
+        type: 'https://timetrack.internal/errors/forbidden',
+        title: 'Cannot manage a user in another team',
+        status: 403,
+      });
+    }
+    if (dto.deactivated) {
+      if (id === actor.id) {
+        throw new ConflictException({
+          type: 'https://timetrack.internal/errors/conflict',
+          title: 'You cannot deactivate your own account',
+          status: 409,
+        });
+      }
+      if (
+        target.deactivatedAt === null &&
+        target.role === 'ADMIN' &&
+        (await this.repo.countActiveAdmins(actor.teamId)) <= 1
+      ) {
+        throw new ConflictException({
+          type: 'https://timetrack.internal/errors/conflict',
+          title: 'Cannot deactivate the last active admin',
+          status: 409,
+        });
+      }
+    }
+    return this.repo.setActive(id, dto.deactivated, actor.id);
   }
 
   async invite(dto: InviteUser, actor: SessionUser): Promise<InviteResult> {
