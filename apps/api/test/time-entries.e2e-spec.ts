@@ -4,6 +4,7 @@ import { ConflictException } from '@nestjs/common';
 import { TimeEntriesRepository } from '../src/modules/time-entries/time-entries.repository.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
+import type { UpdateTimeEntry } from '@timetrack/contracts';
 
 const RUN_E2E = process.env.RUN_E2E === '1';
 
@@ -126,6 +127,74 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     const found = await repo().findForEdit('019797a0-0000-7000-8000-0000000000a5');
     expect(found).toMatchObject({ userId: user.id, editedById: null, editedAt: null });
     expect(await repo().findForEdit('019797a0-0000-7000-8000-0000000000ff')).toBeNull();
+  });
+
+  it('update applies changed fields, stamps editedBy/editedAt, and audits a before/after diff', async () => {
+    const user = await seedUser();
+    // Seed with a note already set, so the diff has non-null before/after (a cleaner
+    // assertion than null-normalization, which the service handles separately).
+    await repo().upsert(
+      createDto('019797a0-0000-7000-8000-0000000000b1', {
+        endTime: '2026-07-11T10:00:00Z',
+        note: 'draft',
+      }),
+      user.id,
+    );
+
+    const after: UpdateTimeEntry = { note: 'client meeting' };
+    const before: UpdateTimeEntry = { note: 'draft' };
+    const updated = await repo().update(
+      '019797a0-0000-7000-8000-0000000000b1',
+      after,
+      before,
+      'mgr1',
+    );
+
+    expect(updated).toMatchObject({ note: 'client meeting', editedById: 'mgr1' });
+    expect(updated.editedAt).not.toBeNull();
+
+    const audit = await db.prisma.auditLog.findFirst({
+      where: { targetType: 'time_entry', targetId: '019797a0-0000-7000-8000-0000000000b1' },
+    });
+    expect(audit?.action).toBe('time_entry.edit');
+    expect(audit?.actorId).toBe('mgr1');
+    expect(audit?.diff).toEqual({ before: { note: 'draft' }, after: { note: 'client meeting' } });
+  });
+
+  it('upsert-close leaves editedBy/editedAt null and writes NO audit row (normal op, not an edit)', async () => {
+    const user = await seedUser();
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b2'), user.id); // open
+    const closed = await repo().upsert(
+      createDto('019797a0-0000-7000-8000-0000000000b2', { endTime: '2026-07-11T11:00:00Z' }),
+      user.id,
+    ); // close via the sync path, NOT an edit
+
+    expect(closed.editedById).toBeNull();
+    expect(closed.editedAt).toBeNull();
+    const audit = await db.prisma.auditLog.count({
+      where: { targetType: 'time_entry', targetId: '019797a0-0000-7000-8000-0000000000b2' },
+    });
+    expect(audit).toBe(0);
+  });
+
+  it('update mapping a reopen that collides with another open entry -> 409', async () => {
+    const user = await seedUser();
+    // One still-open entry...
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b3'), user.id);
+    // ...and a closed one we then try to REOPEN (endTime -> null) for the same user.
+    await repo().upsert(
+      createDto('019797a0-0000-7000-8000-0000000000b4', { endTime: '2026-07-11T10:00:00Z' }),
+      user.id,
+    );
+
+    await expect(
+      repo().update(
+        '019797a0-0000-7000-8000-0000000000b4',
+        { endTime: null },
+        { endTime: '2026-07-11T10:00:00Z' },
+        'mgr1',
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 });
 
