@@ -19,6 +19,7 @@ import {
   Role,
   AcceptInviteSchema,
   InviteResultSchema,
+  UpdateUserSchema,
 } from './index.js';
 
 const UUID = '019797a0-0000-7000-8000-000000000001';
@@ -161,6 +162,17 @@ describe('invite/accept contracts', () => {
     };
     expect(InviteResultSchema.safeParse(base).success).toBe(true);
     expect(InviteResultSchema.safeParse({ ...base, devToken: 'tok' }).success).toBe(true);
+  });
+});
+
+describe('users — UpdateUserSchema', () => {
+  it('accepts a boolean deactivated flag', () => {
+    expect(UpdateUserSchema.safeParse({ deactivated: true }).success).toBe(true);
+    expect(UpdateUserSchema.safeParse({ deactivated: false }).success).toBe(true);
+  });
+  it('rejects a missing or non-boolean flag', () => {
+    expect(UpdateUserSchema.safeParse({}).success).toBe(false);
+    expect(UpdateUserSchema.safeParse({ deactivated: 'yes' }).success).toBe(false);
   });
 });
 

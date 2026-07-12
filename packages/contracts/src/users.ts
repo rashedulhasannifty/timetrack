@@ -28,6 +28,11 @@ export const AckMonitoringSchema = z.object({
   policyVersion: z.string().min(1),
 });
 
+/** PATCH /v1/users/:id — deactivate (true) or reactivate (false) a user. */
+export const UpdateUserSchema = z.object({
+  deactivated: z.boolean(),
+});
+
 /**
  * Response of POST /v1/users/invite. No User exists yet (the user is created on accept),
  * so this returns the invite metadata. `devToken` is populated ONLY when
@@ -48,4 +53,5 @@ export const InviteResultSchema = z.object({
 export type User = z.infer<typeof UserSchema>;
 export type InviteUser = z.infer<typeof InviteUserSchema>;
 export type AckMonitoring = z.infer<typeof AckMonitoringSchema>;
+export type UpdateUser = z.infer<typeof UpdateUserSchema>;
 export type InviteResult = z.infer<typeof InviteResultSchema>;
