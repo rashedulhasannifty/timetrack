@@ -1,10 +1,12 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   CreateTimeEntrySchema,
   ListTimeEntriesQuerySchema,
+  UpdateTimeEntrySchema,
   type CreateTimeEntry,
   type ListTimeEntriesQuery,
   type TimeEntry,
+  type UpdateTimeEntry,
 } from '@timetrack/contracts';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { TimeEntriesService } from './time-entries.service.js';
@@ -39,5 +41,16 @@ export class TimeEntriesController {
     @CurrentUser() user: SessionUser,
   ): Promise<TimeEntry[]> {
     return this.service.list(query, user);
+  }
+
+  @Patch(':id')
+  // No @ResourceScope: the owning userId is on the row, not in the request. The service
+  // fetches the entry and enforces owner / manager-of-team / admin via ResourceAccessService.
+  edit(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateTimeEntrySchema)) dto: UpdateTimeEntry,
+    @CurrentUser() user: SessionUser,
+  ): Promise<TimeEntry> {
+    return this.service.edit(id, dto, user);
   }
 }
