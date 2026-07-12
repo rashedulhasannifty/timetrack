@@ -23,9 +23,11 @@ describe('session cookie crypto', () => {
   });
 
   it('returns null when the ciphertext is tampered', () => {
-    const [iv, body] = encryptSession(PAYLOAD).split('.');
+    const parts = encryptSession(PAYLOAD).split('.');
+    const iv = parts[0]!;
+    const body = parts[1]!;
     const bytes = Buffer.from(body, 'base64url');
-    bytes[0] ^= 0xff;
+    bytes[0]! ^= 0xff;
     expect(decryptSession(`${iv}.${bytes.toString('base64url')}`)).toBeNull();
   });
 
