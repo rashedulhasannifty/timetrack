@@ -92,7 +92,7 @@
 
 1. **`app/api/auth/[...auth]/route.ts`**: implement `POST /api/auth/login` → call API `POST /auth/login` → set an **httpOnly, secure, sameSite=Lax** cookie holding the session (access + refresh, or a server-side session id). `POST /api/auth/logout` → API logout + clear cookie. The browser never holds a long-lived token in JS (`PRD §7.6`).
 2. **`lib/session.ts`**: implement `getSession()` — read the cookie, return `{ userId, role, accessToken }`; refresh via API when the access token is near expiry (server-side).
-3. **`lib/api-client.ts`**: extend the typed client — `listTimeEntries` (exists), add `teamOverview`, `listUsers`, `listProjects`, `getTeam`. Every call takes the session token and parses the response through the contract schema.
+3. **`lib/api-client.ts`**: extend the typed client — `listTimeEntries` (exists), add `listUsers`, `listProjects`, `getCurrentTeam`, and the auth POSTs (`login`/`refresh`/`logout`). Every read takes the session token and parses the response through the contract schema. **`teamOverview` is deferred to Slice 1.6** — `GET /reports/overview` does not exist yet.
 4. **Route protection:** `(app)/layout.tsx` redirects to `/login` when `getSession()` is null; `(auth)/login` renders the form (already scaffolded) wired to `/api/auth/login`.
 5. **Tests:** Playwright (seeded) — unauthenticated → redirected to `/login`; login → lands on overview. Keep gated until seed+auth are wired, then enable.
 
