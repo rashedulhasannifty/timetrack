@@ -136,6 +136,23 @@ describe('team-settings + policy', () => {
   });
 });
 
+describe('admin — UpdateSettingsSchema is a default-free partial', () => {
+  it('keeps only the provided keys (never injects defaults)', () => {
+    const out = UpdateSettingsSchema.parse({ screenshotIntervalMinutes: 20 });
+    expect(out).toEqual({ screenshotIntervalMinutes: 20 });
+    expect(Object.keys(out)).toEqual(['screenshotIntervalMinutes']);
+  });
+  it('still range-validates the keys that ARE provided', () => {
+    expect(UpdateSettingsSchema.safeParse({ screenshotRetentionDays: 999 }).success).toBe(false);
+  });
+  it('TeamSettingsSchema (read) still fills every default from {}', () => {
+    const full = TeamSettingsSchema.parse({});
+    expect(full.screenshotsEnabled).toBe(true);
+    expect(full.screenshotRetentionDays).toBe(30);
+    expect(full.captureWindowTitles).toBe(true);
+  });
+});
+
 describe('users / projects / reports', () => {
   it('defaults an invited user to EMPLOYEE', () => {
     expect(InviteUserSchema.parse({ email: 'a@b.co', name: 'A', teamId: UUID }).role).toBe(

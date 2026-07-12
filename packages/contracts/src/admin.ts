@@ -1,8 +1,9 @@
 import { z } from 'zod';
-import { TeamSettingsSchema } from './team-settings.js';
+import { TeamSettingsFieldsSchema } from './team-settings.js';
 
-/** PATCH /admin/settings — a partial update to the team's monitoring policy. */
-export const UpdateSettingsSchema = TeamSettingsSchema.partial();
+/** PATCH /admin/settings — a partial update. Uses the DEFAULT-FREE field schema so an absent
+ * key is omitted, never reset to a default (a one-field edit must not silently reset others). */
+export const UpdateSettingsSchema = TeamSettingsFieldsSchema.partial();
 
 export const AuditLogEntrySchema = z.object({
   id: z.uuid(),

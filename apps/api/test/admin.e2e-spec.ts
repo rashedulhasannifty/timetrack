@@ -1,5 +1,6 @@
 import './test-env.js';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { UpdateSettingsSchema } from '@timetrack/contracts';
 import { AdminRepository } from '../src/modules/admin/admin.repository.js';
 import { AdminService } from '../src/modules/admin/admin.service.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
@@ -47,5 +48,22 @@ describe.runIf(RUN_E2E)('admin settings — real Postgres', () => {
       (audit[0]?.diff as { after: { screenshotIntervalMinutes: number } }).after
         .screenshotIntervalMinutes,
     ).toBe(15);
+  });
+
+  it('a partial patch preserves unspecified stored settings (no silent capture re-enable)', async () => {
+    const team = await db.prisma.team.create({
+      data: {
+        name: 'Eng',
+        settings: { screenshotsEnabled: false, captureWindowTitles: false, screenshotRetentionDays: 90 },
+      },
+    });
+    const actor: SessionUser = { id: 'admin1', role: 'ADMIN', teamId: team.id };
+    const patch = UpdateSettingsSchema.parse({ idleThresholdMinutes: 10 }); // what the pipe produces
+    const result = await svc().updateSettings(patch, actor);
+
+    expect(result.idleThresholdMinutes).toBe(10); // applied
+    expect(result.screenshotsEnabled).toBe(false); // preserved — NOT re-enabled
+    expect(result.captureWindowTitles).toBe(false); // preserved
+    expect(result.screenshotRetentionDays).toBe(90); // preserved
   });
 });
