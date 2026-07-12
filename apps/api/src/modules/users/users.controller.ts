@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
 import {
   AckMonitoringSchema,
   InviteUserSchema,
@@ -48,6 +48,7 @@ export class UsersController {
 
   /** PRD §4.1 — the client calls this once the employee acknowledges the policy. */
   @Post(':id/ack-monitoring')
+  @HttpCode(200)
   ackMonitoring(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(AckMonitoringSchema)) dto: AckMonitoring,
