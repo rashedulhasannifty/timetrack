@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getSession } from '../../lib/session';
 
 const NAV = [
   { href: '/', label: 'Team overview' },
@@ -10,10 +12,14 @@ const NAV = [
 ];
 
 /**
- * The authenticated app shell. Server Component by default (PRD §7.6) — the session is
- * resolved server-side; the browser never holds a long-lived API credential.
+ * The authenticated app shell. Server Component (PRD §7.6) — the session is resolved
+ * server-side; the browser never holds a long-lived API credential. A null session goes
+ * to /api/auth/refresh, which reissues it or falls through to /login (see the auth route).
  */
-export default function AppLayout({ children }: { children: ReactNode }) {
+export default async function AppLayout({ children }: { children: ReactNode }) {
+  const session = await getSession();
+  if (!session) redirect('/api/auth/refresh');
+
   return (
     <div className="flex min-h-screen">
       <aside className="w-56 shrink-0 border-r border-neutral-200 bg-white p-4">
@@ -29,6 +35,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </Link>
           ))}
         </nav>
+        <form action="/api/auth/logout" method="post" className="mt-6 px-2">
+          <span className="block text-xs text-neutral-400">{session.role}</span>
+          <button type="submit" className="mt-1 text-sm text-neutral-700 hover:underline">
+            Sign out
+          </button>
+        </form>
       </aside>
       <main className="flex-1 p-8">{children}</main>
     </div>

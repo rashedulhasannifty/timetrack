@@ -1,15 +1,21 @@
 import { PageHeader } from '../../components/ui/PageHeader';
+import { getSession } from '../../lib/session';
+import { api } from '../../lib/api-client';
 
-export default function TeamOverviewPage() {
+/**
+ * Slice 1.5 shell: proves the authenticated data path — fetch the current team with the
+ * session token. The real per-person overview (cards + activity chart) lands in Slice 1.6.
+ */
+export default async function TeamOverviewPage() {
+  const session = await getSession();
+  if (!session) return null; // the layout already gated; this satisfies the type-narrowing.
+  const team = await api.getCurrentTeam(session.accessToken);
+
   return (
     <>
-      <PageHeader
-        title="Team overview"
-        subtitle="Who is tracking now, and today's hours per person (PRD §6.5)."
-      />
+      <PageHeader title="Team overview" subtitle={`Signed in to ${team.name}.`} />
       <p className="text-sm text-neutral-500">
-        Scaffold. Fetch the team summary server-side via <code>lib/api-client</code> and render
-        per-person cards + an activity chart.
+        Per-person cards and the activity chart arrive in Slice 1.6 (PRD §6.5).
       </p>
     </>
   );

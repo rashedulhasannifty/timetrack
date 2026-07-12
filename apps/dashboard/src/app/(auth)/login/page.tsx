@@ -1,12 +1,18 @@
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
   return (
     <main className="flex min-h-screen items-center justify-center p-8">
       <div className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
         <h1 className="text-lg font-semibold">Sign in to TimeTrack</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Scaffold. Wire this form to <code>POST /auth/login</code>; the server sets a session
-          cookie (PRD §7.6). The browser never holds a long-lived token.
-        </p>
+        {error ? (
+          <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            Invalid email or password.
+          </p>
+        ) : null}
         <form className="mt-4 flex flex-col gap-3" action="/api/auth/login" method="post">
           <input
             name="email"
