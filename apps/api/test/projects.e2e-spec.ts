@@ -62,6 +62,17 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     expect(all.map((p) => p.id).sort()).toEqual([active.id, archivedProject.id].sort());
   });
 
+  it('listByTeam returns projects ordered by name asc', async () => {
+    const team = await seedTeam();
+    // Insert out of alphabetical order; the repo must return them name-sorted.
+    await repo().createProject(team.id, 'Zeta', 'actor1');
+    await repo().createProject(team.id, 'Alpha', 'actor1');
+    await repo().createProject(team.id, 'Mango', 'actor1');
+
+    const names = (await repo().listByTeam(team.id)).map((p) => p.name);
+    expect(names).toEqual(['Alpha', 'Mango', 'Zeta']);
+  });
+
   it('setArchived toggles archived and audits archive vs unarchive', async () => {
     const team = await seedTeam();
     const project = await repo().createProject(team.id, 'Website', 'actor1');
