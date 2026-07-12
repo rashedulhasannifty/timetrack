@@ -17,7 +17,7 @@ export interface Session {
  * every request; the cookie is httpOnly + encrypted, so its contents are not
  * attacker-controlled. We only need the claims to shape the UI.
  */
-function decodeClaims(accessToken: string): { sub: string; role: Session['role'] } | null {
+export function decodeClaims(accessToken: string): { sub: string; role: Session['role'] } | null {
   const segment = accessToken.split('.')[1];
   if (!segment) return null;
   try {

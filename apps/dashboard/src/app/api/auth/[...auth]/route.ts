@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { api } from '../../../../lib/api-client';
+import { decodeClaims } from '../../../../lib/session';
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
@@ -95,6 +96,13 @@ export async function GET(
     }
     const tokens = await api.refresh(current.refreshToken);
     if (!tokens) {
+      const res = redirect(req, '/login');
+      clearSession(res);
+      return res;
+    }
+    // Loop-breaker: if the freshly issued access token still can't be decoded, a redirect
+    // back to the app would just bounce here again and burn a rotation each hop. Stop at /login.
+    if (!decodeClaims(tokens.accessToken)) {
       const res = redirect(req, '/login');
       clearSession(res);
       return res;
