@@ -116,6 +116,10 @@ model Task {
   @@map("tasks")
 }
 
+/// At most one RUNNING entry (endTime IS NULL) per user is enforced by a raw-SQL
+/// partial unique index `time_entries_one_running_per_user` (see migrations); Prisma
+/// cannot model a partial unique index declaratively (the invites module hit the same
+/// limitation). A partial index is invisible to Prisma's diff, so no PSL @@unique here.
 model TimeEntry {
   /// UUIDv7 minted on the client — the idempotency key for offline sync (PRD §7.5).
   id         String      @id
