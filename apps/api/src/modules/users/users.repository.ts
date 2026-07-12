@@ -37,6 +37,8 @@ function toUser(r: UserRow): User {
   };
 }
 
+export type SetActiveResult = { status: 'OK'; user: User } | { status: 'LAST_ADMIN' };
+
 /** CLAUDE.md §3 — Prisma lives here. Never select `*` back to the client. */
 @Injectable()
 export class UsersRepository {
@@ -60,17 +62,29 @@ export class UsersRepository {
     });
   }
 
-  countActiveAdmins(teamId: string): Promise<number> {
-    return this.prisma.user.count({ where: { teamId, role: 'ADMIN', deactivatedAt: null } });
-  }
-
   /**
-   * One atomic tx: flip deactivatedAt, revoke the user's live refresh tokens on
-   * deactivate, and write the audit row. Sole writer that revokes on deactivation.
+   * One atomic tx: flip deactivatedAt, revoke live refresh tokens on deactivate, and audit.
+   * When deactivating a currently-active ADMIN, a `SELECT ... FOR UPDATE` on the team's active
+   * admins runs FIRST — it serializes concurrent deactivations so two requests can't each read
+   * "2 admins" and both proceed to zero. Returns LAST_ADMIN (no writes) when this would remove
+   * the team's final active admin.
    */
-  async setActive(id: string, deactivated: boolean, actorId: string): Promise<User> {
+  async setActive(id: string, deactivated: boolean, actorId: string): Promise<SetActiveResult> {
     const now = new Date();
     return this.prisma.$transaction(async (tx) => {
+      if (deactivated) {
+        const target = await tx.user.findUnique({
+          where: { id },
+          select: { teamId: true, role: true, deactivatedAt: true },
+        });
+        if (target && target.role === 'ADMIN' && target.deactivatedAt === null) {
+          const activeAdmins = await tx.$queryRaw<{ id: string }[]>`
+            SELECT "id" FROM "users"
+            WHERE "teamId" = ${target.teamId} AND "role"::text = 'ADMIN' AND "deactivatedAt" IS NULL
+            FOR UPDATE`;
+          if (activeAdmins.length <= 1) return { status: 'LAST_ADMIN' as const };
+        }
+      }
       const user = await tx.user.update({
         where: { id },
         data: { deactivatedAt: deactivated ? now : null },
@@ -91,7 +105,7 @@ export class UsersRepository {
           diff: { deactivated },
         },
       });
-      return toUser(user);
+      return { status: 'OK' as const, user: toUser(user) };
     });
   }
 }

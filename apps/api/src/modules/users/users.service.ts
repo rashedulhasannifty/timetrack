@@ -31,8 +31,9 @@ export class UsersService {
 
   /**
    * Deactivate (revokes sessions) or reactivate a user. ADMIN-gated in the controller;
-   * here we enforce the resource rules: same team only, no self-deactivation, and never
-   * remove the team's last active admin (would lock the org out).
+   * here we enforce same team only and no self-deactivation. The last-active-admin guard
+   * is authoritative in `repo.setActive` (a locked re-check inside its transaction) — we
+   * just translate its LAST_ADMIN sentinel to a 409 here.
    */
   async setActive(id: string, dto: UpdateUser, actor: SessionUser): Promise<User> {
     const target = await this.repo.findForAdmin(id);
@@ -50,27 +51,22 @@ export class UsersService {
         status: 403,
       });
     }
-    if (dto.deactivated) {
-      if (id === actor.id) {
-        throw new ConflictException({
-          type: 'https://timetrack.internal/errors/conflict',
-          title: 'You cannot deactivate your own account',
-          status: 409,
-        });
-      }
-      if (
-        target.deactivatedAt === null &&
-        target.role === 'ADMIN' &&
-        (await this.repo.countActiveAdmins(actor.teamId)) <= 1
-      ) {
-        throw new ConflictException({
-          type: 'https://timetrack.internal/errors/conflict',
-          title: 'Cannot deactivate the last active admin',
-          status: 409,
-        });
-      }
+    if (dto.deactivated && id === actor.id) {
+      throw new ConflictException({
+        type: 'https://timetrack.internal/errors/conflict',
+        title: 'You cannot deactivate your own account',
+        status: 409,
+      });
     }
-    return this.repo.setActive(id, dto.deactivated, actor.id);
+    const result = await this.repo.setActive(id, dto.deactivated, actor.id);
+    if (result.status === 'LAST_ADMIN') {
+      throw new ConflictException({
+        type: 'https://timetrack.internal/errors/conflict',
+        title: 'Cannot deactivate the last active admin',
+        status: 409,
+      });
+    }
+    return result.user;
   }
 
   async invite(dto: InviteUser, actor: SessionUser): Promise<InviteResult> {

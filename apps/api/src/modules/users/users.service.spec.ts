@@ -55,7 +55,6 @@ const activeEmployee = { id: 'u2', role: 'EMPLOYEE' as const, teamId: 't1', deac
 function makeSetActiveService(repoOverrides: Partial<UsersRepository>) {
   const repo = {
     findForAdmin: vi.fn(),
-    countActiveAdmins: vi.fn(),
     setActive: vi.fn(),
     ...repoOverrides,
   } as unknown as UsersRepository;
@@ -96,7 +95,7 @@ describe('UsersService.setActive guards', () => {
       findForAdmin: vi
         .fn()
         .mockResolvedValue({ id: 'u2', role: 'ADMIN', teamId: 't1', deactivatedAt: null }),
-      countActiveAdmins: vi.fn().mockResolvedValue(1),
+      setActive: vi.fn().mockResolvedValue({ status: 'LAST_ADMIN' }),
     });
     await expect(svc.setActive('u2', { deactivated: true }, admin)).rejects.toBeInstanceOf(
       ConflictException,
@@ -109,8 +108,7 @@ describe('UsersService.setActive guards', () => {
       findForAdmin: vi
         .fn()
         .mockResolvedValue({ id: 'u2', role: 'ADMIN', teamId: 't1', deactivatedAt: null }),
-      countActiveAdmins: vi.fn().mockResolvedValue(2),
-      setActive: vi.fn().mockResolvedValue(user),
+      setActive: vi.fn().mockResolvedValue({ status: 'OK', user }),
     });
     await expect(svc.setActive('u2', { deactivated: true }, admin)).resolves.toBe(user);
     expect(repo.setActive).toHaveBeenCalledWith('u2', true, 'a1');
@@ -120,7 +118,7 @@ describe('UsersService.setActive guards', () => {
     const user = { id: 'u2' } as User;
     const { svc, repo } = makeSetActiveService({
       findForAdmin: vi.fn().mockResolvedValue({ ...activeEmployee, deactivatedAt: new Date() }),
-      setActive: vi.fn().mockResolvedValue(user),
+      setActive: vi.fn().mockResolvedValue({ status: 'OK', user }),
     });
     await expect(svc.setActive('u2', { deactivated: false }, admin)).resolves.toBe(user);
     expect(repo.setActive).toHaveBeenCalledWith('u2', false, 'a1');

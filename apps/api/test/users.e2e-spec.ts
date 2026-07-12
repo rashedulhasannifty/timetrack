@@ -22,9 +22,13 @@ describe.runIf(RUN_E2E)('users management — real Postgres', () => {
     return new UsersRepository(db.prisma as unknown as PrismaService);
   }
 
-  async function seedUser(teamId: string, email = 'e@ex.co') {
+  async function seedUser(
+    teamId: string,
+    email = 'e@ex.co',
+    role: 'EMPLOYEE' | 'MANAGER' | 'ADMIN' = 'EMPLOYEE',
+  ) {
     return db.prisma.user.create({
-      data: { email, name: 'E', role: 'EMPLOYEE', teamId, passwordHash: 'x' },
+      data: { email, name: 'E', role, teamId, passwordHash: 'x' },
       select: { id: true },
     });
   }
@@ -37,7 +41,9 @@ describe.runIf(RUN_E2E)('users management — real Postgres', () => {
     });
 
     const result = await repo().setActive(user.id, true, 'admin1');
-    expect(result.deactivatedAt).not.toBeNull();
+    expect(result.status).toBe('OK');
+    if (result.status !== 'OK') throw new Error('unreachable');
+    expect(result.user.deactivatedAt).not.toBeNull();
 
     const tokens = await db.prisma.refreshToken.findMany({ where: { userId: user.id } });
     expect(tokens.every((t) => t.revokedAt !== null)).toBe(true);
@@ -53,7 +59,9 @@ describe.runIf(RUN_E2E)('users management — real Postgres', () => {
     await repo().setActive(user.id, true, 'admin1');
 
     const result = await repo().setActive(user.id, false, 'admin1');
-    expect(result.deactivatedAt).toBeNull();
+    expect(result.status).toBe('OK');
+    if (result.status !== 'OK') throw new Error('unreachable');
+    expect(result.user.deactivatedAt).toBeNull();
 
     const tokens = await db.prisma.refreshToken.count({ where: { userId: user.id } });
     expect(tokens).toBe(0);
@@ -63,5 +71,35 @@ describe.runIf(RUN_E2E)('users management — real Postgres', () => {
       orderBy: { timestamp: 'asc' },
     });
     expect(audit.map((a) => a.action)).toEqual(['user.deactivate', 'user.reactivate']);
+  });
+
+  it('refuses to deactivate the last active admin and writes nothing', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
+    const admin = await seedUser(team.id, 'admin@ex.co', 'ADMIN');
+
+    const result = await repo().setActive(admin.id, true, 'actor1');
+    expect(result.status).toBe('LAST_ADMIN');
+
+    const row = await db.prisma.user.findUnique({
+      where: { id: admin.id },
+      select: { deactivatedAt: true },
+    });
+    expect(row?.deactivatedAt).toBeNull();
+    const audit = await db.prisma.auditLog.count({ where: { targetId: admin.id } });
+    expect(audit).toBe(0);
+  });
+
+  it('deactivates an admin when another active admin remains', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
+    const a1 = await seedUser(team.id, 'a1@ex.co', 'ADMIN');
+    await seedUser(team.id, 'a2@ex.co', 'ADMIN');
+
+    const result = await repo().setActive(a1.id, true, 'actor1');
+    expect(result.status).toBe('OK');
+    const row = await db.prisma.user.findUnique({
+      where: { id: a1.id },
+      select: { deactivatedAt: true },
+    });
+    expect(row?.deactivatedAt).not.toBeNull();
   });
 });
