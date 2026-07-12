@@ -24,6 +24,7 @@ export class AuthService {
   private readonly env = loadEnv();
   private readonly accessTtlSeconds = durationToSeconds(this.env.ACCESS_TOKEN_TTL);
   private readonly refreshTtlSeconds = durationToSeconds(this.env.REFRESH_TOKEN_TTL);
+  private readonly refreshGraceSeconds = this.env.REFRESH_GRACE_SECONDS;
 
   constructor(
     private readonly jwt: JwtService,
@@ -33,7 +34,7 @@ export class AuthService {
 
   async acceptInvite(dto: AcceptInvite): Promise<TokenPair> {
     const { userId, role, teamId } = await this.invites.accept(dto.token, dto.password);
-    return this.issueTokens({ id: userId, role, teamId, deactivatedAt: null });
+    return (await this.issueTokens({ id: userId, role, teamId, deactivatedAt: null })).tokens;
   }
 
   async login(dto: Login): Promise<TokenPair> {
@@ -45,25 +46,39 @@ export class AuthService {
     }
     const ok = await argon2.verify(user.passwordHash, dto.password);
     if (!ok) throw this.invalidCredentials();
-    return this.issueTokens({
-      id: user.id,
-      role: user.role,
-      teamId: user.teamId,
-      deactivatedAt: user.deactivatedAt,
-    });
+    return (
+      await this.issueTokens({
+        id: user.id,
+        role: user.role,
+        teamId: user.teamId,
+        deactivatedAt: user.deactivatedAt,
+      })
+    ).tokens;
   }
 
   async refresh(dto: Refresh): Promise<TokenPair> {
     const stored = await this.repo.findRefreshToken(this.hashRefreshToken(dto.refreshToken));
     const now = new Date();
-    if (!stored || stored.revokedAt || stored.expiresAt.getTime() <= now.getTime()) {
-      throw this.invalidToken();
+    if (!stored || stored.expiresAt.getTime() <= now.getTime()) throw this.invalidToken();
+
+    if (stored.revokedAt) {
+      // A revoked token is acceptable ONLY if it was rotated (has a successor) recently —
+      // the multi-tab race. A logout-revoked token (replacedById null) is never graced.
+      const graceMs = this.refreshGraceSeconds * 1000;
+      const withinGrace = now.getTime() - stored.revokedAt.getTime() <= graceMs;
+      if (!stored.replacedById || !withinGrace) throw this.invalidToken();
     }
-    // Single-use rotation: revoke before issuing, so a replayed token cannot be reused.
-    await this.repo.revokeRefreshToken(stored.id, now);
+
     const identity = await this.repo.findIdentityById(stored.userId);
     if (!identity || identity.deactivatedAt) throw this.invalidToken();
-    return this.issueTokens(identity);
+
+    const issued = await this.issueTokens(identity);
+    // Only the first (normal) rotation links the old token → successor; the grace path
+    // leaves the original revokedAt/replacedById intact so the window doesn't slide.
+    if (!stored.revokedAt) {
+      await this.repo.markRotated(stored.id, now, issued.refreshTokenId);
+    }
+    return issued.tokens;
   }
 
   async logout(dto: Refresh): Promise<void> {
@@ -74,15 +89,24 @@ export class AuthService {
     // Idempotent: an unknown or already-revoked token is a no-op, never an error.
   }
 
-  private async issueTokens(identity: AuthIdentity): Promise<TokenPair> {
+  private async issueTokens(
+    identity: AuthIdentity,
+  ): Promise<{ tokens: TokenPair; refreshTokenId: string }> {
     const claims: JwtClaims = { sub: identity.id, role: identity.role, teamId: identity.teamId };
     const accessToken = await this.jwt.signAsync(claims);
 
     const refreshToken = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + this.refreshTtlSeconds * 1000);
-    await this.repo.createRefreshToken(identity.id, this.hashRefreshToken(refreshToken), expiresAt);
+    const refreshTokenId = await this.repo.createRefreshToken(
+      identity.id,
+      this.hashRefreshToken(refreshToken),
+      expiresAt,
+    );
 
-    return { accessToken, refreshToken, expiresIn: this.accessTtlSeconds };
+    return {
+      tokens: { accessToken, refreshToken, expiresIn: this.accessTtlSeconds },
+      refreshTokenId,
+    };
   }
 
   /** HMAC (not a plain hash) so the stored value is useless without JWT_REFRESH_SECRET. */

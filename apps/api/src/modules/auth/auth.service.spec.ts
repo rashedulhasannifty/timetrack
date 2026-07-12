@@ -6,6 +6,7 @@ vi.mock('@timetrack/config', () => ({
   loadEnv: () => ({
     ACCESS_TOKEN_TTL: '15m',
     REFRESH_TOKEN_TTL: '30d',
+    REFRESH_GRACE_SECONDS: 10,
     JWT_REFRESH_SECRET: 'test-refresh-secret-000000000000000000',
   }),
 }));
@@ -45,9 +46,10 @@ function makeService(
   const fullRepo = {
     findByEmail: vi.fn(),
     findIdentityById: vi.fn(),
-    createRefreshToken: vi.fn().mockResolvedValue(undefined),
+    createRefreshToken: vi.fn().mockResolvedValue('rt2'),
     findRefreshToken: vi.fn(),
     revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
+    markRotated: vi.fn().mockResolvedValue(undefined),
     ...repo,
   } as unknown as AuthRepository;
   const invitesSvc = {
@@ -97,13 +99,13 @@ describe('AuthService.login', () => {
 });
 
 describe('AuthService.refresh', () => {
-  it('rotates: revokes the presented token and issues a fresh pair', async () => {
+  it('rotates: marks the presented token rotated (linked to its successor) and issues a fresh pair', async () => {
     const { svc, repo } = makeService({
       findRefreshToken: vi.fn().mockResolvedValue(liveToken),
       findIdentityById: vi.fn().mockResolvedValue(IDENTITY),
     });
     const pair = await svc.refresh({ refreshToken: 'opaque' });
-    expect(repo.revokeRefreshToken).toHaveBeenCalledWith('rt1', expect.any(Date));
+    expect(repo.markRotated).toHaveBeenCalledWith('rt1', expect.any(Date), expect.any(String));
     expect(repo.createRefreshToken).toHaveBeenCalledOnce();
     expect(pair.accessToken).toBe('access.jwt.token');
   });
@@ -130,13 +132,15 @@ describe('AuthService.refresh', () => {
     await expect(svc.refresh({ refreshToken: 'opaque' })).rejects.toThrow(UnauthorizedException);
   });
 
-  it('rejects (after rotating) if the user was deactivated since issuance', async () => {
+  it('rejects if the user was deactivated since issuance, without rotating the token', async () => {
     const { svc, repo } = makeService({
       findRefreshToken: vi.fn().mockResolvedValue(liveToken),
       findIdentityById: vi.fn().mockResolvedValue({ ...IDENTITY, deactivatedAt: new Date() }),
     });
     await expect(svc.refresh({ refreshToken: 'opaque' })).rejects.toThrow(UnauthorizedException);
-    expect(repo.revokeRefreshToken).toHaveBeenCalled();
+    // Identity is checked before rotation, so a deactivated user's token is left untouched.
+    expect(repo.markRotated).not.toHaveBeenCalled();
+    expect(repo.revokeRefreshToken).not.toHaveBeenCalled();
   });
 });
 
