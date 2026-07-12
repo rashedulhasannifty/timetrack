@@ -108,4 +108,29 @@ export class UsersRepository {
       return { status: 'OK' as const, user: toUser(user) };
     });
   }
+
+  /**
+   * PRD §4.1 — sole writer of monitoring_ack_at. Sets it to now() and audits, in one tx.
+   * The self-only rule is enforced in the service; there is no admin override.
+   */
+  async ackMonitoring(userId: string, policyVersion: string, actorId: string): Promise<User> {
+    const now = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        where: { id: userId },
+        data: { monitoringAckAt: now },
+        select: USER_SELECT,
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: 'user.ack_monitoring',
+          targetType: 'user',
+          targetId: userId,
+          diff: { policyVersion },
+        },
+      });
+      return toUser(user);
+    });
+  }
 }

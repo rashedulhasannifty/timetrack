@@ -56,6 +56,7 @@ function makeSetActiveService(repoOverrides: Partial<UsersRepository>) {
   const repo = {
     findForAdmin: vi.fn(),
     setActive: vi.fn(),
+    ackMonitoring: vi.fn(),
     ...repoOverrides,
   } as unknown as UsersRepository;
   const invites = {} as unknown as InvitesService;
@@ -122,5 +123,22 @@ describe('UsersService.setActive guards', () => {
     });
     await expect(svc.setActive('u2', { deactivated: false }, admin)).resolves.toBe(user);
     expect(repo.setActive).toHaveBeenCalledWith('u2', false, 'a1');
+  });
+});
+
+describe('UsersService.ackMonitoring', () => {
+  it('403 when acknowledging for another user (no admin override)', async () => {
+    const { svc } = makeSetActiveService({});
+    await expect(
+      svc.ackMonitoring('someone-else', { policyVersion: 'v1' }, admin),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('writes for yourself and returns the updated user', async () => {
+    const user = { id: 'a1' } as User;
+    const ackMonitoring = vi.fn().mockResolvedValue(user);
+    const { svc } = makeSetActiveService({ ackMonitoring });
+    await expect(svc.ackMonitoring('a1', { policyVersion: 'v1' }, admin)).resolves.toBe(user);
+    expect(ackMonitoring).toHaveBeenCalledWith('a1', 'v1', 'a1');
   });
 });

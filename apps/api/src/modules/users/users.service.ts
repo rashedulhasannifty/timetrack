@@ -3,7 +3,6 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  NotImplementedException,
 } from '@nestjs/common';
 import { loadEnv } from '@timetrack/config';
 import type {
@@ -89,7 +88,7 @@ export class UsersService {
    * PRD §4.1 — a user may only acknowledge the policy for THEMSELVES. There is no
    * admin override; an admin cannot ack on someone's behalf.
    */
-  ackMonitoring(userId: string, _dto: AckMonitoring, actor: SessionUser): Promise<User> {
+  async ackMonitoring(userId: string, dto: AckMonitoring, actor: SessionUser): Promise<User> {
     if (userId !== actor.id) {
       throw new ForbiddenException({
         type: 'https://timetrack.internal/errors/forbidden',
@@ -97,7 +96,6 @@ export class UsersService {
         status: 403,
       });
     }
-    // TODO(scaffold): repo.ackMonitoring(userId, dto.policyVersion).
-    throw new NotImplementedException('users.ackMonitoring not yet implemented');
+    return this.repo.ackMonitoring(userId, dto.policyVersion, actor.id);
   }
 }

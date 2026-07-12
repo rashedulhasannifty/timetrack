@@ -102,4 +102,17 @@ describe.runIf(RUN_E2E)('users management — real Postgres', () => {
     });
     expect(row?.deactivatedAt).not.toBeNull();
   });
+
+  it('ackMonitoring sets monitoringAckAt and audits the policy version', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
+    const user = await seedUser(team.id);
+
+    const result = await repo().ackMonitoring(user.id, 'policy-2026-07', user.id);
+    expect(result.monitoringAckAt).not.toBeNull();
+
+    const audit = await db.prisma.auditLog.findMany({ where: { targetId: user.id } });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]?.action).toBe('user.ack_monitoring');
+    expect((audit[0]?.diff as { policyVersion: string }).policyVersion).toBe('policy-2026-07');
+  });
 });
