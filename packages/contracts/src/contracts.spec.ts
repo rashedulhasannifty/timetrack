@@ -13,6 +13,8 @@ import {
   EffectivePolicySchema,
   InviteUserSchema,
   CreateProjectSchema,
+  UpdateProjectSchema,
+  ListProjectsQuerySchema,
   TeamSummarySchema,
   UpdateSettingsSchema,
   ProblemSchema,
@@ -203,5 +205,24 @@ describe('problem+json', () => {
         errors: [{ path: 'email', message: 'Invalid', code: 'invalid_string' }],
       }).success,
     ).toBe(true);
+  });
+});
+
+describe('projects — UpdateProjectSchema + ListProjectsQuerySchema', () => {
+  it('UpdateProjectSchema requires a boolean archived', () => {
+    expect(UpdateProjectSchema.parse({ archived: true })).toEqual({ archived: true });
+    expect(() => UpdateProjectSchema.parse({})).toThrow();
+    expect(() => UpdateProjectSchema.parse({ archived: 'yes' })).toThrow();
+  });
+
+  it('ListProjectsQuerySchema parses the includeArchived string flag correctly', () => {
+    // z.stringbool(), NOT z.coerce.boolean() — the string "false" must be false.
+    expect(ListProjectsQuerySchema.parse({ includeArchived: 'true' })).toEqual({
+      includeArchived: true,
+    });
+    expect(ListProjectsQuerySchema.parse({ includeArchived: 'false' })).toEqual({
+      includeArchived: false,
+    });
+    expect(ListProjectsQuerySchema.parse({})).toEqual({ includeArchived: false });
   });
 });
