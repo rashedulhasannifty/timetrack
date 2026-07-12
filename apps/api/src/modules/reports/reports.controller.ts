@@ -1,7 +1,10 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import {
   ReportRangeQuerySchema,
+  TeamOverviewQuerySchema,
   type ReportRangeQuery,
+  type TeamOverview,
+  type TeamOverviewQuery,
   type TeamSummary,
 } from '@timetrack/contracts';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
@@ -13,6 +16,15 @@ import { ReportsService } from './reports.service.js';
 @Roles('MANAGER', 'ADMIN')
 export class ReportsController {
   constructor(private readonly service: ReportsService) {}
+
+  @Get('overview')
+  @Roles('EMPLOYEE', 'MANAGER', 'ADMIN')
+  overview(
+    @Query(new ZodValidationPipe(TeamOverviewQuerySchema)) query: TeamOverviewQuery,
+    @CurrentUser() user: SessionUser,
+  ): Promise<TeamOverview> {
+    return this.service.overview(query, user);
+  }
 
   @Get('team-summary')
   teamSummary(
