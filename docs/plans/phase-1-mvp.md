@@ -163,6 +163,6 @@
 - [x] 1.3 Projects & tasks CRUD.
 - [x] 1.4 Time entries complete (edit + audit + active-entry).
 - [x] 1.5 Dashboard session + shell.
-- [ ] 1.6 Team overview + timeline.
+- [x] 1.6 Team overview + timeline. Follow-ups (not blocking): timezone-aware "today" (UTC-only for now); overview Playwright e2e stays a skipped scaffold until seeded time-entry data lands; `?date=` past-day makes `tracking` meaningful only for the current day; person-page error handling conflates 403 with other failures.
 - [ ] 1.7 macOS client MVP (a–d).
 - [ ] Green gate; coverage ≥80% on `apps/api` + `packages/contracts`; end-to-end demo of the full loop.
