@@ -46,6 +46,9 @@ const EnvSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(32),
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL: z.string().default('30d'),
+  // Rotation grace: a just-rotated refresh token stays valid this many seconds so
+  // concurrent dashboard tabs don't spuriously log each other out. Logout is never graced.
+  REFRESH_GRACE_SECONDS: z.coerce.number().int().min(0).max(300).default(10),
 
   S3_ENDPOINT: z.url(),
   S3_REGION: z.string().default('us-east-1'),

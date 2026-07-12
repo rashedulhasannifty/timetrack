@@ -55,13 +55,14 @@ model User {
 /// Each row is one device/session; `tokenHash` is an HMAC of the opaque token, never
 /// the token itself.
 model RefreshToken {
-  id        String    @id @default(uuid(7))
-  userId    String
-  tokenHash String    @unique
-  expiresAt DateTime
-  revokedAt DateTime?
-  createdAt DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id])
+  id           String    @id @default(uuid(7))
+  userId       String
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@map("refresh_tokens")
