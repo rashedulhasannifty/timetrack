@@ -13,7 +13,8 @@ export interface OverviewRow {
  * CLAUDE.md §3 — Prisma lives HERE. The overview aggregate is ONE raw query: Prisma
  * `groupBy` cannot express the interval clamp (a running entry uses now(); an entry that
  * crosses the window boundary is trimmed to it). Starting from `users` and LEFT JOINing
- * time_entries keeps zero-entry members in the result.
+ * time_entries keeps zero-entry members in the result. Deactivated users are excluded so
+ * ex-employees don't show up in "who's tracking today."
  */
 @Injectable()
 export class ReportsRepository {
@@ -51,7 +52,7 @@ export class ReportsRepository {
         ON te."userId" = u.id
         AND te."startTime" < ${dayEnd}::timestamptz
         AND COALESCE(te."endTime", now()) > ${dayStart}::timestamptz
-      WHERE ${scope}
+      WHERE (${scope}) AND u."deactivatedAt" IS NULL
       GROUP BY u.id, u.name
       ORDER BY u.name ASC
     `;

@@ -114,4 +114,26 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     const rows = await repo().overviewForSelf(a.id, DAY_START, DAY_END);
     expect(rows.map((r) => r.name)).toEqual(['Ada']);
   });
+
+  it('excludes a deactivated user from the team overview', async () => {
+    const team = await seedTeam();
+    const active = await seedUser(team.id, 'Ada', 'ada@example.com');
+    const deactivated = await db.prisma.user.create({
+      data: {
+        email: 'cara@example.com',
+        name: 'Cara',
+        passwordHash: 'x',
+        teamId: team.id,
+        deactivatedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    void deactivated;
+
+    const rows = await repo().overviewForTeam(team.id, DAY_START, DAY_END);
+    expect(rows.map((r) => r.name)).toEqual(['Ada']);
+    expect(rows).toEqual([
+      { userId: active.id, name: 'Ada', tracking: false, trackedSecondsToday: 0 },
+    ]);
+  });
 });
