@@ -156,7 +156,7 @@
 - [ ] 1.1 Bootstrap admin + invite/accept flow.
 - [ ] 1.2 Users & teams management + settings (API; dashboard after 1.5).
 - [x] 1.3 Projects & tasks CRUD.
-- [ ] 1.4 Time entries complete (edit + audit + active-entry).
+- [x] 1.4 Time entries complete (edit + audit + active-entry).
 - [ ] 1.5 Dashboard session + shell.
 - [ ] 1.6 Team overview + timeline.
 - [ ] 1.7 macOS client MVP (a–d).
