@@ -22,6 +22,8 @@ import {
   AcceptInviteSchema,
   InviteResultSchema,
   UpdateUserSchema,
+  TeamOverviewQuerySchema,
+  TeamOverviewSchema,
 } from './index.js';
 
 const UUID = '019797a0-0000-7000-8000-000000000001';
@@ -224,5 +226,46 @@ describe('projects — UpdateProjectSchema + ListProjectsQuerySchema', () => {
       includeArchived: false,
     });
     expect(ListProjectsQuerySchema.parse({})).toEqual({ includeArchived: false });
+  });
+});
+
+describe('TeamOverview contracts', () => {
+  it('accepts an optional YYYY-MM-DD date', () => {
+    expect(TeamOverviewQuerySchema.parse({})).toEqual({});
+    expect(TeamOverviewQuerySchema.parse({ date: '2026-07-12' })).toEqual({ date: '2026-07-12' });
+  });
+
+  it('rejects a non-date string', () => {
+    expect(TeamOverviewQuerySchema.safeParse({ date: 'not-a-date' }).success).toBe(false);
+  });
+
+  it('parses a full overview payload', () => {
+    const payload = {
+      date: '2026-07-12',
+      rows: [
+        {
+          userId: '019797a0-0000-7000-8000-0000000000aa',
+          name: 'Ada',
+          tracking: true,
+          trackedSecondsToday: 3600,
+        },
+      ],
+    };
+    expect(TeamOverviewSchema.parse(payload)).toEqual(payload);
+  });
+
+  it('rejects a negative trackedSecondsToday', () => {
+    const bad = {
+      date: '2026-07-12',
+      rows: [
+        {
+          userId: '019797a0-0000-7000-8000-0000000000aa',
+          name: 'Ada',
+          tracking: false,
+          trackedSecondsToday: -1,
+        },
+      ],
+    };
+    expect(TeamOverviewSchema.safeParse(bad).success).toBe(false);
   });
 });

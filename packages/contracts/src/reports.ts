@@ -24,3 +24,23 @@ export const TeamSummarySchema = z.object({
 export type ReportRangeQuery = z.infer<typeof ReportRangeQuerySchema>;
 export type TeamSummaryRow = z.infer<typeof TeamSummaryRowSchema>;
 export type TeamSummary = z.infer<typeof TeamSummarySchema>;
+
+export const TeamOverviewQuerySchema = z.object({
+  date: z.iso.date().optional(), // YYYY-MM-DD; absent → server's current UTC date
+});
+
+export const TeamOverviewRowSchema = z.object({
+  userId: z.uuid(),
+  name: z.string(),
+  tracking: z.boolean(),
+  trackedSecondsToday: z.number().int().nonnegative(),
+});
+
+export const TeamOverviewSchema = z.object({
+  date: z.iso.date(),
+  rows: z.array(TeamOverviewRowSchema),
+});
+
+export type TeamOverviewQuery = z.infer<typeof TeamOverviewQuerySchema>;
+export type TeamOverviewRow = z.infer<typeof TeamOverviewRowSchema>;
+export type TeamOverview = z.infer<typeof TeamOverviewSchema>;
