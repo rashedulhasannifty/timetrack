@@ -24,6 +24,9 @@ export class UsersController {
     return this.service.list(user);
   }
 
+  // ADMIN-scoped management, not user-self-scoped: an admin flips another user's
+  // active state. No @ResourceScope — the service enforces same-team + self/last-admin
+  // guards directly since the "resource" here isn't the caller's own record.
   @Patch(':id')
   @Roles('ADMIN')
   update(
