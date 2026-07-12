@@ -39,3 +39,32 @@ describe('api.refresh', () => {
     expect(await api.refresh('revoked')).toBeNull();
   });
 });
+
+describe('api.teamOverview', () => {
+  it('parses the overview payload on 200', async () => {
+    const payload = {
+      date: '2026-07-12',
+      rows: [
+        {
+          userId: '019797a0-0000-7000-8000-0000000000aa',
+          name: 'Ada',
+          tracking: true,
+          trackedSecondsToday: 3600,
+        },
+      ],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response(JSON.stringify(payload), { status: 200 })),
+    );
+    expect(await api.teamOverview('tok', '2026-07-12')).toEqual(payload);
+  });
+
+  it('throws on a non-2xx response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response('nope', { status: 403 })),
+    );
+    await expect(api.teamOverview('tok')).rejects.toThrow();
+  });
+});

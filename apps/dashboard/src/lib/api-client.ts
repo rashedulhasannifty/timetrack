@@ -9,6 +9,8 @@ import {
   type Team,
   TokenPairSchema,
   type TokenPair,
+  TeamOverviewSchema,
+  type TeamOverview,
 } from '@timetrack/contracts';
 import { z } from 'zod';
 
@@ -53,6 +55,8 @@ export const api = {
     get('/projects', z.array(ProjectSchema), token),
   listUsers: (token: string): Promise<User[]> => get('/users', z.array(UserSchema), token),
   getCurrentTeam: (token: string): Promise<Team> => get('/teams/current', TeamSchema, token),
+  teamOverview: (token: string, date?: string): Promise<TeamOverview> =>
+    get(`/reports/overview${date ? `?date=${date}` : ''}`, TeamOverviewSchema, token),
 
   login: (email: string, password: string): Promise<TokenPair | null> =>
     authPost('/auth/login', { email, password }, TokenPairSchema),
