@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { AuditLogEntry, AuditLogQuery } from '@timetrack/contracts';
+import type { AuditLogEntry, AuditLogQuery, TeamSettings } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 
 @Injectable()
@@ -43,8 +43,37 @@ export class AdminRepository {
     }));
   }
 
-  // TODO(scaffold): updateSettings(teamId, patch) — validate merged object via
-  //                 TeamSettingsSchema, write, and record an AuditLog row in the same tx.
+  async getSettings(teamId: string): Promise<unknown> {
+    const row = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      select: { settings: true },
+    });
+    return row?.settings ?? {};
+  }
+
+  async writeSettings(
+    teamId: string,
+    settings: TeamSettings,
+    diff: { before: TeamSettings; after: TeamSettings },
+    actorId: string,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.team.update({
+        where: { id: teamId },
+        data: { settings },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: 'team.update_settings',
+          targetType: 'team',
+          targetId: teamId,
+          diff,
+        },
+      });
+    });
+  }
+
   // TODO(scaffold): eraseUser(userId, actorId, reason) — hard-delete user data AND write
   //                 an AuditLog row in the SAME transaction (CLAUDE.md §4, PRD §4.4).
 }

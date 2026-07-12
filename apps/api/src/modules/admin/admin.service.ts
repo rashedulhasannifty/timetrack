@@ -1,4 +1,5 @@
 import { Injectable, NotImplementedException } from '@nestjs/common';
+import { TeamSettingsSchema } from '@timetrack/contracts';
 import type {
   AuditLogEntry,
   AuditLogQuery,
@@ -17,9 +18,18 @@ export class AdminService {
     return this.repo.listAudit(query);
   }
 
-  updateSettings(_patch: UpdateSettings, _actor: SessionUser): Promise<TeamSettings> {
-    // TODO(scaffold): merge + validate via TeamSettingsSchema, write, audit in one tx.
-    throw new NotImplementedException('admin.updateSettings not yet implemented');
+  async updateSettings(patch: UpdateSettings, actor: SessionUser): Promise<TeamSettings> {
+    // Normalize the stored value (fills defaults for a legacy/partial row)...
+    const current = TeamSettingsSchema.parse(await this.repo.getSettings(actor.teamId));
+    // ...merge, then validate the MERGED object so what we persist is always complete & in-range.
+    const merged = TeamSettingsSchema.parse({ ...current, ...patch });
+    await this.repo.writeSettings(
+      actor.teamId,
+      merged,
+      { before: current, after: merged },
+      actor.id,
+    );
+    return merged;
   }
 
   eraseUser(_userId: string, _dto: EraseUser, _actor: SessionUser): Promise<void> {
