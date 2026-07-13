@@ -1,6 +1,6 @@
 import Foundation
 
-/// The kind of a buffered record — used to route on drain (SyncEngine syncs timeEntry only).
+/// The kind of a buffered record — used to route on drain (SyncEngine syncs each kind to its own endpoint).
 enum BufferKind: String {
     case timeEntry
     case idleEvent
@@ -64,9 +64,8 @@ final class BufferStore {
         }
     }
 
-    /// Drops records created before `now - maxAge`, bounding the buffer (undeliverable entries and
-    /// idleEvent records with no endpoint yet). Delivered timeEntry records are removed on 2xx, so
-    /// only stuck or endpoint-less records ever age out.
+    /// Drops records created before `now - maxAge`, bounding the buffer against records that never
+    /// deliver. Both kinds are drained and removed on 2xx, so only stuck records ever age out.
     func prune(olderThan maxAge: TimeInterval) {
         let cutoff = Int64(clock().addingTimeInterval(-maxAge).timeIntervalSince1970 * 1000)
         for rec in allRecords() where rec.createdAtMillis < cutoff {

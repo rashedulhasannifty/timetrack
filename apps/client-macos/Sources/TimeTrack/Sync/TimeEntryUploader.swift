@@ -15,17 +15,20 @@ protocol Uploading {
     func upload(_ payload: Data) async -> UploadResult
 }
 
-/// PRD §7.5 — POSTs a buffered time-entry payload to /v1/time-entries with the session bearer
-/// token. The API upserts on the client-minted UUIDv7, so a retried record is a no-op. On a 401 it
-/// forces a token refresh and retries once (mirrors PolicyClient/ProjectClient); a surviving 401 →
-/// authFailed. Not a capture path — no AckGate.
+/// PRD §7.5 — POSTs a buffered record payload to `<baseURL>/<path>` (default `time-entries`;
+/// idle events pass `idle-events`) with the session bearer token. The API upserts on the
+/// client-minted UUIDv7, so a retried record is a no-op. On a 401 it forces a token refresh and
+/// retries once (mirrors PolicyClient/ProjectClient); a surviving 401 → authFailed. Not a capture
+/// path — no AckGate.
 final class TimeEntryUploader: Uploading {
     private let baseURL: URL
     private let session: AuthSession
+    private let path: String
 
-    init(baseURL: URL, session: AuthSession) {
+    init(baseURL: URL, session: AuthSession, path: String = "time-entries") {
         self.baseURL = baseURL
         self.session = session
+        self.path = path
     }
 
     func upload(_ payload: Data) async -> UploadResult {
@@ -56,7 +59,7 @@ final class TimeEntryUploader: Uploading {
     }
 
     private func post(_ payload: Data, token: String) async throws -> Int {
-        var request = URLRequest(url: baseURL.appendingPathComponent("time-entries"))
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

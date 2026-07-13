@@ -262,13 +262,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// and backs off. Idempotent (guarded), so re-entry after ack does nothing.
     @MainActor private func startSyncIfNeeded() {
         guard syncEngine == nil else { return }
+        let base = AppDelegate.apiBaseURL()
         let engine = SyncEngine(
             buffer: BufferStore.shared,
-            uploader: TimeEntryUploader(baseURL: AppDelegate.apiBaseURL(), session: session),
-            // Compile placeholder only — no idle-events endpoint exists yet. `.transient` keeps
-            // idle records buffered (age-pruned as before), never posts them anywhere. Task 6
-            // replaces this with the real idle-events uploader.
-            idleUploader: NoIdleEndpointUploader()
+            uploader: TimeEntryUploader(baseURL: base, session: session),
+            idleUploader: TimeEntryUploader(baseURL: base, session: session, path: "idle-events")
         )
         syncEngine = engine
         engine.start()
@@ -347,12 +345,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let url = URL(string: s) { return url }
         return URL(string: "http://127.0.0.1:3000")!
     }
-}
-
-/// Compile placeholder: `SyncEngine` now requires an `idleUploader` but no idle-events endpoint
-/// exists yet (Task 6). Always reports `.transient` so idle records stay buffered and age-prune
-/// exactly as they did before this slice — never posted anywhere. Replace when the real uploader
-/// lands.
-private struct NoIdleEndpointUploader: Uploading {
-    func upload(_ payload: Data) async -> UploadResult { .transient }
 }

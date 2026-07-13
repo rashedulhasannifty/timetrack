@@ -4,7 +4,7 @@ import Foundation
 /// the client records the away window and how it was resolved. `KEPT` counts the away time
 /// (a bridge TimeEntry covers it); `DISCARDED` drops it; `UNRESOLVED` is emitted when the app
 /// tears down mid-away (no bridge — the fail-safe, idle not counted). Buffered like a
-/// TimeEntry; sync (1.7d) routes it to its own endpoint.
+/// TimeEntry and drained by SyncEngine to POST /v1/idle-events.
 enum ResolvedAction: String, Encodable {
     case kept = "KEPT"
     case discarded = "DISCARDED"
