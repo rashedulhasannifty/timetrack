@@ -94,7 +94,7 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
             resolvedAction: action
         )
         if let data = try? JSONEncoder().encode(event) {
-            buffer.enqueue(id: id, payload: data)
+            buffer.enqueue(id: id, kind: .idleEvent, payload: data)
         }
     }
 

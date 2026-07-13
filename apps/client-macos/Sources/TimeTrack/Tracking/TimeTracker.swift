@@ -3,10 +3,8 @@ import Foundation
 /// The buffer seam. `BufferStore` (PRD §7.5) already has this method; the protocol lets
 /// tests substitute a spy.
 protocol TimeEntryBuffering {
-    func enqueue(id: String, payload: Data)
+    func enqueue(id: String, kind: BufferKind, payload: Data)
 }
-
-extension BufferStore: TimeEntryBuffering {}
 
 /// PRD §6.1 — manual time tracking. Each contiguous span is one TimeEntry keyed by a
 /// client-minted UUIDv7. Pause = close the current entry; Resume = open a new one (the
@@ -107,7 +105,7 @@ final class TimeTracker {
             note: nil
         )
         if let data = try? JSONEncoder().encode(payload) {
-            buffer.enqueue(id: id, payload: data)
+            buffer.enqueue(id: id, kind: .timeEntry, payload: data)
         }
     }
 
