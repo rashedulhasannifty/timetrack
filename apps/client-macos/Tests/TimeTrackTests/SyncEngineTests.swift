@@ -21,7 +21,8 @@ final class SyncEngineTests: XCTestCase {
         buffer.enqueue(id: "t1", kind: .timeEntry, payload: Data("1".utf8))
         buffer.enqueue(id: "t2", kind: .timeEntry, payload: Data("2".utf8))
         let uploader = FakeUploader(results: [.success])
-        let engine = SyncEngine(buffer: buffer, uploader: uploader)
+        let engine = SyncEngine(buffer: buffer, uploader: uploader,
+                                idleUploader: FakeUploader(results: [.success]))
 
         await engine.syncNow()
 
@@ -29,34 +30,56 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertTrue(buffer.take(kind: .timeEntry, limit: 10).isEmpty, "delivered records removed")
     }
 
-    func testLeavesIdleEventsUntouched() async {
+    func testDrainsIdleEventsToIdleUploaderAndRemovesOnSuccess() async {
         let buffer = tempBuffer()
-        buffer.enqueue(id: "t1", kind: .timeEntry, payload: Data("1".utf8))
-        buffer.enqueue(id: "e1", kind: .idleEvent, payload: Data("2".utf8))
-        let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.success]))
+        buffer.enqueue(id: "t1", kind: .timeEntry, payload: Data("te".utf8))
+        buffer.enqueue(id: "e1", kind: .idleEvent, payload: Data("ie".utf8))
+        let timeUploader = FakeUploader(results: [.success])
+        let idleUploader = FakeUploader(results: [.success])
+        let engine = SyncEngine(buffer: buffer, uploader: timeUploader, idleUploader: idleUploader)
 
         await engine.syncNow()
 
+        // Each kind routed to its own uploader; both buffers drained.
+        XCTAssertEqual(timeUploader.uploadedPayloads, [Data("te".utf8)])
+        XCTAssertEqual(idleUploader.uploadedPayloads, [Data("ie".utf8)])
         XCTAssertTrue(buffer.take(kind: .timeEntry, limit: 10).isEmpty)
-        XCTAssertEqual(buffer.take(kind: .idleEvent, limit: 10).count, 1, "no endpoint yet → kept")
+        XCTAssertTrue(buffer.take(kind: .idleEvent, limit: 10).isEmpty, "delivered idle events removed")
     }
 
-    func testTransientFailureStopsCycleAndKeepsRecords() async {
+    func testIdleTransientStopsCycleAndKeepsIdleRecords() async {
         let buffer = tempBuffer()
-        buffer.enqueue(id: "t1", kind: .timeEntry, payload: Data("1".utf8))
-        buffer.enqueue(id: "t2", kind: .timeEntry, payload: Data("2".utf8))
-        let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.transient]))
+        buffer.enqueue(id: "e1", kind: .idleEvent, payload: Data("ie".utf8))
+        let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.success]),
+                                idleUploader: FakeUploader(results: [.transient]))
+
+        let backedOff = await engine.syncNow()
+
+        XCTAssertTrue(backedOff, "a transient idle upload backs the cycle off")
+        XCTAssertEqual(buffer.take(kind: .idleEvent, limit: 10).count, 1, "nothing removed on transient")
+    }
+
+    func testTimeEntryTransientStopsBeforeIdlePass() async {
+        let buffer = tempBuffer()
+        buffer.enqueue(id: "t1", kind: .timeEntry, payload: Data("te".utf8))
+        buffer.enqueue(id: "e1", kind: .idleEvent, payload: Data("ie".utf8))
+        let idleUploader = FakeUploader(results: [.success])
+        let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.transient]),
+                                idleUploader: idleUploader)
 
         let backedOff = await engine.syncNow()
 
         XCTAssertTrue(backedOff)
-        XCTAssertEqual(buffer.take(kind: .timeEntry, limit: 10).count, 2, "nothing removed on transient")
+        XCTAssertEqual(buffer.take(kind: .timeEntry, limit: 10).count, 1, "time entry kept")
+        XCTAssertEqual(buffer.take(kind: .idleEvent, limit: 10).count, 1, "idle pass never ran")
+        XCTAssertTrue(idleUploader.uploadedPayloads.isEmpty, "idle uploader untouched after early stop")
     }
 
     func testPermanentFailureDropsPoisonRecord() async {
         let buffer = tempBuffer()
         buffer.enqueue(id: "t1", kind: .timeEntry, payload: Data("1".utf8))
-        let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.permanent(422)]))
+        let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.permanent(422)]),
+                                idleUploader: FakeUploader(results: [.success]))
 
         let backedOff = await engine.syncNow()
 
@@ -67,7 +90,8 @@ final class SyncEngineTests: XCTestCase {
     func testRetriedRecordRemovedExactlyOnce() async {
         let buffer = tempBuffer()
         buffer.enqueue(id: "t1", kind: .timeEntry, payload: Data("1".utf8))
-        let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.transient, .success]))
+        let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.transient, .success]),
+                                idleUploader: FakeUploader(results: [.success]))
 
         await engine.syncNow()   // transient → kept
         XCTAssertEqual(buffer.take(kind: .timeEntry, limit: 10).count, 1)
@@ -81,7 +105,9 @@ final class SyncEngineTests: XCTestCase {
         buffer.enqueue(id: "old", kind: .idleEvent, payload: Data("o".utf8))  // t0
         clock.advance(10 * 24 * 3600)                                         // now = t0 + 10d
         buffer.enqueue(id: "new", kind: .idleEvent, payload: Data("n".utf8))
+        // A transient idle uploader keeps the fresh record, so this isolates prune behavior.
         let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.success]),
+                                idleUploader: FakeUploader(results: [.transient]),
                                 maxAge: 7 * 24 * 3600)
 
         await engine.syncNow()

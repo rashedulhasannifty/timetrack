@@ -1,15 +1,16 @@
 import Foundation
 
-/// PRD §7.5 — one-way (client→server) sync. `syncNow()` drains the durable buffer's timeEntry
-/// records through the uploader; each is removed on confirmed success (2xx). Idempotent on the
-/// UUIDv7, so a retried record is a no-op. A transient/auth failure stops the cycle and the caller
-/// backs off; a permanent 4xx record is dropped so a poison record can't wedge the queue. idleEvent
-/// records are left buffered (no server endpoint yet) and age-pruned. A self-scheduling timer runs
-/// cycles at `intervalSeconds`, or after `backoff.nextDelay()` on failure. Not a capture path → not
-/// gated by AckGate. The timer/scheduling glue is build-verified; `syncNow()` is unit-tested.
+/// PRD §7.5 — one-way (client→server) sync. `syncNow()` drains the durable buffer through the
+/// uploaders: timeEntry records to `uploader`, then idleEvent records to `idleUploader`; each is
+/// removed on confirmed success (2xx). Idempotent on the UUIDv7, so a retried record is a no-op. A
+/// transient/auth failure stops the cycle (time-entry failures skip the idle pass) and the caller
+/// backs off; a permanent 4xx record is dropped so a poison record can't wedge the queue. Stale
+/// records still age-prune each cycle. Not a capture path → not gated by AckGate. The
+/// timer/scheduling glue is build-verified; `syncNow()`/`drain` are unit-tested.
 final class SyncEngine {
     private let buffer: BufferStore
     private let uploader: Uploading
+    private let idleUploader: Uploading
     private let backoff: BackoffPolicy
     private let intervalSeconds: TimeInterval
     private let batchLimit: Int
@@ -19,11 +20,13 @@ final class SyncEngine {
     private var started = false
     private var isDraining = false
 
-    init(buffer: BufferStore, uploader: Uploading, backoff: BackoffPolicy = BackoffPolicy(),
+    init(buffer: BufferStore, uploader: Uploading, idleUploader: Uploading,
+         backoff: BackoffPolicy = BackoffPolicy(),
          intervalSeconds: TimeInterval = 90, batchLimit: Int = 50,
          maxAge: TimeInterval = 7 * 24 * 3600) {
         self.buffer = buffer
         self.uploader = uploader
+        self.idleUploader = idleUploader
         self.backoff = backoff
         self.intervalSeconds = intervalSeconds
         self.batchLimit = batchLimit
@@ -52,7 +55,18 @@ final class SyncEngine {
 
         buffer.prune(olderThan: maxAge)
 
-        for record in buffer.take(kind: .timeEntry, limit: batchLimit) {
+        // Time entries first; a transient/auth failure there stops the whole cycle (the
+        // session is likely unusable, so the idle pass would fail too) and the caller backs off.
+        if await drain(kind: .timeEntry, using: uploader) { return true }
+        if await drain(kind: .idleEvent, using: idleUploader) { return true }
+        return false
+    }
+
+    /// One drain pass for a single buffer kind. Returns true if it stopped early on a
+    /// transient/auth failure. Each record is removed on confirmed success (2xx) or dropped
+    /// on a permanent 4xx (a poison record can't wedge the queue). Idempotent on the UUIDv7.
+    private func drain(kind: BufferKind, using uploader: Uploading) async -> Bool {
+        for record in buffer.take(kind: kind, limit: batchLimit) {
             switch await uploader.upload(record.payload) {
             case .success:
                 buffer.remove(id: record.id)
