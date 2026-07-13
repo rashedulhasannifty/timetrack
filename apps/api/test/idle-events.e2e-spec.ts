@@ -41,6 +41,8 @@ describe.runIf(RUN_E2E)('idle-events repository — real Postgres', () => {
     const row = await db.prisma.idleEvent.findUnique({ where: { id } });
     expect(row?.userId).toBe('u1');
     expect(row?.resolvedAction).toBe('DISCARDED');
+    expect(row?.startTime.toISOString()).toBe('2026-07-11T09:00:00.000Z');
+    expect(row?.endTime.toISOString()).toBe('2026-07-11T09:05:00.000Z');
   });
 
   it('upsert is idempotent on the client id (double drain -> one row)', async () => {
