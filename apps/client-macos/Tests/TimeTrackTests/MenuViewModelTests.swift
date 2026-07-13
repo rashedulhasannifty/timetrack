@@ -48,6 +48,34 @@ final class MenuViewModelTests: XCTestCase {
         XCTAssertEqual(vm.phase, .tracking)
     }
 
+    func testSignOutResetsStateAndClosesInProgressSpan() {
+        let spy = BufferSpy()
+        let tracker = TimeTracker(buffer: spy,
+                                  clock: { Date(timeIntervalSince1970: 0) },
+                                  idGen: { _ in "id-1" })
+        var signedOut = false
+        let vm = MenuViewModel(tracker: tracker,
+                               dashboardURL: URL(string: "http://localhost:3000")!,
+                               openURL: { _ in }, onSignOut: { signedOut = true }, onQuit: {})
+
+        vm.markReady()
+        vm.select(Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Acme", taskName: nil))
+        vm.query = "acme"
+        vm.projects = [Project(id: "p1", teamId: "t1", name: "Acme", archived: false, tasks: nil)]
+        vm.start()
+        XCTAssertEqual(vm.phase, .tracking, "precondition: a span must be in progress")
+
+        vm.signOut()
+
+        XCTAssertEqual(vm.phase, .idle)
+        XCTAssertFalse(vm.isReady)
+        XCTAssertNil(vm.selectedChoice)
+        XCTAssertEqual(vm.query, "")
+        XCTAssertEqual(vm.projects, [])
+        XCTAssertEqual(spy.entries.count, 1, "the in-progress span must be closed and enqueued")
+        XCTAssertTrue(signedOut, "onSignOut must be invoked")
+    }
+
     func testFilteredChoicesMatchQuery() {
         let vm = makeVM()
         vm.projects = [
