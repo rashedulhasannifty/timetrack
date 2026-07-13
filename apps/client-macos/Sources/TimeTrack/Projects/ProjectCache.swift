@@ -29,4 +29,8 @@ final class ProjectCache {
         else { return [] }
         return projects
     }
+
+    func clear() {
+        try? FileManager.default.removeItem(at: fileURL)
+    }
 }

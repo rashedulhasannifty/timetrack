@@ -98,7 +98,24 @@ final class MenuViewModel: ObservableObject {
     }
 
     func openMyData() { openURL(dashboardURL) }
-    func signOut() { onSignOut() }
+
+    /// Returns the VM to a clean signed-out state: closes/enqueues any live span (`stop()`
+    /// drives phase→idle + icon via `sync()`) and clears everything selection/search/project
+    /// related so a different user's next login can't inherit a stale, wrong-team selection
+    /// (CLAUDE.md §1 fail-safe posture).
+    func reset() {
+        stop()
+        isReady = false
+        selectedChoice = nil
+        query = ""
+        projects = []
+    }
+
+    func signOut() {
+        reset()
+        onSignOut()
+    }
+
     func quit() { onQuit() }
 
     private func sync() {

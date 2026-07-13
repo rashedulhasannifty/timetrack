@@ -1,11 +1,5 @@
 import AppKit
 
-/// A weak-reference holder for `onSignOut`'s forward reference to `menuViewModel` (see
-/// `AppDelegate.init`): the value doesn't exist yet when the closure capturing it is built.
-private final class WeakBox<T: AnyObject> {
-    weak var value: T?
-}
-
 /// A callback holder for `onSignOut`'s forward reference to `presentLogin()` (see
 /// `AppDelegate.init`): `self` isn't usable yet when the closure capturing it is built.
 private final class CallbackBox {
@@ -41,19 +35,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ackMarker = AckMarker()
         self.ackMarker = ackMarker
         self.projectClient = ProjectClient(baseURL: baseURL, session: session)
-        self.projectCache = ProjectCache(fileURL: ProjectCache.defaultURL())
+        let projectCache = ProjectCache(fileURL: ProjectCache.defaultURL())
+        self.projectCache = projectCache
 
         let tracker = TimeTracker(buffer: BufferStore())
         self.timeTracker = tracker
 
-        // `onSignOut` is built as an argument to MenuViewModel's own initializer (so
-        // `menuViewModel` doesn't exist as a value yet) and runs before `super.init()`
-        // (so `self`/AppDelegate can't be captured yet either). These two boxes stand
-        // in for those not-yet-available values; both are filled in below once the
-        // real values exist, before the closure can ever run. They're `let`-bound
-        // reference types (not captured `var`s) so the escaping Task below doesn't
-        // trip Swift 6's captured-var-across-concurrency-domains diagnostic.
-        let menuViewModelBox = WeakBox<MenuViewModel>()
+        // `onSignOut` is built as an argument to MenuViewModel's own initializer, before
+        // `super.init()` runs (so `self`/AppDelegate can't be captured yet). This box stands
+        // in for `presentLogin()`, not available as a value yet; it's filled in below once
+        // `self` exists, before the closure can ever run. It's a `let`-bound reference type
+        // (not a captured `var`) so the escaping Task below doesn't trip Swift 6's
+        // captured-var-across-concurrency-domains diagnostic.
         let presentLoginBox = CallbackBox()
 
         let menuViewModel = MenuViewModel(
@@ -62,18 +55,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openURL: { NSWorkspace.shared.open($0) },
             onSignOut: {
                 Task {
-                    // Close any in-progress span first: signing out mid-recording must not
-                    // leave a live timer running with no session behind it. stop() enqueues
-                    // the completed span rather than discarding it, and markNotReady() makes
-                    // Start inert again until the next successful login.
-                    await MainActor.run {
-                        menuViewModelBox.value?.stop()
-                        menuViewModelBox.value?.markNotReady()
-                    }
                     // Read the user before logout clears the in-memory access token the
                     // sub is decoded from; a stale marker must never survive to grant
                     // readiness to whoever signs in next (CLAUDE.md §1 fail-safe posture).
+                    // MenuViewModel.reset() (called by signOut() before this closure runs)
+                    // already stopped/enqueued any live span and cleared the VM's own state.
                     if let userId = await session.userId() { ackMarker.clear(userId: userId) }
+                    // Clear the cached project list too: it's a single global file, so without
+                    // this an offline login as a different user on this machine would show the
+                    // previous user's team projects in the picker.
+                    projectCache.clear()
                     await session.logout()
                     // Leave the app coherent: re-present login so the user can sign back in
                     // (the launch flow re-runs and re-enables tracking on success).
@@ -83,7 +74,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onQuit: { NSApp.terminate(nil) }
         )
         self.menuViewModel = menuViewModel
-        menuViewModelBox.value = menuViewModel
         super.init()
         presentLoginBox.call = { [weak self] in self?.presentLogin() }
     }
