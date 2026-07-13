@@ -42,9 +42,15 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
     /// bridged. Gating the system-edge forwarders (below) is the single mechanism — the monitor
     /// receives no idle/sleep/resume signals during a manual span, so no away cycle, no
     /// spurious IdleEvent, no stop.
+    /// `.paused` is included: pause/resume is a manual-only affordance (resume reopens as
+    /// `.manual`), so a paused span is a manual session the auto layer must not clobber —
+    /// without this, an away→resume cycle could `resolve` and open an AUTO entry over the
+    /// paused state (`TimeTracker.start` only self-guards against a second `.tracking` start).
     private var isManualSessionLive: Bool {
-        if case .tracking(_, _, _, .manual) = tracker.state { return true }
-        return false
+        switch tracker.state {
+        case .tracking(_, _, _, .manual), .paused: return true
+        default: return false
+        }
     }
 
     // Lifecycle (called by AppDelegate, already behind AckGate).

@@ -103,4 +103,22 @@ final class AutoTrackingCoordinatorTests: XCTestCase {
         XCTAssertTrue(tracker.isRunning, "the manual entry stays open")
         XCTAssertTrue(spy.entries.isEmpty, "no auto-stop, no bridge, no IdleEvent during a manual span")
     }
+
+    func testPausedManualSessionStandsDownAutoLayer() {
+        let (coordinator, tracker, spy, clock, resolver) = make(threshold: 300)
+        coordinator.activate()                                   // AUTO entry opens (monitor .active)
+        clock.advance(10)
+        tracker.pause()                                          // user pauses → closes entry → .paused
+        let countAfterPause = spy.entries.count                 // the paused span was enqueued
+        // An idle→resume cycle while paused must be ignored — else `resolve` would restart
+        // tracking and open an AUTO entry over the paused session (TimeTracker.start only
+        // self-guards against a second `.tracking` start, not `.paused`).
+        clock.advance(300); coordinator.tick(idleSeconds: 300)   // gated: .paused → no-op
+        clock.advance(60); coordinator.tick(idleSeconds: 1)      // gated: no resume prompt
+
+        XCTAssertNil(resolver(), "no away prompt is presented while a manual session is paused")
+        XCTAssertTrue(tracker.isPaused, "the paused session is not clobbered by an auto entry")
+        XCTAssertEqual(spy.entries.count, countAfterPause,
+                       "no auto-stop, bridge, or IdleEvent while paused")
+    }
 }
