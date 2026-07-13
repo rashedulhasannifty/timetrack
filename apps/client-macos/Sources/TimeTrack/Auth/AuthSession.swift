@@ -58,15 +58,13 @@ actor AuthSession {
 
     /// Forces a refresh regardless of deadline — used by PolicyClient on a 401.
     func forceRefresh() async throws -> String {
-        try await refresh(force: true)
+        try await refresh()
         guard let access else { throw SessionError.notAuthenticated }
         return access
     }
 
     /// Coalesced: concurrent callers await the SAME in-flight refresh instead of racing.
-    /// `force` only matters to the first caller that starts the task; joiners await whatever
-    /// refresh is already running.
-    private func refresh(force: Bool = false) async throws {
+    private func refresh() async throws {
         if let refreshInFlight { try await refreshInFlight.value; return }
         guard let token = store.readRefreshToken() else { throw SessionError.notAuthenticated }
         let task = Task { try await self.performRefresh(token: token) }
