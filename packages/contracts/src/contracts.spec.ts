@@ -7,6 +7,7 @@ import {
   ActivityBatchSchema,
   ActivitySampleSchema,
   IdleEventSchema,
+  IdleEventResultSchema,
   ScreenshotSchema,
   RedactScreenshotSchema,
   TeamSettingsSchema,
@@ -96,6 +97,24 @@ describe('idle', () => {
         resolvedAction: 'DISCARDED',
       }).success,
     ).toBe(true);
+  });
+
+  it('rejects an unknown resolvedAction', () => {
+    expect(
+      IdleEventSchema.safeParse({
+        id: UUID,
+        startTime: ISO,
+        endTime: ISO,
+        resolvedAction: 'MAYBE',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('IdleEventResultSchema round-trips id + resolvedAction', () => {
+    expect(IdleEventResultSchema.parse({ id: UUID, resolvedAction: 'KEPT' })).toEqual({
+      id: UUID,
+      resolvedAction: 'KEPT',
+    });
   });
 });
 

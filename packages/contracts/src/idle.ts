@@ -14,5 +14,12 @@ export const IdleEventSchema = z.object({
   resolvedAction: ResolvedAction,
 });
 
+/** The ingest response: the stored event's identity + how it resolved. */
+export const IdleEventResultSchema = z.object({
+  id: z.uuid(),
+  resolvedAction: ResolvedAction,
+});
+
 export type ResolvedAction = z.infer<typeof ResolvedAction>;
 export type IdleEvent = z.infer<typeof IdleEventSchema>;
+export type IdleEventResult = z.infer<typeof IdleEventResultSchema>;
