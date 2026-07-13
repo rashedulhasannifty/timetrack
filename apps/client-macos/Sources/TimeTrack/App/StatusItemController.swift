@@ -22,4 +22,10 @@ final class StatusItemController {
         case .capturing: item.button?.title = "◉"
         }
     }
+
+    /// Surfaces that the policy could not be fetched — the gate stays closed. A full retry
+    /// affordance lands with the capture UI in Slice 1.7b.
+    func showPolicyUnavailable() {
+        item.button?.toolTip = "TimeTrack: monitoring policy unavailable — not tracking."
+    }
 }

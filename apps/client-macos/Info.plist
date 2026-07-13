@@ -25,6 +25,8 @@
   <true/>
   <key>NSHumanReadableCopyright</key>
   <string>Copyright © TimeTrack.</string>
+  <key>TimeTrackAPIBaseURL</key>
+  <string>http://127.0.0.1:3001/v1</string>
   <!-- Screen Recording (ScreenCaptureKit) and Accessibility (window titles + idle) are
        granted by the user in System Settings > Privacy & Security at first use; they are
        TCC permissions, not Info.plist usage strings. Capture never starts until granted
