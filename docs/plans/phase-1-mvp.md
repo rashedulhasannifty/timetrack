@@ -158,7 +158,7 @@
 
 ## Phase 1 Definition of Done
 
-- [ ] 1.1 Bootstrap admin + invite/accept flow.
+- [x] 1.1 Bootstrap admin + invite/accept flow.
 - [x] 1.2 Users & teams management + settings (API + dashboard: `admin/users`, `admin/settings`).
 - [x] 1.3 Projects & tasks CRUD.
 - [x] 1.4 Time entries complete (edit + audit + active-entry).
