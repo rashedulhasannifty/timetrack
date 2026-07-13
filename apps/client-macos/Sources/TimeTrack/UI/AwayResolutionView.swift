@@ -41,6 +41,14 @@ final class AwayResolutionWindowController: NSWindowController, NSWindowDelegate
         controller.window?.makeKeyAndOrderFront(nil)
     }
 
+    /// Close the prompt if it's still on screen (e.g. on sign-out, once auto-tracking is torn
+    /// down). Closing routes through `windowWillClose` → `resolve(.discard)`; call this AFTER the
+    /// monitor is deactivated so that `resolve` is a harmless no-op on the now-inactive monitor
+    /// (the away window is already recorded UNRESOLVED). Leaving the panel up is the only harm.
+    static func dismissIfShowing() {
+        live?.window?.close()
+    }
+
     private init(minutes: Int, resolve: @escaping (AwayResolution) -> Void) {
         self.resolve = resolve
         let window = NSWindow(

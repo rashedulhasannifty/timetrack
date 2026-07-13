@@ -231,6 +231,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private func stopAutoTracking() {
         workspaceObserver?.stop()
         autoCoordinator?.deactivate()
+        // Deactivate first (records any pending away as UNRESOLVED and makes the monitor
+        // inactive), THEN close a still-open away prompt so its resolve() is a no-op.
+        AwayResolutionWindowController.dismissIfShowing()
         workspaceObserver = nil
         autoCoordinator = nil
     }
