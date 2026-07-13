@@ -6,6 +6,14 @@ struct EffectivePolicy: Decodable {
     let ackRequired: Bool
     let policyVersion: String
     let policyText: String
+    let settings: Settings
+
+    /// Subset of @timetrack/contracts `TeamSettingsSchema` that the client acts on. Extra keys
+    /// in the JSON are ignored by `Decodable`.
+    struct Settings: Decodable {
+        let idleThresholdMinutes: Int
+        let autoStartOnLogin: Bool
+    }
 }
 
 protocol PolicyProviding {
