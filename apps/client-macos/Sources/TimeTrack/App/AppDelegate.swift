@@ -1,8 +1,8 @@
 import AppKit
 
-/// Wires the app together. The AckGate (PRD §4.1) sits between every capture path and the
-/// hardware APIs; nothing here starts capturing until the policy is acknowledged. No capture
-/// service is constructed in Slice 1.7a — this proves auth + gate only.
+/// Wires the app together. The AckGate (PRD §4.1) still guards every capture path; manual
+/// tracking is NOT a capture path, so it is gated by MenuViewModel.isReady (flipped once the
+/// launch ack flow resolves) plus an offline AckMarker — never by AckGate.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = StatusItemController()
 
@@ -10,6 +10,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let policyClient: PolicyClient
     private let ackGate: AckGate
     private let ackClient: AckClient
+    private let ackMarker: AckMarker
+    private let projectClient: ProjectClient
+    private let projectCache: ProjectCache
+    private let timeTracker: TimeTracker
+    private let menuViewModel: MenuViewModel
+
     private var loginWindow: LoginWindowController?
     private var ackWindow: AckWindowController?
 
@@ -20,11 +26,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.policyClient = PolicyClient(baseURL: baseURL, session: session)
         self.ackGate = AckGate(policyProvider: policyClient)
         self.ackClient = AckClient(baseURL: baseURL, session: session)
+        let ackMarker = AckMarker()
+        self.ackMarker = ackMarker
+        self.projectClient = ProjectClient(baseURL: baseURL, session: session)
+        self.projectCache = ProjectCache(fileURL: ProjectCache.defaultURL())
+
+        let tracker = TimeTracker(buffer: BufferStore())
+        self.timeTracker = tracker
+        self.menuViewModel = MenuViewModel(
+            tracker: tracker,
+            dashboardURL: AppDelegate.dashboardURL(),
+            openURL: { NSWorkspace.shared.open($0) },
+            onSignOut: {
+                Task {
+                    // Read the user before logout clears the in-memory access token the
+                    // sub is decoded from; a stale marker must never survive to grant
+                    // readiness to whoever signs in next (CLAUDE.md §1 fail-safe posture).
+                    if let userId = await session.userId() { ackMarker.clear(userId: userId) }
+                    await session.logout()
+                }
+            },
+            onQuit: { NSApp.terminate(nil) }
+        )
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        statusItem.install()
+        // Keep the indicator in sync with tracking state (always visible; no kill switch).
+        // onPhaseChanged fires on the main thread (from a SwiftUI button action).
+        menuViewModel.onPhaseChanged = { [weak self] isTracking in
+            self?.statusItem.setState(isTracking ? .tracking : .idle)
+        }
+        statusItem.install(content: MenuBarView(viewModel: menuViewModel))
         Task { await start() }
     }
 
@@ -50,17 +83,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if policy.ackRequired {
                 guard let userId = await session.userId() else { await MainActor.run { presentLogin() }; return }
                 await MainActor.run { presentAck(policy: policy, userId: userId) }
+            } else {
+                if let userId = await session.userId() {
+                    ackMarker.record(userId: userId, policyVersion: policy.policyVersion)
+                }
+                await becomeReady()
             }
-            // else: ready. AckGate is available; capture paths (1.7b+) will route through it.
         } catch {
-            // Fail-safe: gate stays closed. A retry surface lands with capture UI in 1.7b.
-            await MainActor.run { statusItem.showPolicyUnavailable() }
+            // Offline / policy unavailable: allow MANUAL tracking only if this user has a
+            // prior local ack marker; capture stays closed behind AckGate regardless.
+            if let userId = await session.userId(), ackMarker.hasAcknowledged(userId: userId) {
+                await becomeReady()
+            } else {
+                await MainActor.run { statusItem.showPolicyUnavailable() }
+            }
+        }
+    }
+
+    /// Enable manual tracking and load projects (network → cache fallback).
+    private func becomeReady() async {
+        await MainActor.run { menuViewModel.markReady() }
+        await MainActor.run { menuViewModel.projects = projectCache.load() } // instant, offline-safe
+        if let fresh = try? await projectClient.list() {
+            projectCache.save(fresh)
+            await MainActor.run { menuViewModel.projects = fresh }
         }
     }
 
     @MainActor private func presentAck(policy: EffectivePolicy, userId: String) {
         let controller = AckWindowController(policy: policy, userId: userId, ackClient: ackClient) { [weak self] in
-            // Re-fetch to confirm the gate opened; nothing to start yet in 1.7a.
+            self?.ackMarker.record(userId: userId, policyVersion: policy.policyVersion)
             Task { await self?.proceedToPolicy() }
         }
         ackWindow = controller
@@ -71,5 +123,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let s = Bundle.main.object(forInfoDictionaryKey: "TimeTrackAPIBaseURL") as? String,
            let url = URL(string: s) { return url }
         return URL(string: "http://127.0.0.1:3001/v1")!
+    }
+
+    private static func dashboardURL() -> URL {
+        if let s = Bundle.main.object(forInfoDictionaryKey: "TimeTrackDashboardURL") as? String,
+           let url = URL(string: s) { return url }
+        return URL(string: "http://127.0.0.1:3000")!
     }
 }
