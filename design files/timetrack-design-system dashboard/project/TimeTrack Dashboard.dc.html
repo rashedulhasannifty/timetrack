@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+:root{
+  --bg:#F5F5F7; --surface:#FFFFFF; --surface-2:#FBFBFD; --raise:#FFFFFF;
+  --text:#1D1D1F; --text-2:#6E6E73; --text-3:#8E8E93;
+  --sep:rgba(0,0,0,0.10); --sep-2:rgba(0,0,0,0.06); --sep-strong:rgba(0,0,0,0.18);
+  --accent:#007AFF; --accent-weak:rgba(0,122,255,0.12); --on-accent:#FFFFFF;
+  --danger:#FF3B30; --danger-weak:rgba(255,59,48,0.12);
+  --prod:#1F97AE; --neut:#B7B7BE; --unprod:#4340C4;
+  --prod-weak:rgba(31,151,174,0.14); --unprod-weak:rgba(67,64,196,0.14);
+  --shadow:0 1px 2px rgba(0,0,0,0.05),0 6px 20px rgba(0,0,0,0.05);
+}
+[data-theme="dark"]{
+  --bg:#1C1C1E; --surface:#2C2C2E; --surface-2:#262628; --raise:#3A3A3C;
+  --text:#F5F5F7; --text-2:#A1A1A6; --text-3:#8E8E93;
+  --sep:rgba(255,255,255,0.12); --sep-2:rgba(255,255,255,0.07); --sep-strong:rgba(255,255,255,0.22);
+  --accent:#0A84FF; --accent-weak:rgba(10,132,255,0.20); --on-accent:#FFFFFF;
+  --danger:#FF453A; --danger-weak:rgba(255,69,58,0.20);
+  --prod:#3CC4DC; --neut:#7C7C84; --unprod:#8987F2;
+  --prod-weak:rgba(60,196,220,0.16); --unprod-weak:rgba(137,135,242,0.18);
+  --shadow:0 1px 2px rgba(0,0,0,0.4),0 8px 28px rgba(0,0,0,0.35);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,"SF Pro Text","SF Pro Display",ui-sans-serif,system-ui,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button{font-family:inherit}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+input,select,textarea{font-family:inherit}
+:focus-visible{outline:2.5px solid var(--accent);outline-offset:2px;border-radius:6px}
+[data-nav]{transition:background .12s}
+[data-nav]:hover{background:var(--sep-2)}
+[data-nav][aria-current="page"]{background:var(--accent-weak);color:var(--accent)}
+#tt-shell{transition:grid-template-columns .2s ease}
+@media (min-width:861px){
+  [data-collapsed="true"] #tt-shell{grid-template-columns:64px minmax(0,1fr)}
+  [data-collapsed="true"] [data-navlabel],[data-collapsed="true"] [data-brandname],[data-collapsed="true"] [data-navfoot],[data-collapsed="true"] [data-badge]{display:none!important}
+  [data-collapsed="true"] [data-nav]{justify-content:center!important;padding:0!important;gap:0!important}
+  [data-collapsed="true"] .tt-brand{flex-direction:column!important;gap:12px!important;padding:16px 0 12px!important}
+  [data-collapsed="true"] .tt-navgroup{padding:0 10px!important}
+}
+@media (prefers-reduced-motion:reduce){#tt-shell{transition:none}}
+@keyframes tt-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
+@keyframes tt-ring{0%{box-shadow:0 0 0 0 var(--accent-weak)}70%{box-shadow:0 0 0 7px rgba(10,132,255,0)}100%{box-shadow:0 0 0 0 rgba(10,132,255,0)}}
+@media (prefers-reduced-motion:reduce){[data-dot],[data-dot]::after{animation:none!important}}
+#tt-shell{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100vh}
+#tt-side{display:flex;flex-direction:column;gap:2px}
+@media (max-width:860px){
+  #tt-shell{grid-template-columns:minmax(0,1fr)}
+  #tt-side{flex-direction:row;overflow-x:auto;gap:4px;border-right:none!important;border-bottom:1px solid var(--sep);position:sticky;top:0;z-index:5;background:var(--surface)}
+  #tt-side .tt-navgroup{display:flex;flex-direction:row;gap:4px;padding:8px 12px!important}
+  #tt-side .tt-brand,#tt-side .tt-sep,#tt-side .tt-navfoot{display:none!important}
+  #tt-side [data-nav] span:last-child{white-space:nowrap}
+}
+@media (max-width:620px){
+  .tt-hidesm{display:none!important}
+  .tt-wrapsm{flex-wrap:wrap!important}
+  .tt-gridsm{grid-template-columns:minmax(0,1fr)!important}
+}
+</style>
+</helmet>
+<div data-theme="{{ theme }}" data-collapsed="{{ collapsedAttr }}" style="min-height:100vh;background:var(--bg);color:var(--text)">
+
+<sc-if value="{{ vLogin }}" hint-placeholder-val="{{ false }}">
+  <div style="min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg)">
+    <div style="width:100%;max-width:380px">
+      <div style="display:flex;align-items:center;gap:11px;margin-bottom:28px">
+        <div style="width:34px;height:34px;border-radius:9px;background:var(--accent);display:grid;place-items:center;color:var(--on-accent);font-weight:600;font-size:17px">◔</div>
+        <div style="font-size:20px;font-weight:600;letter-spacing:-0.01em">TimeTrack</div>
+      </div>
+      <h1 style="font-size:26px;font-weight:600;letter-spacing:-0.02em;margin:0 0 6px">Sign in</h1>
+      <p style="color:var(--text-2);font-size:15px;margin:0 0 24px;line-height:1.5">Your workspace, your data. You'll always see exactly what's recorded about you.</p>
+      <label style="display:block;font-size:13px;color:var(--text-2);margin:0 0 6px">Email</label>
+      <input type="email" value="emma.rivera@northwind.co" style="width:100%;height:40px;padding:0 12px;border-radius:9px;border:1px solid var(--sep-strong);background:var(--surface);color:var(--text);font-size:15px;margin-bottom:14px"/>
+      <label style="display:block;font-size:13px;color:var(--text-2);margin:0 0 6px">Password</label>
+      <input type="password" value="passwordpassword" style="width:100%;height:40px;padding:0 12px;border-radius:9px;border:1px solid var(--sep-strong);background:var(--surface);color:var(--text);font-size:15px;margin-bottom:20px"/>
+      <button onClick="{{ login }}" style="width:100%;height:42px;border:none;border-radius:10px;background:var(--accent);color:var(--on-accent);font-size:15px;font-weight:590;cursor:pointer">Sign in</button>
+      <p style="text-align:center;color:var(--text-3);font-size:13px;margin:18px 0 0">Self-hosted by Northwind · <a href="#0">Forgot password?</a></p>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ vApp }}" hint-placeholder-val="{{ true }}">
+<div id="tt-shell">
+  <!-- SIDEBAR -->
+  <aside id="tt-side" style="background:var(--surface);border-right:1px solid var(--sep);padding:0">
+    <div class="tt-brand" style="display:flex;align-items:center;gap:10px;padding:16px 12px 14px">
+      <div style="flex:none;width:30px;height:30px;border-radius:8px;background:var(--accent);display:grid;place-items:center;color:var(--on-accent);font-weight:600;font-size:15px">◔</div>
+      <div data-brandname style="font-size:16px;font-weight:600;letter-spacing:-0.01em;margin-right:auto">TimeTrack</div>
+      <button onClick="{{ toggleCollapse }}" aria-label="{{ collapseLabel }}" title="{{ collapseLabel }}" style="flex:none;width:28px;height:28px;border:none;background:transparent;color:var(--text-3);cursor:pointer;border-radius:8px;display:grid;place-items:center" style-hover="background:var(--sep-2);color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.4"></rect><line x1="9.3" y1="4.5" x2="9.3" y2="19.5"></line></svg></button>
+    </div>
+    <nav class="tt-navgroup" style="display:flex;flex-direction:column;gap:2px;padding:0 12px">
+      <button data-nav aria-current="{{ navTeam }}" onClick="{{ goTeam }}" title="Team" style="display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border:none;background:transparent;color:var(--text);border-radius:9px;font-size:14px;font-weight:500;cursor:pointer;text-align:left"><span style="flex:none;display:grid;place-items:center;width:20px;height:20px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8.5" r="3"></circle><path d="M3.8 19c0-2.9 2.3-4.9 5.2-4.9s5.2 2 5.2 4.9"></path><path d="M16.4 6.2a2.7 2.7 0 0 1 0 5.4"></path><path d="M17 14.3c2.1.4 3.7 2 3.7 4.3"></path></svg></span><span data-navlabel>Team</span></button>
+      <button data-nav aria-current="{{ navProjects }}" onClick="{{ goProjects }}" title="Projects" style="display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border:none;background:transparent;color:var(--text);border-radius:9px;font-size:14px;font-weight:500;cursor:pointer;text-align:left"><span style="flex:none;display:grid;place-items:center;width:20px;height:20px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.6" y="3.6" width="7" height="7" rx="1.7"></rect><rect x="13.4" y="3.6" width="7" height="7" rx="1.7"></rect><rect x="3.6" y="13.4" width="7" height="7" rx="1.7"></rect><rect x="13.4" y="13.4" width="7" height="7" rx="1.7"></rect></svg></span><span data-navlabel>Projects</span></button>
+      <button data-nav aria-current="{{ navReports }}" onClick="{{ goReports }}" title="Reports" style="display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border:none;background:transparent;color:var(--text);border-radius:9px;font-size:14px;font-weight:500;cursor:pointer;text-align:left"><span style="flex:none;display:grid;place-items:center;width:20px;height:20px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20v-5.5"></path><path d="M12 20V5"></path><path d="M19 20v-9"></path></svg></span><span data-navlabel>Reports</span></button>
+      <button data-nav aria-current="{{ navApprovals }}" onClick="{{ goApprovals }}" title="Approvals" style="display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border:none;background:transparent;color:var(--text);border-radius:9px;font-size:14px;font-weight:500;cursor:pointer;text-align:left"><span style="flex:none;display:grid;place-items:center;width:20px;height:20px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6.5 9.6 17 4 11.4"></path></svg></span><span data-navlabel>Approvals</span><sc-if value="{{ pendingCount }}" hint-placeholder-val="{{ false }}"><span data-badge style="margin-left:auto;font-size:11px;font-variant-numeric:tabular-nums;background:var(--accent-weak);color:var(--accent);border-radius:20px;padding:2px 7px;font-weight:600">{{ pendingCount }}</span></sc-if></button>
+      <button data-nav aria-current="{{ navAdmin }}" onClick="{{ goAdmin }}" title="Admin" style="display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border:none;background:transparent;color:var(--text);border-radius:9px;font-size:14px;font-weight:500;cursor:pointer;text-align:left"><span style="flex:none;display:grid;place-items:center;width:20px;height:20px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16"></path><path d="M4 16h16"></path><circle cx="9" cy="8" r="2.3" fill="var(--surface)"></circle><circle cx="15" cy="16" r="2.3" fill="var(--surface)"></circle></svg></span><span data-navlabel>Admin</span></button>
+      <div class="tt-sep" style="height:1px;background:var(--sep);margin:8px 12px"></div>
+      <button data-nav aria-current="{{ navMe }}" onClick="{{ goMe }}" title="My time" style="display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border:none;background:transparent;color:var(--text);border-radius:9px;font-size:14px;font-weight:500;cursor:pointer;text-align:left"><span style="flex:none;display:grid;place-items:center;width:20px;height:20px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.3"></circle><path d="M12 7.6V12l3 1.9"></path></svg></span><span data-navlabel>My time</span></button>
+    </nav>
+    <div class="tt-navfoot" data-navfoot style="margin-top:auto;padding:14px 18px;color:var(--text-3);font-size:11.5px;line-height:1.5">Self-hosted · Northwind<br/>Retention {{ retention }} days</div>
+  </aside>
+
+  <!-- MAIN -->
+  <main id="tt-main" style="min-width:0;display:flex;flex-direction:column">
+    <!-- TOP BAR -->
+    <header style="display:flex;align-items:center;gap:14px;padding:12px 22px;border-bottom:1px solid var(--sep);background:var(--surface);position:sticky;top:0;z-index:4">
+      <div style="font-size:13px;color:var(--text-2);font-weight:500" class="tt-hidesm">{{ dateLabel }}</div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+        <!-- ALWAYS-VISIBLE RECORDING STATE (no kill switch) -->
+        <div title="TimeTrack is recording your work. This can't be turned off here." style="display:flex;align-items:center;gap:7px;height:30px;padding:0 12px 0 10px;border-radius:20px;background:var(--accent-weak);color:var(--accent);font-size:12.5px;font-weight:600;border:1px solid transparent">
+          <span data-dot style="position:relative;width:8px;height:8px;border-radius:50%;background:var(--accent);animation:tt-pulse 1.8s ease-in-out infinite"></span>
+          <span>Recording</span>
+        </div>
+        <button onClick="{{ toggleTheme }}" aria-label="Toggle theme" style="width:32px;height:32px;border-radius:9px;border:1px solid var(--sep);background:var(--surface);color:var(--text);cursor:pointer;font-size:14px">{{ themeIcon }}</button>
+        <button onClick="{{ goMe }}" style="display:flex;align-items:center;gap:9px;height:32px;padding:0 6px 0 0;border:none;background:transparent;color:var(--text);cursor:pointer">
+          <span style="width:28px;height:28px;border-radius:50%;background:var(--unprod-weak);color:var(--unprod);display:grid;place-items:center;font-size:12px;font-weight:600">ER</span>
+          <span style="font-size:13.5px;font-weight:500" class="tt-hidesm">Emma Rivera</span>
+        </button>
+        <button onClick="{{ logout }}" title="Sign out" style="width:32px;height:32px;border-radius:9px;border:1px solid var(--sep);background:var(--surface);color:var(--text-2);cursor:pointer;font-size:13px">⏻</button>
+      </div>
+    </header>
+
+    <div style="padding:26px 22px 60px;max-width:1120px;width:100%">
+
+    <!-- ============ TEAM OVERVIEW ============ -->
+    <sc-if value="{{ vTeam }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:4px">
+        <div>
+          <h1 style="font-size:27px;font-weight:600;letter-spacing:-0.02em;margin:0">Team</h1>
+          <p style="color:var(--text-2);font-size:14px;margin:6px 0 0">Who's tracking right now — a roster, not a ranking.</p>
+        </div>
+      </div>
+      <div class="tt-gridsm" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0 26px">
+        <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:18px">
+          <div style="font-size:12px;color:var(--text-2);font-weight:500;text-transform:uppercase;letter-spacing:0.05em">Tracking now</div>
+          <div style="font-size:44px;font-weight:300;letter-spacing:-0.03em;margin-top:6px;line-height:1">{{ teamTracking }}<span style="font-size:18px;color:var(--text-3);font-weight:400"> / {{ teamTotal }}</span></div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:18px">
+          <div style="font-size:12px;color:var(--text-2);font-weight:500;text-transform:uppercase;letter-spacing:0.05em">Hours today</div>
+          <div style="font-size:44px;font-weight:300;letter-spacing:-0.03em;margin-top:6px;line-height:1;white-space:nowrap">{{ teamHours }}</div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:18px">
+          <div style="font-size:12px;color:var(--text-2);font-weight:500;text-transform:uppercase;letter-spacing:0.05em">Avg active</div>
+          <div style="font-size:44px;font-weight:300;letter-spacing:-0.03em;margin-top:6px;line-height:1">{{ teamAvgActive }}</div>
+        </div>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;overflow:hidden">
+        <div style="display:grid;grid-template-columns:2fr 1.2fr 1fr 1fr;gap:12px;padding:11px 20px;border-bottom:1px solid var(--sep);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-3);font-weight:600">
+          <div>Person</div><div>Status</div><div style="text-align:right">Today</div><div style="text-align:right">Active</div>
+        </div>
+        <sc-for list="{{ team }}" as="p" hint-placeholder-count="6">
+          <button onClick="{{ p.open }}" style="width:100%;display:grid;grid-template-columns:2fr 1.2fr 1fr 1fr;gap:12px;align-items:center;padding:13px 20px;border:none;border-top:1px solid var(--sep-2);background:transparent;color:var(--text);cursor:pointer;text-align:left" style-hover="background:var(--surface-2)">
+            <div style="display:flex;align-items:center;gap:12px;min-width:0">
+              <span style="flex:none;width:34px;height:34px;border-radius:50%;background:var(--accent-weak);color:var(--accent);display:grid;place-items:center;font-size:13px;font-weight:600">{{ p.initials }}</span>
+              <span style="min-width:0">
+                <span style="display:block;font-size:14.5px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.name }}</span>
+                <span style="display:block;font-size:12.5px;color:var(--text-3)">{{ p.role }}</span>
+              </span>
+            </div>
+            <div style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text-2)"><span style="width:8px;height:8px;border-radius:50%;background:{{ p.dotColor }}"></span>{{ p.statusLabel }}</div>
+            <div style="text-align:right;font-size:14px;font-variant-numeric:tabular-nums;font-weight:500;color:{{ p.hoursColor }}">{{ p.hours }}</div>
+            <div style="text-align:right;font-size:14px;font-variant-numeric:tabular-nums;color:var(--text-2)">{{ p.active }}</div>
+          </button>
+        </sc-for>
+      </div>
+      <p style="color:var(--text-3);font-size:12.5px;margin:14px 2px 0">Everyone on this list can open their own timeline and see exactly what you see here.</p>
+    </sc-if>
+
+    <!-- ============ TIMELINE (person + self) ============ -->
+    <sc-if value="{{ vTimeline }}" hint-placeholder-val="{{ false }}">
+      <sc-if value="{{ isSelf }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;gap:13px;align-items:flex-start;background:var(--accent-weak);border:1px solid transparent;border-radius:13px;padding:15px 17px;margin-bottom:22px">
+          <span data-dot style="flex:none;margin-top:3px;width:9px;height:9px;border-radius:50%;background:var(--accent);animation:tt-pulse 1.8s ease-in-out infinite"></span>
+          <div style="font-size:13.5px;line-height:1.55;color:var(--text)">
+            <strong style="font-weight:600">You're being recorded.</strong> While you're tracking, TimeTrack logs your active app and captures a screenshot about every {{ interval }} minutes. This can't be turned off from here — <a href="#0">ask an admin to change capture settings</a>. Everything below is exactly what your manager sees.
+          </div>
+        </div>
+      </sc-if>
+
+      <div class="tt-wrapsm" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:14px">
+          <span style="width:46px;height:46px;border-radius:50%;background:var(--unprod-weak);color:var(--unprod);display:grid;place-items:center;font-size:16px;font-weight:600">{{ person.initials }}</span>
+          <div>
+            <h1 style="font-size:24px;font-weight:600;letter-spacing:-0.02em;margin:0;display:flex;align-items:center;gap:9px;white-space:nowrap"><span style="white-space:nowrap">{{ person.name }}</span><sc-if value="{{ isSelf }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--accent);background:var(--accent-weak);padding:2px 8px;border-radius:6px">You</span></sc-if></h1>
+            <p style="color:var(--text-2);font-size:13.5px;margin:4px 0 0">{{ person.role }} · {{ dateLabel }}</p>
+          </div>
+        </div>
+        <sc-if value="{{ isSelf }}" hint-placeholder-val="{{ false }}"><span></span></sc-if>
+        <sc-if value="{{ isManagerView }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ approveDay }}" style="height:36px;padding:0 18px;border:none;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:14px;font-weight:550;cursor:pointer">Approve</button>
+        </sc-if>
+      </div>
+
+      <!-- SIGNATURE TIME RIBBON -->
+      <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:20px 22px 16px;margin:20px 0 16px;box-shadow:var(--shadow)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <div style="display:flex;align-items:baseline;gap:24px">
+            <div style="white-space:nowrap"><span style="font-size:34px;font-weight:300;letter-spacing:-0.03em">{{ person.hours }}</span><span style="font-size:14px;color:var(--text-2);margin-left:6px">tracked</span></div>
+            <div style="white-space:nowrap"><span style="font-size:34px;font-weight:300;letter-spacing:-0.03em;color:var(--text)">{{ person.active }}</span><span style="font-size:14px;color:var(--text-2);margin-left:6px">active</span></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;font-size:12.5px;color:var(--text-2)">
+            <span style="display:flex;align-items:center;gap:6px"><span style="width:11px;height:11px;border-radius:3px;background:var(--prod)"></span>Productive</span>
+            <span style="display:flex;align-items:center;gap:6px"><span style="width:11px;height:11px;border-radius:3px;background:var(--neut)"></span>Neutral</span>
+            <span style="display:flex;align-items:center;gap:6px"><span style="width:11px;height:11px;border-radius:3px;background:var(--unprod)"></span>Unproductive</span>
+          </div>
+        </div>
+
+        <sc-if value="{{ ribbonEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="border:1px dashed var(--sep-strong);border-radius:12px;padding:40px 20px;text-align:center">
+            <div style="font-size:15px;font-weight:550;margin-bottom:6px">No activity recorded today</div>
+            <p style="color:var(--text-2);font-size:13.5px;margin:0;line-height:1.5">Tracking starts when {{ person.first }} opens the TimeTrack app. Nothing is captured until then — and there's no way to capture in the background.</p>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ ribbonHasData }}" hint-placeholder-val="{{ true }}">
+          <!-- entry lane -->
+          <div style="position:relative;height:34px;border-radius:7px;background:var(--surface-2);overflow:hidden;border:1px solid var(--sep-2)">
+            <sc-for list="{{ segs }}" as="s" hint-placeholder-count="7">
+              <div title="{{ s.title }}" style="{{ s.style }}"></div>
+            </sc-for>
+          </div>
+          <!-- activity heat line -->
+          <div style="position:relative;height:44px;margin-top:6px">
+            <svg viewBox="0 0 100 44" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
+              <path d="{{ actArea }}" fill="var(--accent-weak)"></path>
+              <polyline points="{{ actLine }}" fill="none" stroke="var(--accent)" stroke-width="0.7" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"></polyline>
+            </svg>
+            <div style="position:absolute;left:0;bottom:-2px;font-size:10px;color:var(--text-3)">activity %</div>
+          </div>
+          <!-- capture ticks -->
+          <div style="position:relative;height:16px;margin-top:2px">
+            <sc-for list="{{ ticks }}" as="t" hint-placeholder-count="9">
+              <div title="{{ t.title }}" style="{{ t.style }}"></div>
+            </sc-for>
+          </div>
+          <!-- hour axis -->
+          <div style="position:relative;height:18px;margin-top:2px;border-top:1px solid var(--sep-2)">
+            <sc-for list="{{ hours }}" as="h" hint-placeholder-count="5">
+              <div style="{{ h.style }}">{{ h.label }}</div>
+            </sc-for>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;margin-top:12px;color:var(--text-3);font-size:12px">
+            <span style="width:6px;height:6px;border-radius:50%;background:var(--text-3)"></span>{{ captureCount }} screenshots captured · one about every {{ interval }} min while active
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ ribbonHasData }}" hint-placeholder-val="{{ true }}">
+      <div class="tt-gridsm" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <!-- app breakdown table -->
+        <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:18px 20px">
+          <h2 style="font-size:15px;font-weight:600;margin:0 0 14px">Apps &amp; sites</h2>
+          <sc-for list="{{ apps }}" as="a" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--sep-2)">
+              <div style="min-width:0">
+                <div style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:500"><span style="width:9px;height:9px;border-radius:3px;background:{{ a.color }}"></span>{{ a.name }}</div>
+                <div style="height:5px;border-radius:3px;background:var(--surface-2);margin-top:7px;overflow:hidden"><div style="{{ a.bar }}"></div></div>
+              </div>
+              <div style="text-align:right;font-size:13.5px;font-variant-numeric:tabular-nums;font-weight:500">{{ a.dur }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <!-- activity chart -->
+        <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:18px 20px">
+          <div style="display:flex;align-items:baseline;justify-content:space-between"><h2 style="font-size:15px;font-weight:600;margin:0 0 4px">Activity over the day</h2><span style="font-size:12.5px;color:var(--text-2)">avg {{ person.active }}</span></div>
+          <p style="font-size:12px;color:var(--text-3);margin:0 0 14px">Share of each interval with keyboard or mouse input.</p>
+          <div style="position:relative;height:150px">
+            <svg viewBox="0 0 100 60" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
+              <line x1="0" y1="15" x2="100" y2="15" stroke="var(--sep-2)" stroke-width="0.4"></line>
+              <line x1="0" y1="37.5" x2="100" y2="37.5" stroke="var(--sep-2)" stroke-width="0.4"></line>
+              <path d="{{ actArea60 }}" fill="var(--accent-weak)"></path>
+              <polyline points="{{ actLine60 }}" fill="none" stroke="var(--accent)" stroke-width="0.9" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"></polyline>
+            </svg>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-3);margin-top:6px"><span>6a</span><span>10a</span><span>2p</span><span>6p</span></div>
+        </div>
+      </div>
+
+      <!-- SCREENSHOTS -->
+      <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:18px 20px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <h2 style="font-size:15px;font-weight:600;margin:0">Screenshots</h2>
+          <span style="font-size:12.5px;color:var(--text-2)">Thumbnails load from short-lived links.<sc-if value="{{ isSelf }}" hint-placeholder-val="{{ false }}"> You can redact any of your own.</sc-if></span>
+        </div>
+        <div class="tt-gridsm" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:16px">
+          <sc-for list="{{ shots }}" as="s" hint-placeholder-count="6">
+            <div style="border:1px solid var(--sep);border-radius:10px;overflow:hidden;background:var(--surface-2)">
+              <div style="position:relative;aspect-ratio:16/10;background:repeating-linear-gradient(135deg,var(--surface-2),var(--surface-2) 8px,var(--bg) 8px,var(--bg) 16px);display:grid;place-items:center">
+                <sc-if value="{{ s.redacted }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;inset:0;background:var(--raise);display:flex;flex-direction:column;gap:5px;align-items:center;justify-content:center;padding:12px;text-align:center">
+                    <span style="font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-3)">Redacted by employee</span>
+                    <span style="font-size:12.5px;color:var(--text-2);line-height:1.4">"{{ s.reason }}"</span>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ s.visible }}" hint-placeholder-val="{{ true }}">
+                  <span style="font-size:11px;color:var(--text-3);font-family:ui-monospace,SFMono-Regular,monospace">{{ s.app }} screen</span>
+                </sc-if>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;gap:6px">
+                <span style="font-size:12px;font-variant-numeric:tabular-nums;color:var(--text-2)">{{ s.time }}</span>
+                <sc-if value="{{ s.canRedact }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ s.redact }}" style="font-size:11.5px;color:var(--accent);background:transparent;border:none;cursor:pointer;font-weight:550;padding:2px 4px">Redact</button>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+    </sc-if>
+
+    <!-- ============ PROJECTS ============ -->
+    <sc-if value="{{ vProjects }}" hint-placeholder-val="{{ false }}">
+      <h1 style="font-size:27px;font-weight:600;letter-spacing:-0.02em;margin:0 0 4px">Projects</h1>
+      <p style="color:var(--text-2);font-size:14px;margin:0 0 22px">Hours per project across the team, this week.</p>
+      <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;overflow:hidden">
+        <div style="display:grid;grid-template-columns:2fr 3fr 1fr;gap:12px;padding:11px 20px;border-bottom:1px solid var(--sep);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-3);font-weight:600"><div>Project</div><div>Category mix</div><div style="text-align:right">Hours</div></div>
+        <sc-for list="{{ projects }}" as="p" hint-placeholder-count="5">
+          <div style="display:grid;grid-template-columns:2fr 3fr 1fr;gap:12px;align-items:center;padding:14px 20px;border-top:1px solid var(--sep-2)">
+            <div><div style="font-size:14.5px;font-weight:550">{{ p.name }}</div><div style="font-size:12.5px;color:var(--text-3)">{{ p.people }} people</div></div>
+            <div style="height:8px;border-radius:4px;overflow:hidden;display:flex">{{ p.barEl }}</div>
+            <div style="text-align:right;font-size:14px;font-variant-numeric:tabular-nums;font-weight:500">{{ p.hours }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <!-- ============ REPORTS ============ -->
+    <sc-if value="{{ vReports }}" hint-placeholder-val="{{ false }}">
+      <div class="tt-wrapsm" style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:4px">
+        <div><h1 style="font-size:27px;font-weight:600;letter-spacing:-0.02em;margin:0">Reports</h1><p style="color:var(--text-2);font-size:14px;margin:6px 0 0">This week · all people · all projects</p></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select style="height:34px;padding:0 10px;border-radius:9px;border:1px solid var(--sep-strong);background:var(--surface);color:var(--text);font-size:13.5px"><option>This week</option><option>Last week</option><option>This month</option></select>
+          <button style="height:34px;padding:0 14px;border-radius:9px;border:1px solid var(--sep-strong);background:var(--surface);color:var(--text);font-size:13.5px;font-weight:500;cursor:pointer">Export CSV</button>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:20px 22px;margin:20px 0 16px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px"><h2 style="font-size:15px;font-weight:600;margin:0">Hours by day</h2>
+          <div style="display:flex;gap:14px;font-size:12px;color:var(--text-2)"><span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:3px;background:var(--prod)"></span>Productive</span><span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:3px;background:var(--neut)"></span>Neutral</span><span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:3px;background:var(--unprod)"></span>Unproductive</span></div>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:14px;height:190px;padding-top:14px">
+          <sc-for list="{{ reportBars }}" as="b" hint-placeholder-count="7">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;height:100%;justify-content:flex-end">
+              <div style="font-size:12px;font-variant-numeric:tabular-nums;color:var(--text-2);font-weight:500">{{ b.total }}</div>
+              <div style="width:100%;max-width:46px;display:flex;flex-direction:column-reverse;border-radius:5px;overflow:hidden">{{ b.stack }}</div>
+              <div style="font-size:12px;color:var(--text-3)">{{ b.label }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;overflow:hidden">
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;padding:11px 20px;border-bottom:1px solid var(--sep);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-3);font-weight:600"><div>Person</div><div style="text-align:right">Tracked</div><div style="text-align:right">Active</div><div style="text-align:right">Productive</div></div>
+        <sc-for list="{{ reportRows }}" as="r" hint-placeholder-count="5">
+          <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;padding:12px 20px;border-top:1px solid var(--sep-2);font-size:14px">
+            <div style="font-weight:500">{{ r.name }}</div>
+            <div style="text-align:right;font-variant-numeric:tabular-nums">{{ r.tracked }}</div>
+            <div style="text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)">{{ r.active }}</div>
+            <div style="text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)">{{ r.prod }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <!-- ============ APPROVALS ============ -->
+    <sc-if value="{{ vApprovals }}" hint-placeholder-val="{{ false }}">
+      <h1 style="font-size:27px;font-weight:600;letter-spacing:-0.02em;margin:0 0 4px">Approvals</h1>
+      <p style="color:var(--text-2);font-size:14px;margin:0 0 22px">{{ pendingCount }} timesheets pending for the week of Jul 6–12.</p>
+      <sc-if value="{{ approvalsEmpty }}" hint-placeholder-val="{{ false }}">
+        <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:48px 24px;text-align:center">
+          <div style="font-size:16px;font-weight:600;margin-bottom:6px">All caught up</div>
+          <p style="color:var(--text-2);font-size:14px;margin:0 0 18px;line-height:1.5">Every timesheet for this week is resolved. New submissions will appear here on Monday.</p>
+          <button onClick="{{ goReports }}" style="height:36px;padding:0 16px;border-radius:9px;border:1px solid var(--sep-strong);background:var(--surface);color:var(--text);font-size:14px;font-weight:500;cursor:pointer">View reports</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ approvalsHas }}" hint-placeholder-val="{{ true }}">
+        <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;overflow:hidden">
+          <sc-for list="{{ approvalRows }}" as="a" hint-placeholder-count="4">
+            <div class="tt-wrapsm" style="display:flex;align-items:center;gap:14px;padding:15px 20px;border-top:1px solid var(--sep-2);flex-wrap:wrap">
+              <span style="flex:none;width:36px;height:36px;border-radius:50%;background:var(--accent-weak);color:var(--accent);display:grid;place-items:center;font-size:13px;font-weight:600">{{ a.initials }}</span>
+              <div style="min-width:120px"><div style="font-size:14.5px;font-weight:550">{{ a.name }}</div><div style="font-size:12.5px;color:var(--text-3)">{{ a.period }}</div></div>
+              <div style="margin-left:auto;display:flex;align-items:center;gap:22px">
+                <div style="text-align:right"><div style="font-size:15px;font-variant-numeric:tabular-nums;font-weight:500">{{ a.hours }}</div><div style="font-size:11px;color:var(--text-3)">tracked</div></div>
+                <div style="text-align:right" class="tt-hidesm"><div style="font-size:15px;font-variant-numeric:tabular-nums;color:var(--text-2)">{{ a.active }}</div><div style="font-size:11px;color:var(--text-3)">active</div></div>
+                <sc-if value="{{ a.pending }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;gap:8px">
+                    <button onClick="{{ a.flag }}" style="height:34px;padding:0 14px;border-radius:9px;border:1px solid var(--sep-strong);background:var(--surface);color:var(--text);font-size:13.5px;font-weight:500;cursor:pointer">Flag</button>
+                    <button onClick="{{ a.approve }}" style="height:34px;padding:0 16px;border-radius:9px;border:none;background:var(--accent);color:var(--on-accent);font-size:13.5px;font-weight:550;cursor:pointer">Approve</button>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ a.resolved }}" hint-placeholder-val="{{ false }}">
+                  <span style="{{ a.pillStyle }}">{{ a.statusLabel }}</span>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </sc-if>
+
+    <!-- ============ ADMIN ============ -->
+    <sc-if value="{{ vAdmin }}" hint-placeholder-val="{{ false }}">
+      <h1 style="font-size:27px;font-weight:600;letter-spacing:-0.02em;margin:0 0 4px">Admin</h1>
+      <p style="color:var(--text-2);font-size:14px;margin:0 0 22px">Capture settings apply to everyone and are visible to everyone.</p>
+      <div class="tt-gridsm" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:20px">
+          <h2 style="font-size:15px;font-weight:600;margin:0 0 16px">Capture</h2>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--sep-2)">
+            <div><div style="font-size:14px;font-weight:500">Screenshot capture</div><div style="font-size:12.5px;color:var(--text-3)">When off, no screenshots are taken at all.</div></div>
+            <button onClick="{{ toggleCapture }}" role="switch" aria-checked="{{ capture }}" style="{{ captureSwitch }}"><span style="{{ captureKnob }}"></span></button>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--sep-2)"><div style="font-size:14px;font-weight:500">Screenshot interval</div><div style="font-size:14px;font-variant-numeric:tabular-nums;color:var(--text-2)">{{ interval }} min</div></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--sep-2)"><div style="font-size:14px;font-weight:500">Idle threshold</div><div style="font-size:14px;font-variant-numeric:tabular-nums;color:var(--text-2)">{{ idle }} min</div></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--sep-2)"><div style="font-size:14px;font-weight:500">Blur mode</div><div style="font-size:14px;color:var(--text-2)">Blur text in screenshots</div></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0"><div style="font-size:14px;font-weight:500">Retention</div><div style="font-size:14px;font-variant-numeric:tabular-nums;color:var(--text-2)">{{ retention }} days</div></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><h2 style="font-size:15px;font-weight:600;margin:0">People</h2><button style="height:30px;padding:0 12px;border-radius:8px;border:none;background:var(--accent);color:var(--on-accent);font-size:13px;font-weight:550;cursor:pointer">Invite</button></div>
+            <sc-for list="{{ users }}" as="u" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:11px;padding:9px 0;border-top:1px solid var(--sep-2)">
+                <span style="flex:none;width:30px;height:30px;border-radius:50%;background:var(--accent-weak);color:var(--accent);display:grid;place-items:center;font-size:11.5px;font-weight:600">{{ u.initials }}</span>
+                <div style="min-width:0;flex:1"><div style="font-size:13.5px;font-weight:500">{{ u.name }}</div><div style="font-size:12px;color:var(--text-3)">{{ u.email }}</div></div>
+                <span style="font-size:12px;color:var(--text-2)">{{ u.role }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="background:var(--surface);border:1px solid var(--sep);border-radius:14px;padding:20px">
+            <h2 style="font-size:15px;font-weight:600;margin:0 0 12px">Audit log</h2>
+            <sc-for list="{{ audit }}" as="e" hint-placeholder-count="4">
+              <div style="display:flex;gap:12px;padding:8px 0;border-top:1px solid var(--sep-2);font-size:13px"><span style="flex:none;width:96px;color:var(--text-3);font-variant-numeric:tabular-nums;font-size:12px">{{ e.time }}</span><span style="color:var(--text)"><strong style="font-weight:600">{{ e.actor }}</strong> {{ e.action }}</span></div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ============ 403 ============ -->
+    <sc-if value="{{ vForbidden }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:460px;margin:40px auto;text-align:center">
+        <div style="width:52px;height:52px;border-radius:14px;background:var(--surface);border:1px solid var(--sep);display:grid;place-items:center;margin:0 auto 18px;font-size:22px;color:var(--text-3)">◇</div>
+        <h1 style="font-size:22px;font-weight:600;letter-spacing:-0.01em;margin:0 0 8px">You can only see your own data</h1>
+        <p style="color:var(--text-2);font-size:14.5px;line-height:1.6;margin:0 0 22px">You don't have access to {{ deniedName }}'s timeline. Access is symmetric — people can only see themselves unless they manage someone. If you manage {{ deniedName }}, ask an admin to update your team assignments.</p>
+        <div style="display:flex;gap:10px;justify-content:center">
+          <button onClick="{{ goTeam }}" style="height:38px;padding:0 18px;border-radius:9px;border:1px solid var(--sep-strong);background:var(--surface);color:var(--text);font-size:14px;font-weight:500;cursor:pointer">Back to team</button>
+          <button onClick="{{ goMe }}" style="height:38px;padding:0 18px;border-radius:9px;border:none;background:var(--accent);color:var(--on-accent);font-size:14px;font-weight:550;cursor:pointer">View my time</button>
+        </div>
+      </div>
+    </sc-if>
+
+    </div>
+  </main>
+</div>
+</sc-if>
+
+<!-- REDACTION MODAL -->
+<sc-if value="{{ redactOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ cancelRedact }}" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);display:grid;place-items:center;z-index:50;padding:20px">
+    <div style="background:var(--surface);border:1px solid var(--sep);border-radius:16px;padding:24px;max-width:420px;width:100%;box-shadow:var(--shadow)">
+      <h2 style="font-size:18px;font-weight:600;margin:0 0 6px;letter-spacing:-0.01em">Redact your screenshot</h2>
+      <p style="color:var(--text-2);font-size:13.5px;line-height:1.55;margin:0 0 16px">This hides the image from everyone — including your manager. It stays visibly on the record as "redacted by employee" with your reason. It is never silently deleted.</p>
+      <label style="display:block;font-size:13px;color:var(--text-2);margin:0 0 6px">Reason</label>
+      <textarea value="{{ redactReason }}" onInput="{{ setReason }}" placeholder="e.g. Personal message on screen" style="width:100%;min-height:76px;padding:10px 12px;border-radius:10px;border:1px solid var(--sep-strong);background:var(--surface-2);color:var(--text);font-size:14px;resize:vertical;line-height:1.4"></textarea>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+        <button onClick="{{ cancelRedact }}" style="height:38px;padding:0 16px;border-radius:9px;border:1px solid var(--sep-strong);background:var(--surface);color:var(--text);font-size:14px;font-weight:500;cursor:pointer">Cancel</button>
+        <button onClick="{{ submitRedact }}" style="height:38px;padding:0 18px;border-radius:9px;border:none;background:var(--accent);color:var(--on-accent);font-size:14px;font-weight:550;cursor:pointer">Redact screenshot</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<!-- TOAST -->
+<sc-if value="{{ toastOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:60;background:var(--text);color:var(--bg);padding:11px 20px;border-radius:11px;font-size:14px;font-weight:500;box-shadow:var(--shadow)">{{ toast }}</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  state = {
+    view: 'home', theme: 'light', self: false, personId: 'marcus',
+    redact: null, reason: '', redactions: {}, approvals: {},
+    capture: true, interval: 10, idle: 5, retention: 90, toast: null, deniedName: '', collapsed: false
+  };
+
+  toggleCollapse(){ this.setState(s=>({ collapsed: !s.collapsed })); }
+
+  flash(msg){ this.setState({ toast: msg }); clearTimeout(this._t); this._t = setTimeout(()=>this.setState({toast:null}), 2400); }
+  goTeam(){ this.setState({ view:'home', self:false }); }
+  goProjects(){ this.setState({ view:'projects' }); }
+  goReports(){ this.setState({ view:'reports' }); }
+  goApprovals(){ this.setState({ view:'approvals' }); }
+  goAdmin(){ this.setState({ view:'admin' }); }
+  goMe(){ this.setState({ view:'timeline', self:true, personId:'emma' }); }
+  openPerson(id){ if(id==='dana'){ this.setState({view:'forbidden', deniedName:'Dana Whitfield'}); return; } this.setState({ view:'timeline', self:false, personId:id }); }
+  toggleTheme(){ this.setState(s=>({ theme: s.theme==='light'?'dark':'light' })); }
+  toggleCapture(){ this.setState(s=>({ capture: !s.capture })); this.flash(this.state.capture ? 'Capture turned off' : 'Capture turned on'); }
+  openRedact(id){ this.setState({ redact:id, reason:'' }); }
+  cancelRedact(){ this.setState({ redact:null }); }
+  setReason(e){ this.setState({ reason: e.target.value }); }
+  submitRedact(){ const id=this.state.redact; const r=(this.state.reason||'').trim()||'Personal'; this.setState(s=>({ redactions:{...s.redactions,[id]:r}, redact:null })); this.flash('Screenshot redacted'); }
+  approveDay(){ this.flash('Approved'); }
+  setApproval(id, st){ this.setState(s=>({ approvals:{...s.approvals,[id]:st} })); this.flash(st==='approved'?'Approved':'Flagged'); }
+  logout(){ this.setState({ view:'login' }); }
+  login(){ this.setState({ view:'home', self:false }); }
+
+  pct(h){ return (h-6)/13*100; }
+
+  buildTimeline(id, self){
+    const marcus = [[9,10.5,'prod','VS Code'],[10.5,10.8,'neut','Slack'],[10.8,12,'prod','VS Code'],[12.75,13.4,'neut','Mail'],[13.4,15.4,'prod','VS Code'],[15.4,15.7,'unprod','YouTube'],[15.7,17.5,'prod','Figma'],[17.5,18,'neut','Slack']];
+    const emma = [[8.5,10,'prod','Figma'],[10,10.3,'neut','Slack'],[10.3,11.8,'prod','Figma'],[11.8,12.1,'unprod','Instagram'],[12.9,13.5,'neut','Mail'],[13.5,15.8,'prod','Figma'],[15.8,16.1,'neut','Slack'],[16.1,17.9,'prod','Linear']];
+    if(id==='theo') return [];
+    return self ? emma : marcus;
+  }
+
+  renderVals(){
+    const s = this.state;
+    const cvar = { prod:'var(--prod)', neut:'var(--neut)', unprod:'var(--unprod)' };
+    const clabel = { prod:'Productive', neut:'Neutral', unprod:'Unproductive' };
+
+    const peopleData = [
+      { id:'marcus', name:'Marcus Lee', first:'Marcus', role:'Frontend engineer', initials:'ML', status:'tracking', hours:'6h 12m', active:'68%' },
+      { id:'emma', name:'Emma Rivera', first:'Emma', role:'Product designer', initials:'ER', status:'tracking', hours:'5h 48m', active:'74%' },
+      { id:'priya', name:'Priya Nair', first:'Priya', role:'Backend engineer', initials:'PN', status:'idle', hours:'4h 02m', active:'61%' },
+      { id:'dan', name:'Dan Okafor', first:'Dan', role:'Product manager', initials:'DO', status:'offline', hours:'7h 20m', active:'55%' },
+      { id:'sofia', name:'Sofia Marchetti', first:'Sofia', role:'QA engineer', initials:'SM', status:'tracking', hours:'3h 15m', active:'70%' },
+      { id:'theo', name:'Theo Barnes', first:'Theo', role:'Support (onboarding)', initials:'TB', status:'offline', hours:'—', active:'—' },
+      { id:'dana', name:'Dana Whitfield', first:'Dana', role:'Finance (another team)', initials:'DW', status:'restricted', hours:'—', active:'—' },
+    ];
+    const statusMap = { tracking:{l:'Tracking', c:'var(--accent)'}, idle:{l:'Idle', c:'var(--neut)'}, offline:{l:'Offline', c:'var(--text-3)'}, restricted:{l:'No access', c:'var(--text-3)'} };
+
+    const team = peopleData.map(p=>({
+      ...p, open:()=>this.openPerson(p.id),
+      statusLabel: statusMap[p.status].l, dotColor: statusMap[p.status].c,
+      hoursColor: p.hours==='—' ? 'var(--text-3)' : 'var(--text)',
+    }));
+
+    // resolve person
+    const person = peopleData.find(p=>p.id===s.personId) || peopleData[0];
+    const isSelf = s.self;
+    const entries = this.buildTimeline(person.id, isSelf);
+    const ribbonEmpty = entries.length===0;
+
+    const segs = entries.map(([a,b,cat,app])=>{
+      const L=this.pct(a), W=this.pct(b)-this.pct(a);
+      const mins=Math.round((b-a)*60); const dur = mins>=60?`${Math.floor(mins/60)}h ${mins%60}m`:`${mins}m`;
+      const fmt=(h)=>{ let hh=Math.floor(h); let mm=Math.round((h-hh)*60); let ap=hh<12?'a':'p'; let d=hh%12; if(d===0)d=12; return `${d}:${String(mm).padStart(2,'0')}${ap}`; };
+      return { style:`position:absolute;top:0;bottom:0;left:${L}%;width:${W}%;background:${cvar[cat]};border-radius:4px;border:1px solid rgba(0,0,0,0.05)`, title:`${app} · ${clabel[cat]} · ${fmt(a)}–${fmt(b)} (${dur})` };
+    });
+
+    const tickHours=[9.3,10.1,10.9,11.6,13.1,14.0,14.8,16.2,17.1];
+    const ticks = ribbonEmpty?[]:tickHours.map(h=>{ const fmt=()=>{ let hh=Math.floor(h); let mm=Math.round((h-hh)*60); let ap=hh<12?'a':'p'; let d=hh%12||12; return `${d}:${String(mm).padStart(2,'0')}${ap}`; }; return { style:`position:absolute;left:${this.pct(h)}%;top:2px;transform:translateX(-50%);width:1px;height:7px;background:var(--text-3);border-radius:1px`, title:`Screenshot captured ${fmt()}` }; });
+
+    const hourDefs=[[6,'6a'],[9,'9a'],[12,'12p'],[15,'3p'],[18,'6p']];
+    const hours = hourDefs.map(([h,l])=>({ label:l, style:`position:absolute;left:${this.pct(h)}%;top:3px;transform:translateX(-50%);font-size:10.5px;color:var(--text-3);font-variant-numeric:tabular-nums` }));
+
+    // activity curve
+    const act=[[6,4],[7,22],[8,58],[9,74],[10,80],[11,66],[12,18],[13,60],[14,78],[15,70],[16,42],[17,82],[18,58],[19,26]];
+    const mk=(H,pad)=>{ const pts=act.map(([h,p])=>{ const x=this.pct(h); const y=H-(p/100*(H-pad*2))-pad; return [x.toFixed(1),y.toFixed(1)]; }); const line=pts.map(p=>p.join(',')).join(' '); const area=`M ${pts[0][0]},${H} `+pts.map(p=>`L ${p[0]},${p[1]}`).join(' ')+` L ${pts[pts.length-1][0]},${H} Z`; return {line,area}; };
+    const a44=mk(44,3), a60=mk(60,4);
+
+    // apps
+    const appData = isSelf
+      ? [['Figma',5.4,'prod'],['Linear',1.8,'prod'],['Mail',0.6,'neut'],['Slack',0.5,'neut'],['Instagram',0.3,'unprod']]
+      : [['VS Code',4.17,'prod'],['Figma',1.75,'prod'],['Mail',0.65,'neut'],['Slack',0.58,'neut'],['YouTube',0.25,'unprod']];
+    const appMax=Math.max(...appData.map(a=>a[1]));
+    const apps = appData.map(([name,h,cat])=>{ const mins=Math.round(h*60); const dur=`${Math.floor(mins/60)}h ${String(mins%60).padStart(2,'0')}m`; return { name, dur, color:cvar[cat], bar:`height:100%;width:${(h/appMax*100).toFixed(0)}%;background:${cvar[cat]};border-radius:3px` }; });
+
+    // projects
+    const prj=[['Northwind Web',36.5,[62,28,10]],['Billing API',24.0,[70,22,8]],['Mobile App',19.5,[55,35,10]],['Design System',12.0,[74,20,6]],['Internal Tools',6.5,[50,40,10]]];
+    const projects = prj.map(([name,h,mix])=>{ const el = React.createElement(React.Fragment,null,
+        React.createElement('div',{style:{width:mix[0]+'%',background:'var(--prod)'}}),
+        React.createElement('div',{style:{width:mix[1]+'%',background:'var(--neut)'}}),
+        React.createElement('div',{style:{width:mix[2]+'%',background:'var(--unprod)'}}) );
+      return { name, people:Math.ceil(h/8), hours:`${Math.floor(h)}h ${String(Math.round((h%1)*60)).padStart(2,'0')}m`, barEl: el }; });
+
+    // reports bars
+    const rd=[['Mon',5.0,1.2,0.4],['Tue',6.0,0.9,0.3],['Wed',4.5,1.5,0.8],['Thu',6.5,0.8,0.2],['Fri',3.5,1.0,0.6],['Sat',0,0,0],['Sun',0,0,0]];
+    const rmax=8;
+    const reportBars = rd.map(([label,p,n,u])=>{ const tot=p+n+u; const seg=(v,c)=>React.createElement('div',{style:{height:(v/rmax*160)+'px',background:c}});
+      const stack=React.createElement(React.Fragment,null, seg(p,'var(--prod)'), seg(n,'var(--neut)'), seg(u,'var(--unprod)'));
+      const th=Math.floor(tot); const tm=Math.round((tot%1)*60); return { label, total: tot? `${th}h`:'—', stack }; });
+
+    const reportRows=[
+      {name:'Marcus Lee',tracked:'31h 40m',active:'66%',prod:'71%'},
+      {name:'Emma Rivera',tracked:'29h 05m',active:'73%',prod:'78%'},
+      {name:'Priya Nair',tracked:'26h 20m',active:'62%',prod:'69%'},
+      {name:'Dan Okafor',tracked:'33h 10m',active:'54%',prod:'60%'},
+      {name:'Sofia Marchetti',tracked:'22h 45m',active:'70%',prod:'74%'},
+    ];
+
+    // screenshots
+    const shotDefs = isSelf
+      ? [['s1','9:12a','Figma'],['s2','9:41a','Figma'],['s3','10:22a','Slack'],['s4','11:15a','Figma'],['s5','1:31p','Mail'],['s6','2:48p','Linear']]
+      : [['s1','9:18a','VS Code'],['s2','10:06a','VS Code'],['s3','10:54a','Slack'],['s4','11:36a','VS Code'],['s5','1:06p','Mail'],['s6','2:00p','Figma']];
+    const preRedact = isSelf ? { s3:'Personal message visible' } : {};
+    const shots = shotDefs.map(([id,time,app])=>{ const rr = s.redactions[id] || preRedact[id]; const redacted=!!rr; return { id, time, app, redacted, visible:!redacted, reason: rr||'', canRedact: isSelf && !redacted, redact:()=>this.openRedact(id) }; });
+
+    // approvals
+    const apr=[
+      {id:'a1',name:'Marcus Lee',initials:'ML',period:'Jul 6 – Jul 12',hours:'31h 40m',active:'66%'},
+      {id:'a2',name:'Priya Nair',initials:'PN',period:'Jul 6 – Jul 12',hours:'26h 20m',active:'62%'},
+      {id:'a3',name:'Sofia Marchetti',initials:'SM',period:'Jul 6 – Jul 12',hours:'22h 45m',active:'70%'},
+      {id:'a4',name:'Dan Okafor',initials:'DO',period:'Jul 6 – Jul 12',hours:'33h 10m',active:'54%'},
+    ];
+    const approvalRows = apr.map(a=>{ const st=s.approvals[a.id]; const resolved=!!st; const label=st==='approved'?'Approved':st==='flagged'?'Flagged':''; const pillStyle = st==='approved' ? 'font-size:12.5px;font-weight:600;color:var(--accent);background:var(--accent-weak);padding:5px 12px;border-radius:8px' : 'font-size:12.5px;font-weight:600;color:var(--danger);background:var(--danger-weak);padding:5px 12px;border-radius:8px';
+      return { ...a, pending:!resolved, resolved, statusLabel:label, pillStyle, approve:()=>this.setApproval(a.id,'approved'), flag:()=>this.setApproval(a.id,'flagged') }; });
+    const pendingCount = apr.filter(a=>!s.approvals[a.id]).length;
+
+    const users=[
+      {name:'Emma Rivera',email:'emma.rivera@northwind.co',role:'Admin',initials:'ER'},
+      {name:'Marcus Lee',email:'marcus.lee@northwind.co',role:'Manager',initials:'ML'},
+      {name:'Priya Nair',email:'priya.nair@northwind.co',role:'Member',initials:'PN'},
+      {name:'Dan Okafor',email:'dan.okafor@northwind.co',role:'Manager',initials:'DO'},
+    ];
+    const audit=[
+      {time:'Jul 13 · 9:02a',actor:'Emma Rivera',action:'redacted a screenshot on her own timeline'},
+      {time:'Jul 12 · 5:41p',actor:'Marcus Lee',action:'approved Priya Nair\u2019s timesheet'},
+      {time:'Jul 12 · 2:15p',actor:'Emma Rivera',action:'changed screenshot interval to 10 min'},
+      {time:'Jul 11 · 8:30a',actor:'System',action:'deleted screenshots older than 90 days'},
+    ];
+
+    const captureSwitch = `width:44px;height:26px;border-radius:20px;border:none;cursor:pointer;position:relative;transition:background .18s;background:${s.capture?'var(--accent)':'var(--sep-strong)'}`;
+    const captureKnob = `position:absolute;top:3px;left:${s.capture?'21px':'3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:left .18s;box-shadow:0 1px 3px rgba(0,0,0,0.3)`;
+
+    return {
+      theme: s.theme, themeIcon: s.theme==='light' ? '☾' : '☀',
+      collapsedAttr: s.collapsed ? 'true' : false, toggleCollapse:()=>this.toggleCollapse(),
+      collapseLabel: s.collapsed ? 'Expand sidebar' : 'Collapse sidebar',
+      dateLabel: 'Monday, July 13, 2026',
+      vLogin: s.view==='login', vApp: s.view!=='login',
+      vTeam: s.view==='home', vTimeline: s.view==='timeline', vProjects: s.view==='projects',
+      vReports: s.view==='reports', vApprovals: s.view==='approvals', vAdmin: s.view==='admin', vForbidden: s.view==='forbidden',
+      navTeam: (s.view==='home'||s.view==='forbidden'||(s.view==='timeline'&&!s.self))?'page':false,
+      navProjects: s.view==='projects'?'page':false,
+      navReports: s.view==='reports'?'page':false,
+      navApprovals: s.view==='approvals'?'page':false,
+      navAdmin: s.view==='admin'?'page':false,
+      navMe: (s.view==='timeline'&&s.self)?'page':false,
+      goTeam:()=>this.goTeam(), goProjects:()=>this.goProjects(), goReports:()=>this.goReports(),
+      goApprovals:()=>this.goApprovals(), goAdmin:()=>this.goAdmin(), goMe:()=>this.goMe(),
+      toggleTheme:()=>this.toggleTheme(), logout:()=>this.logout(), login:()=>this.login(),
+      team, teamTracking: peopleData.filter(p=>p.status==='tracking').length, teamTotal: peopleData.length,
+      teamHours:'26h 37m', teamAvgActive:'66%',
+      person, isSelf, isManagerView: !isSelf, ribbonEmpty, ribbonHasData: !ribbonEmpty,
+      segs, ticks, hours, captureCount: tickHours.length,
+      actLine: a44.line, actArea: a44.area, actLine60: a60.line, actArea60: a60.area,
+      apps, projects, reportBars, reportRows, shots,
+      approvalRows, pendingCount, approvalsEmpty: pendingCount===0, approvalsHas: pendingCount>0,
+      users, audit,
+      interval: s.interval, idle: s.idle, retention: s.retention, capture: s.capture,
+      toggleCapture:()=>this.toggleCapture(), captureSwitch, captureKnob,
+      redactOpen: !!s.redact, redactReason: s.reason, cancelRedact:()=>this.cancelRedact(), setReason:(e)=>this.setReason(e), submitRedact:()=>this.submitRedact(),
+      approveDay:()=>this.approveDay(),
+      toastOpen: !!s.toast, toast: s.toast, deniedName: s.deniedName,
+    };
+  }
+}
+</script>
+</body>
+</html>
