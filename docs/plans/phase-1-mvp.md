@@ -127,10 +127,10 @@
 
 **Sub-slices:**
 
-- **1.7a — Auth + policy + ack gate**
-  - `Auth/`: login (email/password) → store access + refresh tokens in the **macOS Keychain** (`PRD §6.8`); refresh on 401.
-  - `Policy/PolicyClient` (exists): fetch `/policy/effective`; if `ackRequired`, present the acknowledgement screen; on accept call `POST /users/:id/ack-monitoring`. `AckGate.withCaptureAllowed` already blocks capture until acknowledged.
-  - XCTest: ack-gate refuses capture while `ackRequired`.
+- **1.7a — Auth + policy + ack gate** — ✅ **done** (branch `slice-1.7a-client-auth-ack`; spec+plan in `docs/superpowers/`). Client suite 12/12; whole-branch review READY TO MERGE. **Pending: live GUI end-to-end smoke (human).**
+  - `Auth/`: login (email/password) → store access + refresh tokens in the **macOS Keychain** (`PRD §6.8`); refresh on 401. _Built: `AuthSession` actor (refresh token→Keychain, access→memory, coalesced refresh), `AuthClient`, `TokenStore`/`KeychainTokenStore`, `JWTDecoder`, login window._
+  - `Policy/PolicyClient` (exists): fetch `/policy/effective`; if `ackRequired`, present the acknowledgement screen; on accept call `POST /users/:id/ack-monitoring`. `AckGate.withCaptureAllowed` already blocks capture until acknowledged. _Built: `PolicyProviding` + 401-retry, `AckGate` on the protocol, `AckClient` (posts `{policyVersion}`), ack window, `AppDelegate` launch flow. No capture wired (1.7b+)._
+  - XCTest: ack-gate refuses capture while `ackRequired`. _Done, plus JWT decode, session refresh/coalescing, and ack-POST body tests._
 - **1.7b — Menu bar + manual tracking**
   - `App/StatusItemController` (exists): dropdown with Start / Stop / Pause, searchable project/task picker, "My Data", "Settings", "Quit". Icon reflects `idle`/`tracking`.
   - `Tracking/TimeTracker` (exists): start → create a `TimeEntry` with a client-minted **UUIDv7**; stop → set `endTime`; enqueue to the buffer.
