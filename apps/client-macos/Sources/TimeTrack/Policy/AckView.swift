@@ -31,6 +31,10 @@ final class AckWindowController {
         window.title = "Monitoring policy"
         window.contentView = NSHostingView(rootView: view)
         window.center()
+        // ARC owns this window via `self.window`; without this, AppKit ALSO releases it on
+        // close() (isReleasedWhenClosed defaults to true) → double-free → SIGSEGV in the
+        // close-animation teardown. Matches RecoveryView/AwayResolutionView.
+        window.isReleasedWhenClosed = false
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
