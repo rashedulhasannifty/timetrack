@@ -1,5 +1,17 @@
 import AppKit
 
+/// A weak-reference holder for `onSignOut`'s forward reference to `menuViewModel` (see
+/// `AppDelegate.init`): the value doesn't exist yet when the closure capturing it is built.
+private final class WeakBox<T: AnyObject> {
+    weak var value: T?
+}
+
+/// A callback holder for `onSignOut`'s forward reference to `presentLogin()` (see
+/// `AppDelegate.init`): `self` isn't usable yet when the closure capturing it is built.
+private final class CallbackBox {
+    var call: (@MainActor () -> Void)?
+}
+
 /// Wires the app together. The AckGate (PRD §4.1) still guards every capture path; manual
 /// tracking is NOT a capture path, so it is gated by MenuViewModel.isReady (flipped once the
 /// launch ack flow resolves) plus an offline AckMarker — never by AckGate.
@@ -33,22 +45,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let tracker = TimeTracker(buffer: BufferStore())
         self.timeTracker = tracker
-        self.menuViewModel = MenuViewModel(
+
+        // `onSignOut` is built as an argument to MenuViewModel's own initializer (so
+        // `menuViewModel` doesn't exist as a value yet) and runs before `super.init()`
+        // (so `self`/AppDelegate can't be captured yet either). These two boxes stand
+        // in for those not-yet-available values; both are filled in below once the
+        // real values exist, before the closure can ever run. They're `let`-bound
+        // reference types (not captured `var`s) so the escaping Task below doesn't
+        // trip Swift 6's captured-var-across-concurrency-domains diagnostic.
+        let menuViewModelBox = WeakBox<MenuViewModel>()
+        let presentLoginBox = CallbackBox()
+
+        let menuViewModel = MenuViewModel(
             tracker: tracker,
             dashboardURL: AppDelegate.dashboardURL(),
             openURL: { NSWorkspace.shared.open($0) },
             onSignOut: {
                 Task {
+                    // Close any in-progress span first: signing out mid-recording must not
+                    // leave a live timer running with no session behind it. stop() enqueues
+                    // the completed span rather than discarding it, and markNotReady() makes
+                    // Start inert again until the next successful login.
+                    await MainActor.run {
+                        menuViewModelBox.value?.stop()
+                        menuViewModelBox.value?.markNotReady()
+                    }
                     // Read the user before logout clears the in-memory access token the
                     // sub is decoded from; a stale marker must never survive to grant
                     // readiness to whoever signs in next (CLAUDE.md §1 fail-safe posture).
                     if let userId = await session.userId() { ackMarker.clear(userId: userId) }
                     await session.logout()
+                    // Leave the app coherent: re-present login so the user can sign back in
+                    // (the launch flow re-runs and re-enables tracking on success).
+                    await MainActor.run { presentLoginBox.call?() }
                 }
             },
             onQuit: { NSApp.terminate(nil) }
         )
+        self.menuViewModel = menuViewModel
+        menuViewModelBox.value = menuViewModel
         super.init()
+        presentLoginBox.call = { [weak self] in self?.presentLogin() }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
