@@ -131,7 +131,7 @@
   - `Auth/`: login (email/password) → store access + refresh tokens in the **macOS Keychain** (`PRD §6.8`); refresh on 401. _Built: `AuthSession` actor (refresh token→Keychain, access→memory, coalesced refresh), `AuthClient`, `TokenStore`/`KeychainTokenStore`, `JWTDecoder`, login window._
   - `Policy/PolicyClient` (exists): fetch `/policy/effective`; if `ackRequired`, present the acknowledgement screen; on accept call `POST /users/:id/ack-monitoring`. `AckGate.withCaptureAllowed` already blocks capture until acknowledged. _Built: `PolicyProviding` + 401-retry, `AckGate` on the protocol, `AckClient` (posts `{policyVersion}`), ack window, `AppDelegate` launch flow. No capture wired (1.7b+)._
   - XCTest: ack-gate refuses capture while `ackRequired`. _Done, plus JWT decode, session refresh/coalescing, and ack-POST body tests._
-- **1.7b — Menu bar + manual tracking**
+- **1.7b — Menu bar + manual tracking** — ✅ **done**. **Pending: live GUI end-to-end smoke (human).**
   - `App/StatusItemController` (exists): dropdown with Start / Stop / Pause, searchable project/task picker, "My Data", "Settings", "Quit". Icon reflects `idle`/`tracking`.
   - `Tracking/TimeTracker` (exists): start → create a `TimeEntry` with a client-minted **UUIDv7**; stop → set `endTime`; enqueue to the buffer.
   - Manual entries sync (1.7d) to `POST /time-entries`.
