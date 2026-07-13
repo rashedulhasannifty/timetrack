@@ -70,7 +70,7 @@ struct AckView: View {
         error = nil
         Task {
             do {
-                try await ackClient.acknowledge(userId: userId)
+                try await ackClient.acknowledge(userId: userId, policyVersion: policy.policyVersion)
                 await MainActor.run { onAcknowledged() }
             } catch {
                 await MainActor.run { self.error = "Could not record acknowledgement. Try again."; busy = false }
