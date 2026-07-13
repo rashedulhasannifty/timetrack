@@ -225,7 +225,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let minutes = max(1, Int((span.lastAlive.timeIntervalSince(span.startTime) / 60).rounded()))
         RecoveryWindowController.present(minutes: minutes) { [weak self] action in
             guard let self else { return }
-            if action == .keep {
+            // Defense-in-depth: the prompt is non-modal and can outlive the user who opened it
+            // (e.g. left open across a sign-out/sign-in). Re-check against the CURRENT
+            // logged-in user (the live `userIdBox` value, not the `currentUserId` captured when
+            // this closure was built) so a stale "Keep" click from a prior user's prompt can
+            // never enqueue that user's span into whoever is signed in now.
+            if action == .keep, LiveSpanStore.shouldRecover(span: span, currentUserId: self.userIdBox.value) {
                 self.timeTracker.recordSpan(
                     id: span.entryId, start: span.startTime, end: span.lastAlive,
                     projectId: span.projectId, taskId: span.taskId,
@@ -308,6 +313,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AwayResolutionWindowController.dismissIfShowing()
         workspaceObserver = nil
         autoCoordinator = nil
+        // Cross-user integrity (CLAUDE.md §1): this runs on sign-out. A still-open recovery
+        // prompt belongs to the user who's signing out, so tear it down here too (its discard
+        // path clears the live-span file — nothing gets enqueued) rather than leaving it on
+        // screen for the next user to act on. Reset the one-shot flag as well, so the NEXT
+        // user who signs in gets their own span evaluated by `recoverLiveSpanIfNeeded` instead
+        // of being silently skipped because a prior user already "used" the attempt.
+        RecoveryWindowController.dismissIfShowing()
+        hasAttemptedRecovery = false
     }
 
     @MainActor private func presentAck(policy: EffectivePolicy, userId: String) {

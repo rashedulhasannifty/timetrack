@@ -42,6 +42,14 @@ final class RecoveryWindowController: NSWindowController, NSWindowDelegate {
         controller.window?.makeKeyAndOrderFront(nil)
     }
 
+    /// Close the prompt if it's still on screen (e.g. on sign-out, so a prior user's recovery
+    /// window never survives into the next user's session). Closing routes through
+    /// `windowWillClose` → `resolve(.discard)`, which clears the live-span file without
+    /// enqueuing anything — the only harm is the panel having been left up.
+    static func dismissIfShowing() {
+        live?.window?.close()
+    }
+
     private init(minutes: Int, resolve: @escaping (AwayResolution) -> Void) {
         self.resolve = resolve
         let window = NSWindow(
