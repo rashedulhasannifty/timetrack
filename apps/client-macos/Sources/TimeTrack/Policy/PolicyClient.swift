@@ -8,23 +8,39 @@ struct EffectivePolicy: Decodable {
     let policyText: String
 }
 
-/// Fetches the effective monitoring policy from the API. The AckGate calls this before
-/// any capture path may run.
-final class PolicyClient {
-    private let baseURL: URL
-    private let accessToken: () -> String?
+protocol PolicyProviding {
+    func effectivePolicy() async throws -> EffectivePolicy
+}
 
-    init(baseURL: URL, accessToken: @escaping () -> String?) {
+/// Fetches the effective monitoring policy. The AckGate calls this before any capture path
+/// may run. On a 401 it forces a token refresh and retries once; a second 401 (or any other
+/// failure) propagates, and AckGate keeps the gate closed (fail-safe).
+final class PolicyClient: PolicyProviding {
+    private let baseURL: URL
+    private let session: AuthSession
+
+    init(baseURL: URL, session: AuthSession) {
         self.baseURL = baseURL
-        self.accessToken = accessToken
+        self.session = session
     }
 
     func effectivePolicy() async throws -> EffectivePolicy {
-        var request = URLRequest(url: baseURL.appendingPathComponent("policy/effective"))
-        if let token = accessToken() {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let token = try await session.accessToken()
+        let (data, status) = try await fetch(token: token)
+        if status == 401 {
+            let refreshed = try await session.forceRefresh()
+            let (data2, status2) = try await fetch(token: refreshed)
+            guard status2 == 200 else { throw AckGateError.policyUnavailable }
+            return try JSONDecoder().decode(EffectivePolicy.self, from: data2)
         }
-        let (data, _) = try await URLSession.shared.data(for: request)
+        guard status == 200 else { throw AckGateError.policyUnavailable }
         return try JSONDecoder().decode(EffectivePolicy.self, from: data)
+    }
+
+    private func fetch(token: String) async throws -> (Data, Int) {
+        var request = URLRequest(url: baseURL.appendingPathComponent("policy/effective"))
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 }

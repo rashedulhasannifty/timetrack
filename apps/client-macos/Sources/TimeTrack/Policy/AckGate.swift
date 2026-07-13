@@ -11,16 +11,16 @@ enum AckGateError: Error {
 }
 
 final class AckGate {
-    private let policyClient: PolicyClient
+    private let policyProvider: PolicyProviding
 
-    init(policyClient: PolicyClient) {
-        self.policyClient = policyClient
+    init(policyProvider: PolicyProviding) {
+        self.policyProvider = policyProvider
     }
 
     /// The ONLY entry point to any capture API. Screenshot, activity sampling,
     /// and idle detection all route through here.
     func withCaptureAllowed<T>(_ body: () async throws -> T) async throws -> T {
-        let policy = try await policyClient.effectivePolicy()
+        let policy = try await policyProvider.effectivePolicy()
         guard !policy.ackRequired else { throw AckGateError.notAcknowledged }
         return try await body()
     }
