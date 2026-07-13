@@ -18,6 +18,7 @@ import { ProjectsModule } from './modules/projects/projects.module.js';
 import { PolicyModule } from './modules/policy/policy.module.js';
 import { TimeEntriesModule } from './modules/time-entries/time-entries.module.js';
 import { ActivityModule } from './modules/activity/activity.module.js';
+import { IdleEventsModule } from './modules/idle-events/idle-events.module.js';
 import { ScreenshotsModule } from './modules/screenshots/screenshots.module.js';
 import { ReportsModule } from './modules/reports/reports.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
@@ -44,6 +45,7 @@ const env = loadEnv();
     PolicyModule,
     TimeEntriesModule,
     ActivityModule,
+    IdleEventsModule,
     ScreenshotsModule,
     ReportsModule,
     AdminModule,
