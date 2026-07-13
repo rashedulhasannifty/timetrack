@@ -12,6 +12,17 @@ private final class AsyncCallbackBox {
     var call: (() async -> Void)?
 }
 
+/// Bridges `AuthSession` (an actor — every call to `userId()` requires `await`) to
+/// `LiveSpanStore`'s `currentUserId` closure, which is `@escaping () -> String?`: plain
+/// synchronous, called from `TimeTracker.start()` → `LiveSpanStore.begin()`, itself always
+/// invoked on the main thread (SwiftUI button / `AutoTrackingCoordinator`) and never `await`s.
+/// `becomeReady()` — the gate that also flips `MenuViewModel.isReady`, the only thing that lets
+/// `start()` run — resolves the userId once via `await session.userId()` and stamps this box on
+/// the main thread before tracking can begin, so the closure never needs to hop into the actor.
+private final class UserIdBox {
+    var value: String?
+}
+
 /// Wires the app together. The AckGate (PRD §4.1) still guards every capture path; manual
 /// tracking is NOT a capture path, so it is gated by MenuViewModel.isReady (flipped once the
 /// launch ack flow resolves) plus an offline AckMarker — never by AckGate.
@@ -27,12 +38,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let projectCache: ProjectCache
     private let timeTracker: TimeTracker
     private let menuViewModel: MenuViewModel
+    private let liveSpanStore: LiveSpanStore
+    private let userIdBox: UserIdBox
 
     private var loginWindow: LoginWindowController?
     private var ackWindow: AckWindowController?
     private var autoCoordinator: AutoTrackingCoordinator?
     private var workspaceObserver: WorkspaceObserver?
     private var syncEngine: SyncEngine?
+    private var heartbeatTimer: Timer?
+    private var hasAttemptedRecovery = false
 
     override init() {
         let baseURL = AppDelegate.apiBaseURL()
@@ -47,7 +62,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let projectCache = ProjectCache(fileURL: ProjectCache.defaultURL())
         self.projectCache = projectCache
 
-        let tracker = TimeTracker(buffer: BufferStore.shared)
+        let userIdBox = UserIdBox()
+        self.userIdBox = userIdBox
+
+        let liveSpanStore = LiveSpanStore(
+            fileURL: LiveSpanStore.defaultURL(),
+            currentUserId: { [userIdBox] in userIdBox.value }
+        )
+        self.liveSpanStore = liveSpanStore
+
+        let tracker = TimeTracker(buffer: BufferStore.shared, liveSpan: liveSpanStore)
         self.timeTracker = tracker
 
         // `onSignOut` is built as an argument to MenuViewModel's own initializer, before
@@ -84,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // MenuViewModel.reset() (called by signOut() before this closure runs)
                     // already stopped/enqueued any live span and cleared the VM's own state.
                     if let userId = await session.userId() { ackMarker.clear(userId: userId) }
+                    await MainActor.run { userIdBox.value = nil }
                     // Clear the cached project list too: it's a single global file, so without
                     // this an offline login as a different user on this machine would show the
                     // previous user's team projects in the picker.
@@ -110,7 +135,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.statusItem.setState(isTracking ? .tracking : .idle)
         }
         statusItem.install(content: MenuBarView(viewModel: menuViewModel))
+        startHeartbeat()
         Task { await start() }
+    }
+
+    @MainActor private func startHeartbeat() {
+        let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+            guard let self, self.timeTracker.isRunning else { return }
+            self.liveSpanStore.heartbeat(at: Date())
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        heartbeatTimer = timer
     }
 
     private func start() async {
@@ -155,13 +190,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Enable manual tracking and load projects (network → cache fallback).
     private func becomeReady() async {
-        await MainActor.run { menuViewModel.markReady() }
+        // Resolve the userId once (an `await`, since `AuthSession` is an actor) and stamp
+        // `userIdBox` on the main thread BEFORE `markReady()` flips `isReady` — that flip is
+        // the only thing that lets `TimeTracker.start()` run, so the box is always populated
+        // before any span can be stamped. The same value gates recovery below.
+        let currentUserId = await session.userId()
+        await MainActor.run {
+            userIdBox.value = currentUserId
+            menuViewModel.markReady()
+        }
         await MainActor.run { menuViewModel.projects = projectCache.load() } // instant, offline-safe
         if let fresh = try? await projectClient.list() {
             projectCache.save(fresh)
             await MainActor.run { menuViewModel.projects = fresh }
         }
         await MainActor.run { startSyncIfNeeded() }
+        await MainActor.run { recoverLiveSpanIfNeeded(currentUserId: currentUserId) }
+    }
+
+    /// Recover an interrupted span left by a crash / quit-while-tracking. Runs once, AFTER auth
+    /// (so the userId is known) and before the user can start new tracking. A span from a
+    /// DIFFERENT user on this Mac is cleared without enqueuing — never mis-attributed (buffer
+    /// syncs by token). Keep → replay the completed entry (original id, ending at the last
+    /// heartbeat). `currentUserId` is resolved by the caller (`becomeReady`, via `await
+    /// session.userId()`) since `AuthSession` is an actor and this method stays non-async.
+    @MainActor private func recoverLiveSpanIfNeeded(currentUserId: String?) {
+        guard !hasAttemptedRecovery else { return }
+        hasAttemptedRecovery = true
+        guard let span = liveSpanStore.load() else { return }
+        guard LiveSpanStore.shouldRecover(span: span, currentUserId: currentUserId) else {
+            liveSpanStore.clear()
+            return
+        }
+        let minutes = max(1, Int((span.lastAlive.timeIntervalSince(span.startTime) / 60).rounded()))
+        RecoveryWindowController.present(minutes: minutes) { [weak self] action in
+            guard let self else { return }
+            if action == .keep {
+                self.timeTracker.recordSpan(
+                    id: span.entryId, start: span.startTime, end: span.lastAlive,
+                    projectId: span.projectId, taskId: span.taskId,
+                    source: TimeTracker.Source(rawValue: span.source) ?? .manual
+                )
+            }
+            self.liveSpanStore.clear()
+        }
     }
 
     /// Auto-tracking is a CAPTURE path (CLAUDE.md §1), so it is started ONLY through the
