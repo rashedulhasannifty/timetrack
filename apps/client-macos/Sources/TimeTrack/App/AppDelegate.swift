@@ -24,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var loginWindow: LoginWindowController?
     private var ackWindow: AckWindowController?
+    private var autoCoordinator: AutoTrackingCoordinator?
+    private var workspaceObserver: WorkspaceObserver?
 
     override init() {
         let baseURL = AppDelegate.apiBaseURL()
@@ -38,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let projectCache = ProjectCache(fileURL: ProjectCache.defaultURL())
         self.projectCache = projectCache
 
-        let tracker = TimeTracker(buffer: BufferStore())
+        let tracker = TimeTracker(buffer: BufferStore.shared)
         self.timeTracker = tracker
 
         // `onSignOut` is built as an argument to MenuViewModel's own initializer, before
@@ -48,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (not a captured `var`) so the escaping Task below doesn't trip Swift 6's
         // captured-var-across-concurrency-domains diagnostic.
         let presentLoginBox = CallbackBox()
+        // Same forward-reference problem for `stopAutoTracking()`: the sign-out closure below
+        // is built before `super.init()`, so `self` isn't available yet.
+        let stopAutoBox = CallbackBox()
 
         let menuViewModel = MenuViewModel(
             tracker: tracker,
@@ -55,6 +60,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openURL: { NSWorkspace.shared.open($0) },
             onSignOut: {
                 Task {
+                    // Tear down auto-tracking first: stop the observer/timer and deactivate the
+                    // monitor so any pending away is recorded UNRESOLVED, before anything else
+                    // about the signed-out state is touched.
+                    await MainActor.run { stopAutoBox.call?() }
                     // Read the user before logout clears the in-memory access token the
                     // sub is decoded from; a stale marker must never survive to grant
                     // readiness to whoever signs in next (CLAUDE.md §1 fail-safe posture).
@@ -76,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.menuViewModel = menuViewModel
         super.init()
         presentLoginBox.call = { [weak self] in self?.presentLogin() }
+        stopAutoBox.call = { [weak self] in self?.stopAutoTracking() }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -115,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     ackMarker.record(userId: userId, policyVersion: policy.policyVersion)
                 }
                 await becomeReady()
+                await startAutoTrackingIfEnabled(policy)   // online, !ackRequired: capture is allowed
             }
         } catch {
             // Offline / policy unavailable: allow MANUAL tracking only if this user has a
@@ -135,6 +146,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             projectCache.save(fresh)
             await MainActor.run { menuViewModel.projects = fresh }
         }
+    }
+
+    /// Auto-tracking is a CAPTURE path (CLAUDE.md §1), so it is started ONLY through the
+    /// AckGate and ONLY on the live-policy `!ackRequired` branch — never via `becomeReady()`,
+    /// which the offline-marker branch also reaches (the marker must never open capture).
+    private func startAutoTrackingIfEnabled(_ policy: EffectivePolicy) async {
+        guard policy.settings.autoStartOnLogin else { return }
+        do {
+            try await ackGate.withCaptureAllowed { [weak self] in
+                await MainActor.run { self?.installAutoTracking(thresholdMinutes: policy.settings.idleThresholdMinutes) }
+            }
+        } catch {
+            // Gate closed / policy unavailable → auto-tracking simply does not start. Manual
+            // tracking (already enabled) continues. Fail-safe; no fallback path.
+        }
+    }
+
+    @MainActor private func installAutoTracking(thresholdMinutes: Int) {
+        guard autoCoordinator == nil else { return }        // idempotent
+        let coordinator = AutoTrackingCoordinator(
+            tracker: timeTracker,
+            buffer: BufferStore.shared,
+            thresholdSeconds: thresholdMinutes * 60,
+            currentSelection: { [weak self] in
+                self?.menuViewModel.selectionForAuto ?? .init(projectId: nil, taskId: nil)
+            },
+            presentAwayPrompt: { minutes, resolve in
+                AwayResolutionWindowController.present(minutes: minutes, resolve: resolve)
+            }
+        )
+        let observer = WorkspaceObserver(receiver: coordinator)
+        self.autoCoordinator = coordinator
+        self.workspaceObserver = observer
+        observer.start()
+        coordinator.activate()
+    }
+
+    @MainActor private func stopAutoTracking() {
+        workspaceObserver?.stop()
+        autoCoordinator?.deactivate()
+        workspaceObserver = nil
+        autoCoordinator = nil
     }
 
     @MainActor private func presentAck(policy: EffectivePolicy, userId: String) {

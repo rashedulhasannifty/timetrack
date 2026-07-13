@@ -57,6 +57,12 @@ final class MenuViewModel: ObservableObject {
     /// "active", never toward under-reporting. (`StatusItemController.State` has no `paused`.)
     var iconIsTracking: Bool { phase != .idle }
 
+    /// The current picker selection as a tracker Selection, for auto-started entries
+    /// (they inherit whatever the employee has picked; null if nothing is selected).
+    var selectionForAuto: TimeTracker.Selection {
+        TimeTracker.Selection(projectId: selectedChoice?.projectId, taskId: selectedChoice?.taskId)
+    }
+
     var choices: [Choice] {
         projects.flatMap { p -> [Choice] in
             let projectOnly = Choice(id: p.id, projectId: p.id, taskId: nil,

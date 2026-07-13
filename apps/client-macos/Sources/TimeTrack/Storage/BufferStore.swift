@@ -4,6 +4,8 @@ import Foundation
 /// backend. The shipped implementation uses GRDB (SQLite); this in-memory stand-in keeps
 /// the module compiling until that dependency is added.
 final class BufferStore {
+    static let shared = BufferStore()
+
     private var pending: [String: Data] = [:]
 
     /// Records are keyed by a client-minted UUIDv7 — the same key the API upserts on.
