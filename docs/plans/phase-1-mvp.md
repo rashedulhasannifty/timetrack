@@ -135,10 +135,10 @@
   - `App/StatusItemController` (exists): dropdown with Start / Stop / Pause, searchable project/task picker, "My Data", "Settings", "Quit". Icon reflects `idle`/`tracking`.
   - `Tracking/TimeTracker` (exists): start → create a `TimeEntry` with a client-minted **UUIDv7**; stop → set `endTime`; enqueue to the buffer.
   - Manual entries sync (1.7d) to `POST /time-entries`.
-- **1.7c — Automatic tracking**
+- **1.7c — Automatic tracking** — ✅ **done**. **Pending: live GUI end-to-end smoke (human).**
   - `Tracking/WorkspaceObserver`: active app via `NSWorkspace`; auto-start (config, default **off**).
   - `Tracking/IdleMonitor`: last-input via `CGEventSource`; auto-pause on sleep/lock; auto-stop after idle threshold (from `TeamSettings`); on resume, "away for X min — keep or discard?" (discard default) → `IdleEvent`.
-  - XCTest: idle state machine (active → idle → resume → keep/discard).
+  - XCTest: idle state machine (active → idle → resume → keep/discard). _Built: `IdleMonitor` (pure state machine, 8 cases), `AutoTrackingCoordinator` (writes AUTO entries + IdleEvents), `WorkspaceObserver` (system edge), `AwayResolutionView` (discard-default prompt); auto-tracking gated by `AckGate` and never starts offline; settings decoded from `/policy/effective`._
 - **1.7d — Offline buffer + sync**
   - `Storage/BufferStore`: replace the in-memory stand-in with **GRDB (SQLite)**, ≥24h capacity, UUIDv7 keys. (Adds the GRDB SwiftPM dependency — flagged for approval when we reach it.)
   - `Sync/SyncEngine` + `UploadQueue` + `BackoffPolicy`: one-way (client→server), every 1–2 min, exponential backoff; idempotent because the API upserts on UUIDv7.
