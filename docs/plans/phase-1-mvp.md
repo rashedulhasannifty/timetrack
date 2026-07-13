@@ -44,7 +44,7 @@
 1. **API — users**: implement `deactivate`/`reactivate` (`PATCH /users/:id` sets `deactivatedAt`), and `ackMonitoring` (`POST /users/:id/ack-monitoring`, self-only — already gated in the scaffold) writing `monitoringAckAt = now()` and an `AuditLog` row. Deactivation revokes the user's refresh tokens (reuse `AuthRepository` or add `revokeAllForUser`).
 2. **API — teams**: implement `updateSettings` (moved to `admin` in the scaffold — `PATCH /admin/settings`): merge patch, **validate the merged object through `TeamSettingsSchema`** before writing, `AuditLog` in the same transaction.
 3. **Repository:** add the writes to `users.repository.ts` / `admin.repository.ts` (Prisma only here).
-4. **Dashboard (deferred to after Slice 1.5):** `admin/users` (list, invite form, deactivate button) and `admin/settings` (read + edit) require a working dashboard session, which lands in Slice 1.5. Deferred to keep this slice verifiable end-to-end (curl); the API + contracts ship here.
+4. **Dashboard (shipped after Slice 1.5):** `admin/users` (list, invite form with dev-token surfacing, deactivate/reactivate) and `admin/settings` (read + edit the full monitoring policy). Server Components read via the api-client; mutations go through Server Actions (token stays server-side) and `revalidatePath`. Non-admins get a Forbidden view (the 403 case). Built in the existing minimal style; the design-system token pass is a separate slice.
 5. **Redaction/audit:** every mutation writes `AuditLog`; deletes/deactivations especially (`CLAUDE.md §4`).
 6. **Tests:** service specs for deactivate (revokes tokens), ackMonitoring self-only 403, settings-merge validation (reject out-of-range retention). Integration test that settings round-trip through `TeamSettingsSchema`.
 
@@ -159,7 +159,7 @@
 ## Phase 1 Definition of Done
 
 - [ ] 1.1 Bootstrap admin + invite/accept flow.
-- [ ] 1.2 Users & teams management + settings (API; dashboard after 1.5).
+- [x] 1.2 Users & teams management + settings (API + dashboard: `admin/users`, `admin/settings`).
 - [x] 1.3 Projects & tasks CRUD.
 - [x] 1.4 Time entries complete (edit + audit + active-entry).
 - [x] 1.5 Dashboard session + shell.
