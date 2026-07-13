@@ -27,7 +27,8 @@ final class TimeTrackerTests: XCTestCase {
 
         XCTAssertTrue(tracker.isRunning)
         XCTAssertEqual(tracker.state, .tracking(entryId: "id-1", startedAt: t0,
-                                                selection: .init(projectId: "p1", taskId: "k1")))
+                                                selection: .init(projectId: "p1", taskId: "k1"),
+                                                source: .manual))
         XCTAssertTrue(spy.entries.isEmpty, "nothing is enqueued until the entry closes")
     }
 
@@ -102,6 +103,48 @@ final class TimeTrackerTests: XCTestCase {
         tracker.start(projectId: "p2", taskId: nil) // ignored
 
         XCTAssertEqual(tracker.state, .tracking(entryId: "id-1", startedAt: t0,
-                                                selection: .init(projectId: "p1", taskId: nil)))
+                                                selection: .init(projectId: "p1", taskId: nil),
+                                                source: .manual))
+    }
+
+    func testStartWithAutoSourceEncodesAUTO() {
+        let clock = MutableClock(t0)
+        let spy = BufferSpy()
+        let tracker = TimeTracker(buffer: spy, clock: clock.read, idGen: sequentialIdGen())
+
+        tracker.start(projectId: "p1", taskId: nil, source: .auto)
+        clock.advance(60)
+        tracker.stop()
+
+        XCTAssertEqual(spy.object(at: 0)["source"] as? String, "AUTO")
+    }
+
+    func testStopAtBackdatesEndTime() {
+        let clock = MutableClock(t0)
+        let spy = BufferSpy()
+        let tracker = TimeTracker(buffer: spy, clock: clock.read, idGen: sequentialIdGen())
+
+        tracker.start(projectId: "p1", taskId: nil, source: .auto)
+        clock.advance(600)                      // "now" is t0+600, but we were idle since t0+120
+        tracker.stop(at: t0.addingTimeInterval(120))
+
+        XCTAssertEqual(tracker.state, .idle)
+        XCTAssertEqual(spy.object(at: 0)["endTime"] as? String, "2023-11-14T22:15:20Z") // t0+120
+    }
+
+    func testRecordSpanEnqueuesOneCompleteEntryWithoutChangingState() {
+        let spy = BufferSpy()
+        let tracker = TimeTracker(buffer: spy, clock: { self.t0 }, idGen: sequentialIdGen())
+
+        tracker.recordSpan(start: t0, end: t0.addingTimeInterval(300),
+                           projectId: "p1", taskId: "k1", source: .auto)
+
+        XCTAssertEqual(tracker.state, .idle, "recordSpan must not open/close the live state")
+        XCTAssertEqual(spy.entries.count, 1)
+        let obj = spy.object(at: 0)
+        XCTAssertEqual(obj["id"] as? String, "id-1")
+        XCTAssertEqual(obj["source"] as? String, "AUTO")
+        XCTAssertEqual(obj["startTime"] as? String, "2023-11-14T22:13:20Z")   // t0
+        XCTAssertEqual(obj["endTime"] as? String, "2023-11-14T22:18:20Z")     // t0+300
     }
 }

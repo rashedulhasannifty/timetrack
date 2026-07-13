@@ -123,7 +123,7 @@ final class MenuViewModel: ObservableObject {
         case .idle:
             phase = .idle
             startedAt = nil
-        case let .tracking(_, startedAt, _):
+        case let .tracking(_, startedAt, _, _):
             phase = .tracking
             self.startedAt = startedAt
         case .paused:

@@ -22,9 +22,14 @@ final class TimeTracker {
         let taskId: String?
     }
 
+    enum Source: String {
+        case manual = "MANUAL"
+        case auto = "AUTO"
+    }
+
     enum State: Equatable {
         case idle
-        case tracking(entryId: String, startedAt: Date, selection: Selection)
+        case tracking(entryId: String, startedAt: Date, selection: Selection, source: Source)
         case paused(selection: Selection)
     }
 
@@ -46,44 +51,59 @@ final class TimeTracker {
     var isRunning: Bool { if case .tracking = state { return true } else { return false } }
     var isPaused: Bool { if case .paused = state { return true } else { return false } }
 
-    func start(projectId: String?, taskId: String?) {
+    func start(projectId: String?, taskId: String?, source: Source = .manual) {
         guard case .tracking = state else {
-            open(Selection(projectId: projectId, taskId: taskId))
+            open(Selection(projectId: projectId, taskId: taskId), source: source)
             return
         }
         // Already tracking — ignore a second start.
     }
 
-    func stop() {
-        close()
+    /// Close the current entry. `endTime` backdates the close (idle/sleep detected earlier);
+    /// defaults to `clock()`. Manual Stop passes nil; auto-stop passes the away-start.
+    func stop(at endTime: Date? = nil) {
+        close(at: endTime ?? clock())
         state = .idle
     }
 
     func pause() {
-        guard case let .tracking(_, _, selection) = state else { return }
-        close()
+        guard case let .tracking(_, _, selection, _) = state else { return }
+        close(at: clock())
         state = .paused(selection: selection)
     }
 
     func resume() {
         guard case let .paused(selection) = state else { return }
-        open(selection)
+        open(selection, source: .manual)   // pause/resume is a manual-only affordance
     }
 
-    private func open(_ selection: Selection) {
+    /// Enqueue one already-complete entry without touching the live state. Used for the
+    /// Keep-from-idle bridge span (PRD §6.1): the away window becomes its own AUTO entry.
+    func recordSpan(start: Date, end: Date, projectId: String?, taskId: String?, source: Source) {
+        enqueue(id: idGen(start), projectId: projectId, taskId: taskId,
+                start: start, end: end, source: source)
+    }
+
+    private func open(_ selection: Selection, source: Source) {
         let now = clock()
-        state = .tracking(entryId: idGen(now), startedAt: now, selection: selection)
+        state = .tracking(entryId: idGen(now), startedAt: now, selection: selection, source: source)
     }
 
-    private func close() {
-        guard case let .tracking(id, startedAt, selection) = state else { return }
+    private func close(at endTime: Date) {
+        guard case let .tracking(id, startedAt, selection, source) = state else { return }
+        enqueue(id: id, projectId: selection.projectId, taskId: selection.taskId,
+                start: startedAt, end: endTime, source: source)
+    }
+
+    private func enqueue(id: String, projectId: String?, taskId: String?,
+                         start: Date, end: Date, source: Source) {
         let payload = TimeEntryPayload(
             id: id,
-            projectId: selection.projectId,
-            taskId: selection.taskId,
-            startTime: Self.iso.string(from: startedAt),
-            endTime: Self.iso.string(from: clock()),
-            source: "MANUAL",
+            projectId: projectId,
+            taskId: taskId,
+            startTime: Self.iso.string(from: start),
+            endTime: Self.iso.string(from: end),
+            source: source.rawValue,
             note: nil
         )
         if let data = try? JSONEncoder().encode(payload) {
