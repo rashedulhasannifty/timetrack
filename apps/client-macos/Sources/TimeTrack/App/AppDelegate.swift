@@ -6,6 +6,12 @@ private final class CallbackBox {
     var call: (@MainActor () -> Void)?
 }
 
+/// Like `CallbackBox` but for the async sign-out flush (`self` isn't available in the pre-super.init
+/// sign-out closure, so it's routed through this box, assigned after `super.init()`).
+private final class AsyncCallbackBox {
+    var call: (() async -> Void)?
+}
+
 /// Wires the app together. The AckGate (PRD §4.1) still guards every capture path; manual
 /// tracking is NOT a capture path, so it is gated by MenuViewModel.isReady (flipped once the
 /// launch ack flow resolves) plus an offline AckMarker — never by AckGate.
@@ -26,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var ackWindow: AckWindowController?
     private var autoCoordinator: AutoTrackingCoordinator?
     private var workspaceObserver: WorkspaceObserver?
+    private var syncEngine: SyncEngine?
 
     override init() {
         let baseURL = AppDelegate.apiBaseURL()
@@ -53,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Same forward-reference problem for `stopAutoTracking()`: the sign-out closure below
         // is built before `super.init()`, so `self` isn't available yet.
         let stopAutoBox = CallbackBox()
+        // Same forward-reference problem for the sign-out buffer flush+clear (cross-user
+        // integrity invariant): `self` isn't available yet either.
+        let flushBufferBox = AsyncCallbackBox()
 
         let menuViewModel = MenuViewModel(
             tracker: tracker,
@@ -64,6 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // monitor so any pending away is recorded UNRESOLVED, before anything else
                     // about the signed-out state is touched.
                     await MainActor.run { stopAutoBox.call?() }
+                    // Best-effort final drain, then stop and clear the buffer — BEFORE logout,
+                    // since the drain needs the still-valid token (cross-user integrity
+                    // invariant: CreateTimeEntry has no userId, the server attributes by token).
+                    await flushBufferBox.call?()
                     // Read the user before logout clears the in-memory access token the
                     // sub is decoded from; a stale marker must never survive to grant
                     // readiness to whoever signs in next (CLAUDE.md §1 fail-safe posture).
@@ -86,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
         presentLoginBox.call = { [weak self] in self?.presentLogin() }
         stopAutoBox.call = { [weak self] in self?.stopAutoTracking() }
+        flushBufferBox.call = { [weak self] in await self?.flushAndClearBuffer() }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -146,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             projectCache.save(fresh)
             await MainActor.run { menuViewModel.projects = fresh }
         }
+        await MainActor.run { startSyncIfNeeded() }
     }
 
     /// Auto-tracking is a CAPTURE path (CLAUDE.md §1), so it is started ONLY through the
@@ -160,6 +176,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             // Gate closed / policy unavailable → auto-tracking simply does not start. Manual
             // tracking (already enabled) continues. Fail-safe; no fallback path.
+        }
+    }
+
+    /// Start the sync engine once the user is ready. Sync is NOT a capture path (it uploads the
+    /// employee's own already-recorded entries), so — unlike auto-tracking — it is safe on BOTH the
+    /// online and the offline-marker `becomeReady()` paths: offline just yields transient failures
+    /// and backs off. Idempotent (guarded), so re-entry after ack does nothing.
+    @MainActor private func startSyncIfNeeded() {
+        guard syncEngine == nil else { return }
+        let engine = SyncEngine(
+            buffer: BufferStore.shared,
+            uploader: TimeEntryUploader(baseURL: AppDelegate.apiBaseURL(), session: session)
+        )
+        syncEngine = engine
+        engine.start()
+    }
+
+    /// Sign-out: stop the timer first (no scheduled cycle can overlap the final drain — the
+    /// engine's `isDraining` re-entry guard is not actor-atomic), then do a best-effort final
+    /// drain (needs the still-valid token → BEFORE logout), then clear the buffer so the next
+    /// user on this Mac can't upload the previous user's entries under their own token
+    /// (CreateTimeEntry has no userId — the server attributes by token).
+    private func flushAndClearBuffer() async {
+        let engine = await MainActor.run { self.syncEngine }
+        await MainActor.run { engine?.stop() }   // stop the timer FIRST — no cycle overlaps the final drain
+        await engine?.syncNow()                  // best-effort final drain (needs the still-valid token)
+        await MainActor.run {
+            self.syncEngine = nil
+            BufferStore.shared.clear()
         }
     }
 
