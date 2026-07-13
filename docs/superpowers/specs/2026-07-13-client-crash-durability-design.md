@@ -26,8 +26,10 @@ Today a span is only ever written to the buffer when it **closes** (`stop`/`paus
   preserves the original UUIDv7 (idempotent sync).
 - A periodic **heartbeat** (~60s) driven from `AppDelegate` while a span is live, bounding the
   recovered end-time error to one interval (never counting downtime).
-- **Launch-time recovery**: on startup, before any new tracking, load a leftover span and present a
-  keep/discard prompt; keep → enqueue a completed entry; discard → drop; either way clear the file.
+- **Recovery after auth**: once the user is known (in `becomeReady`, before any new tracking), load a
+  leftover span; **only if its `userId` matches the current user** present a keep/discard prompt —
+  keep → enqueue a completed entry; discard → drop; a span belonging to a *different* user on the
+  same Mac is cleared without enqueuing (never mis-attributed). Either way, clear the file.
 
 **Out of scope**
 
@@ -83,10 +85,10 @@ Today a span is only ever written to the buffer when it **closes** (`stop`/`paus
 
 | Unit | New / edit | Responsibility |
 | --- | --- | --- |
-| `Storage/LiveSpanStore.swift` | new | `struct LiveSpan: Codable { entryId; startTime; projectId?; taskId?; source; lastAlive }` + `protocol LiveSpanRecording { func begin(entryId:startTime:selection:source:); func clear() }`. `LiveSpanStore` conforms and adds `heartbeat(at:)`, `load() -> LiveSpan?`. Atomic write to `Application Support/TimeTrack/live-span.json`; injectable fileURL + clock. |
+| `Storage/LiveSpanStore.swift` | new | `struct LiveSpan: Codable { entryId; startTime; projectId?; taskId?; source; lastAlive; userId? }` + `protocol LiveSpanRecording { func begin(entryId:startTime:selection:source:); func clear() }`. `LiveSpanStore` conforms and adds `heartbeat(at:)`, `load() -> LiveSpan?`. It stamps `userId` from an injected `currentUserId: () -> String?` on `begin`/`heartbeat` (so `TimeTracker`'s seam stays userId-free). Atomic write to `Application Support/TimeTrack/live-span.json`; injectable fileURL + clock. |
 | `Tracking/TimeTracker.swift` | edit | Inject `liveSpan: LiveSpanRecording = NoopLiveSpan()`. `open` calls `liveSpan.begin(...)` with the just-minted id/time; `close(at:)` calls `liveSpan.clear()` after enqueue. Add `recordSpan(id: String? = nil, …)` (explicit id → recovery; defaults to `idGen(start)`). |
 | `UI/RecoveryView.swift` (+controller) | new | The launch keep/discard prompt, mirroring `AwayResolutionView` (discard-default, fires once, visible window). |
-| `App/AppDelegate.swift` | edit | Construct `LiveSpanStore`; pass it into `TimeTracker`; run a ~60s heartbeat timer (`timeTracker.isRunning → liveSpanStore.heartbeat(now)`); on launch, before tracking, `load()` → if present, present the recovery prompt → keep: `recordSpan(id:…)`; discard: drop; then `clear()`. |
+| `App/AppDelegate.swift` | edit | Construct `LiveSpanStore` (`currentUserId: { session.userId() }`); pass it into `TimeTracker`; run a ~60s heartbeat timer (`timeTracker.isRunning → liveSpanStore.heartbeat(now)`); in `becomeReady` (once, post-auth), `load()` → if the span's `userId` matches `session.userId()` present the recovery prompt → keep: `recordSpan(id:…)`; discard: drop; a mismatched-user span is cleared without enqueuing; then `clear()`. |
 
 `source` here is `TimeTracker.Source` (`.manual`/`.auto`); the recovered entry keeps its original
 kind. `NoopLiveSpan` keeps existing `TimeTracker` tests and the pure-unit posture unchanged.
@@ -112,11 +114,17 @@ kind. `NoopLiveSpan` keeps existing `TimeTracker` tests and the pure-unit postur
 - The heartbeat only matters while `.tracking`; a paused/idle tracker leaves the file absent (paused
   cleared it) so the tick is a cheap no-op.
 
-### Launch recovery
+### Recovery (post-auth, once)
 
-- Early in `AppDelegate` startup — **before** any new tracking can begin — `liveSpanStore.load()`.
+- Recovery runs inside `becomeReady` — **after** the user is authenticated (so `session.userId()` is
+  known) and **before** any new tracking can begin — guarded by a `hasAttemptedRecovery` flag so the
+  multiple `becomeReady` paths (online, offline-marker, post-ack) run it only once. `liveSpanStore.load()`:
   - `nil` (clean prior exit) → nothing to do.
-  - a `LiveSpan` (unclean exit) → present `RecoveryView`:
+  - a `LiveSpan` whose `userId != session.userId()` (a **different** user on this Mac) → `clear()`
+    **without** enqueuing. A leftover span is never mis-attributed to the current user — the same
+    cross-user posture as 1.7d's sign-out buffer clear.
+  - a `LiveSpan` whose `userId` matches (or the span predates userId stamping → treat as current) →
+    present `RecoveryView`:
     _"TimeTrack was tracking **Project › Task** since **HH:MM** (~**X** min) when it last closed —
     keep or discard?"_ (project/task from the selection; **X** from `lastAlive − startTime`).
     - **Keep** → `timeTracker.recordSpan(id: span.entryId, start: span.startTime, end: span.lastAlive,
@@ -130,10 +138,18 @@ kind. `NoopLiveSpan` keeps existing `TimeTracker` tests and the pure-unit postur
 
 ### Ordering guarantees
 
-- Recovery runs before the launch flow enables tracking, so a leftover span can never be confused
-  with a fresh one, and the recovery prompt can never race a new `begin()`.
-- Recovery is independent of `AckGate` and of the policy/ack flow — it only replays the employee's
-  own interrupted entry into the buffer.
+- Recovery runs (once) in `becomeReady`, after auth and before tracking is enabled, so a leftover
+  span can never be confused with a fresh one and the prompt can never race a new `begin()`.
+- Recovery is independent of `AckGate` (not a capture path) — it only replays the employee's own
+  interrupted entry into the buffer, and only when the userId matches.
+
+### Related pre-existing hole (noted, not fixed here)
+
+A crash bypasses sign-out, so 1.7d's "clear the buffer on sign-out" does not run: a different user
+logging in afterward on the same Mac would sync the prior user's **buffered** entries under their own
+token. This slice closes that hole for the *live span* (via the userId gate) but does **not** change
+the buffer's crash behavior — that is a separate 1.7d follow-up (e.g. per-user buffer dirs, or
+clearing/quarantining the buffer on a user switch). Flagged so it isn't mistaken for solved.
 
 ---
 
@@ -141,10 +157,15 @@ kind. `NoopLiveSpan` keeps existing `TimeTracker` tests and the pure-unit postur
 
 **XCTest (unit):**
 
-- `LiveSpanStoreTests` — `begin` writes a file that `load` round-trips (all fields incl. selection +
-  source); `heartbeat(at:)` updates only `lastAlive` (id/start/selection unchanged); `clear` removes
-  the file and `load` then returns `nil`; `load` on a missing/undecodable file returns `nil` (fail
-  safe). Temp fileURL + injected clock (mirrors `ProjectCacheTests`).
+- `LiveSpanStoreTests` — `begin` writes a file that `load` round-trips (all fields incl. selection,
+  source, and the stamped `userId`); `heartbeat(at:)` updates only `lastAlive` (id/start/selection/
+  userId unchanged); `clear` removes the file and `load` then returns `nil`; `load` on a missing/
+  undecodable file returns `nil` (fail safe). Temp fileURL + injected clock + injected
+  `currentUserId` (mirrors `ProjectCacheTests`).
+- The recovery **userId gate** is a pure decision (`LiveSpanStore.shouldRecover(span:currentUserId:)`
+  → `Bool`: true when `span.userId == currentUserId` or the span has no userId; false otherwise),
+  unit-tested for match / mismatch / nil-span-userId. `AppDelegate` calls it to choose prompt vs
+  silent-clear.
 - `TimeTrackerTests` (add, via a `LiveSpanRecording` spy) — `start`/`resume` (`open`) calls `begin`
   with the minted entryId + startTime + selection + source; `stop`/`pause` (`close`) calls `clear`;
   `recordSpan(id:)` enqueues with the **explicit** id (and the no-id overload still mints via idGen).
