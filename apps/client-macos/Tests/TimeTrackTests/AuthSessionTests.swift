@@ -62,4 +62,21 @@ final class AuthSessionTests: XCTestCase {
         let authenticated = await session.isAuthenticated()
         XCTAssertFalse(authenticated)
     }
+
+    func testConcurrentAccessCoalescesToOneRefresh() async throws {
+        let store = InMemoryTokenStore(seed: "refresh-0")
+        let client = FakeAuthClient()
+        client.gateRefresh = true
+        let session = AuthSession(client: client, store: store)
+
+        async let a = session.accessToken()
+        async let b = session.accessToken()
+        // let both calls reach the gated refresh, then release it
+        try await Task.sleep(nanoseconds: 50_000_000)
+        client.openRefreshGate()
+        _ = try await (a, b)
+
+        let calls = await client.refreshCalls
+        XCTAssertEqual(calls, 1, "concurrent accessToken() calls must share one refresh")
+    }
 }

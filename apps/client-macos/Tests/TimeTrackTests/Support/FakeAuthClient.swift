@@ -12,6 +12,10 @@ final class FakeAuthClient: AuthClienting {
     private(set) var loginCalls = 0
     private(set) var refreshCalls = 0
 
+    var gateRefresh = false
+    private var gate: CheckedContinuation<Void, Never>?
+    func openRefreshGate() { gate?.resume(); gate = nil }
+
     init(
         loginResult: Result<TokenPair, Error> = .success(TokenPair(accessToken: kTestAccessToken, refreshToken: "refresh-1", expiresIn: 900)),
         refreshResult: Result<TokenPair, Error> = .success(TokenPair(accessToken: kTestAccessToken, refreshToken: "refresh-2", expiresIn: 900))
@@ -27,6 +31,7 @@ final class FakeAuthClient: AuthClienting {
 
     func refresh(refreshToken: String) async throws -> TokenPair {
         refreshCalls += 1
+        if gateRefresh { await withCheckedContinuation { gate = $0 } }
         return try refreshResult.get()
     }
 }
