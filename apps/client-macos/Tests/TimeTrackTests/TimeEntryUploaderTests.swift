@@ -8,6 +8,8 @@ final class TimeEntryUploaderTests: XCTestCase {
         XCTAssertEqual(TimeEntryUploader.classify(status: 401), .authFailed)
         XCTAssertEqual(TimeEntryUploader.classify(status: 422), .permanent(422))
         XCTAssertEqual(TimeEntryUploader.classify(status: 400), .permanent(400))
+        XCTAssertEqual(TimeEntryUploader.classify(status: 429), .transient, "throttled → retry, not drop")
+        XCTAssertEqual(TimeEntryUploader.classify(status: 408), .transient, "request timeout → retry, not drop")
         XCTAssertEqual(TimeEntryUploader.classify(status: 500), .transient)
         XCTAssertEqual(TimeEntryUploader.classify(status: 503), .transient)
         XCTAssertEqual(TimeEntryUploader.classify(status: 0), .transient, "no HTTP response → retry later")

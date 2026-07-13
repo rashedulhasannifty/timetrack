@@ -48,6 +48,7 @@ final class TimeEntryUploader: Uploading {
         switch status {
         case 200, 201: return .success
         case 401: return .authFailed
+        case 408, 429: return .transient
         case 500...599: return .transient
         case 400...499: return .permanent(status)
         default: return .transient
