@@ -34,16 +34,19 @@ final class TimeTracker {
     private let buffer: TimeEntryBuffering
     private let clock: () -> Date
     private let idGen: (Date) -> String
+    private let liveSpan: LiveSpanRecording
     private(set) var state: State = .idle
 
     init(
         buffer: TimeEntryBuffering,
         clock: @escaping () -> Date = Date.init,
-        idGen: @escaping (Date) -> String = { UUIDv7.generate(now: $0) }
+        idGen: @escaping (Date) -> String = { UUIDv7.generate(now: $0) },
+        liveSpan: LiveSpanRecording = NoopLiveSpan()
     ) {
         self.buffer = buffer
         self.clock = clock
         self.idGen = idGen
+        self.liveSpan = liveSpan
     }
 
     var isRunning: Bool { if case .tracking = state { return true } else { return false } }
@@ -77,20 +80,24 @@ final class TimeTracker {
 
     /// Enqueue one already-complete entry without touching the live state. Used for the
     /// Keep-from-idle bridge span (PRD §6.1): the away window becomes its own AUTO entry.
-    func recordSpan(start: Date, end: Date, projectId: String?, taskId: String?, source: Source) {
-        enqueue(id: idGen(start), projectId: projectId, taskId: taskId,
+    func recordSpan(id: String? = nil, start: Date, end: Date,
+                    projectId: String?, taskId: String?, source: Source) {
+        enqueue(id: id ?? idGen(start), projectId: projectId, taskId: taskId,
                 start: start, end: end, source: source)
     }
 
     private func open(_ selection: Selection, source: Source) {
         let now = clock()
-        state = .tracking(entryId: idGen(now), startedAt: now, selection: selection, source: source)
+        let id = idGen(now)
+        state = .tracking(entryId: id, startedAt: now, selection: selection, source: source)
+        liveSpan.begin(entryId: id, startTime: now, selection: selection, source: source)
     }
 
     private func close(at endTime: Date) {
         guard case let .tracking(id, startedAt, selection, source) = state else { return }
         enqueue(id: id, projectId: selection.projectId, taskId: selection.taskId,
                 start: startedAt, end: endTime, source: source)
+        liveSpan.clear()
     }
 
     private func enqueue(id: String, projectId: String?, taskId: String?,

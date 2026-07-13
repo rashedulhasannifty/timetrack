@@ -147,4 +147,47 @@ final class TimeTrackerTests: XCTestCase {
         XCTAssertEqual(obj["startTime"] as? String, "2023-11-14T22:13:20Z")   // t0
         XCTAssertEqual(obj["endTime"] as? String, "2023-11-14T22:18:20Z")     // t0+300
     }
+
+    func testOpenPersistsLiveSpan() {
+        let clock = MutableClock(t0)
+        let recorder = FakeLiveSpanRecorder()
+        let tracker = TimeTracker(buffer: BufferSpy(), clock: clock.read,
+                                  idGen: sequentialIdGen(), liveSpan: recorder)
+
+        tracker.start(projectId: "p1", taskId: "k1", source: .auto)
+
+        XCTAssertEqual(recorder.begins.count, 1)
+        XCTAssertEqual(recorder.begins[0], .init(entryId: "id-1", startTime: t0,
+                                                 selection: .init(projectId: "p1", taskId: "k1"),
+                                                 source: .auto))
+        XCTAssertEqual(recorder.clears, 0)
+    }
+
+    func testStopClearsLiveSpan() {
+        let recorder = FakeLiveSpanRecorder()
+        let tracker = TimeTracker(buffer: BufferSpy(), clock: { self.t0 },
+                                  idGen: sequentialIdGen(), liveSpan: recorder)
+        tracker.start(projectId: nil, taskId: nil)
+        tracker.stop()
+        XCTAssertEqual(recorder.clears, 1, "a clean stop clears the live span")
+    }
+
+    func testPauseClearsAndResumeReopensLiveSpan() {
+        let recorder = FakeLiveSpanRecorder()
+        let tracker = TimeTracker(buffer: BufferSpy(), clock: { self.t0 },
+                                  idGen: sequentialIdGen(), liveSpan: recorder)
+        tracker.start(projectId: nil, taskId: nil)     // begin #1
+        tracker.pause()                                 // clear
+        tracker.resume()                                // begin #2
+        XCTAssertEqual(recorder.begins.count, 2)
+        XCTAssertEqual(recorder.clears, 1)
+    }
+
+    func testRecordSpanWithExplicitIdKeepsThatId() {
+        let spy = BufferSpy()
+        let tracker = TimeTracker(buffer: spy, clock: { self.t0 }, idGen: sequentialIdGen())
+        tracker.recordSpan(id: "recovered-id", start: t0, end: t0.addingTimeInterval(300),
+                           projectId: "p1", taskId: nil, source: .manual)
+        XCTAssertEqual(spy.object(at: 0)["id"] as? String, "recovered-id")
+    }
 }
