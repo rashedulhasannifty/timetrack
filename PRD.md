@@ -507,6 +507,8 @@ Where the implementation refines this spec:
 - **Security baseline** in `apps/api/src/main.ts`: `@fastify/helmet`, a `@fastify/cors` origin allowlist (`CORS_ORIGINS`), and strict-body Zod validation (unknown fields rejected). Resource authorization is a reusable `@ResourceScope` decorator + global `ResourceGuard` (`common/authz/`), not per-route logic.
 - **Packages build to `dist`** and apps consume the built output (turbo `^build`), not source.
 - **Repo tooling:** husky + lint-staged, gitleaks secret scanning, `pnpm audit --prod` + Dependabot in CI, and Developer ID signing/notarization scaffolding for the client (`apps/client-macos/SIGNING.md`).
+- **Client offline buffer is file-backed, not SQLite.** PRD §7.5's GRDB is replaced by a hand-rolled, file-backed FIFO (one atomic write-temp-then-rename file per record under Application Support; startup `.tmp` sweep) — no SwiftPM dependency (CLAUDE.md §2). The durable buffer also serves as the upload queue (no separate `UploadQueue` type); the drain loop lives in `SyncEngine`.
+- **Client sync covers time-entries only (Phase 1).** There is no idle-events endpoint yet; the client buffers `IdleEvent` records (age-pruned) for a later slice. `SyncEngine` is not gated by `AckGate` (it transmits the employee's own already-recorded entries) and, on sign-out, flushes-then-clears the buffer so a subsequent user cannot upload the prior user's entries under their own token.
 
 ---
 

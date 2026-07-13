@@ -139,10 +139,10 @@
   - `Tracking/WorkspaceObserver`: active app via `NSWorkspace`; auto-start (config, default **off**).
   - `Tracking/IdleMonitor`: last-input via `CGEventSource`; auto-pause on sleep/lock; auto-stop after idle threshold (from `TeamSettings`); on resume, "away for X min — keep or discard?" (discard default) → `IdleEvent`.
   - XCTest: idle state machine (active → idle → resume → keep/discard). _Built: `IdleMonitor` (pure state machine, 8 cases), `AutoTrackingCoordinator` (writes AUTO entries + IdleEvents), `WorkspaceObserver` (system edge), `AwayResolutionView` (discard-default prompt); auto-tracking gated by `AckGate` and never starts offline; settings decoded from `/policy/effective`._
-- **1.7d — Offline buffer + sync**
-  - `Storage/BufferStore`: replace the in-memory stand-in with **GRDB (SQLite)**, ≥24h capacity, UUIDv7 keys. (Adds the GRDB SwiftPM dependency — flagged for approval when we reach it.)
-  - `Sync/SyncEngine` + `UploadQueue` + `BackoffPolicy`: one-way (client→server), every 1–2 min, exponential backoff; idempotent because the API upserts on UUIDv7.
-  - XCTest: sync buffer drains, retries with backoff, dedupes on UUIDv7.
+- **1.7d — Offline buffer + sync** — ✅ **done**. **Pending: live GUI end-to-end smoke (human).**
+  - `Storage/BufferStore`: durable **file-backed FIFO** (one atomic file per record, UUIDv7 keys, ≥24h capacity, age-pruned) — hand-rolled, **no GRDB dependency** (as-built refinement of PRD §7.5).
+  - `Sync/SyncEngine` + `BackoffPolicy` + `TimeEntryUploader`: one-way (client→server), self-scheduling (~90s, exponential backoff), idempotent because the API upserts on UUIDv7. Drains **time-entries only** (no idle-events endpoint yet; idle records stay buffered, age-pruned). Not gated by `AckGate`; sign-out flushes-then-clears the buffer (cross-user integrity).
+  - XCTest: buffer round-trip/prune/clear/tmp-sweep, backoff growth/cap/reset, sync drain/keep-idle/backoff/drop-poison/idempotency/prune.
 
 **Done when:** a signed-in employee who has acknowledged the policy can start/stop tracking manually and via active-app/idle detection, assign a project, work offline for ≥24h, and see entries sync exactly once. The indicator is always visible; no path bypasses the gate.
 
@@ -164,5 +164,5 @@
 - [x] 1.4 Time entries complete (edit + audit + active-entry).
 - [x] 1.5 Dashboard session + shell.
 - [x] 1.6 Team overview + timeline. Follow-ups (not blocking): timezone-aware "today" (UTC-only for now); overview Playwright e2e stays a skipped scaffold until seeded time-entry data lands; `?date=` past-day makes `tracking` meaningful only for the current day; person-page error handling conflates 403 with other failures.
-- [ ] 1.7 macOS client MVP (a–d).
+- [x] 1.7 macOS client MVP (a–d).
 - [ ] Green gate; coverage ≥80% on `apps/api` + `packages/contracts`; end-to-end demo of the full loop.
