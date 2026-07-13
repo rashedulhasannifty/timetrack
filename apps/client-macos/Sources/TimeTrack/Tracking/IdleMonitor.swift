@@ -70,9 +70,7 @@ final class IdleMonitor {
             state = .away(since: awayStart)
             delegate?.idleMonitor(self, shouldStopTrackingAt: awayStart)
         case .away(let since) where idleSeconds < thresholdSeconds:
-            let resumeAt = clock()
-            state = .awaiting(since: since, until: resumeAt)
-            delegate?.idleMonitor(self, didBecomeAwayForSeconds: Int(resumeAt.timeIntervalSince(since)))
+            transitionToAwaiting(since: since)
         default:
             break
         }
@@ -90,6 +88,11 @@ final class IdleMonitor {
     /// also transitions away→awaiting on its own).
     func resume() {
         guard case .away(let since) = state else { return }
+        transitionToAwaiting(since: since)
+    }
+
+    /// Shared away→awaiting transition (tick's below-threshold branch and explicit `resume()`).
+    private func transitionToAwaiting(since: Date) {
         let resumeAt = clock()
         state = .awaiting(since: since, until: resumeAt)
         delegate?.idleMonitor(self, didBecomeAwayForSeconds: Int(resumeAt.timeIntervalSince(since)))

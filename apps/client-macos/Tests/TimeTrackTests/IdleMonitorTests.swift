@@ -90,4 +90,25 @@ final class IdleMonitorTests: XCTestCase {
         XCTAssertEqual(delegate.calls.last, .abandoned(from: t0, to: t0.addingTimeInterval(390)))
         XCTAssertEqual(monitor.state, .inactive)
     }
+
+    func testExplicitResumeTransitionsAwayToAwaiting() {
+        let (monitor, delegate, clock) = make(threshold: 300)
+        monitor.activate()
+        clock.advance(300); monitor.tick(idleSeconds: 300)   // away since t0
+        clock.advance(50)
+        monitor.resume()                                      // explicit resume, not tick-driven
+        XCTAssertEqual(delegate.calls.last, .becameAway(seconds: 350))
+        XCTAssertEqual(monitor.state, .awaiting(since: t0, until: t0.addingTimeInterval(350)))
+    }
+
+    func testDeactivateWhileAwaitingEmitsUnresolvedWithRecordedResumeTime() {
+        let (monitor, delegate, clock) = make(threshold: 300)
+        monitor.activate()
+        clock.advance(300); monitor.tick(idleSeconds: 300)    // away since t0
+        clock.advance(120); monitor.tick(idleSeconds: 5)       // awaiting since t0 until t0+420
+        clock.advance(999)                                     // clock moves on before deactivate
+        monitor.deactivate()
+        XCTAssertEqual(delegate.calls.last, .abandoned(from: t0, to: t0.addingTimeInterval(420)))
+        XCTAssertEqual(monitor.state, .inactive)
+    }
 }
