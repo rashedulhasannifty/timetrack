@@ -34,7 +34,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-      - run: RUN_E2E=1 pnpm --filter @timetrack/api test:e2e
+      # Phase-1 DoD coverage gate (docs/ROADMAP.md): ≥80% on apps/api + packages/contracts.
+      # The api run measures the combined unit + Testcontainers e2e suite (RUN_E2E=1 is
+      # set inside the script) and fails the build below threshold — it replaces the
+      # standalone e2e step, which it subsumes.
+      - run: pnpm --filter @timetrack/api test:coverage
+      - run: pnpm --filter @timetrack/contracts test:coverage
 
   security:
     runs-on: ubuntu-latest

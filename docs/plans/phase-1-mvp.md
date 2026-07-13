@@ -165,4 +165,6 @@
 - [x] 1.5 Dashboard session + shell.
 - [x] 1.6 Team overview + timeline. Follow-ups (not blocking): timezone-aware "today" (UTC-only for now); overview Playwright e2e stays a skipped scaffold until seeded time-entry data lands; `?date=` past-day makes `tracking` meaningful only for the current day; person-page error handling conflates 403 with other failures.
 - [x] 1.7 macOS client MVP (a–d).
-- [ ] Green gate; coverage ≥80% on `apps/api` + `packages/contracts`; end-to-end demo of the full loop.
+- [x] Green gate; coverage ≥80% on `apps/api` + `packages/contracts`; end-to-end demo of the full loop.
+  - Coverage is now measured and **CI-enforced** (`@vitest/coverage-v8`, 80% threshold on all four metrics). `apps/api` is measured across the **combined unit + Testcontainers e2e** run (`apps/api/vitest.coverage.config.ts`, `pnpm --filter @timetrack/api test:coverage`, needs `RUN_E2E=1` + Docker): 88.5% lines / 83.7% functions / 96.3% branches. `packages/contracts`: 100%. Coverage exclusions are limited to `main.ts` (bootstrap) and `infra/storage/**` (Phase-2 MinIO adapter — see the Slice 2.2 note to un-exclude it).
+  - End-to-end demo (curl against local infra) exercised the full loop: seed admin → login → invite (dev-token) → accept-invite/auto-login → create project → track time (completed + running entries, idempotent repost) → self-scoped list → **403 on cross-user read** → manager overview showing live `tracking` + `trackedSecondsToday`.
