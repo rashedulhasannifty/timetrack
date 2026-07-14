@@ -5,6 +5,7 @@ next-env.d.ts
 .turbo/
 coverage/
 *.tsbuildinfo
+*.zip
 .env
 .env.*
 !.env.example
