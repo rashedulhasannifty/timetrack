@@ -8,8 +8,14 @@ updates:
     open-pull-requests-limit: 10
     groups:
       # Reduce PR noise: batch dev-tooling bumps together; app deps come individually.
+      # Minor/patch only — a grouped major would land several breaking upgrades in one
+      # PR (CLAUDE.md §2: majors get their own PR). Ungrouped majors still open, one
+      # each, so a TypeScript or ESLint jump is reviewed on its own merits.
       dev-dependencies:
         dependency-type: 'development'
+        update-types:
+          - 'minor'
+          - 'patch'
 
   # Keep GitHub Actions pinned versions current (also a supply-chain surface).
   - package-ecosystem: 'github-actions'
