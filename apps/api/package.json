@@ -12,8 +12,8 @@
     "test:coverage": "RUN_E2E=1 vitest run --config vitest.coverage.config.ts --coverage"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.859.0",
-    "@aws-sdk/s3-request-presigner": "^3.859.0",
+    "@aws-sdk/client-s3": "^3.1086.0",
+    "@aws-sdk/s3-request-presigner": "^3.1086.0",
     "@fastify/cors": "^11.3.0",
     "@fastify/helmet": "^13.1.0",
     "@nestjs/common": "^11.1.6",
