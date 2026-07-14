@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.859.0",
-    "@aws-sdk/s3-request-presigner": "^3.859.0",
+    "@aws-sdk/s3-request-presigner": "^3.1086.0",
     "@fastify/cors": "^11.2.0",
     "@fastify/helmet": "^13.1.0",
     "@nestjs/common": "^11.1.6",
