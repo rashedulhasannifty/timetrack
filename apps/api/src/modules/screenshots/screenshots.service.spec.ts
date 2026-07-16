@@ -64,7 +64,8 @@ describe('ScreenshotsService.list presigning', () => {
 
   it('READY row → url=signed thumb, fullUrl=signed raw', async () => {
     const row: ScreenshotRow = { ...pendingRow(), status: 'READY', thumbnailKey: 'thumb/user-1/x' };
-    const [shot] = await svcWith([row]).list(q, USER);
+    const shots = await svcWith([row]).list(q, USER);
+    const shot = shots[0]!;
     expect(shot.url).toBe('signed:thumb/user-1/x');
     expect(shot.fullUrl).toBe(`signed:raw/user-1/${META.id}`);
   });
@@ -76,7 +77,8 @@ describe('ScreenshotsService.list presigning', () => {
       thumbnailKey: 'thumb/user-1/x',
       storageKey: '', // raw deleted by worker under THUMBNAIL_ONLY
     };
-    const [shot] = await svcWith([row]).list(q, USER);
+    const shots = await svcWith([row]).list(q, USER);
+    const shot = shots[0]!;
     expect(shot.url).toBe('signed:thumb/user-1/x');
     expect(shot.fullUrl).toBeUndefined();
   });
@@ -85,10 +87,12 @@ describe('ScreenshotsService.list presigning', () => {
     const pending: ScreenshotRow = pendingRow();
     const redacted: ScreenshotRow = { ...pendingRow(), status: 'REDACTED' };
     const shots = await svcWith([pending, redacted]).list(q, USER);
-    expect(shots[0].url).toBeUndefined();
-    expect(shots[0].fullUrl).toBeUndefined();
-    expect(shots[1].url).toBeUndefined();
-    expect(shots[1].fullUrl).toBeUndefined();
+    const pendingShot = shots[0]!;
+    const redactedShot = shots[1]!;
+    expect(pendingShot.url).toBeUndefined();
+    expect(pendingShot.fullUrl).toBeUndefined();
+    expect(redactedShot.url).toBeUndefined();
+    expect(redactedShot.fullUrl).toBeUndefined();
   });
 });
 
