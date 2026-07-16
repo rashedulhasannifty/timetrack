@@ -1,16 +1,19 @@
 import { execSync } from 'node:child_process';
+import { MinioContainer } from '@testcontainers/minio';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer } from '@testcontainers/redis';
 import { PrismaClient, pgAdapter } from '@timetrack/db';
 
 export interface StartTestDbOptions {
   redis?: boolean;
+  minio?: boolean;
 }
 
 export interface TestDb {
   prisma: PrismaClient;
   url: string;
   redisUrl?: string;
+  s3Url?: string;
   close(): Promise<void>;
 }
 
@@ -30,14 +33,27 @@ export async function startTestDb(opts: StartTestDbOptions = {}): Promise<TestDb
   const redisUrl = redis?.getConnectionUrl();
   if (redisUrl) process.env.REDIS_URL = redisUrl;
 
+  const minio = opts.minio ? await new MinioContainer('minio/minio:latest').start() : undefined;
+  let s3Url: string | undefined;
+  if (minio) {
+    s3Url = minio.getConnectionUrl();
+    process.env.S3_ENDPOINT = s3Url;
+    process.env.S3_REGION = 'us-east-1';
+    process.env.S3_ACCESS_KEY = minio.getUsername();
+    process.env.S3_SECRET_KEY = minio.getPassword();
+    process.env.S3_BUCKET = 'timetrack-test';
+  }
+
   return {
     prisma,
     url,
     redisUrl,
+    s3Url,
     async close() {
       await prisma.$disconnect();
       await pg.stop();
       if (redis) await redis.stop();
+      if (minio) await minio.stop();
     },
   };
 }
