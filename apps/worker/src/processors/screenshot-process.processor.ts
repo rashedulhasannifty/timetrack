@@ -2,28 +2,72 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 import type { Job } from 'bullmq';
+import { TeamSettingsSchema } from '@timetrack/contracts';
 import { WorkerPrisma } from '../infra/prisma.provider.js';
+import { WorkerS3 } from '../infra/s3.provider.js';
+import { deriveScreenshot } from './screenshot-derive.js';
+
+interface DeriveJob {
+  id: string;
+  timestamp: string;
+}
 
 /**
- * PRD §7.4 — after the API stores a raw screenshot (status PENDING), this job generates
- * a thumbnail, applies blur if the team policy demands it (via `sharp`), and marks the
- * row READY. A slow thumbnail job must never touch API latency — hence a separate worker.
+ * PRD §7.4 — download the PENDING raw, derive a thumbnail (+ team blur policy), write derivatives,
+ * mark READY. A slow image job must never touch API latency — hence a separate worker.
  */
 @Injectable()
 @Processor('screenshot-process')
 export class ScreenshotProcessProcessor extends WorkerHost {
   constructor(
     private readonly prisma: WorkerPrisma,
+    private readonly s3: WorkerS3,
     private readonly logger: Logger,
   ) {
     super();
   }
 
-  process(job: Job): Promise<void> {
-    // TODO(scaffold): fetch the PENDING row, download from MinIO, sharp().resize() for a
-    // thumbnail + optional blur per TeamSettings, upload derivatives, mark READY.
-    void this.prisma;
-    this.logger.log({ jobId: job.id }, 'screenshot-process received');
-    return Promise.resolve();
+  async process(job: Job<DeriveJob>): Promise<void> {
+    const { id, timestamp } = job.data;
+    const row = await this.prisma.screenshot.findUnique({
+      where: { id_timestamp: { id, timestamp: new Date(timestamp) } },
+      select: { id: true, userId: true, storageKey: true, status: true },
+    });
+    if (!row || row.status !== 'PENDING') {
+      this.logger.log(
+        { jobId: job.id, id, status: row?.status ?? 'MISSING' },
+        'screenshot-process skipped',
+      );
+      return;
+    }
+
+    const team = await this.prisma.user.findUnique({
+      where: { id: row.userId },
+      select: { team: { select: { settings: true } } },
+    });
+    const blur = TeamSettingsSchema.parse(team?.team.settings ?? {}).screenshotBlur;
+
+    const raw = await this.s3.getObject(row.storageKey);
+    const derived = await deriveScreenshot(raw, blur);
+
+    const thumbnailKey = `thumb/${row.userId}/${id}`;
+    await this.s3.putObject(thumbnailKey, derived.thumbnail, 'image/jpeg');
+    if (derived.rawReplacement)
+      await this.s3.putObject(row.storageKey, derived.rawReplacement, 'image/png');
+    if (derived.deleteRaw) await this.s3.deleteObject(row.storageKey);
+
+    await this.prisma.screenshot.update({
+      where: { id_timestamp: { id, timestamp: new Date(timestamp) } },
+      data: {
+        thumbnailKey,
+        blurred: derived.blurred,
+        status: 'READY',
+        ...(derived.deleteRaw ? { storageKey: '' } : {}),
+      },
+    });
+    this.logger.log(
+      { jobId: job.id, id, userId: row.userId, status: 'READY' },
+      'screenshot-process done',
+    );
   }
 }
