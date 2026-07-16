@@ -29,7 +29,16 @@ export class ScreenshotsService {
   async list(query: ListScreenshotsQuery, user: SessionUser): Promise<Screenshot[]> {
     const targetId = query.userId ?? user.id;
     const rows = await this.repo.listByUser(targetId, new Date(query.from), new Date(query.to));
-    return rows.map(toScreenshot);
+    return Promise.all(rows.map((r) => this.withUrls(r)));
+  }
+
+  /** READY rows get presigned URLs (5-min TTL); PENDING has none yet; REDACTED never does. */
+  private async withUrls(r: ScreenshotRow): Promise<Screenshot> {
+    const shot = toScreenshot(r);
+    if (r.status !== 'READY') return shot;
+    if (r.thumbnailKey) shot.url = await this.storage.presignGet(r.thumbnailKey);
+    if (r.storageKey) shot.fullUrl = await this.storage.presignGet(r.storageKey);
+    return shot;
   }
 
   /**

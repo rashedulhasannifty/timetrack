@@ -22,6 +22,8 @@ function pendingRow(): ScreenshotRow {
   };
 }
 
+import type { ListScreenshotsQuery } from '@timetrack/contracts';
+
 describe('ScreenshotsService.upload', () => {
   it('streams to raw/<sessionUser>/<id>, upserts PENDING, enqueues, returns the shot', async () => {
     const putStream = vi.fn().mockResolvedValue(undefined);
@@ -43,5 +45,48 @@ describe('ScreenshotsService.upload', () => {
     });
     expect(shot.status).toBe('PENDING');
     expect(shot.id).toBe(META.id);
+  });
+});
+
+describe('ScreenshotsService.list presigning', () => {
+  function svcWith(
+    rows: ScreenshotRow[],
+    presign = vi.fn((k: string) => Promise.resolve(`signed:${k}`)),
+  ) {
+    return new ScreenshotsService(
+      { listByUser: vi.fn().mockResolvedValue(rows) } as unknown as ScreenshotsRepository,
+      { presignGet: presign } as unknown as MinioService,
+      {} as unknown as QueueService,
+    );
+  }
+  const q: ListScreenshotsQuery = { from: '2026-07-16T00:00:00Z', to: '2026-07-16T23:59:59Z' };
+
+  it('READY row → url=signed thumb, fullUrl=signed raw', async () => {
+    const row: ScreenshotRow = { ...pendingRow(), status: 'READY', thumbnailKey: 'thumb/user-1/x' };
+    const [shot] = await svcWith([row]).list(q, USER);
+    expect(shot.url).toBe('signed:thumb/user-1/x');
+    expect(shot.fullUrl).toBe(`signed:raw/user-1/${META.id}`);
+  });
+
+  it('READY THUMBNAIL_ONLY (no raw retained) → url set, fullUrl undefined', async () => {
+    const row: ScreenshotRow = {
+      ...pendingRow(),
+      status: 'READY',
+      thumbnailKey: 'thumb/user-1/x',
+      storageKey: '', // raw deleted by worker under THUMBNAIL_ONLY
+    };
+    const [shot] = await svcWith([row]).list(q, USER);
+    expect(shot.url).toBe('signed:thumb/user-1/x');
+    expect(shot.fullUrl).toBeUndefined();
+  });
+
+  it('PENDING and REDACTED rows carry no URLs', async () => {
+    const pending: ScreenshotRow = pendingRow();
+    const redacted: ScreenshotRow = { ...pendingRow(), status: 'REDACTED' };
+    const shots = await svcWith([pending, redacted]).list(q, USER);
+    expect(shots[0].url).toBeUndefined();
+    expect(shots[0].fullUrl).toBeUndefined();
+    expect(shots[1].url).toBeUndefined();
+    expect(shots[1].fullUrl).toBeUndefined();
   });
 });
