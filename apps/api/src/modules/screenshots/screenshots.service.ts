@@ -1,11 +1,24 @@
 import { Injectable, NotImplementedException } from '@nestjs/common';
-import type { ListScreenshotsQuery, RedactScreenshot, Screenshot } from '@timetrack/contracts';
+import { randomUUID } from 'node:crypto';
+import type { Readable } from 'node:stream';
+import type {
+  ListScreenshotsQuery,
+  RedactScreenshot,
+  Screenshot,
+  UploadScreenshotMeta,
+} from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
+import { MinioService } from '../../infra/storage/minio.service.js';
+import { QueueService, QUEUES } from '../../infra/queue/queue.module.js';
 import { ScreenshotsRepository, type ScreenshotRow } from './screenshots.repository.js';
 
 @Injectable()
 export class ScreenshotsService {
-  constructor(private readonly repo: ScreenshotsRepository) {}
+  constructor(
+    private readonly repo: ScreenshotsRepository,
+    private readonly storage: MinioService,
+    private readonly queue: QueueService,
+  ) {}
 
   /**
    * PRD §4.3 — symmetric transparency: an employee can list every screenshot recorded
@@ -19,10 +32,21 @@ export class ScreenshotsService {
     return rows.map(toScreenshot);
   }
 
-  upload(): Promise<Screenshot> {
-    // TODO(scaffold): stream multipart → MinioService.putObject → create row PENDING →
-    //                 enqueue screenshot-process → return 201 with the storage key.
-    throw new NotImplementedException('screenshots.upload not yet implemented');
+  /**
+   * PRD §7.4 — stream the image straight to storage (raw/<userId>/<id>), upsert a PENDING row,
+   * and enqueue the derive job. Owner is ALWAYS the session user, never a body field. Idempotent:
+   * a retried upload (client deletes local only after a confirmed 201) overwrites the object and
+   * re-sets PENDING, so a lost-201 retry is a safe no-op.
+   */
+  async upload(file: Readable, meta: UploadScreenshotMeta, user: SessionUser): Promise<Screenshot> {
+    const storageKey = `raw/${user.id}/${meta.id}`;
+    await this.storage.putStream(storageKey, file, 'image/png');
+    const row = await this.repo.create(meta, user.id, storageKey);
+    await this.queue.enqueue(QUEUES.screenshotProcess, randomUUID(), {
+      id: meta.id,
+      timestamp: meta.timestamp,
+    });
+    return toScreenshot(row);
   }
 
   redact(_id: string, _dto: RedactScreenshot, _user: SessionUser): Promise<Screenshot> {
@@ -31,7 +55,7 @@ export class ScreenshotsService {
   }
 }
 
-// Presigned `url` is intentionally absent until MinioService is wired into upload.
+// Presigned `url` is intentionally absent until MinioService is wired into the read path.
 function toScreenshot(r: ScreenshotRow): Screenshot {
   return {
     id: r.id,

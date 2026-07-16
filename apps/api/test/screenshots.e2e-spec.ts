@@ -1,6 +1,10 @@
 import './test-env.js';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Readable } from 'node:stream';
 import { ScreenshotsRepository } from '../src/modules/screenshots/screenshots.repository.js';
+import { ScreenshotsService } from '../src/modules/screenshots/screenshots.service.js';
+import { MinioService } from '../src/infra/storage/minio.service.js';
+import type { QueueService } from '../src/infra/queue/queue.module.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
 
@@ -54,5 +58,40 @@ describe.runIf(RUN_E2E)('screenshots repository — real Postgres', () => {
 describe('screenshots e2e harness', () => {
   it('is gated behind RUN_E2E=1', () => {
     expect(typeof RUN_E2E).toBe('boolean');
+  });
+});
+
+describe.runIf(RUN_E2E)('screenshots upload — real Postgres + MinIO', () => {
+  let db: TestDb;
+  let storage: MinioService;
+  beforeAll(async () => {
+    db = await startTestDb({ minio: true });
+    storage = new MinioService();
+    await storage.onModuleInit();
+  });
+  afterAll(async () => {
+    await db.close();
+  });
+  afterEach(async () => {
+    await truncateAll(db.prisma);
+  });
+
+  it('streams the image to storage and writes a PENDING row', async () => {
+    const enqueue = vi.fn().mockResolvedValue(undefined);
+    const svc = new ScreenshotsService(
+      new ScreenshotsRepository(db.prisma as unknown as PrismaService),
+      storage,
+      { enqueue } as unknown as QueueService,
+    );
+    const shot = await svc.upload(
+      Readable.from([Buffer.from('PNGDATA')]),
+      { id: '019797a0-0000-7000-8000-0000000000e9', timestamp: TS },
+      { id: 'user-9', role: 'EMPLOYEE', teamId: 'team-9' },
+    );
+    expect(shot.status).toBe('PENDING');
+    expect(shot.storageKey).toBe('raw/user-9/019797a0-0000-7000-8000-0000000000e9');
+    const bytes = await fetch(await storage.presignGet(shot.storageKey)).then((r) => r.text());
+    expect(bytes).toBe('PNGDATA');
+    expect(enqueue).toHaveBeenCalledOnce();
   });
 });
