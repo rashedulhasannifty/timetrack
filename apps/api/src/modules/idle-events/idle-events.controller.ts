@@ -1,7 +1,14 @@
-import { Body, Controller, Post } from '@nestjs/common';
-import { IdleEventSchema, type IdleEvent, type IdleEventResult } from '@timetrack/contracts';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import {
+  IdleEventSchema,
+  ListIdleEventsQuerySchema,
+  type IdleEvent,
+  type IdleEventResult,
+  type ListIdleEventsQuery,
+} from '@timetrack/contracts';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CurrentUser, type SessionUser } from '../../common/decorators/current-user.decorator.js';
+import { ResourceScope } from '../../common/decorators/resource-scope.decorator.js';
 import { IdleEventsService } from './idle-events.service.js';
 
 /**
@@ -22,5 +29,15 @@ export class IdleEventsController {
     @CurrentUser() user: SessionUser,
   ): Promise<IdleEventResult> {
     return this.service.ingest(event, user);
+  }
+
+  /** Self / manager-of-team / admin enforced by ResourceGuard against `?userId=`. */
+  @Get()
+  @ResourceScope({ source: 'query', key: 'userId' })
+  list(
+    @Query(new ZodValidationPipe(ListIdleEventsQuerySchema)) query: ListIdleEventsQuery,
+    @CurrentUser() user: SessionUser,
+  ): Promise<IdleEvent[]> {
+    return this.service.list(query, user);
   }
 }

@@ -20,6 +20,14 @@ export const IdleEventResultSchema = z.object({
   resolvedAction: ResolvedAction,
 });
 
+/** Self-view / manager read window. Read rows reuse IdleEventSchema. */
+export const ListIdleEventsQuerySchema = z.object({
+  userId: z.uuid().optional(),
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+});
+
 export type ResolvedAction = z.infer<typeof ResolvedAction>;
 export type IdleEvent = z.infer<typeof IdleEventSchema>;
 export type IdleEventResult = z.infer<typeof IdleEventResultSchema>;
+export type ListIdleEventsQuery = z.infer<typeof ListIdleEventsQuerySchema>;

@@ -6,8 +6,10 @@ import {
   ListTimeEntriesQuerySchema,
   ActivityBatchSchema,
   ActivitySampleSchema,
+  ListActivityQuerySchema,
   IdleEventSchema,
   IdleEventResultSchema,
+  ListIdleEventsQuerySchema,
   ScreenshotSchema,
   RedactScreenshotSchema,
   TeamSettingsSchema,
@@ -85,6 +87,17 @@ describe('activity', () => {
     expect(ActivityBatchSchema.safeParse({ samples: [] }).success).toBe(false);
     expect(ActivitySampleSchema.safeParse({ ...sample, activityPct: 101 }).success).toBe(false);
   });
+
+  it('ListActivityQuerySchema requires from+to, userId optional', () => {
+    expect(ListActivityQuerySchema.safeParse({ from: ISO, to: ISO }).success).toBe(true);
+    expect(ListActivityQuerySchema.safeParse({ userId: UUID, from: ISO, to: ISO }).success).toBe(
+      true,
+    );
+    expect(ListActivityQuerySchema.safeParse({ from: ISO }).success).toBe(false);
+    expect(ListActivityQuerySchema.safeParse({ userId: 'nope', from: ISO, to: ISO }).success).toBe(
+      false,
+    );
+  });
 });
 
 describe('idle', () => {
@@ -115,6 +128,14 @@ describe('idle', () => {
       id: UUID,
       resolvedAction: 'KEPT',
     });
+  });
+
+  it('ListIdleEventsQuerySchema requires from+to, userId optional', () => {
+    expect(ListIdleEventsQuerySchema.safeParse({ from: ISO, to: ISO }).success).toBe(true);
+    expect(ListIdleEventsQuerySchema.safeParse({ userId: UUID, from: ISO, to: ISO }).success).toBe(
+      true,
+    );
+    expect(ListIdleEventsQuerySchema.safeParse({ to: ISO }).success).toBe(false);
   });
 });
 

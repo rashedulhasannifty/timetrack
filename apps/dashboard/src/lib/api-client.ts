@@ -1,4 +1,10 @@
 import {
+  ActivitySampleSchema,
+  type ActivitySample,
+  IdleEventSchema,
+  type IdleEvent,
+  ScreenshotSchema,
+  type Screenshot,
   TimeEntrySchema,
   type TimeEntry,
   ProjectSchema,
@@ -101,6 +107,12 @@ async function authPost<T>(path: string, body: unknown, schema: z.ZodType<T>): P
 export const api = {
   listTimeEntries: (token: string, params: URLSearchParams): Promise<TimeEntry[]> =>
     get(`/time-entries?${params}`, z.array(TimeEntrySchema), token),
+  listActivitySamples: (token: string, params: URLSearchParams): Promise<ActivitySample[]> =>
+    get(`/activity-samples?${params}`, z.array(ActivitySampleSchema), token),
+  listIdleEvents: (token: string, params: URLSearchParams): Promise<IdleEvent[]> =>
+    get(`/idle-events?${params}`, z.array(IdleEventSchema), token),
+  listScreenshots: (token: string, params: URLSearchParams): Promise<Screenshot[]> =>
+    get(`/screenshots?${params}`, z.array(ScreenshotSchema), token),
   listProjects: (token: string): Promise<Project[]> =>
     get('/projects', z.array(ProjectSchema), token),
   listUsers: (token: string): Promise<User[]> => get('/users', z.array(UserSchema), token),
