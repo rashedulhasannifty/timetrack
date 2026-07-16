@@ -77,7 +77,7 @@
 
 ## Phase 2 Definition of Done
 
-- [ ] 2.1 Self-view live (prerequisite for release).
+- [x] 2.1 Self-view live (prerequisite for release). API read endpoints `GET /activity-samples` and `GET /idle-events` added (self/manager/admin via `@ResourceScope` → `ResourceGuard`); `GET /time-entries`/`GET /screenshots` already existed. Dashboard `/me` ships the four-tab transparency surface (Timeline, Activity, Screenshots, Idle), today-UTC, self-scoped. **Deferrals (inherent to the §11 gate — self-view ships before capture):** the Screenshots tab is a working shell with an empty state until 2.2 wires MinIO/presigned URLs; the Activity tab renders raw `activity_samples` until 2.3 adds daily rollups. Live-driven: employee self=200 / cross-user=403, admin(scope)→employee=200, unauth=401; coverage 88.95%/84.11% functions.
 - [ ] 2.2 Screenshot pipeline end-to-end (capture → MinIO → thumbnail/blur → presigned → redact).
 - [ ] 2.3 Activity monitoring + daily rollups.
 - [ ] 2.4 Local idle/focus nudges.
