@@ -58,6 +58,12 @@ export class ScreenshotsService {
     return toScreenshot(row);
   }
 
+  /** A mid-stream truncated upload left a half-object + PENDING row — remove both. */
+  async deleteForTruncatedUpload(meta: UploadScreenshotMeta, user: SessionUser): Promise<void> {
+    await this.storage.deleteObject(`raw/${user.id}/${meta.id}`);
+    await this.repo.deleteByPk(meta.id, new Date(meta.timestamp));
+  }
+
   /**
    * PRD §6.2 — OWNER-ONLY redact (a manager/admin must NOT redact an employee's shot, so this is
    * NOT @ResourceScope). Marks REDACTED + reason (audited in the repo tx), then deletes the storage
