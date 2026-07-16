@@ -109,6 +109,45 @@ describe.runIf(RUN_E2E)('screenshot-process processor — real Postgres + MinIO'
     expect(row?.blurred).toBe(true);
     await expect(s3.getObject(`raw/${userId}/${id}`)).resolves.toBeInstanceOf(Buffer);
   });
+
+  it('does not resurrect a row redacted between the PENDING read and the final write (TOCTOU)', async () => {
+    const id = '019797a0-0000-7000-8000-000000000104';
+    await seed(id, 'NONE');
+    // Simulate a redact committing in the window between the processor's initial PENDING
+    // read and its final write: the read still observes PENDING (passing the top guard),
+    // but by the time the write runs the row is actually REDACTED. A stand-in `prisma` (not
+    // a monkey-patch of the real client — Prisma 7's driver-adapter client is proxy-based and
+    // does not survive vi.spyOn/mockRestore) implements only the calls this processor makes.
+    const rigged = {
+      screenshot: {
+        findUnique: async (args: unknown) => {
+          const result = await env.prisma.screenshot.findUnique(args as never);
+          await env.prisma.screenshot.update({
+            where: { id_timestamp: { id, timestamp: new Date(TS) } },
+            data: { status: 'REDACTED', redactedReason: 'personal' },
+          });
+          return result;
+        },
+        updateMany: (args: unknown) => env.prisma.screenshot.updateMany(args as never),
+        update: (args: unknown) => env.prisma.screenshot.update(args as never),
+      },
+      user: {
+        findUnique: (args: unknown) => env.prisma.user.findUnique(args as never),
+      },
+    } as unknown as WorkerPrisma;
+    const raced = new ScreenshotProcessProcessor(
+      rigged,
+      s3,
+      { log: () => {} } as unknown as Logger,
+    );
+
+    await raced.process({ id: 'job', data: { id, timestamp: TS } } as never);
+
+    const row = await env.prisma.screenshot.findUnique({
+      where: { id_timestamp: { id, timestamp: new Date(TS) } },
+    });
+    expect(row?.status).toBe('REDACTED');
+  });
 });
 
 describe('worker screenshot-process harness', () => {

@@ -56,8 +56,11 @@ export class ScreenshotProcessProcessor extends WorkerHost {
       await this.s3.putObject(row.storageKey, derived.rawReplacement, 'image/png');
     if (derived.deleteRaw) await this.s3.deleteObject(row.storageKey);
 
-    await this.prisma.screenshot.update({
-      where: { id_timestamp: { id, timestamp: new Date(timestamp) } },
+    // Guard against a redact that committed between the findUnique above and this write —
+    // only flip PENDING -> READY. If the row moved on (e.g. REDACTED), this must not
+    // resurrect it; best-effort clean up the thumbnail we just wrote and skip.
+    const result = await this.prisma.screenshot.updateMany({
+      where: { id, timestamp: new Date(timestamp), status: 'PENDING' },
       data: {
         thumbnailKey,
         blurred: derived.blurred,
@@ -65,6 +68,18 @@ export class ScreenshotProcessProcessor extends WorkerHost {
         ...(derived.deleteRaw ? { storageKey: '' } : {}),
       },
     });
+    if (result.count === 0) {
+      try {
+        await this.s3.deleteObject(thumbnailKey);
+      } catch {
+        // best-effort cleanup only — the row is no longer PENDING either way
+      }
+      this.logger.log(
+        { jobId: job.id, id, status: 'skipped-not-pending' },
+        'screenshot-process skipped-not-pending',
+      );
+      return;
+    }
     this.logger.log(
       { jobId: job.id, id, userId: row.userId, status: 'READY' },
       'screenshot-process done',
