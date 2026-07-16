@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ScreenshotsService } from './screenshots.service.js';
 import type { ScreenshotsRepository, ScreenshotRow } from './screenshots.repository.js';
 import type { MinioService } from '../../infra/storage/minio.service.js';
@@ -88,5 +89,57 @@ describe('ScreenshotsService.list presigning', () => {
     expect(shots[0].fullUrl).toBeUndefined();
     expect(shots[1].url).toBeUndefined();
     expect(shots[1].fullUrl).toBeUndefined();
+  });
+});
+
+describe('ScreenshotsService.redact', () => {
+  const readyRow: ScreenshotRow = {
+    ...pendingRow(),
+    status: 'READY',
+    thumbnailKey: `thumb/user-1/${META.id}`,
+  };
+
+  it('403 when the caller is not the owner (a manager cannot redact)', async () => {
+    const svc = new ScreenshotsService(
+      { findById: vi.fn().mockResolvedValue(readyRow) } as unknown as ScreenshotsRepository,
+      {} as unknown as MinioService,
+      {} as unknown as QueueService,
+    );
+    const manager: SessionUser = { id: 'mgr-1', role: 'MANAGER', teamId: 'team-1' };
+    await expect(svc.redact(META.id, { reason: 'x' }, manager)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('404 when no row exists for the id', async () => {
+    const svc = new ScreenshotsService(
+      { findById: vi.fn().mockResolvedValue(null) } as unknown as ScreenshotsRepository,
+      {} as unknown as MinioService,
+      {} as unknown as QueueService,
+    );
+    await expect(svc.redact(META.id, { reason: 'x' }, USER)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('owner redacts → marks REDACTED, deletes raw + thumb objects, returns tombstone', async () => {
+    const markRedacted = vi
+      .fn()
+      .mockResolvedValue({ ...readyRow, status: 'REDACTED', redactedReason: 'personal' });
+    const deleteObject = vi.fn().mockResolvedValue(undefined);
+    const svc = new ScreenshotsService(
+      {
+        findById: vi.fn().mockResolvedValue(readyRow),
+        markRedacted,
+      } as unknown as ScreenshotsRepository,
+      { deleteObject } as unknown as MinioService,
+      {} as unknown as QueueService,
+    );
+    const shot = await svc.redact(META.id, { reason: 'personal' }, USER);
+    expect(shot.status).toBe('REDACTED');
+    expect(shot.url).toBeUndefined();
+    expect(deleteObject).toHaveBeenCalledWith(`raw/user-1/${META.id}`);
+    expect(deleteObject).toHaveBeenCalledWith(`thumb/user-1/${META.id}`);
+    expect(markRedacted).toHaveBeenCalledWith(META.id, readyRow.timestamp, 'personal', 'user-1');
   });
 });

@@ -94,4 +94,37 @@ describe.runIf(RUN_E2E)('screenshots upload — real Postgres + MinIO', () => {
     expect(bytes).toBe('PNGDATA');
     expect(enqueue).toHaveBeenCalledOnce();
   });
+
+  it('owner redact deletes objects, writes audit, leaves a tombstone row', async () => {
+    const enqueue = vi.fn().mockResolvedValue(undefined);
+    const svc = new ScreenshotsService(
+      new ScreenshotsRepository(db.prisma as unknown as PrismaService),
+      storage,
+      { enqueue } as unknown as QueueService,
+    );
+    const shotId = '019797a0-0000-7000-8000-0000000000ea';
+    await svc.upload(
+      Readable.from([Buffer.from('IMG')]),
+      { id: shotId, timestamp: TS },
+      {
+        id: 'user-9',
+        role: 'EMPLOYEE',
+        teamId: 'team-9',
+      },
+    );
+    const redacted = await svc.redact(
+      shotId,
+      { reason: 'personal' },
+      {
+        id: 'user-9',
+        role: 'EMPLOYEE',
+        teamId: 'team-9',
+      },
+    );
+    expect(redacted.status).toBe('REDACTED');
+    const gone = await fetch(await storage.presignGet(`raw/user-9/${shotId}`));
+    expect(gone.status).toBe(404);
+    expect(await db.prisma.auditLog.count({ where: { targetId: shotId } })).toBe(1);
+    expect(await db.prisma.screenshot.count({ where: { id: shotId } })).toBe(1); // tombstone remains
+  });
 });

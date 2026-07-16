@@ -1,4 +1,4 @@
-import { Injectable, NotImplementedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import type {
@@ -24,7 +24,7 @@ export class ScreenshotsService {
    * PRD §4.3 — symmetric transparency: an employee can list every screenshot recorded
    * about them through this same endpoint (scoped to self). Managers see their team;
    * admins see anyone — enforced by @ResourceScope on the controller (ResourceGuard).
-   * Presigned URLs are added when upload/storage is wired.
+   * Presigned URLs are attached by withUrls() below.
    */
   async list(query: ListScreenshotsQuery, user: SessionUser): Promise<Screenshot[]> {
     const targetId = query.userId ?? user.id;
@@ -58,13 +58,26 @@ export class ScreenshotsService {
     return toScreenshot(row);
   }
 
-  redact(_id: string, _dto: RedactScreenshot, _user: SessionUser): Promise<Screenshot> {
-    // TODO(scaffold): mark REDACTED with reason; owner-only; never silently remove.
-    throw new NotImplementedException('screenshots.redact not yet implemented');
+  /**
+   * PRD §6.2 — OWNER-ONLY redact (a manager/admin must NOT redact an employee's shot, so this is
+   * NOT @ResourceScope). Marks REDACTED + reason (audited in the repo tx), then deletes the storage
+   * objects. The row persists as a tombstone → the manager sees "redacted by employee: <reason>",
+   * never a silent removal. Object delete runs AFTER the row commits: a failed delete leaves an
+   * orphan object, not an un-redacted row (fail safe toward privacy — reads never presign it).
+   */
+  async redact(id: string, dto: RedactScreenshot, user: SessionUser): Promise<Screenshot> {
+    const row = await this.repo.findById(id);
+    if (!row) throw new NotFoundException('screenshot not found');
+    if (row.userId !== user.id) throw new ForbiddenException('not your screenshot');
+
+    const redacted = await this.repo.markRedacted(id, row.timestamp, dto.reason, user.id);
+    if (row.storageKey) await this.storage.deleteObject(row.storageKey);
+    if (row.thumbnailKey) await this.storage.deleteObject(row.thumbnailKey);
+    return toScreenshot(redacted);
   }
 }
 
-// Presigned `url` is intentionally absent until MinioService is wired into the read path.
+// toScreenshot never sets `url`/`fullUrl` — those are presigned separately by withUrls() for READY rows.
 function toScreenshot(r: ScreenshotRow): Screenshot {
   return {
     id: r.id,
