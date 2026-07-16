@@ -27,3 +27,28 @@ describe('IdleEventsService', () => {
     expect(result).toEqual({ id: event.id, resolvedAction: 'DISCARDED' });
   });
 });
+
+const query = { from: '2026-07-01T00:00:00Z', to: '2026-07-31T00:00:00Z' };
+
+describe('IdleEventsService.list', () => {
+  function listRepoStub() {
+    return {
+      upsert: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+    } as unknown as IdleEventsRepository;
+  }
+
+  it('lists the target user, defaulting to self when no userId is given', async () => {
+    const repo = listRepoStub();
+    const svc = new IdleEventsService(repo);
+    await svc.list(query, employee);
+    expect(repo.list).toHaveBeenCalledWith({ ...query, userId: 'u1' });
+  });
+
+  it('lists an explicitly requested user id (guard already authorized it)', async () => {
+    const repo = listRepoStub();
+    const svc = new IdleEventsService(repo);
+    await svc.list({ ...query, userId: 'u2' }, employee);
+    expect(repo.list).toHaveBeenCalledWith({ ...query, userId: 'u2' });
+  });
+});

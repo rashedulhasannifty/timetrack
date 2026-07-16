@@ -51,6 +51,49 @@ describe.runIf(RUN_E2E)('idle-events repository — real Postgres', () => {
     await repo().upsert(e, 'u1'); // retried offline drain
     expect(await db.prisma.idleEvent.count({ where: { id: e.id } })).toBe(1);
   });
+
+  it('list returns only the target user rows inside [from, to], ordered by startTime', async () => {
+    await repo().upsert(
+      event('019797a0-0000-7000-8000-0000000000f1', {
+        startTime: '2026-07-11T10:00:00Z',
+        endTime: '2026-07-11T10:05:00Z',
+      }),
+      'u1',
+    );
+    await repo().upsert(
+      event('019797a0-0000-7000-8000-0000000000f2', {
+        startTime: '2026-07-11T09:00:00Z',
+        endTime: '2026-07-11T09:05:00Z',
+      }),
+      'u1',
+    );
+    await repo().upsert(
+      event('019797a0-0000-7000-8000-0000000000f3', {
+        startTime: '2026-07-12T00:00:01Z',
+        endTime: '2026-07-12T00:05:00Z',
+      }),
+      'u1',
+    ); // out of window
+    await repo().upsert(
+      event('019797a0-0000-7000-8000-0000000000f4', {
+        startTime: '2026-07-11T09:30:00Z',
+        endTime: '2026-07-11T09:35:00Z',
+      }),
+      'u2',
+    ); // other user
+
+    const rows = await repo().list({
+      userId: 'u1',
+      from: '2026-07-11T00:00:00.000Z',
+      to: '2026-07-11T23:59:59.999Z',
+    });
+
+    expect(rows.map((r) => r.startTime)).toEqual([
+      '2026-07-11T09:00:00.000Z',
+      '2026-07-11T10:00:00.000Z',
+    ]);
+    expect(rows.every((r) => typeof r.resolvedAction === 'string')).toBe(true);
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.

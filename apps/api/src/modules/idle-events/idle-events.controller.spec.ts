@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import { IdleEventsController } from './idle-events.controller.js';
 import type { IdleEventsService } from './idle-events.service.js';
 import { IS_PUBLIC } from '../../common/decorators/public.decorator.js';
+import { RESOURCE_SCOPE } from '../../common/decorators/resource-scope.decorator.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import type { IdleEvent } from '@timetrack/contracts';
 
@@ -31,5 +32,25 @@ describe('IdleEventsController', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const meta = Reflect.getMetadata(IS_PUBLIC, IdleEventsController.prototype.ingest);
     expect(meta).toBeUndefined();
+  });
+});
+
+const listQuery = { from: '2026-07-01T00:00:00Z', to: '2026-07-31T00:00:00Z' };
+
+describe('IdleEventsController.list', () => {
+  it('delegates list to the service with the query and current user', async () => {
+    const service = {
+      ingest: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+    } as unknown as IdleEventsService;
+    const ctrl = new IdleEventsController(service);
+    await ctrl.list(listQuery, user);
+    expect(service.list).toHaveBeenCalledWith(listQuery, user);
+  });
+
+  it('is @ResourceScope on ?userId= so the ResourceGuard enforces self/team/admin', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const meta = Reflect.getMetadata(RESOURCE_SCOPE, IdleEventsController.prototype.list);
+    expect(meta).toEqual({ source: 'query', key: 'userId' });
   });
 });
