@@ -70,11 +70,16 @@ export class ScreenshotsService {
    * objects. The row persists as a tombstone → the manager sees "redacted by employee: <reason>",
    * never a silent removal. Object delete runs AFTER the row commits: a failed delete leaves an
    * orphan object, not an un-redacted row (fail safe toward privacy — reads never presign it).
+   *
+   * Idempotent (PRD §9): redacting an already-REDACTED row is a no-op that returns the
+   * existing tombstone — no second AuditLog row, no re-issued deletes. Ownership is still
+   * checked first, so a non-owner gets 403, never a silent no-op.
    */
   async redact(id: string, dto: RedactScreenshot, user: SessionUser): Promise<Screenshot> {
     const row = await this.repo.findById(id);
     if (!row) throw new NotFoundException('screenshot not found');
     if (row.userId !== user.id) throw new ForbiddenException('not your screenshot');
+    if (row.status === 'REDACTED') return toScreenshot(row);
 
     const redacted = await this.repo.markRedacted(id, row.timestamp, dto.reason, user.id);
     if (row.storageKey) await this.storage.deleteObject(row.storageKey);

@@ -148,4 +148,23 @@ describe.runIf(RUN_E2E)('screenshots upload — real Postgres + MinIO', () => {
     expect(await db.prisma.auditLog.count({ where: { targetId: shotId } })).toBe(1);
     expect(await db.prisma.screenshot.count({ where: { id: shotId } })).toBe(1); // tombstone remains
   });
+
+  it('redact is idempotent: a second redact by the owner is a no-op returning the tombstone', async () => {
+    const enqueue = vi.fn().mockResolvedValue(undefined);
+    const svc = new ScreenshotsService(
+      new ScreenshotsRepository(db.prisma as unknown as PrismaService),
+      storage,
+      { enqueue } as unknown as QueueService,
+    );
+    const shotId = '019797a0-0000-7000-8000-0000000000eb';
+    const owner = { id: 'user-9', role: 'EMPLOYEE' as const, teamId: 'team-9' };
+    await svc.upload(Readable.from([Buffer.from('IMG')]), { id: shotId, timestamp: TS }, owner);
+    await svc.redact(shotId, { reason: 'personal' }, owner);
+
+    const second = await svc.redact(shotId, { reason: 'personal, again' }, owner);
+
+    expect(second.status).toBe('REDACTED');
+    expect(second.redactedReason).toBe('personal'); // unchanged — no-op, not re-redacted
+    expect(await db.prisma.auditLog.count({ where: { targetId: shotId } })).toBe(1);
+  });
 });
