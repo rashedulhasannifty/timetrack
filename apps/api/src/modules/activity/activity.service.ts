@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import type { ActivityBatch, ActivityIngestResult } from '@timetrack/contracts';
+import type {
+  ActivityBatch,
+  ActivityIngestResult,
+  ActivitySample,
+  ListActivityQuery,
+} from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { ActivityRepository } from './activity.repository.js';
 
@@ -15,5 +20,15 @@ export class ActivityService {
   async ingest(batch: ActivityBatch, user: SessionUser): Promise<ActivityIngestResult> {
     const accepted = await this.repo.insertBatch(user.id, batch.samples);
     return { accepted };
+  }
+
+  /**
+   * PRD §4.3 — symmetric transparency: an employee lists every sample recorded about
+   * them through this same endpoint (scoped to self). Manager-of-team / admin scope is
+   * enforced by @ResourceScope on the controller (ResourceGuard) before we run.
+   */
+  list(query: ListActivityQuery, user: SessionUser): Promise<ActivitySample[]> {
+    const targetId = query.userId ?? user.id;
+    return this.repo.list({ ...query, userId: targetId });
   }
 }

@@ -1,6 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import type { ActivitySample } from '@timetrack/contracts';
+import type { ActivitySample, ListActivityQuery } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+
+// Never select `*` — the read shape mirrors ActivitySampleSchema exactly.
+const ACTIVITY_SELECT = {
+  id: true,
+  timestamp: true,
+  appName: true,
+  windowTitle: true,
+  activityPct: true,
+  category: true,
+} as const;
 
 @Injectable()
 export class ActivityRepository {
@@ -25,5 +35,25 @@ export class ActivityRepository {
       skipDuplicates: true,
     });
     return res.count;
+  }
+
+  /** Self/manager read, bounded by [from, to] on the partition key `timestamp`. */
+  async list(query: ListActivityQuery & { userId: string }): Promise<ActivitySample[]> {
+    const rows = await this.prisma.activitySample.findMany({
+      where: {
+        userId: query.userId,
+        timestamp: { gte: new Date(query.from), lte: new Date(query.to) },
+      },
+      orderBy: { timestamp: 'asc' },
+      select: ACTIVITY_SELECT,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      timestamp: r.timestamp.toISOString(),
+      appName: r.appName,
+      windowTitle: r.windowTitle,
+      activityPct: r.activityPct,
+      category: r.category,
+    }));
   }
 }
