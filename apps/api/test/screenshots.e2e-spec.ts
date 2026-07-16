@@ -1,6 +1,7 @@
 import './test-env.js';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
+import { ConflictException } from '@nestjs/common';
 import { ScreenshotsRepository } from '../src/modules/screenshots/screenshots.repository.js';
 import { ScreenshotsService } from '../src/modules/screenshots/screenshots.service.js';
 import { MinioService } from '../src/infra/storage/minio.service.js';
@@ -40,6 +41,26 @@ describe.runIf(RUN_E2E)('screenshots repository — real Postgres', () => {
     await repo().create({ id, timestamp: TS }, 'user-1', `raw/user-1/${id}`);
     await repo().create({ id, timestamp: TS }, 'user-1', `raw/user-1/${id}`);
     expect(await db.prisma.screenshot.count({ where: { id } })).toBe(1);
+  });
+
+  it('rejects a same-PK upload from a different user (409), leaves the original row untouched', async () => {
+    await repo().create({ id, timestamp: TS }, 'user-1', `raw/user-1/${id}`);
+    await expect(
+      repo().create({ id, timestamp: TS }, 'user-2', `raw/user-2/${id}`),
+    ).rejects.toBeInstanceOf(ConflictException);
+    const row = await db.prisma.screenshot.findUnique({ where: { id_timestamp: { id, timestamp: new Date(TS) } } });
+    expect(row?.userId).toBe('user-1');
+    expect(row?.storageKey).toBe(`raw/user-1/${id}`);
+  });
+
+  it('rejects a re-upload onto an already-REDACTED row (409), leaves it REDACTED', async () => {
+    await repo().create({ id, timestamp: TS }, 'user-1', `raw/user-1/${id}`);
+    await repo().markRedacted(id, new Date(TS), 'personal', 'user-1');
+    await expect(
+      repo().create({ id, timestamp: TS }, 'user-1', `raw/user-1/${id}`),
+    ).rejects.toBeInstanceOf(ConflictException);
+    const row = await db.prisma.screenshot.findUnique({ where: { id_timestamp: { id, timestamp: new Date(TS) } } });
+    expect(row?.status).toBe('REDACTED');
   });
 
   it('markRedacted sets REDACTED + reason and writes an AuditLog row in one tx', async () => {
