@@ -20,6 +20,14 @@ export const ActivityIngestResultSchema = z.object({
   accepted: z.number().int().nonnegative(),
 });
 
+/** Self-view / manager read window. Bounded by from/to (a natural query cap). */
+export const ListActivityQuerySchema = z.object({
+  userId: z.uuid().optional(),
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+});
+
 export type ActivitySample = z.infer<typeof ActivitySampleSchema>;
 export type ActivityBatch = z.infer<typeof ActivityBatchSchema>;
 export type ActivityIngestResult = z.infer<typeof ActivityIngestResultSchema>;
+export type ListActivityQuery = z.infer<typeof ListActivityQuerySchema>;
