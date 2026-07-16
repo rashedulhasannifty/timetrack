@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import {
   BadRequestException,
   PayloadTooLargeException,
+  UnprocessableEntityException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { ScreenshotsController } from './screenshots.controller.js';
@@ -65,7 +66,9 @@ describe('ScreenshotsController.upload', () => {
       upload: vi.fn(),
     } as unknown as ScreenshotsService);
     const part = pngPart({ id: { value: 'nope' }, timestamp: { value: TS } });
-    await expect(controller.upload(fakeReq(part), USER)).rejects.toBeTruthy();
+    await expect(controller.upload(fakeReq(part), USER)).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
   });
 
   it('cleans up and rejects a truncated (mid-stream cutoff) upload', async () => {

@@ -18,6 +18,7 @@ import {
   type ListScreenshotsQuery,
   type RedactScreenshot,
   type Screenshot,
+  type UploadScreenshotMeta,
 } from '@timetrack/contracts';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CurrentUser, type SessionUser } from '../../common/decorators/current-user.decorator.js';
@@ -26,6 +27,8 @@ import { ScreenshotsService } from './screenshots.service.js';
 
 @Controller('screenshots')
 export class ScreenshotsController {
+  private readonly metaPipe = new ZodValidationPipe(UploadScreenshotMetaSchema);
+
   constructor(private readonly service: ScreenshotsService) {}
 
   @Get()
@@ -46,13 +49,14 @@ export class ScreenshotsController {
       throw new UnsupportedMediaTypeException('only image/png or image/jpeg is accepted');
     }
     // Text fields MUST precede the file part in the body (see spec §5 client contract) —
-    // req.file() only exposes fields parsed before the file. Missing → ZodError → 422.
-    const idField = part.fields.id as { value?: string } | undefined;
-    const timestampField = part.fields.timestamp as { value?: string } | undefined;
-    const meta = UploadScreenshotMetaSchema.parse({
-      id: idField?.value,
-      timestamp: timestampField?.value,
-    });
+    // req.file() only exposes fields parsed before the file.
+    const meta = this.metaPipe.transform(
+      {
+        id: (part.fields.id as { value?: string } | undefined)?.value,
+        timestamp: (part.fields.timestamp as { value?: string } | undefined)?.value,
+      },
+      { type: 'body' },
+    ) as UploadScreenshotMeta;
     const shot = await this.service.upload(part.file, meta, user);
     // @fastify/multipart flags a mid-stream cutoff at the 10 MB limit; don't keep a half-object.
     if (part.file.truncated) {
