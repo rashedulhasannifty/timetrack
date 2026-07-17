@@ -1,13 +1,18 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import type { Screenshot } from '@timetrack/contracts';
-import { tileMode } from './screenshot-view';
+import { tileMode, type ScreenshotView } from './screenshot-view';
 import type { RedactResult } from './actions';
 
 type RedactFn = (id: string, reason: string) => Promise<RedactResult>;
 
-export function ScreenshotsPanel({ shots, onRedact }: { shots: Screenshot[]; onRedact: RedactFn }) {
+export function ScreenshotsPanel({
+  shots,
+  onRedact,
+}: {
+  shots: ScreenshotView[];
+  onRedact: RedactFn;
+}) {
   if (shots.length === 0) {
     return <p className="text-sm text-neutral-500">No screenshots recorded today.</p>;
   }
@@ -22,7 +27,7 @@ export function ScreenshotsPanel({ shots, onRedact }: { shots: Screenshot[]; onR
   );
 }
 
-function Tile({ shot, onRedact }: { shot: Screenshot; onRedact: RedactFn }) {
+function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact: RedactFn }) {
   const mode = tileMode(shot);
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');

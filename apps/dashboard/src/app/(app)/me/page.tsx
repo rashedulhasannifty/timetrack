@@ -7,6 +7,7 @@ import { toActivityPoints } from '../../../lib/me-view';
 import { formatTimeRange } from '../../../lib/format';
 import { MeTabs } from './MeTabs';
 import { ScreenshotsPanel } from './ScreenshotsPanel';
+import { toScreenshotView } from './screenshot-view';
 import { redactScreenshotAction } from './actions';
 import type { ActivitySample, IdleEvent, Screenshot, TimeEntry } from '@timetrack/contracts';
 
@@ -50,7 +51,12 @@ export default async function MyDataPage() {
             ) : (
               <ActivityChart data={toActivityPoints(samples)} />
             ),
-          Screenshots: <ScreenshotsPanel shots={shots} onRedact={redactScreenshotAction} />,
+          Screenshots: (
+            <ScreenshotsPanel
+              shots={shots.map(toScreenshotView)}
+              onRedact={redactScreenshotAction}
+            />
+          ),
           Idle:
             idle.length === 0 ? (
               <p className="text-sm text-neutral-500">No idle periods today.</p>
