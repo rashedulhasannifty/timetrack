@@ -50,7 +50,7 @@ final class ScreenshotSchedulerTests: XCTestCase {
         XCTAssertEqual(taken[0].capturedAt.timeIntervalSince1970, t0.timeIntervalSince1970, accuracy: 0.001,
                        "capturedAt stamped from the clock and persisted")
         XCTAssertTrue(kicked, "upload drain kicked")
-        XCTAssertTrue(succeeded, "capture-succeeded surfaced (clears warning, sets indicator)")
+        XCTAssertTrue(succeeded, "capture-succeeded surfaced (clears the permission warning)")
     }
 
     func testSkipsWhenNotTracking() async {
@@ -87,5 +87,70 @@ final class ScreenshotSchedulerTests: XCTestCase {
 
         XCTAssertTrue(denied, "permission-denied surfaced to the menu bar")
         XCTAssertTrue(buffer.take(limit: 10).isEmpty, "nothing enqueued on a failed grab")
+    }
+
+    /// Regression (sign-out cross-user integrity race): a capture cycle suspended inside `grab()`
+    /// must have its `enqueue` completed before `finishInFlight()` returns. Sign-out teardown
+    /// awaits `finishInFlight()` before `ImageBufferStore.clear()`, so proving the join blocks
+    /// until the enqueue lands proves teardown cannot clear the buffer out from under an in-flight
+    /// capture (which would otherwise leak into the next user's upload).
+    ///
+    /// Deterministic: `BlockingGrabber` is an actor whose `grab()` suspends until the test calls
+    /// `release()`, and `finishInFlight()` awaits `currentCycle.value`, which structurally cannot
+    /// return until the cycle (including `enqueue`) has completed — no sleeps, no polling.
+    func testFinishInFlightAwaitsInFlightEnqueueBeforeReturning() async {
+        let buffer = tempBuffer()
+        let grabber = BlockingGrabber(bytes: Data([0xFF, 0xD8, 0xFF]))
+        let sched = makeScheduler(ackRequired: false, grabber: grabber, buffer: buffer,
+                                  isTracking: { true })
+
+        sched.startCycle()                     // spawns currentCycle; grab() will suspend
+        await grabber.waitUntilGrabbing()
+
+        XCTAssertTrue(buffer.take(limit: 10).isEmpty, "grab suspended → nothing enqueued yet")
+
+        // finishInFlight() must not return until the in-flight capture has enqueued.
+        let finished = Task { await sched.finishInFlight() }
+        await grabber.release()
+        await finished.value
+
+        XCTAssertEqual(buffer.take(limit: 10).count, 1,
+                       "finishInFlight() returned only after the in-flight capture enqueued")
+    }
+}
+
+/// Actor-isolated grabber that parks inside `grab()` until the test calls `release()`, so a test
+/// can observe scheduler state while a capture is suspended mid-grab. Actor isolation makes the
+/// two continuations race-free regardless of which side (grab / test) reaches its rendezvous first.
+private actor BlockingGrabber: DisplayGrabbing {
+    private let bytes: Data
+    private var isGrabbing = false
+    private var isReleased = false
+    private var grabbingSignal: CheckedContinuation<Void, Never>?
+    private var releaseSignal: CheckedContinuation<Void, Never>?
+
+    init(bytes: Data) { self.bytes = bytes }
+
+    func grab() async throws -> Data {
+        isGrabbing = true
+        grabbingSignal?.resume()
+        grabbingSignal = nil
+        if !isReleased {
+            await withCheckedContinuation { releaseSignal = $0 }
+        }
+        return bytes
+    }
+
+    /// Returns once `grab()` has been entered (immediately if it already has).
+    func waitUntilGrabbing() async {
+        if isGrabbing { return }
+        await withCheckedContinuation { grabbingSignal = $0 }
+    }
+
+    /// Unblock the parked `grab()` so the cycle can proceed to `enqueue`.
+    func release() {
+        isReleased = true
+        releaseSignal?.resume()
+        releaseSignal = nil
     }
 }

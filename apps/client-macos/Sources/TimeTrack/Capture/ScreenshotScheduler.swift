@@ -23,6 +23,7 @@ final class ScreenshotScheduler {
     private var timer: Timer?
     private var started = false
     private var isCapturing = false
+    private var currentCycle: Task<Void, Never>?
 
     init(ackGate: AckGate, grabber: DisplayGrabbing, buffer: ImageBufferStore,
          intervalMinutes: Int, isTracking: @escaping () -> Bool,
@@ -80,16 +81,25 @@ final class ScreenshotScheduler {
 
     // MARK: - self-scheduling timer glue (build-verified)
 
-    private func runCycle() async {
-        await captureTick()
-        guard started else { return }
-        scheduleNext()
+    /// Spawn a capture cycle and hold it as `currentCycle` so sign-out teardown can join it via
+    /// `finishInFlight()`. `internal` (not `private`) so the regression test can drive one cycle.
+    func startCycle() {
+        currentCycle = Task { [weak self] in
+            await self?.captureTick()
+            guard let self, self.started else { return }
+            self.scheduleNext()
+        }
     }
+
+    /// Await any capture cycle already in flight (spawned before `stop()`). Sign-out teardown
+    /// MUST await this before clearing the image buffer, or a capture suspended mid-grab could
+    /// enqueue into the just-cleared buffer and upload under the next user's token.
+    func finishInFlight() async { await currentCycle?.value }
 
     private func scheduleNext() {
         timer?.invalidate()
         let t = Timer(timeInterval: max(0.001, intervalSeconds), repeats: false) { [weak self] _ in
-            Task { await self?.runCycle() }
+            self?.startCycle()
         }
         RunLoop.main.add(t, forMode: .common)
         timer = t

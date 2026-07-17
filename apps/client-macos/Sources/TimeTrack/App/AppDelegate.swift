@@ -327,10 +327,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.syncEngine = nil
             BufferStore.shared.clear()
         }
+        // Join any capture cycle already in flight FIRST: `stopAutoTracking()` invalidated the
+        // timer but a cycle suspended mid-grab is not cancelled by that, so it could still enqueue.
+        // After this awaits, no capture can run past this point (the joined cycle won't reschedule
+        // — `stop()` set `started=false`), so its image (if any) is included in the drain below and
+        // nothing can enqueue after `clear()`.
+        let scheduler = await MainActor.run { self.screenshotScheduler }
+        await scheduler?.finishInFlight()
         await MainActor.run { self.screenshotSync?.stop() }
         await self.screenshotSync?.syncNow()   // best-effort final drain (still-valid token)
         await MainActor.run {
             self.screenshotSync = nil
+            self.screenshotScheduler = nil
             ImageBufferStore.shared.clear()   // cross-user integrity: no leftover images upload under the next user
         }
     }
@@ -371,8 +379,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // of being silently skipped because a prior user already "used" the attempt.
         RecoveryWindowController.dismissIfShowing()
         hasAttemptedRecovery = false
+        // Invalidate the interval timer so no NEW cycle is scheduled. A cycle already in flight is
+        // NOT cancelled by this — `flushAndClearBuffer()` joins it via `finishInFlight()` before
+        // clearing the buffer, so the reference must survive here (do not nil it).
         screenshotScheduler?.stop()
-        screenshotScheduler = nil
     }
 
     @MainActor private func presentAck(policy: EffectivePolicy, userId: String) {
