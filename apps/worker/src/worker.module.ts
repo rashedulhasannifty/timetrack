@@ -10,6 +10,7 @@ import { ScreenshotProcessProcessor } from './processors/screenshot-process.proc
 import { RollupDailyProcessor } from './processors/rollup-daily.processor.js';
 import { PartitionProvisionProcessor } from './processors/partition-provision.processor.js';
 import { EmailProcessor } from './processors/email/email.processor.js';
+import { RollupScheduler } from './schedulers/rollup.scheduler.js';
 
 const env = loadEnv();
 const redis = new URL(env.REDIS_URL);
@@ -39,6 +40,7 @@ const connection = { host: redis.hostname, port: Number(redis.port) || 6379 };
     RollupDailyProcessor,
     PartitionProvisionProcessor,
     EmailProcessor,
+    RollupScheduler,
   ],
 })
 export class WorkerModule {}
