@@ -284,8 +284,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             intervalMinutes: intervalMinutes,
             isTracking: { [weak self] in self?.timeTracker.isRunning ?? false },
             onCaptured: { [weak self] in Task { await self?.screenshotSync?.syncNow() } },
-            onPermissionDenied: { [weak self] in self?.statusItem.showScreenRecordingDenied() },
-            onCaptureSucceeded: { [weak self] in self?.statusItem.clearWarning() }
+            onPermissionDenied: { [weak self] in Task { @MainActor in self?.statusItem.showScreenRecordingDenied() } },
+            onCaptureSucceeded: { [weak self] in Task { @MainActor in self?.statusItem.clearWarning() } }
         )
         screenshotScheduler = scheduler
         scheduler.start()
