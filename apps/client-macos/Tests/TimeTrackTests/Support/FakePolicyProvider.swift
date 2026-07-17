@@ -7,7 +7,12 @@ final class FakePolicyProvider: PolicyProviding {
             ackRequired: ackRequired,
             policyVersion: "v1",
             policyText: "policy",
-            settings: EffectivePolicy.Settings(idleThresholdMinutes: 5, autoStartOnLogin: false)
+            settings: EffectivePolicy.Settings(
+                idleThresholdMinutes: 5,
+                autoStartOnLogin: false,
+                screenshotsEnabled: true,
+                screenshotIntervalMinutes: 10
+            )
         ))
     }
     init(error: Error) { self.result = .failure(error) }
