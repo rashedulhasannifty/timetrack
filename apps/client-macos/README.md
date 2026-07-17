@@ -17,14 +17,14 @@ Swift 6 / SwiftUI + AppKit. Outside the pnpm graph — built with Xcode.
 ## Structure
 
 Sources/TimeTrack/
-  App/        AppDelegate · StatusItemController
-  Tracking/   TimeTracker · WorkspaceObserver · IdleMonitor
-  Capture/    ScreenshotCapturer (ScreenCaptureKit)
-  Activity/   EventCounter (counts only) · Categorizer
-  Sync/       SyncEngine · UploadQueue · BackoffPolicy
-  Storage/    GRDB buffer — 24h capacity, UUIDv7 keys
-  Policy/     PolicyClient · AckGate
-  UI/         MenuBarView · MyDataView (employee self-view) · SettingsView
+App/ AppDelegate · StatusItemController
+Tracking/ TimeTracker · WorkspaceObserver · IdleMonitor
+Capture/ ScreenshotScheduler · ScreenCaptureKitGrabber · ScreenshotUploader · ScreenRecordingPermission
+Activity/ EventCounter (counts only) · Categorizer
+Sync/ SyncEngine · UploadQueue · BackoffPolicy
+Storage/ GRDB buffer — 24h capacity, UUIDv7 keys
+Policy/ PolicyClient · AckGate
+UI/ MenuBarView · MyDataView (employee self-view) · SettingsView
 
 ## Permissions required
 
