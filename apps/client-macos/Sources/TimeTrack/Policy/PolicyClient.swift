@@ -13,6 +13,8 @@ struct EffectivePolicy: Decodable {
     struct Settings: Decodable {
         let idleThresholdMinutes: Int
         let autoStartOnLogin: Bool
+        let screenshotsEnabled: Bool
+        let screenshotIntervalMinutes: Int
     }
 }
 

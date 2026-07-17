@@ -46,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var autoCoordinator: AutoTrackingCoordinator?
     private var workspaceObserver: WorkspaceObserver?
     private var syncEngine: SyncEngine?
+    private var screenshotScheduler: ScreenshotScheduler?
+    private var screenshotSync: ScreenshotSyncEngine?
     private var heartbeatTimer: Timer?
     private var hasAttemptedRecovery = false
 
@@ -176,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 await becomeReady()
                 await startAutoTrackingIfEnabled(policy)   // online, !ackRequired: capture is allowed
+                await startScreenshotCaptureIfEnabled(policy)
             }
         } catch {
             // Offline / policy unavailable: allow MANUAL tracking only if this user has a
@@ -256,6 +259,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Screenshot capture is a CAPTURE path (CLAUDE.md §1) — installed ONLY on the live-policy
+    /// `!ackRequired` branch and ONLY through `AckGate`, never via the offline-marker path. The
+    /// scheduler re-checks the gate every tick. Enablement + interval are an install-time snapshot
+    /// (the app has no periodic policy refresh; a mid-session change is picked up next launch).
+    private func startScreenshotCaptureIfEnabled(_ policy: EffectivePolicy) async {
+        guard policy.settings.screenshotsEnabled else { return }
+        if !ScreenRecordingPermission.isGranted() { ScreenRecordingPermission.request() }
+        do {
+            try await ackGate.withCaptureAllowed { [weak self] in
+                await MainActor.run { self?.installScreenshotCapture(intervalMinutes: policy.settings.screenshotIntervalMinutes) }
+            }
+        } catch {
+            // Gate closed → capture simply does not start. Tracking continues. Fail-safe.
+        }
+    }
+
+    @MainActor private func installScreenshotCapture(intervalMinutes: Int) {
+        guard screenshotScheduler == nil else { return }   // idempotent
+        let scheduler = ScreenshotScheduler(
+            ackGate: ackGate,
+            grabber: ScreenCaptureKitGrabber(),
+            buffer: ImageBufferStore.shared,
+            intervalMinutes: intervalMinutes,
+            isTracking: { [weak self] in self?.timeTracker.isRunning ?? false },
+            onCaptured: { [weak self] in Task { await self?.screenshotSync?.syncNow() } },
+            onPermissionDenied: { [weak self] in Task { @MainActor in self?.statusItem.showScreenRecordingDenied() } },
+            onCaptureSucceeded: { [weak self] in Task { @MainActor in self?.statusItem.clearWarning() } }
+        )
+        screenshotScheduler = scheduler
+        scheduler.start()
+    }
+
     /// Start the sync engine once the user is ready. Sync is NOT a capture path (it uploads the
     /// employee's own already-recorded entries), so — unlike auto-tracking — it is safe on BOTH the
     /// online and the offline-marker `becomeReady()` paths: offline just yields transient failures
@@ -270,6 +305,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         syncEngine = engine
         engine.start()
+
+        let screenshotEngine = ScreenshotSyncEngine(
+            buffer: ImageBufferStore.shared,
+            uploader: ScreenshotUploader(baseURL: base, session: session)
+        )
+        screenshotSync = screenshotEngine
+        screenshotEngine.start()
     }
 
     /// Sign-out: stop the timer first (no scheduled cycle can overlap the final drain — the
@@ -284,6 +326,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         await MainActor.run {
             self.syncEngine = nil
             BufferStore.shared.clear()
+        }
+        // Join any capture cycle already in flight FIRST: `stopAutoTracking()` invalidated the
+        // timer but a cycle suspended mid-grab is not cancelled by that, so it could still enqueue.
+        // After this awaits, no capture can run past this point (the joined cycle won't reschedule
+        // — `stop()` set `started=false`), so its image (if any) is included in the drain below and
+        // nothing can enqueue after `clear()`.
+        let scheduler = await MainActor.run { self.screenshotScheduler }
+        await scheduler?.finishInFlight()
+        await MainActor.run { self.screenshotSync?.stop() }
+        await self.screenshotSync?.syncNow()   // best-effort final drain (still-valid token)
+        await MainActor.run {
+            self.screenshotSync = nil
+            self.screenshotScheduler = nil
+            ImageBufferStore.shared.clear()   // cross-user integrity: no leftover images upload under the next user
         }
     }
 
@@ -323,6 +379,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // of being silently skipped because a prior user already "used" the attempt.
         RecoveryWindowController.dismissIfShowing()
         hasAttemptedRecovery = false
+        // Invalidate the interval timer so no NEW cycle is scheduled. A cycle already in flight is
+        // NOT cancelled by this — `flushAndClearBuffer()` joins it via `finishInFlight()` before
+        // clearing the buffer, so the reference must survive here (do not nil it).
+        screenshotScheduler?.stop()
     }
 
     @MainActor private func presentAck(policy: EffectivePolicy, userId: String) {

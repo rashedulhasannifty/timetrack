@@ -31,5 +31,7 @@ final class PolicySettingsDecodeTests: XCTestCase {
         XCTAssertFalse(policy.ackRequired)
         XCTAssertEqual(policy.settings.idleThresholdMinutes, 7)
         XCTAssertTrue(policy.settings.autoStartOnLogin)
+        XCTAssertTrue(policy.settings.screenshotsEnabled)
+        XCTAssertEqual(policy.settings.screenshotIntervalMinutes, 10)
     }
 }
