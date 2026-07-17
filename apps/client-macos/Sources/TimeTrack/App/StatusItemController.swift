@@ -41,4 +41,14 @@ final class StatusItemController: NSObject {
     func showPolicyUnavailable() {
         item.button?.toolTip = "TimeTrack: monitoring policy unavailable — not tracking."
     }
+
+    /// PRD §6.2 / §4.2 — Screen Recording permission is missing while capture is enabled. Visible,
+    /// never silent; tracking is unaffected. Cleared once a capture succeeds.
+    func showScreenRecordingDenied() {
+        item.button?.toolTip = "TimeTrack: Screen Recording permission needed for screenshots — open System Settings > Privacy > Screen Recording."
+    }
+
+    func clearWarning() {
+        item.button?.toolTip = nil
+    }
 }
