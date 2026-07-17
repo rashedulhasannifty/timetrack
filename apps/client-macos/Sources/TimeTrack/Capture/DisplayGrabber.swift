@@ -3,8 +3,10 @@ import ScreenCaptureKit
 import AppKit
 
 /// Why grabbing failed. `.notPermitted` drives the menu-bar Screen Recording warning (§5.6);
-/// the scheduler keeps running so capture self-heals once permission is granted.
-enum DisplayGrabError: Error { case notPermitted, noDisplay, encodeFailed }
+/// the scheduler keeps running so capture self-heals once permission is granted. Other capture
+/// failures (transient ScreenCaptureKit errors, no permission change involved) map to
+/// `.captureFailed` so they don't falsely trigger the permission prompt.
+enum DisplayGrabError: Error { case notPermitted, noDisplay, captureFailed, encodeFailed }
 
 /// The single seam over the actual screen capture. Everything around it (schedule, buffer,
 /// upload) is faked in tests; only this concrete impl needs a real display + TCC permission
@@ -28,8 +30,10 @@ final class ScreenCaptureKitGrabber: DisplayGrabbing {
         do {
             content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         } catch {
-            // ScreenCaptureKit surfaces missing Screen Recording permission as a content error.
-            throw DisplayGrabError.notPermitted
+            // ScreenCaptureKit surfaces missing Screen Recording permission as a content error,
+            // but the same call can also fail transiently for other reasons — check actual
+            // permission state rather than assuming every failure is a permission failure.
+            throw ScreenRecordingPermission.isGranted() ? DisplayGrabError.captureFailed : DisplayGrabError.notPermitted
         }
         guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() })
                 ?? content.displays.first else {
@@ -38,14 +42,22 @@ final class ScreenCaptureKitGrabber: DisplayGrabbing {
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
-        config.width = display.width
-        config.height = display.height
+        // SCDisplay.width/height are in POINTS; SCStreamConfiguration.width/height expect PIXELS.
+        // Use the display mode's backing pixel dimensions so Retina displays capture at native
+        // resolution instead of half-resolution.
+        if let mode = CGDisplayCopyDisplayMode(display.displayID) {
+            config.width = mode.pixelWidth
+            config.height = mode.pixelHeight
+        } else {
+            config.width = display.width
+            config.height = display.height
+        }
 
         let cgImage: CGImage
         do {
             cgImage = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
         } catch {
-            throw DisplayGrabError.notPermitted
+            throw ScreenRecordingPermission.isGranted() ? DisplayGrabError.captureFailed : DisplayGrabError.notPermitted
         }
 
         let rep = NSBitmapImageRep(cgImage: cgImage)
