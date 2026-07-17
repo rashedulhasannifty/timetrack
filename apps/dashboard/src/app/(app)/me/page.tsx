@@ -6,6 +6,8 @@ import { api } from '../../../lib/api-client';
 import { toActivityPoints } from '../../../lib/me-view';
 import { formatTimeRange } from '../../../lib/format';
 import { MeTabs } from './MeTabs';
+import { ScreenshotsPanel } from './ScreenshotsPanel';
+import { redactScreenshotAction } from './actions';
 import type { ActivitySample, IdleEvent, Screenshot, TimeEntry } from '@timetrack/contracts';
 
 /**
@@ -48,28 +50,7 @@ export default async function MyDataPage() {
             ) : (
               <ActivityChart data={toActivityPoints(samples)} />
             ),
-          Screenshots:
-            shots.length === 0 ? (
-              <p className="text-sm text-neutral-500">No screenshots recorded today.</p>
-            ) : (
-              <ul className="grid grid-cols-3 gap-2">
-                {shots.map((s) => (
-                  <li key={s.id} className="rounded-md border border-neutral-200 p-2 text-xs">
-                    {s.url ? (
-                      <img
-                        src={s.url}
-                        alt={`Screenshot ${s.timestamp}`}
-                        className="max-w-full rounded"
-                      />
-                    ) : (
-                      <span className="text-neutral-500">
-                        {s.timestamp.slice(11, 16)} · {s.status}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ),
+          Screenshots: <ScreenshotsPanel shots={shots} onRedact={redactScreenshotAction} />,
           Idle:
             idle.length === 0 ? (
               <p className="text-sm text-neutral-500">No idle periods today.</p>
