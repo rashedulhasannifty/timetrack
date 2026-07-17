@@ -7,6 +7,9 @@ import {
   ActivityBatchSchema,
   ActivitySampleSchema,
   ListActivityQuerySchema,
+  ActivityDailySummarySchema,
+  ListActivitySummaryQuerySchema,
+  ACTIVITY_SAMPLE_INTERVAL_SECONDS,
   IdleEventSchema,
   IdleEventResultSchema,
   ListIdleEventsQuerySchema,
@@ -307,5 +310,48 @@ describe('TeamOverview contracts', () => {
       ],
     };
     expect(TeamOverviewSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('ActivityDailySummarySchema', () => {
+  const valid = {
+    userId: UUID,
+    day: '2026-07-11',
+    avgActivityPct: 62,
+    activeMinutes: 120,
+    byApp: { Xcode: 90, Slack: 30 },
+    byCategory: { NEUTRAL: 120 },
+  };
+
+  it('accepts a valid summary and keeps the record maps', () => {
+    const s = ActivityDailySummarySchema.parse(valid);
+    expect(s.avgActivityPct).toBe(62);
+    expect(s.byApp.Xcode).toBe(90);
+    expect(s.byCategory.NEUTRAL).toBe(120);
+  });
+
+  it('rejects out-of-range pct, a datetime in the date field, and negative minutes', () => {
+    expect(ActivityDailySummarySchema.safeParse({ ...valid, avgActivityPct: 101 }).success).toBe(
+      false,
+    );
+    expect(
+      ActivityDailySummarySchema.safeParse({ ...valid, day: '2026-07-11T00:00:00Z' }).success,
+    ).toBe(false);
+    expect(ActivityDailySummarySchema.safeParse({ ...valid, byApp: { Xcode: -1 } }).success).toBe(
+      false,
+    );
+  });
+
+  it('ListActivitySummaryQuerySchema requires date from/to and optional userId', () => {
+    expect(
+      ListActivitySummaryQuerySchema.safeParse({ from: '2026-07-01', to: '2026-07-31' }).success,
+    ).toBe(true);
+    expect(
+      ListActivitySummaryQuerySchema.safeParse({ from: 'nope', to: '2026-07-31' }).success,
+    ).toBe(false);
+  });
+
+  it('exposes the shared sample interval as 60 seconds', () => {
+    expect(ACTIVITY_SAMPLE_INTERVAL_SECONDS).toBe(60);
   });
 });
