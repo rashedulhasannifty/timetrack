@@ -180,3 +180,45 @@ describe('api.teamOverview', () => {
     await expect(api.teamOverview('tok')).rejects.toThrow();
   });
 });
+
+describe('api.redactScreenshot', () => {
+  const tombstone = {
+    id: '019f6ffe-910f-70e7-a56d-3ee574d99d7e',
+    userId: '019f6fe4-06bb-755d-b9b8-ebbfc1a77159',
+    timestamp: '2026-07-17T12:13:02.000Z',
+    storageKey: 'raw/019f6fe4/019f6ffe',
+    thumbnailKey: null,
+    blurred: false,
+    status: 'REDACTED',
+    redactedReason: 'personal message visible',
+  };
+
+  it('POSTs the reason and parses the REDACTED tombstone', async () => {
+    const fetchMock = vi.fn(() => new Response(JSON.stringify(tombstone), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const out = await api.redactScreenshot('tok', tombstone.id, {
+      reason: 'personal message visible',
+    });
+
+    expect(out.status).toBe('REDACTED');
+    expect(out.redactedReason).toBe('personal message visible');
+    const call = fetchMock.mock.calls[0];
+    if (!call) throw new Error('fetch was not called');
+    const [url, init] = call as unknown as [string, RequestInit];
+    expect(String(url)).toContain(`/v1/screenshots/${tombstone.id}/redact`);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ reason: 'personal message visible' });
+  });
+
+  it('throws an ApiError on 403', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response(JSON.stringify({ title: 'not your screenshot' }), { status: 403 })),
+    );
+    await expect(api.redactScreenshot('tok', tombstone.id, { reason: 'x' })).rejects.toMatchObject({
+      status: 403,
+      message: 'not your screenshot',
+    });
+  });
+});
