@@ -17,6 +17,8 @@ export const ScreenshotSchema = z.object({
   redactedReason: z.string().nullable(),
   /** Presigned GET URL (5 min TTL). Present only on read responses. */
   url: z.url().optional(),
+  /** Presigned full-res GET URL (5 min TTL). Present only on READY reads with a raw object. */
+  fullUrl: z.url().optional(),
 });
 
 /**
@@ -33,6 +35,17 @@ export const ListScreenshotsQuerySchema = z.object({
   to: z.iso.datetime(),
 });
 
+/**
+ * PRD §7.4 — multipart upload metadata. The image itself is the file part, not in this
+ * schema. `timestamp` is client-supplied: it is half the composite PK [id, timestamp] and
+ * drives monthly partitioning, so a retried upload must land on the same partition + PK.
+ */
+export const UploadScreenshotMetaSchema = z.object({
+  id: z.uuid(), // client-minted UUIDv7 → idempotency key
+  timestamp: z.iso.datetime(), // capture time — also the partition key
+});
+
 export type Screenshot = z.infer<typeof ScreenshotSchema>;
 export type RedactScreenshot = z.infer<typeof RedactScreenshotSchema>;
 export type ListScreenshotsQuery = z.infer<typeof ListScreenshotsQuerySchema>;
+export type UploadScreenshotMeta = z.infer<typeof UploadScreenshotMetaSchema>;

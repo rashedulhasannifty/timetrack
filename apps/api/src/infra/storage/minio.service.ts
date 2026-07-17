@@ -7,6 +7,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { loadEnv } from '@timetrack/config';
 import type { Readable } from 'node:stream';
@@ -46,11 +47,27 @@ export class MinioService implements OnModuleInit {
     );
   }
 
+  /**
+   * Stream an unknown-length body to S3/MinIO via multipart upload — never buffers the full
+   * image in Node memory (PRD §7.4). Used by the screenshot upload path.
+   */
+  async putStream(key: string, body: Readable, contentType: string): Promise<void> {
+    const upload = new Upload({
+      client: this.client,
+      params: { Bucket: this.env.S3_BUCKET, Key: key, Body: body, ContentType: contentType },
+    });
+    await upload.done();
+  }
+
   /** Short-lived presigned GET — never a public bucket (PRD §8). */
   presignGet(key: string): Promise<string> {
-    return getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.env.S3_BUCKET, Key: key }), {
-      expiresIn: this.env.PRESIGNED_URL_TTL_SECONDS,
-    });
+    return getSignedUrl(
+      this.client,
+      new GetObjectCommand({ Bucket: this.env.S3_BUCKET, Key: key }),
+      {
+        expiresIn: this.env.PRESIGNED_URL_TTL_SECONDS,
+      },
+    );
   }
 
   deleteObject(key: string): Promise<unknown> {

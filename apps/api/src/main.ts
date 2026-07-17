@@ -4,6 +4,7 @@ import { VersioningType } from '@nestjs/common';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import { Logger } from 'nestjs-pino';
 import { loadEnv } from '@timetrack/config';
 import { AppModule } from './app.module.js';
@@ -29,6 +30,10 @@ async function bootstrap(): Promise<void> {
   // Strict CORS: only the configured dashboard origin(s) may call the API, and only
   // then are credentials allowed. Never '*' with credentials.
   await app.register(cors, { origin: env.CORS_ORIGINS, credentials: true });
+
+  // Screenshot uploads are multipart/form-data streamed straight to storage (PRD §7.4).
+  // One file, 10 MB cap; the screenshots controller enforces the image/* mimetype.
+  await app.register(multipart, { limits: { files: 1, fileSize: 10 * 1024 * 1024 } });
 
   // API versioning from day one — a shipped Mac client pins /v1 and cannot be rolled
   // back, so every route is /v1/* and we add /v2 later without breaking clients.

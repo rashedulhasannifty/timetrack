@@ -26,9 +26,6 @@ export default defineConfig({
         'src/**/*.spec.ts',
         // Bootstrap entrypoint — wiring only, exercised by process start, not unit-testable.
         'src/main.ts',
-        // Phase-2 storage adapter (MinIO). Unbuilt in Phase 1; Slice 2.2 wires it into the
-        // screenshot pipeline and MUST remove this exclusion so the gate covers it then.
-        'src/infra/storage/**',
       ],
       reporter: ['text-summary'],
       // Phase-1 DoD (docs/ROADMAP.md): ≥80% on apps/api. Measured across the combined
