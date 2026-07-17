@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { ActivitySample, ListActivityQuery } from '@timetrack/contracts';
+import type { ActivityDailySummary, ActivitySample, ListActivityQuery } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 
 // Never select `*` — the read shape mirrors ActivitySampleSchema exactly.
@@ -10,6 +10,16 @@ const ACTIVITY_SELECT = {
   windowTitle: true,
   activityPct: true,
   category: true,
+} as const;
+
+// Never select `*` — mirrors ActivityDailySummarySchema exactly.
+const SUMMARY_SELECT = {
+  userId: true,
+  day: true,
+  avgActivityPct: true,
+  activeMinutes: true,
+  byApp: true,
+  byCategory: true,
 } as const;
 
 @Injectable()
@@ -54,6 +64,30 @@ export class ActivityRepository {
       windowTitle: r.windowTitle,
       activityPct: r.activityPct,
       category: r.category,
+    }));
+  }
+
+  /** Self/manager read of daily summaries, windowed on `day` (a @db.Date). */
+  async listSummaries(query: {
+    userId: string;
+    from: string;
+    to: string;
+  }): Promise<ActivityDailySummary[]> {
+    const rows = await this.prisma.activityDailySummary.findMany({
+      where: {
+        userId: query.userId,
+        day: { gte: new Date(query.from), lte: new Date(query.to) },
+      },
+      orderBy: { day: 'asc' },
+      select: SUMMARY_SELECT,
+    });
+    return rows.map((r) => ({
+      userId: r.userId,
+      day: r.day.toISOString().slice(0, 10),
+      avgActivityPct: r.avgActivityPct,
+      activeMinutes: r.activeMinutes,
+      byApp: r.byApp as Record<string, number>,
+      byCategory: r.byCategory as Record<string, number>,
     }));
   }
 }
