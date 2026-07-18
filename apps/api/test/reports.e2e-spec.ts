@@ -301,6 +301,29 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
     const all = await repo().teamSummary({ kind: 'all' }, FROM, TO);
     expect(all.map((r) => r.name).sort()).toEqual(['Ada', 'Zoe']);
   });
+
+  it('excludes a user with no data in the range (has-data-in-range predicate)', async () => {
+    const t = await team();
+    const a = await user(t.id, 'Ada', 'ada@example.com');
+    const b = await user(t.id, 'Bea', 'bea@example.com');
+    // Ada has an entry inside the range.
+    await entry(
+      a.id,
+      '019797a0-0000-7000-8000-000000000209',
+      '2026-07-02T09:00:00Z',
+      '2026-07-02T10:00:00Z',
+    );
+    // Bea has an entry entirely before FROM, and no activity summary at all.
+    await entry(
+      b.id,
+      '019797a0-0000-7000-8000-000000000210',
+      '2026-06-15T09:00:00Z',
+      '2026-06-15T10:00:00Z',
+    );
+
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO);
+    expect(rows.map((r) => r.name)).toEqual(['Ada']);
+  });
 });
 
 describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () => {
@@ -405,5 +428,58 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
 
     const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, p1.id);
     expect(rows).toEqual([{ projectId: p1.id, name: 'Acme', trackedSeconds: 3600 }]);
+  });
+
+  it('breaks a trackedSeconds tie by projectId ASC (deterministic ordering)', async () => {
+    const t = await db.prisma.team.create({
+      data: { name: 'Eng', settings: {} },
+      select: { id: true },
+    });
+    const u = await db.prisma.user.create({
+      data: { email: 'ada@example.com', name: 'Ada', passwordHash: 'x', teamId: t.id },
+      select: { id: true },
+    });
+    const p1 = await db.prisma.project.create({
+      data: {
+        id: '019797a0-0000-7000-8000-0000000a0a01',
+        teamId: t.id,
+        name: 'Alpha',
+      },
+      select: { id: true },
+    });
+    const p2 = await db.prisma.project.create({
+      data: {
+        id: '019797a0-0000-7000-8000-0000000a0a02',
+        teamId: t.id,
+        name: 'Beta',
+      },
+      select: { id: true },
+    });
+    // Equal 1h (3600s) tracked on each project — same duration, different projectId.
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000305',
+        userId: u.id,
+        projectId: p1.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T09:00:00Z'),
+        endTime: new Date('2026-07-02T10:00:00Z'),
+      },
+    });
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000306',
+        userId: u.id,
+        projectId: p2.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T09:00:00Z'),
+        endTime: new Date('2026-07-02T10:00:00Z'),
+      },
+    });
+
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO);
+    expect(rows.every((r) => r.trackedSeconds === 3600)).toBe(true);
+    // Ties on trackedSeconds break by projectId ASC — the smaller id sorts first.
+    expect(rows.map((r) => r.projectId)).toEqual([p1.id, p2.id]);
   });
 });
