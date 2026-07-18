@@ -34,4 +34,29 @@ final class PolicySettingsDecodeTests: XCTestCase {
         XCTAssertTrue(policy.settings.screenshotsEnabled)
         XCTAssertEqual(policy.settings.screenshotIntervalMinutes, 10)
     }
+
+    func testDecodesActivityCategorizationFields() throws {
+        let json = """
+        {"ackRequired":false,"policyVersion":"v1","policyText":"x","settings":{
+          "idleThresholdMinutes":5,"autoStartOnLogin":false,"screenshotsEnabled":true,
+          "screenshotIntervalMinutes":10,"captureWindowTitles":false,
+          "productiveApps":["Xcode"],"unproductiveApps":["Twitter"]}}
+        """.data(using: .utf8)!
+        let policy = try JSONDecoder().decode(EffectivePolicy.self, from: json)
+        XCTAssertFalse(policy.settings.captureWindowTitles)
+        XCTAssertEqual(policy.settings.productiveApps, ["Xcode"])
+        XCTAssertEqual(policy.settings.unproductiveApps, ["Twitter"])
+    }
+
+    func testActivityFieldsDefaultWhenAbsent() throws {
+        let json = """
+        {"ackRequired":false,"policyVersion":"v1","policyText":"x","settings":{
+          "idleThresholdMinutes":5,"autoStartOnLogin":false,"screenshotsEnabled":true,
+          "screenshotIntervalMinutes":10}}
+        """.data(using: .utf8)!
+        let policy = try JSONDecoder().decode(EffectivePolicy.self, from: json)
+        XCTAssertTrue(policy.settings.captureWindowTitles)      // default true
+        XCTAssertEqual(policy.settings.productiveApps, [])       // default []
+        XCTAssertEqual(policy.settings.unproductiveApps, [])
+    }
 }

@@ -9,12 +9,49 @@ struct EffectivePolicy: Decodable {
     let settings: Settings
 
     /// Subset of @timetrack/contracts `TeamSettingsSchema` that the client acts on. Extra keys
-    /// in the JSON are ignored by `Decodable`.
+    /// in the JSON are ignored by `Decodable`. Activity fields default to the server's defaults so
+    /// a legacy/partial policy JSON (missing them) still decodes.
     struct Settings: Decodable {
         let idleThresholdMinutes: Int
         let autoStartOnLogin: Bool
         let screenshotsEnabled: Bool
         let screenshotIntervalMinutes: Int
+        let captureWindowTitles: Bool
+        let productiveApps: [String]
+        let unproductiveApps: [String]
+
+        /// Explicit memberwise init: declaring a custom `init(from:)` below suppresses the
+        /// synthesized memberwise initializer, so test doubles (`FakePolicyProvider`) that
+        /// construct `Settings` directly would break. The three activity fields default here so
+        /// existing call sites (written before 2.3b) keep compiling unchanged — do NOT edit
+        /// `FakePolicyProvider`.
+        init(idleThresholdMinutes: Int, autoStartOnLogin: Bool, screenshotsEnabled: Bool,
+             screenshotIntervalMinutes: Int, captureWindowTitles: Bool = true,
+             productiveApps: [String] = [], unproductiveApps: [String] = []) {
+            self.idleThresholdMinutes = idleThresholdMinutes
+            self.autoStartOnLogin = autoStartOnLogin
+            self.screenshotsEnabled = screenshotsEnabled
+            self.screenshotIntervalMinutes = screenshotIntervalMinutes
+            self.captureWindowTitles = captureWindowTitles
+            self.productiveApps = productiveApps
+            self.unproductiveApps = unproductiveApps
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case idleThresholdMinutes, autoStartOnLogin, screenshotsEnabled, screenshotIntervalMinutes
+            case captureWindowTitles, productiveApps, unproductiveApps
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            idleThresholdMinutes = try c.decode(Int.self, forKey: .idleThresholdMinutes)
+            autoStartOnLogin = try c.decode(Bool.self, forKey: .autoStartOnLogin)
+            screenshotsEnabled = try c.decode(Bool.self, forKey: .screenshotsEnabled)
+            screenshotIntervalMinutes = try c.decode(Int.self, forKey: .screenshotIntervalMinutes)
+            captureWindowTitles = try c.decodeIfPresent(Bool.self, forKey: .captureWindowTitles) ?? true
+            productiveApps = try c.decodeIfPresent([String].self, forKey: .productiveApps) ?? []
+            unproductiveApps = try c.decodeIfPresent([String].self, forKey: .unproductiveApps) ?? []
+        }
     }
 }
 
