@@ -302,3 +302,108 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
     expect(all.map((r) => r.name).sort()).toEqual(['Ada', 'Zoe']);
   });
 });
+
+describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () => {
+  let db: TestDb;
+  beforeAll(async () => {
+    db = await startTestDb();
+  });
+  afterAll(async () => {
+    await db.close();
+  });
+  afterEach(async () => {
+    await truncateAll(db.prisma);
+  });
+
+  const FROM = new Date('2026-07-01T00:00:00.000Z');
+  const TO = new Date('2026-07-08T00:00:00.000Z');
+  function repo(): ReportsRepository {
+    return new ReportsRepository(db.prisma as unknown as PrismaService);
+  }
+
+  it('groups by project and buckets null-project time under "No project"', async () => {
+    const t = await db.prisma.team.create({
+      data: { name: 'Eng', settings: {} },
+      select: { id: true },
+    });
+    const u = await db.prisma.user.create({
+      data: { email: 'ada@example.com', name: 'Ada', passwordHash: 'x', teamId: t.id },
+      select: { id: true },
+    });
+    const p = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Acme' },
+      select: { id: true },
+    });
+    // 1h on Acme, 30m with no project
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000301',
+        userId: u.id,
+        projectId: p.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T09:00:00Z'),
+        endTime: new Date('2026-07-02T10:00:00Z'),
+      },
+    });
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000302',
+        userId: u.id,
+        projectId: null,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T11:00:00Z'),
+        endTime: new Date('2026-07-02T11:30:00Z'),
+      },
+    });
+
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO);
+    expect(rows).toEqual([
+      { projectId: p.id, name: 'Acme', trackedSeconds: 3600 },
+      { projectId: null, name: 'No project', trackedSeconds: 1800 },
+    ]);
+    // reconciles to the user's total tracked seconds (3600 + 1800)
+    expect(rows.reduce((s, r) => s + r.trackedSeconds, 0)).toBe(5400);
+  });
+
+  it('honors an explicit projectId filter', async () => {
+    const t = await db.prisma.team.create({
+      data: { name: 'Eng', settings: {} },
+      select: { id: true },
+    });
+    const u = await db.prisma.user.create({
+      data: { email: 'ada@example.com', name: 'Ada', passwordHash: 'x', teamId: t.id },
+      select: { id: true },
+    });
+    const p1 = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Acme' },
+      select: { id: true },
+    });
+    const p2 = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Beta' },
+      select: { id: true },
+    });
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000303',
+        userId: u.id,
+        projectId: p1.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T09:00:00Z'),
+        endTime: new Date('2026-07-02T10:00:00Z'),
+      },
+    });
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000304',
+        userId: u.id,
+        projectId: p2.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T09:00:00Z'),
+        endTime: new Date('2026-07-02T10:00:00Z'),
+      },
+    });
+
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, p1.id);
+    expect(rows).toEqual([{ projectId: p1.id, name: 'Acme', trackedSeconds: 3600 }]);
+  });
+});
