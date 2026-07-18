@@ -222,3 +222,40 @@ describe('api.redactScreenshot', () => {
     });
   });
 });
+
+describe('api.listActivitySummaries', () => {
+  const row = {
+    userId: '019797a0-0000-7000-8000-0000000000aa',
+    day: '2026-07-17',
+    avgActivityPct: 62,
+    activeMinutes: 240,
+    byApp: { Code: 180, Slack: 60 },
+    byCategory: { PRODUCTIVE: 180, NEUTRAL: 60 },
+  };
+
+  it('parses the summary array on 200', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response(JSON.stringify([row]), { status: 200 })),
+    );
+    const params = new URLSearchParams({
+      userId: row.userId,
+      from: '2026-07-11',
+      to: '2026-07-17',
+    });
+    expect(await api.listActivitySummaries('tok', params)).toEqual([row]);
+  });
+
+  it('throws on a non-2xx response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response('nope', { status: 403 })),
+    );
+    await expect(
+      api.listActivitySummaries(
+        'tok',
+        new URLSearchParams({ from: '2026-07-11', to: '2026-07-17' }),
+      ),
+    ).rejects.toThrow();
+  });
+});
