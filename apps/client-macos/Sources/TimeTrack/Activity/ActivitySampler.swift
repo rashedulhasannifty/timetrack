@@ -1,0 +1,127 @@
+import Foundation
+
+/// PRD §6.3 — the activity CAPTURE path. A self-gating interval timer (mirrors ScreenshotScheduler):
+/// each tick, only while the clock runs and only through `AckGate`, it drives N×(interval/N) sub-buckets
+/// off content-free `CGEventSource` counter deltas, computes activity %, samples the frontmost app +
+/// (transiently, for categorization only) the browser host, categorizes, mints a UUIDv7, enqueues ONE
+/// sample, and kicks the batch sync. `isTracking` is checked BEFORE the gate so a stopped clock never
+/// triggers a policy fetch. Gate closed / error → the whole interval is skipped (no partial sample).
+/// Never captures on a closed gate or the offline-marker path (installed only on !ackRequired).
+final class ActivitySampler {
+    private let ackGate: AckGate
+    private let counter: InputCounting
+    private let appSampler: AppSampling
+    private let siteResolver: SiteResolving
+    private let categorizer: Categorizer
+    private let store: ActivitySampleBuffering
+    private let captureWindowTitles: Bool
+    private let intervalSeconds: TimeInterval
+    private let subBuckets: Int
+    private let isTracking: () -> Bool
+    private let idGen: (Date) -> String
+    private let clock: () -> Date
+    private let sleep: (TimeInterval) async -> Void
+    private let onSampled: () -> Void
+
+    private var timer: Timer?
+    private var started = false
+    private var isCapturing = false
+    private var currentCycle: Task<Void, Never>?
+
+    init(ackGate: AckGate, counter: InputCounting, appSampler: AppSampling,
+         siteResolver: SiteResolving, categorizer: Categorizer, store: ActivitySampleBuffering,
+         captureWindowTitles: Bool, intervalSeconds: TimeInterval = 60, subBuckets: Int = 12,
+         isTracking: @escaping () -> Bool,
+         idGen: @escaping (Date) -> String = { UUIDv7.generate(now: $0) },
+         clock: @escaping () -> Date = Date.init,
+         sleep: @escaping (TimeInterval) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) },
+         onSampled: @escaping () -> Void = {}) {
+        self.ackGate = ackGate
+        self.counter = counter
+        self.appSampler = appSampler
+        self.siteResolver = siteResolver
+        self.categorizer = categorizer
+        self.store = store
+        self.captureWindowTitles = captureWindowTitles
+        self.intervalSeconds = intervalSeconds
+        self.subBuckets = max(1, subBuckets)
+        self.isTracking = isTracking
+        self.idGen = idGen
+        self.clock = clock
+        self.sleep = sleep
+        self.onSampled = onSampled
+    }
+
+    func start() {
+        guard !started else { return }
+        started = true
+        scheduleNext()
+    }
+
+    func stop() {
+        started = false
+        timer?.invalidate()
+        timer = nil
+    }
+
+    /// One interval. `isTracking` is checked BEFORE the gate so a stopped clock never fetches policy.
+    func captureTick() async {
+        guard !isCapturing else { return }
+        guard isTracking() else { return }
+        isCapturing = true
+        defer { isCapturing = false }
+        do {
+            try await ackGate.withCaptureAllowed { [self] in
+                var meter = ActivityRateMeter(buckets: subBuckets)
+                var prev = counter.snapshot()
+                let bucketSeconds = intervalSeconds / Double(subBuckets)
+                for _ in 0..<subBuckets {
+                    await sleep(bucketSeconds)
+                    let now = counter.snapshot()
+                    meter.addBucket(delta: (keys: now.keys &- prev.keys, pointer: now.pointer &- prev.pointer))
+                    prev = now
+                }
+                let capturedAt = clock()
+                let (appName, windowTitle) = appSampler.sample(captureWindowTitles: captureWindowTitles)
+                let host = siteResolver.currentHost()  // discarded after this line; never stored/sent
+                let category = categorizer.category(appName: appName, host: host)
+                let sample = ActivitySample(
+                    id: idGen(capturedAt), timestamp: Self.iso.string(from: capturedAt),
+                    appName: appName, windowTitle: windowTitle,
+                    activityPct: meter.activityPct(), category: category.rawValue)
+                store.enqueue(sample)
+                onSampled()
+            }
+        } catch {
+            // Gate closed (ackRequired / offline) or error → skip this interval. Fail-safe.
+        }
+    }
+
+    /// Await any capture cycle already in flight (sign-out teardown joins this before clearing).
+    func finishInFlight() async { await currentCycle?.value }
+
+    // MARK: - self-scheduling timer glue (build-verified)
+
+    func startCycle() {
+        currentCycle = Task { [weak self] in
+            await self?.captureTick()
+            guard let self, self.started else { return }
+            self.scheduleNext()
+        }
+    }
+
+    private func scheduleNext() {
+        timer?.invalidate()
+        let t = Timer(timeInterval: max(0.001, intervalSeconds), repeats: false) { [weak self] _ in
+            self?.startCycle()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    private static let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+}
