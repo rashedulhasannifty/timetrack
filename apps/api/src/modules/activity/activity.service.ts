@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import type {
   ActivityBatch,
+  ActivityDailySummary,
   ActivityIngestResult,
   ActivitySample,
   ListActivityQuery,
+  ListActivitySummaryQuery,
 } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { ActivityRepository } from './activity.repository.js';
@@ -30,5 +32,17 @@ export class ActivityService {
   list(query: ListActivityQuery, user: SessionUser): Promise<ActivitySample[]> {
     const targetId = query.userId ?? user.id;
     return this.repo.list({ ...query, userId: targetId });
+  }
+
+  /**
+   * PRD §4.3 — symmetric transparency: an employee reads their own daily rollups through
+   * the same endpoint managers use. @ResourceScope on the controller enforces the scope.
+   */
+  listSummaries(
+    query: ListActivitySummaryQuery,
+    user: SessionUser,
+  ): Promise<ActivityDailySummary[]> {
+    const targetId = query.userId ?? user.id;
+    return this.repo.listSummaries({ userId: targetId, from: query.from, to: query.to });
   }
 }

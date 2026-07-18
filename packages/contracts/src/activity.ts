@@ -31,3 +31,32 @@ export type ActivitySample = z.infer<typeof ActivitySampleSchema>;
 export type ActivityBatch = z.infer<typeof ActivityBatchSchema>;
 export type ActivityIngestResult = z.infer<typeof ActivityIngestResultSchema>;
 export type ListActivityQuery = z.infer<typeof ListActivityQuerySchema>;
+
+/**
+ * PRD §6.3 — the worker rolls each user's samples into one row per UTC day. Each sample
+ * represents one fixed sampling interval, so minutes = count × interval / 60.
+ * The client (Swift, 2.3b) mirrors this constant by convention; it cannot import this file.
+ */
+export const ACTIVITY_SAMPLE_INTERVAL_SECONDS = 60;
+
+/** Per-day activity rollup (worker output; dashboard read). Minutes are integers. */
+export const ActivityDailySummarySchema = z.object({
+  userId: z.uuid(),
+  day: z.iso.date(), // 'YYYY-MM-DD'
+  avgActivityPct: z.number().int().min(0).max(100),
+  activeMinutes: z.number().int().nonnegative(),
+  // Minutes per app / per category. Keys are app names / Category values; a partial map
+  // (absent keys omitted). string→int keeps values validated without Zod's full-enum-key rule.
+  byApp: z.record(z.string(), z.number().int().nonnegative()),
+  byCategory: z.record(z.string(), z.number().int().nonnegative()),
+});
+
+/** Self-view / manager read window, bounded by from/to dates. */
+export const ListActivitySummaryQuerySchema = z.object({
+  userId: z.uuid().optional(),
+  from: z.iso.date(),
+  to: z.iso.date(),
+});
+
+export type ActivityDailySummary = z.infer<typeof ActivityDailySummarySchema>;
+export type ListActivitySummaryQuery = z.infer<typeof ListActivitySummaryQuerySchema>;

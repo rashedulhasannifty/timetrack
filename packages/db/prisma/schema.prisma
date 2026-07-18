@@ -155,6 +155,20 @@ model ActivitySample {
   @@map("activity_samples")
 }
 
+/// Per-user daily rollup of activity_samples (PRD §6.3). Small, unpartitioned.
+/// Idempotently upserted by the worker's rollup-daily job on (userId, day).
+model ActivityDailySummary {
+  userId         String
+  day            DateTime @db.Date
+  avgActivityPct Int
+  activeMinutes  Int
+  byApp          Json
+  byCategory     Json
+
+  @@id([userId, day])
+  @@map("activity_daily_summaries")
+}
+
 /// Partitioned monthly on `timestamp`.
 model Screenshot {
   id             String     @default(uuid(7))
