@@ -190,4 +190,33 @@ final class TimeTrackerTests: XCTestCase {
                            projectId: "p1", taskId: nil, source: .manual)
         XCTAssertEqual(spy.object(at: 0)["id"] as? String, "recovered-id")
     }
+
+    func testOnSpanClosedFiresOnStopWithStartAndEnd() {
+        var now = Date(timeIntervalSince1970: 1000)
+        let tracker = TimeTracker(buffer: BufferSpy(), clock: { now })
+        var closed: [(Date, Date)] = []
+        tracker.onSpanClosed = { s, e in closed.append((s, e)) }
+
+        tracker.start(projectId: nil, taskId: nil)   // opens at t=1000
+        now = Date(timeIntervalSince1970: 1600)
+        tracker.stop()                               // closes at t=1600
+
+        XCTAssertEqual(closed.count, 1)
+        XCTAssertEqual(closed.first?.0, Date(timeIntervalSince1970: 1000))
+        XCTAssertEqual(closed.first?.1, Date(timeIntervalSince1970: 1600))
+    }
+
+    func testOnSpanClosedFiresOnRecordSpan() {
+        let tracker = TimeTracker(buffer: BufferSpy(), clock: { Date(timeIntervalSince1970: 1000) })
+        var closed: [(Date, Date)] = []
+        tracker.onSpanClosed = { s, e in closed.append((s, e)) }
+
+        tracker.recordSpan(start: Date(timeIntervalSince1970: 2000),
+                           end: Date(timeIntervalSince1970: 2500),
+                           projectId: nil, taskId: nil, source: .auto)
+
+        XCTAssertEqual(closed.count, 1)
+        XCTAssertEqual(closed.first?.0, Date(timeIntervalSince1970: 2000))
+        XCTAssertEqual(closed.first?.1, Date(timeIntervalSince1970: 2500))
+    }
 }
