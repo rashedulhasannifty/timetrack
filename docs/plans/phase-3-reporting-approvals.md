@@ -71,7 +71,7 @@
 
 ## Phase 3 Definition of Done
 
-- [ ] 3.1 Reports aggregation + charts.
+- [x] 3.1 Reports aggregation + charts. `GET /v1/reports/team-summary` and `GET /v1/reports/projects` (MANAGER own-team, ADMIN any/all, fan-out-safe CTE aggregation) plus the `/reports` dashboard page (range picker, per-user/per-project charts) all ship. Live-driven against a deterministic fixture (Team A: manager M with no data, employee E — 1h on project P + 30m unassigned; Team B: user Z — 1h unassigned; activity summaries 80%/100min + 40%/300min for E): MGR_A team-summary(own team) → 200, rows `[E: 5400s/50%]` — M and Z correctly absent (locked design decision, `docs/superpowers/specs/2026-07-19-slice-3.1-reports-aggregation-design.md` §3: team-summary only lists users with data in range, unlike `overview`); MGR_A with Team B's `teamId` → 403 problem+json; ADMIN no-filter → 200, rows `[E: 5400s/50%, Z: 3600s/0%]` (both teams); ADMIN projects → 200, `Repro P: 3600s` + `No project: 5400s`, reconciling to 9000s total; unauthenticated → 401. Gate green: lint/typecheck/test/build; `apps/api` coverage 87.28% functions (≥80%), `packages/contracts` 100% functions.
 - [ ] 3.2 Streaming CSV export.
 - [ ] 3.3 Approvals workflow with audit.
 - [ ] 3.4 Local distraction nudges (no live manager feed).
