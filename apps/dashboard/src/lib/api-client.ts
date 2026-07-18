@@ -19,6 +19,8 @@ import {
   type TokenPair,
   TeamOverviewSchema,
   type TeamOverview,
+  TeamSummarySchema,
+  type TeamSummary,
   InviteResultSchema,
   type InviteResult,
   type InviteUser,
@@ -26,6 +28,8 @@ import {
   type TeamSettings,
   type UpdateSettings,
   type RedactScreenshot,
+  ProjectSummarySchema,
+  type ProjectSummary,
 } from '@timetrack/contracts';
 import { z } from 'zod';
 
@@ -129,6 +133,10 @@ export const api = {
   getCurrentTeam: (token: string): Promise<Team> => get('/teams/current', TeamSchema, token),
   teamOverview: (token: string, date?: string): Promise<TeamOverview> =>
     get(`/reports/overview${date ? `?date=${date}` : ''}`, TeamOverviewSchema, token),
+  teamSummary: (token: string, params: URLSearchParams): Promise<TeamSummary> =>
+    get(`/reports/team-summary?${params}`, TeamSummarySchema, token),
+  projectSummary: (token: string, params: URLSearchParams): Promise<ProjectSummary> =>
+    get(`/reports/projects?${params}`, ProjectSummarySchema, token),
 
   // Admin mutations (ADMIN-gated at the API; called only from server-side Server Actions).
   inviteUser: (token: string, dto: InviteUser): Promise<InviteResult> =>

@@ -259,3 +259,42 @@ describe('api.listActivitySummaries', () => {
     ).rejects.toThrow();
   });
 });
+
+describe('api.teamSummary', () => {
+  it('hits /reports/team-summary and parses the response', async () => {
+    const body = { from: '2026-07-01T00:00:00.000Z', to: '2026-07-08T00:00:00.000Z', rows: [] };
+    const fetchMock = vi.fn(() => new Response(JSON.stringify(body), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const params = new URLSearchParams({ from: body.from, to: body.to });
+    const result = await api.teamSummary('tok', params);
+
+    expect(result).toEqual(body);
+    const call = fetchMock.mock.calls[0];
+    if (!call) throw new Error('fetch was not called');
+    const [url, init] = call as unknown as [string, RequestInit];
+    expect(String(url)).toContain('/v1/reports/team-summary?from=');
+    expect(init.headers).toMatchObject({ authorization: 'Bearer tok' });
+  });
+});
+
+describe('api.projectSummary', () => {
+  it('hits /reports/projects and parses the response', async () => {
+    const body = {
+      from: '2026-07-01T00:00:00.000Z',
+      to: '2026-07-08T00:00:00.000Z',
+      rows: [{ projectId: null, name: 'No project', trackedSeconds: 120 }],
+    };
+    const fetchMock = vi.fn(() => new Response(JSON.stringify(body), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const params = new URLSearchParams({ from: body.from, to: body.to });
+    const result = await api.projectSummary('tok', params);
+
+    expect(result).toEqual(body);
+    const call = fetchMock.mock.calls[0];
+    if (!call) throw new Error('fetch was not called');
+    const [url] = call as unknown as [string, RequestInit];
+    expect(String(url)).toContain('/v1/reports/projects?from=');
+  });
+});
