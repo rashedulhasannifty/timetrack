@@ -37,6 +37,11 @@ final class TimeTracker {
     private let liveSpan: LiveSpanRecording
     private(set) var state: State = .idle
 
+    /// Optional observer of each closed span `[start, end]` (Slice 2.4 day accumulator). Default
+    /// nil → no behavioural change and no call-site change. Invoked on the main thread (this type
+    /// is main-thread-only), after the entry is enqueued.
+    var onSpanClosed: ((_ start: Date, _ end: Date) -> Void)?
+
     init(
         buffer: TimeEntryBuffering,
         clock: @escaping () -> Date = Date.init,
@@ -84,6 +89,7 @@ final class TimeTracker {
                     projectId: String?, taskId: String?, source: Source) {
         enqueue(id: id ?? idGen(start), projectId: projectId, taskId: taskId,
                 start: start, end: end, source: source)
+        onSpanClosed?(start, end)
     }
 
     private func open(_ selection: Selection, source: Source) {
@@ -98,6 +104,7 @@ final class TimeTracker {
         enqueue(id: id, projectId: selection.projectId, taskId: selection.taskId,
                 start: startedAt, end: endTime, source: source)
         liveSpan.clear()
+        onSpanClosed?(startedAt, endTime)
     }
 
     private func enqueue(id: String, projectId: String?, taskId: String?,

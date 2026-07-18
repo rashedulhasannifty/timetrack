@@ -8,6 +8,7 @@ final class FakeIdleMonitorDelegate: IdleMonitorDelegate {
         case becameAway(seconds: Int)
         case resolved(from: Date, to: Date, keeping: Bool)
         case abandoned(from: Date, to: Date)
+        case idleThresholdCrossed(seconds: Int)
     }
     private(set) var calls: [Call] = []
 
@@ -19,5 +20,8 @@ final class FakeIdleMonitorDelegate: IdleMonitorDelegate {
     }
     func idleMonitor(_ monitor: IdleMonitor, didAbandonAwayFrom awayStart: Date, to lastKnown: Date) {
         calls.append(.abandoned(from: awayStart, to: lastKnown))
+    }
+    func idleMonitorDidCrossIdleThreshold(_ monitor: IdleMonitor, afterSeconds seconds: Int) {
+        calls.append(.idleThresholdCrossed(seconds: seconds))
     }
 }

@@ -15,6 +15,7 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
     private let presentAwayPrompt: (_ minutes: Int, _ resolve: @escaping (AwayResolution) -> Void) -> Void
     private let clock: () -> Date
     private let idGen: (Date) -> String
+    private let onIdleThresholdCrossed: (Int) -> Void
 
     init(
         tracker: TimeTracker,
@@ -23,7 +24,8 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
         currentSelection: @escaping () -> TimeTracker.Selection,
         presentAwayPrompt: @escaping (_ minutes: Int, _ resolve: @escaping (AwayResolution) -> Void) -> Void,
         clock: @escaping () -> Date = Date.init,
-        idGen: @escaping (Date) -> String = { UUIDv7.generate(now: $0) }
+        idGen: @escaping (Date) -> String = { UUIDv7.generate(now: $0) },
+        onIdleThresholdCrossed: @escaping (Int) -> Void = { _ in }
     ) {
         self.tracker = tracker
         self.buffer = buffer
@@ -32,6 +34,7 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
         self.presentAwayPrompt = presentAwayPrompt
         self.clock = clock
         self.idGen = idGen
+        self.onIdleThresholdCrossed = onIdleThresholdCrossed
         self.monitor.delegate = self
     }
 
@@ -89,6 +92,10 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
 
     func idleMonitor(_ monitor: IdleMonitor, didAbandonAwayFrom awayStart: Date, to lastKnown: Date) {
         enqueueIdleEvent(from: awayStart, to: lastKnown, action: .unresolved)
+    }
+
+    func idleMonitorDidCrossIdleThreshold(_ monitor: IdleMonitor, afterSeconds seconds: Int) {
+        onIdleThresholdCrossed(seconds)
     }
 
     private func enqueueIdleEvent(from: Date, to: Date, action: ResolvedAction) {

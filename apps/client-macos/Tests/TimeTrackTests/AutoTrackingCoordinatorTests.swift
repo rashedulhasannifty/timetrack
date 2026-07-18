@@ -121,4 +121,41 @@ final class AutoTrackingCoordinatorTests: XCTestCase {
         XCTAssertEqual(spy.entries.count, countAfterPause,
                        "no auto-stop, bridge, or IdleEvent while paused")
     }
+
+    func testIdleThresholdCrossingForwardsSecondsOnce() {
+        var crossed: [Int] = []
+        let tracker = TimeTracker(buffer: BufferSpy(), clock: { Date(timeIntervalSince1970: 5000) })
+        let coordinator = AutoTrackingCoordinator(
+            tracker: tracker,
+            buffer: BufferSpy(),
+            thresholdSeconds: 300,
+            currentSelection: { .init(projectId: nil, taskId: nil) },
+            presentAwayPrompt: { _, _ in },
+            clock: { Date(timeIntervalSince1970: 5000) },
+            onIdleThresholdCrossed: { crossed.append($0) }
+        )
+        coordinator.activate()             // opens an AUTO span (not a manual session)
+        coordinator.tick(idleSeconds: 300) // active → away at threshold
+        coordinator.tick(idleSeconds: 360) // still away — no second nudge
+
+        XCTAssertEqual(crossed, [300])
+    }
+
+    func testMarkAwayDoesNotForwardIdleNudge() {
+        var crossed: [Int] = []
+        let tracker = TimeTracker(buffer: BufferSpy(), clock: { Date(timeIntervalSince1970: 5000) })
+        let coordinator = AutoTrackingCoordinator(
+            tracker: tracker,
+            buffer: BufferSpy(),
+            thresholdSeconds: 300,
+            currentSelection: { .init(projectId: nil, taskId: nil) },
+            presentAwayPrompt: { _, _ in },
+            clock: { Date(timeIntervalSince1970: 5000) },
+            onIdleThresholdCrossed: { crossed.append($0) }
+        )
+        coordinator.activate()
+        coordinator.markAway()             // sleep/lock
+
+        XCTAssertTrue(crossed.isEmpty)
+    }
 }

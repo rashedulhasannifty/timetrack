@@ -53,6 +53,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var heartbeatTimer: Timer?
     private var hasAttemptedRecovery = false
 
+    private var notifier: LocalNotifying?
+    private var dailyTotal: DailyTotalAccumulator?
+    private var endOfDayScheduler: EndOfDayScheduler?
+    private var manualNudgeMonitor: ManualNudgeMonitor?
+    private let endOfDayHour = 18
+    private let forgotToStartMinutes = 10
+
     override init() {
         let baseURL = AppDelegate.apiBaseURL()
         let session = AuthSession(client: AuthClient(baseURL: baseURL), store: KeychainTokenStore())
@@ -182,6 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await startAutoTrackingIfEnabled(policy)   // online, !ackRequired: capture is allowed
                 await startScreenshotCaptureIfEnabled(policy)
                 await startActivityCaptureIfEnabled(policy)
+                await startManualNudgesIfManual(policy)
             }
         } catch {
             // Offline / policy unavailable: allow MANUAL tracking only if this user has a
@@ -205,6 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             userIdBox.value = currentUserId
             menuViewModel.markReady()
         }
+        await MainActor.run { self.installNudgeInfra() }
         await MainActor.run { menuViewModel.projects = projectCache.load() } // instant, offline-safe
         if let fresh = try? await projectClient.list() {
             projectCache.save(fresh)
@@ -212,6 +221,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         await MainActor.run { startSyncIfNeeded() }
         await MainActor.run { recoverLiveSpanIfNeeded(currentUserId: currentUserId) }
+    }
+
+    /// Local-notification infra (not a capture path — safe on both ready paths). Idempotent.
+    @MainActor private func installNudgeInfra() {
+        guard notifier == nil else { return }
+        let notifier = UNUserNotifier()
+        notifier.requestAuthorization()
+        self.notifier = notifier
+
+        let accumulator = DailyTotalAccumulator()
+        self.dailyTotal = accumulator
+        timeTracker.onSpanClosed = { [weak self] start, end in
+            self?.dailyTotal?.add(start: start, end: end)
+        }
+
+        let scheduler = EndOfDayScheduler(
+            hour: endOfDayHour, notifier: notifier,
+            total: { [weak self] now in self?.dailyTotal?.todaySeconds(now: now) ?? 0 }
+        )
+        self.endOfDayScheduler = scheduler
+        scheduler.start()
     }
 
     /// Recover an interrupted span left by a crash / quit-while-tracking. Runs once, AFTER auth
@@ -260,6 +290,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Gate closed / policy unavailable → auto-tracking simply does not start. Manual
             // tracking (already enabled) continues. Fail-safe; no fallback path.
         }
+    }
+
+    /// The manual-mode nudge poller reads the same content-free idle scalar as WorkspaceObserver,
+    /// so — like auto-tracking — it is installed ONLY on the live-policy `!ackRequired` branch and
+    /// ONLY through AckGate. It is the manual-mode counterpart of WorkspaceObserver: exactly one of
+    /// the two ever runs (keyed on `autoStartOnLogin`).
+    private func startManualNudgesIfManual(_ policy: EffectivePolicy) async {
+        guard !policy.settings.autoStartOnLogin else { return }   // auto mode uses WorkspaceObserver
+        do {
+            try await ackGate.withCaptureAllowed { [weak self] in
+                await MainActor.run { self?.installManualNudges(thresholdMinutes: policy.settings.idleThresholdMinutes) }
+            }
+        } catch {
+            // Gate closed → poller simply does not start. Manual tracking continues. Fail-safe.
+        }
+    }
+
+    @MainActor private func installManualNudges(thresholdMinutes: Int) {
+        guard manualNudgeMonitor == nil, let notifier else { return }   // idempotent; needs the notifier
+        let monitor = ManualNudgeMonitor(
+            notifier: notifier,
+            idleThresholdSeconds: thresholdMinutes * 60,
+            forgotToStartSeconds: forgotToStartMinutes * 60,
+            isTracking: { [weak self] in self?.timeTracker.isRunning ?? false },
+            isPaused: { [weak self] in self?.timeTracker.isPaused ?? false }
+        )
+        manualNudgeMonitor = monitor
+        monitor.start()
     }
 
     /// Screenshot capture is a CAPTURE path (CLAUDE.md §1) — installed ONLY on the live-policy
@@ -410,6 +468,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             presentAwayPrompt: { minutes, resolve in
                 AwayResolutionWindowController.present(minutes: minutes, resolve: resolve)
+            },
+            onIdleThresholdCrossed: { [weak self] seconds in
+                let minutes = max(1, Int((Double(seconds) / 60.0).rounded()))
+                self?.notifier?.notify(id: "idle-nudge", title: "Time tracking",
+                                       body: "Idle for \(minutes) min — still working?")
             }
         )
         let observer = WorkspaceObserver(receiver: coordinator)
@@ -440,6 +503,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // clearing the buffer, so the reference must survive here (do not nil it).
         screenshotScheduler?.stop()
         activitySampler?.stop()
+        // Slice 2.4 nudges — cross-user integrity (CLAUDE.md §1): clear the notifier's pending +
+        // delivered items and reset all local nudge state so the prior user's "Today: Xh"/idle
+        // nudge never lingers into the next user's session (same class as the recovery-prompt leak).
+        endOfDayScheduler?.stop()
+        endOfDayScheduler = nil
+        manualNudgeMonitor?.stop()
+        manualNudgeMonitor = nil
+        dailyTotal?.reset()
+        dailyTotal = nil
+        timeTracker.onSpanClosed = nil
+        notifier?.clearAll()
+        notifier = nil
     }
 
     @MainActor private func presentAck(policy: EffectivePolicy, userId: String) {
