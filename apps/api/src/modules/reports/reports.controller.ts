@@ -6,6 +6,7 @@ import {
   type TeamOverview,
   type TeamOverviewQuery,
   type TeamSummary,
+  type ProjectSummary,
 } from '@timetrack/contracts';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
@@ -32,6 +33,14 @@ export class ReportsController {
     @CurrentUser() user: SessionUser,
   ): Promise<TeamSummary> {
     return this.service.teamSummary(query, user);
+  }
+
+  @Get('projects')
+  projects(
+    @Query(new ZodValidationPipe(ReportRangeQuerySchema)) query: ReportRangeQuery,
+    @CurrentUser() user: SessionUser,
+  ): Promise<ProjectSummary> {
+    return this.service.projects(query, user);
   }
 
   @Get('export.csv')
