@@ -13,7 +13,7 @@ protocol AppSampling {
 final class AppSampler: AppSampling {
     func sample(captureWindowTitles: Bool) -> (appName: String, windowTitle: String?) {
         let front = NSWorkspace.shared.frontmostApplication
-        let appName = front?.localizedName ?? "Unknown"
+        let appName = Self.truncateAppName(front?.localizedName) ?? "Unknown"
         guard captureWindowTitles, let pid = front?.processIdentifier else { return (appName, nil) }
         return (appName, Self.truncateTitle(frontWindowName(pid: pid)))
     }
@@ -34,5 +34,13 @@ final class AppSampler: AppSampling {
     static func truncateTitle(_ s: String?) -> String? {
         guard let s, !s.isEmpty else { return nil }
         return s.count <= 120 ? s : String(s.prefix(120))
+    }
+
+    /// Trim an app name to ≤200 chars — the server schema is `appName: z.string().max(200)`.
+    /// Mirrors `truncateTitle`'s truncation, but `appName` always resolves to a value (falls back
+    /// to "Unknown"), so this only truncates and never maps to nil.
+    static func truncateAppName(_ s: String?) -> String? {
+        guard let s else { return nil }
+        return s.count <= 200 ? s : String(s.prefix(200))
     }
 }

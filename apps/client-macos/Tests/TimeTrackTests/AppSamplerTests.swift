@@ -15,4 +15,18 @@ final class AppSamplerTests: XCTestCase {
         XCTAssertNil(AppSampler.truncateTitle(nil))
         XCTAssertNil(AppSampler.truncateTitle(""))
     }
+
+    // Server schema is `appName: z.string().max(200)` — a pathological localizedName must not 422 the batch.
+    func testAppNameTruncatesToTwoHundredCharacters() {
+        let long = String(repeating: "a", count: 250)
+        XCTAssertEqual(AppSampler.truncateAppName(long)?.count, 200)
+    }
+
+    func testShortAppNameUnchanged() {
+        XCTAssertEqual(AppSampler.truncateAppName("Xcode"), "Xcode")
+    }
+
+    func testNilAppNameStaysNil() {
+        XCTAssertNil(AppSampler.truncateAppName(nil))
+    }
 }

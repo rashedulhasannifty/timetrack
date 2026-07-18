@@ -55,32 +55,40 @@ final class ActivitySampler {
     func start() {
         guard !started else { return }
         started = true
-        scheduleNext()
+        scheduleNext(after: 0) // first measurement window begins immediately
     }
 
     func stop() {
         started = false
         timer?.invalidate()
         timer = nil
+        currentCycle?.cancel() // don't leave a ~60s cycle in flight; finishInFlight() still awaits it
     }
 
     /// One interval. `isTracking` is checked BEFORE the gate so a stopped clock never fetches policy.
-    func captureTick() async {
-        guard !isCapturing else { return }
-        guard isTracking() else { return }
+    /// Returns `true` only when this call actually ran the full sub-bucket measurement and enqueued a
+    /// sample; `false` on every skip path (already capturing, not tracking, gate closed, cancelled).
+    /// The caller uses this to decide the next delay: measured → contiguous (0), skipped → `intervalSeconds`.
+    @discardableResult
+    func captureTick() async -> Bool {
+        guard !isCapturing else { return false }
+        guard isTracking() else { return false }
         isCapturing = true
         defer { isCapturing = false }
         do {
-            try await ackGate.withCaptureAllowed { [self] in
+            return try await ackGate.withCaptureAllowed { [self] in
                 var meter = ActivityRateMeter(buckets: subBuckets)
                 var prev = counter.snapshot()
                 let bucketSeconds = intervalSeconds / Double(subBuckets)
                 for _ in 0..<subBuckets {
                     await sleep(bucketSeconds)
+                    if Task.isCancelled { break }
                     let now = counter.snapshot()
                     meter.addBucket(delta: (keys: now.keys &- prev.keys, pointer: now.pointer &- prev.pointer))
                     prev = now
                 }
+                // Cancelled mid-cycle (e.g. sign-out) → never persist a partial-window sample.
+                guard !Task.isCancelled else { return false }
                 let capturedAt = clock()
                 let (appName, windowTitle) = appSampler.sample(captureWindowTitles: captureWindowTitles)
                 let host = siteResolver.currentHost()  // discarded after this line; never stored/sent
@@ -91,9 +99,11 @@ final class ActivitySampler {
                     activityPct: meter.activityPct(), category: category.rawValue)
                 store.enqueue(sample)
                 onSampled()
+                return true
             }
         } catch {
             // Gate closed (ackRequired / offline) or error → skip this interval. Fail-safe.
+            return false
         }
     }
 
@@ -102,17 +112,20 @@ final class ActivitySampler {
 
     // MARK: - self-scheduling timer glue (build-verified)
 
+    /// A cycle that measured schedules the next one back-to-back (`after: 0`) so windows are
+    /// contiguous (…[0,60][60,120][120,180]…). A skipped cycle (not tracking / gate closed) waits
+    /// the full `intervalSeconds` before retrying, so a closed gate can't busy-loop policy fetches.
     func startCycle() {
         currentCycle = Task { [weak self] in
-            await self?.captureTick()
+            let measured = await self?.captureTick() ?? false
             guard let self, self.started else { return }
-            self.scheduleNext()
+            self.scheduleNext(after: measured ? 0 : self.intervalSeconds)
         }
     }
 
-    private func scheduleNext() {
+    private func scheduleNext(after delay: TimeInterval) {
         timer?.invalidate()
-        let t = Timer(timeInterval: max(0.001, intervalSeconds), repeats: false) { [weak self] _ in
+        let t = Timer(timeInterval: max(0.001, delay), repeats: false) { [weak self] _ in
             self?.startCycle()
         }
         RunLoop.main.add(t, forMode: .common)
