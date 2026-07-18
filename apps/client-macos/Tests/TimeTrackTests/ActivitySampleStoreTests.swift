@@ -48,4 +48,52 @@ final class ActivitySampleStoreTests: XCTestCase {
         s.clear()
         XCTAssertEqual(s.take(limit: 10).count, 0)
     }
+
+    // MARK: - windowTitle encodes as explicit JSON null (never omitted)
+    //
+    // Server contract (packages/contracts/src/activity.ts) declares windowTitle as
+    // `.nullable()` but NOT `.optional()`. Swift's synthesized Codable uses
+    // encodeIfPresent for Optionals, which OMITS the key entirely when nil — that fails
+    // Zod's nullable-but-required check with a 422. When captureWindowTitles=false,
+    // every sample in a batch would be rejected.
+
+    func testEncodingNilWindowTitleProducesExplicitNullKey() throws {
+        let s = sample("a")
+        XCTAssertNil(s.windowTitle)
+
+        let data = try JSONEncoder().encode(s)
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        XCTAssertNotNil(obj)
+        XCTAssertTrue(obj?.keys.contains("windowTitle") ?? false,
+                       "windowTitle key must be present (as null), not omitted")
+        XCTAssertTrue(obj?["windowTitle"] is NSNull,
+                       "windowTitle must serialize as JSON null when nil")
+    }
+
+    func testEncodingNilWindowTitleRoundTrips() throws {
+        let s = sample("a")
+        let data = try JSONEncoder().encode(s)
+        let decoded = try JSONDecoder().decode(ActivitySample.self, from: data)
+        XCTAssertNil(decoded.windowTitle)
+        XCTAssertEqual(decoded, s)
+    }
+
+    func testDecodingExplicitNullWindowTitle() throws {
+        let json = """
+        {"id":"a","timestamp":"2023-11-14T22:13:20Z","appName":"Xcode",
+         "windowTitle":null,"activityPct":50,"category":"PRODUCTIVE"}
+        """
+        let decoded = try JSONDecoder().decode(ActivitySample.self, from: Data(json.utf8))
+        XCTAssertNil(decoded.windowTitle)
+    }
+
+    func testDecodingStringWindowTitle() throws {
+        let json = """
+        {"id":"a","timestamp":"2023-11-14T22:13:20Z","appName":"Xcode",
+         "windowTitle":"x","activityPct":50,"category":"PRODUCTIVE"}
+        """
+        let decoded = try JSONDecoder().decode(ActivitySample.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.windowTitle, "x")
+    }
 }

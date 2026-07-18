@@ -10,4 +10,26 @@ struct ActivitySample: Codable, Equatable {
     let windowTitle: String?
     let activityPct: Int      // 0…100
     let category: String      // Category.rawValue
+
+    private enum CodingKeys: String, CodingKey {
+        case id, timestamp, appName, windowTitle, activityPct, category
+    }
+
+    // Custom encode: the contract's windowTitle is `.nullable()` but NOT `.optional()`, so
+    // a nil value must serialize as an explicit JSON `null`, never be omitted. Swift's
+    // synthesized Codable would use encodeIfPresent for the Optional and drop the key
+    // entirely, which fails server-side validation with a 422. `encode(forKey:)` (not
+    // encodeIfPresent) is what emits `null` for a nil Optional.
+    //
+    // No custom init(from:) — the synthesized Decodable uses decodeIfPresent, which already
+    // accepts both `null` and an absent key, so it stays as-is.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encode(appName, forKey: .appName)
+        try container.encode(windowTitle, forKey: .windowTitle)
+        try container.encode(activityPct, forKey: .activityPct)
+        try container.encode(category, forKey: .category)
+    }
 }
