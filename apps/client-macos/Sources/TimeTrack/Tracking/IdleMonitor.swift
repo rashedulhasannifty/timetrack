@@ -22,6 +22,13 @@ protocol IdleMonitorDelegate: AnyObject {
     func idleMonitor(_ monitor: IdleMonitor, didResolveAwayFrom awayStart: Date, to resume: Date, keeping: Bool)
     /// Torn down while still away/awaiting — record the window as UNRESOLVED, no bridge.
     func idleMonitor(_ monitor: IdleMonitor, didAbandonAwayFrom awayStart: Date, to lastKnown: Date)
+    /// Idle crossed the threshold via inactivity (the `tick` path only — NOT sleep/lock).
+    /// Used by the local idle nudge; defaulted so existing conformers need no change.
+    func idleMonitorDidCrossIdleThreshold(_ monitor: IdleMonitor, afterSeconds seconds: Int)
+}
+
+extension IdleMonitorDelegate {
+    func idleMonitorDidCrossIdleThreshold(_ monitor: IdleMonitor, afterSeconds seconds: Int) {}
 }
 
 final class IdleMonitor {
@@ -69,6 +76,7 @@ final class IdleMonitor {
             let awayStart = clock().addingTimeInterval(-Double(idleSeconds))
             state = .away(since: awayStart)
             delegate?.idleMonitor(self, shouldStopTrackingAt: awayStart)
+            delegate?.idleMonitorDidCrossIdleThreshold(self, afterSeconds: idleSeconds)
         case .away(let since) where idleSeconds < thresholdSeconds:
             transitionToAwaiting(since: since)
         default:

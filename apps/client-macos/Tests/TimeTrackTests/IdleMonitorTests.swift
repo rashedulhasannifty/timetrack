@@ -32,7 +32,7 @@ final class IdleMonitorTests: XCTestCase {
         clock.advance(305)                        // 305s of no input
         monitor.tick(idleSeconds: 305)
         // awayStart = now(t0+305) - 305 = t0
-        XCTAssertEqual(delegate.calls, [.start, .stop(at: t0)])
+        XCTAssertEqual(delegate.calls, [.start, .stop(at: t0), .idleThresholdCrossed(seconds: 305)])
         XCTAssertEqual(monitor.state, .away(since: t0))
     }
 
@@ -110,5 +110,34 @@ final class IdleMonitorTests: XCTestCase {
         monitor.deactivate()
         XCTAssertEqual(delegate.calls.last, .abandoned(from: t0, to: t0.addingTimeInterval(420)))
         XCTAssertEqual(monitor.state, .inactive)
+    }
+
+    func testTickCrossingThresholdFiresIdleThresholdHookOnce() {
+        let delegate = FakeIdleMonitorDelegate()
+        let monitor = IdleMonitor(thresholdSeconds: 300, clock: { Date(timeIntervalSince1970: 1000) })
+        monitor.delegate = delegate
+        monitor.activate()                 // → .active (records .start)
+
+        monitor.tick(idleSeconds: 300)     // active → away at threshold
+        monitor.tick(idleSeconds: 360)     // already away → no second crossing
+
+        let crossings = delegate.calls.filter {
+            if case .idleThresholdCrossed = $0 { return true } else { return false }
+        }
+        XCTAssertEqual(crossings, [.idleThresholdCrossed(seconds: 300)])
+    }
+
+    func testMarkAwayDoesNotFireIdleThresholdHook() {
+        let delegate = FakeIdleMonitorDelegate()
+        let monitor = IdleMonitor(thresholdSeconds: 300, clock: { Date(timeIntervalSince1970: 1000) })
+        monitor.delegate = delegate
+        monitor.activate()
+
+        monitor.markAway()                 // sleep/lock — away without a threshold crossing
+
+        let crossings = delegate.calls.filter {
+            if case .idleThresholdCrossed = $0 { return true } else { return false }
+        }
+        XCTAssertTrue(crossings.isEmpty)
     }
 }
