@@ -1,6 +1,8 @@
 import {
   ActivitySampleSchema,
   type ActivitySample,
+  ActivityDailySummarySchema,
+  type ActivityDailySummary,
   IdleEventSchema,
   type IdleEvent,
   ScreenshotSchema,
@@ -110,6 +112,11 @@ export const api = {
     get(`/time-entries?${params}`, z.array(TimeEntrySchema), token),
   listActivitySamples: (token: string, params: URLSearchParams): Promise<ActivitySample[]> =>
     get(`/activity-samples?${params}`, z.array(ActivitySampleSchema), token),
+  listActivitySummaries: (
+    token: string,
+    params: URLSearchParams,
+  ): Promise<ActivityDailySummary[]> =>
+    get(`/activity-summaries?${params}`, z.array(ActivityDailySummarySchema), token),
   listIdleEvents: (token: string, params: URLSearchParams): Promise<IdleEvent[]> =>
     get(`/idle-events?${params}`, z.array(IdleEventSchema), token),
   listScreenshots: (token: string, params: URLSearchParams): Promise<Screenshot[]> =>
