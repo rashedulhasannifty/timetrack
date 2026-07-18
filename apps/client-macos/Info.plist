@@ -29,6 +29,8 @@
   <string>http://127.0.0.1:3001/v1</string>
   <key>TimeTrackDashboardURL</key>
   <string>http://127.0.0.1:3000</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>TimeTrack reads the active browser tab's address to categorize activity as productive or unproductive. The address is used only on your Mac and is never stored or sent.</string>
   <!-- Screen Recording (ScreenCaptureKit) and Accessibility (window titles + idle) are
        granted by the user in System Settings > Privacy & Security at first use; they are
        TCC permissions, not Info.plist usage strings. Capture never starts until granted
