@@ -48,6 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var syncEngine: SyncEngine?
     private var screenshotScheduler: ScreenshotScheduler?
     private var screenshotSync: ScreenshotSyncEngine?
+    private var activitySampler: ActivitySampler?
+    private var activitySync: ActivityBatchSyncEngine?
     private var heartbeatTimer: Timer?
     private var hasAttemptedRecovery = false
 
@@ -179,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await becomeReady()
                 await startAutoTrackingIfEnabled(policy)   // online, !ackRequired: capture is allowed
                 await startScreenshotCaptureIfEnabled(policy)
+                await startActivityCaptureIfEnabled(policy)
             }
         } catch {
             // Offline / policy unavailable: allow MANUAL tracking only if this user has a
@@ -291,6 +294,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scheduler.start()
     }
 
+    /// Activity sampling is a CAPTURE path (CLAUDE.md §1) — installed ONLY on the live-policy
+    /// `!ackRequired` branch and ONLY through `AckGate`, never via the offline-marker path. The
+    /// sampler re-checks the gate every interval. There is no `activityEnabled` flag (activity is
+    /// the monitoring baseline), so — unlike screenshots — this is unconditional once capture is allowed.
+    private func startActivityCaptureIfEnabled(_ policy: EffectivePolicy) async {
+        do {
+            try await ackGate.withCaptureAllowed { [weak self] in
+                await MainActor.run { [weak self] in self?.installActivityCapture(policy: policy) }
+            }
+        } catch {
+            // Gate closed → sampling simply does not start. Tracking continues. Fail-safe.
+        }
+    }
+
+    @MainActor private func installActivityCapture(policy: EffectivePolicy) {
+        guard activitySampler == nil else { return }   // idempotent
+        let sampler = ActivitySampler(
+            ackGate: ackGate,
+            counter: EventCounter(),
+            appSampler: AppSampler(),
+            siteResolver: AppleScriptSiteResolver(),
+            categorizer: Categorizer(
+                productiveApps: policy.settings.productiveApps,
+                unproductiveApps: policy.settings.unproductiveApps),
+            store: ActivitySampleStore.shared,
+            captureWindowTitles: policy.settings.captureWindowTitles,
+            isTracking: { [weak self] in self?.timeTracker.isRunning ?? false },
+            onSampled: { [weak self] in Task { await self?.activitySync?.syncNow() } }
+        )
+        activitySampler = sampler
+        sampler.start()
+    }
+
     /// Start the sync engine once the user is ready. Sync is NOT a capture path (it uploads the
     /// employee's own already-recorded entries), so — unlike auto-tracking — it is safe on BOTH the
     /// online and the offline-marker `becomeReady()` paths: offline just yields transient failures
@@ -312,6 +348,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         screenshotSync = screenshotEngine
         screenshotEngine.start()
+
+        let activityEngine = ActivityBatchSyncEngine(
+            store: ActivitySampleStore.shared,
+            uploader: ActivitySampleUploader(baseURL: base, session: session)
+        )
+        activitySync = activityEngine
+        activityEngine.start()
     }
 
     /// Sign-out: stop the timer first (no scheduled cycle can overlap the final drain — the
@@ -340,6 +383,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.screenshotSync = nil
             self.screenshotScheduler = nil
             ImageBufferStore.shared.clear()   // cross-user integrity: no leftover images upload under the next user
+        }
+        // Activity mirrors the screenshot ordering exactly: join the in-flight sampler cycle
+        // first, stop the sync engine, do a best-effort final drain on the still-valid token,
+        // then clear the buffer — samples are attributed by token, so a leftover sample must
+        // never upload under the next user (CLAUDE.md §1 cross-user integrity).
+        let activityJoin = await MainActor.run { self.activitySampler }
+        await activityJoin?.finishInFlight()
+        await MainActor.run { self.activitySync?.stop() }
+        await self.activitySync?.syncNow()   // best-effort final drain (still-valid token)
+        await MainActor.run {
+            self.activitySync = nil
+            self.activitySampler = nil
+            ActivitySampleStore.shared.clear()   // cross-user integrity: no leftover samples upload under the next user
         }
     }
 
@@ -383,6 +439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // NOT cancelled by this — `flushAndClearBuffer()` joins it via `finishInFlight()` before
         // clearing the buffer, so the reference must survive here (do not nil it).
         screenshotScheduler?.stop()
+        activitySampler?.stop()
     }
 
     @MainActor private func presentAck(policy: EffectivePolicy, userId: String) {
