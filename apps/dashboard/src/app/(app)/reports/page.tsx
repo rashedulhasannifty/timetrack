@@ -3,7 +3,7 @@ import { TeamSummaryTable } from '../../../components/reports/TeamSummaryTable';
 import { ProjectHoursChart } from '../../../components/charts/ProjectHoursChart';
 import { ReportRangePicker } from '../../../components/reports/ReportRangePicker';
 import { getSession } from '../../../lib/session';
-import { api } from '../../../lib/api-client';
+import { api, ApiError } from '../../../lib/api-client';
 import { defaultReportRange, toProjectBars, hasReportData } from '../../../lib/reports-view';
 import type { ProjectSummary, TeamSummary } from '@timetrack/contracts';
 
@@ -26,21 +26,28 @@ export default async function ReportsPage({
 
   let team: TeamSummary | null = null;
   let projects: ProjectSummary | null = null;
+  let forbidden = false;
   try {
     // API enforces MANAGER/ADMIN + team scope; a 403 becomes the not-authorized state.
     [team, projects] = await Promise.all([
       api.teamSummary(session.accessToken, params),
       api.projectSummary(session.accessToken, params),
     ]);
-  } catch {
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 403) forbidden = true;
     team = null;
+    projects = null;
   }
 
   return (
     <>
       <PageHeader title="Reports" subtitle="Per-user and per-project rollups (PRD §6.5)." />
-      {team === null || projects === null ? (
+      {forbidden ? (
         <p className="text-sm text-neutral-500">You’re not permitted to view reports.</p>
+      ) : team === null || projects === null ? (
+        <p className="text-sm text-neutral-500">
+          Something went wrong loading reports. Please try again.
+        </p>
       ) : (
         <div className="flex flex-col gap-8">
           <ReportRangePicker from={from} to={to} />

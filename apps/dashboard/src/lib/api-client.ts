@@ -47,7 +47,14 @@ async function get<T>(path: string, schema: z.ZodType<T>, token: string): Promis
     headers: { authorization: `Bearer ${token}` },
     cache: 'no-store',
   });
-  if (!res.ok) throw new Error(`api ${res.status} on ${path}`);
+  if (!res.ok) {
+    const problem = (await res.json().catch(() => null)) as { title?: unknown } | null;
+    const title =
+      problem && typeof problem.title === 'string'
+        ? problem.title
+        : `Request failed (${res.status})`;
+    throw new ApiError(res.status, title);
+  }
   return schema.parse(await res.json());
 }
 

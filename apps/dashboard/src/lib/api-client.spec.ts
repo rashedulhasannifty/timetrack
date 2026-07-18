@@ -276,6 +276,33 @@ describe('api.teamSummary', () => {
     expect(String(url)).toContain('/v1/reports/team-summary?from=');
     expect(init.headers).toMatchObject({ authorization: 'Bearer tok' });
   });
+
+  it('rejects with an ApiError carrying status 403 on a 403 response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Response(JSON.stringify({ title: 'You are not permitted to view this team' }), {
+            status: 403,
+          }),
+      ),
+    );
+    const params = new URLSearchParams({ from: '2026-07-01', to: '2026-07-08' });
+    await expect(api.teamSummary('tok', params)).rejects.toBeInstanceOf(ApiError);
+    await expect(api.teamSummary('tok', params)).rejects.toMatchObject({
+      status: 403,
+      message: 'You are not permitted to view this team',
+    });
+  });
+
+  it('rejects with an ApiError carrying status 500 on a 500 response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response('internal error', { status: 500 })),
+    );
+    const params = new URLSearchParams({ from: '2026-07-01', to: '2026-07-08' });
+    await expect(api.teamSummary('tok', params)).rejects.toMatchObject({ status: 500 });
+  });
 });
 
 describe('api.projectSummary', () => {
