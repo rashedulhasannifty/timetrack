@@ -35,9 +35,9 @@ export default async function PersonPage({ params }: { params: Promise<{ userId:
 
   return (
     <>
-      <PageHeader title="Person" subtitle={`Timeline · today (${today}, UTC)`} />
+      <PageHeader title="Person" subtitle={`Timeline · today · Activity · last 7 days (UTC)`} />
       {entries === null ? (
-        <p className="text-sm text-neutral-500">You're not permitted to view this person.</p>
+        <p className="text-sm text-neutral-500">You’re not permitted to view this person.</p>
       ) : (
         <div className="flex flex-col gap-8">
           <Timeline entries={entries} />
