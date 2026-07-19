@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotImplementedException } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import {
   ProjectSummarySchema,
   TeamOverviewSchema,
@@ -12,6 +12,7 @@ import {
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { ResourceAccessService } from '../../common/authz/resource-access.service.js';
 import { ReportsRepository, type ReportScope } from './reports.repository.js';
+import { csvHeaderLine, formatCsvRow } from './csv-writer.js';
 
 const DAY_MS = 86_400_000;
 
@@ -74,8 +75,28 @@ export class ReportsService {
     return ProjectSummarySchema.parse({ from: query.from, to: query.to, rows });
   }
 
-  exportCsv(_query: ReportRangeQuery, _user: SessionUser): Promise<string> {
-    // TODO(scaffold): stream RFC 4180 CSV rows; never buffer the whole set.
-    throw new NotImplementedException('reports.exportCsv not yet implemented');
+  /**
+   * Resolves + authorizes the scope FIRST (a 403 is thrown here, before any byte is
+   * written, so the global filter can still emit problem+json), then returns an async
+   * iterable that streams the CSV header followed by one line per time entry. The
+   * controller pipes this into a StreamableFile; nothing is buffered.
+   */
+  async exportCsv(query: ReportRangeQuery, user: SessionUser): Promise<AsyncIterable<string>> {
+    const scope = await this.resolveScope(query, user);
+    const from = new Date(query.from);
+    const to = new Date(query.to);
+    return this.generateCsv(scope, from, to, query.projectId);
+  }
+
+  private async *generateCsv(
+    scope: ReportScope,
+    from: Date,
+    to: Date,
+    projectId?: string,
+  ): AsyncGenerator<string> {
+    yield csvHeaderLine();
+    for await (const row of this.repo.streamEntries(scope, from, to, projectId)) {
+      yield formatCsvRow(row);
+    }
   }
 }

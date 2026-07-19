@@ -25,6 +25,7 @@ function makeReports() {
     overviewForSelf: vi.fn().mockResolvedValue([]),
     teamSummary: vi.fn().mockResolvedValue([]),
     projects: vi.fn().mockResolvedValue([]),
+    streamEntries: vi.fn(),
   } as unknown as ReportsRepository;
   const access = {
     assertCanAccessUser: vi.fn().mockResolvedValue(undefined),
@@ -142,5 +143,58 @@ describe('ReportsService.teamSummary scope resolution', () => {
       undefined,
     );
     expect(result).toEqual({ from: range.from, to: range.to, rows: [] });
+  });
+});
+
+async function drain(iterable: AsyncIterable<string>): Promise<string> {
+  let out = '';
+  for await (const chunk of iterable) out += chunk;
+  return out;
+}
+
+function streamOf(rows: import('./csv-writer.js').CsvEntryRow[]) {
+  return (async function* () {
+    for (const r of rows) yield await Promise.resolve(r);
+  })();
+}
+
+describe('ReportsService.exportCsv', () => {
+  const crossTeam = { ...range, teamId: 't2' };
+
+  it('rejects a MANAGER reporting on another team BEFORE any row is produced', async () => {
+    const { svc, repo } = makeReports();
+    await expect(svc.exportCsv(crossTeam, manager)).rejects.toThrow(ForbiddenException);
+    expect(repo.streamEntries).not.toHaveBeenCalled();
+  });
+
+  it('streams the header line then one formatted line per entry', async () => {
+    const { svc, repo } = makeReports();
+    (repo.streamEntries as ReturnType<typeof vi.fn>).mockReturnValue(
+      streamOf([
+        {
+          entryId: 'e1',
+          user: 'Ada',
+          project: 'Acme',
+          task: null,
+          startTime: new Date('2026-07-02T09:00:00.000Z'),
+          endTime: new Date('2026-07-02T10:00:00.000Z'),
+          durationSeconds: 3600,
+          source: 'MANUAL',
+          note: null,
+        },
+      ]),
+    );
+    const csv = await drain(await svc.exportCsv({ ...range }, admin));
+    expect(csv).toBe(
+      'entryId,user,project,task,startTime,endTime,durationSeconds,source,note\r\n' +
+        'e1,Ada,Acme,,2026-07-02T09:00:00.000Z,2026-07-02T10:00:00.000Z,3600,MANUAL,\r\n',
+    );
+    // ADMIN with no filter → kind:'all'
+    expect(repo.streamEntries).toHaveBeenCalledWith(
+      { kind: 'all' },
+      new Date(range.from),
+      new Date(range.to),
+      undefined,
+    );
   });
 });
