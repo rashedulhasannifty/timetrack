@@ -22,6 +22,7 @@ import { ActivityModule } from './modules/activity/activity.module.js';
 import { IdleEventsModule } from './modules/idle-events/idle-events.module.js';
 import { ScreenshotsModule } from './modules/screenshots/screenshots.module.js';
 import { ReportsModule } from './modules/reports/reports.module.js';
+import { ApprovalsModule } from './modules/approvals/approvals.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 
@@ -50,6 +51,7 @@ const env = loadEnv();
     IdleEventsModule,
     ScreenshotsModule,
     ReportsModule,
+    ApprovalsModule,
     AdminModule,
     HealthModule,
   ],
