@@ -10,6 +10,7 @@ import { ScreenshotsPanel } from './ScreenshotsPanel';
 import { toScreenshotView } from './screenshot-view';
 import { redactScreenshotAction } from './actions';
 import { ApprovalsPanel } from './ApprovalsPanel';
+import { selfApprovals } from '../../../lib/approvals-view';
 import type {
   ActivityDailySummary,
   IdleEvent,
@@ -45,11 +46,14 @@ export default async function MyDataPage() {
       .catch((): ActivityDailySummary[] => []),
     api.listIdleEvents(session.accessToken, todayParams).catch((): IdleEvent[] => []),
     api.listScreenshots(session.accessToken, todayParams).catch((): Screenshot[] => []),
-    // The API self-scopes an EMPLOYEE to their own rows regardless of query params.
+    // The API self-scopes only an EMPLOYEE; a MANAGER/ADMIN gets team/all rows, so we
+    // filter to self below (selfApprovals) — this is the employee self-view.
     api
       .listApprovals(session.accessToken, new URLSearchParams())
       .catch((): TimesheetApproval[] | null => null),
   ]);
+
+  const myApprovals = selfApprovals(approvals, session.userId);
 
   return (
     <>
@@ -59,7 +63,7 @@ export default async function MyDataPage() {
       />
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium text-neutral-700">Timesheet status</h2>
-        <ApprovalsPanel rows={approvals} />
+        <ApprovalsPanel rows={myApprovals} />
       </section>
       <MeTabs
         panels={{

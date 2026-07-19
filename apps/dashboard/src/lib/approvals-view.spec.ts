@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { weekLabel, formatHours, statusBadge } from './approvals-view.js';
+import { weekLabel, formatHours, statusBadge, selfApprovals } from './approvals-view.js';
+import type { TimesheetApproval } from '@timetrack/contracts';
 
 describe('approvals-view', () => {
   it('weekLabel renders the ISO week span from periodStart', () => {
@@ -21,5 +22,25 @@ describe('approvals-view', () => {
 
   it('statusBadge returns the label and tone for PENDING', () => {
     expect(statusBadge('PENDING')).toEqual({ label: 'Pending', tone: 'neutral' });
+  });
+
+  it('selfApprovals keeps only the given user’s rows (guards the /me self-view for MANAGER/ADMIN)', () => {
+    const row = (id: string, userId: string): TimesheetApproval => ({
+      id,
+      userId,
+      userName: 'x',
+      periodStart: '2026-06-29T00:00:00.000Z',
+      periodEnd: '2026-07-06T00:00:00.000Z',
+      status: 'PENDING',
+      trackedSeconds: 0,
+      totalSeconds: null,
+      reviewerId: null,
+      note: null,
+      decidedAt: null,
+    });
+    const rows = [row('a', 'me'), row('b', 'other'), row('c', 'me')];
+    expect(selfApprovals(rows, 'me')!.map((r) => r.id)).toEqual(['a', 'c']);
+    expect(selfApprovals([], 'me')).toEqual([]);
+    expect(selfApprovals(null, 'me')).toBeNull(); // a failed fetch is passed through unchanged
   });
 });
