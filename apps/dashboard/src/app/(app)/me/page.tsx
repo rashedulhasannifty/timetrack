@@ -9,7 +9,14 @@ import { MeTabs } from './MeTabs';
 import { ScreenshotsPanel } from './ScreenshotsPanel';
 import { toScreenshotView } from './screenshot-view';
 import { redactScreenshotAction } from './actions';
-import type { ActivityDailySummary, IdleEvent, Screenshot, TimeEntry } from '@timetrack/contracts';
+import { ApprovalsPanel } from './ApprovalsPanel';
+import type {
+  ActivityDailySummary,
+  IdleEvent,
+  Screenshot,
+  TimeEntry,
+  TimesheetApproval,
+} from '@timetrack/contracts';
 
 /**
  * PRD §4.3 / §11 — the employee self-view. Same API as the manager view, scoped to self.
@@ -31,13 +38,17 @@ export default async function MyDataPage() {
   const summaryParams = new URLSearchParams({ userId: session.userId, from, to });
 
   // Self-scoped; each read is independent — a failure in one degrades to an empty panel.
-  const [entries, summaries, idle, shots] = await Promise.all([
+  const [entries, summaries, idle, shots, approvals] = await Promise.all([
     api.listTimeEntries(session.accessToken, todayParams).catch((): TimeEntry[] => []),
     api
       .listActivitySummaries(session.accessToken, summaryParams)
       .catch((): ActivityDailySummary[] => []),
     api.listIdleEvents(session.accessToken, todayParams).catch((): IdleEvent[] => []),
     api.listScreenshots(session.accessToken, todayParams).catch((): Screenshot[] => []),
+    // The API self-scopes an EMPLOYEE to their own rows regardless of query params.
+    api
+      .listApprovals(session.accessToken, new URLSearchParams())
+      .catch((): TimesheetApproval[] | null => null),
   ]);
 
   return (
@@ -46,6 +57,10 @@ export default async function MyDataPage() {
         title="My data"
         subtitle={`Everything recorded about you · today (${today}, UTC)`}
       />
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-medium text-neutral-700">Timesheet status</h2>
+        <ApprovalsPanel rows={approvals} />
+      </section>
       <MeTabs
         panels={{
           Timeline: <Timeline entries={entries} />,
