@@ -348,3 +348,87 @@ describe('api.exportReportCsv', () => {
     expect(init.headers).toMatchObject({ authorization: 'Bearer tok' });
   });
 });
+
+describe('api.listApprovals', () => {
+  it('GETs /v1/approvals with status query param and bearer header', async () => {
+    const approval = {
+      id: '019797a0-0000-7000-8000-0000000000aa',
+      userId: '019797a0-0000-7000-8000-0000000000bb',
+      userName: 'Ada',
+      periodStart: '2026-06-29T00:00:00.000Z',
+      periodEnd: '2026-07-06T00:00:00.000Z',
+      status: 'PENDING' as const,
+      trackedSeconds: 5400,
+      totalSeconds: null,
+      reviewerId: null,
+      note: null,
+      decidedAt: null,
+    };
+    const fetchMock = vi.fn(() => new Response(JSON.stringify([approval]), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const params = new URLSearchParams({ status: 'PENDING' });
+    const result = await api.listApprovals('tok', params);
+
+    expect(result).toEqual([approval]);
+    const call = fetchMock.mock.calls[0];
+    if (!call) throw new Error('fetch was not called');
+    const [url, init] = call as unknown as [string, RequestInit];
+    expect(String(url)).toContain('/v1/approvals?status=PENDING');
+    expect(init.headers).toMatchObject({ authorization: 'Bearer tok' });
+  });
+
+  it('throws an ApiError on 403', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response(JSON.stringify({ title: 'not permitted' }), { status: 403 })),
+    );
+    await expect(
+      api.listApprovals('tok', new URLSearchParams({ status: 'PENDING' })),
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('api.decideApproval', () => {
+  it('POSTs to /v1/approvals/<id>/decide with bearer header and JSON body', async () => {
+    const approval = {
+      id: '019797a0-0000-7000-8000-0000000000aa',
+      userId: '019797a0-0000-7000-8000-0000000000bb',
+      userName: 'Ada',
+      periodStart: '2026-06-29T00:00:00.000Z',
+      periodEnd: '2026-07-06T00:00:00.000Z',
+      status: 'APPROVED' as const,
+      trackedSeconds: 5400,
+      totalSeconds: 5400,
+      reviewerId: '019797a0-0000-7000-8000-0000000000cc',
+      note: 'looks good',
+      decidedAt: '2026-07-17T12:00:00.000Z',
+    };
+    const fetchMock = vi.fn(() => new Response(JSON.stringify(approval), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await api.decideApproval('tok', approval.id, {
+      status: 'APPROVED',
+      note: 'looks good',
+    });
+
+    expect(result).toEqual(approval);
+    const call = fetchMock.mock.calls[0];
+    if (!call) throw new Error('fetch was not called');
+    const [url, init] = call as unknown as [string, RequestInit];
+    expect(String(url)).toContain(`/v1/approvals/${approval.id}/decide`);
+    expect(init.method).toBe('POST');
+    expect(init.headers).toMatchObject({ authorization: 'Bearer tok' });
+    expect(JSON.parse(init.body as string)).toEqual({ status: 'APPROVED', note: 'looks good' });
+  });
+
+  it('throws an ApiError on 404', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response(JSON.stringify({ title: 'approval not found' }), { status: 404 })),
+    );
+    await expect(
+      api.decideApproval('tok', 'nonexistent', { status: 'APPROVED' }),
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+});
