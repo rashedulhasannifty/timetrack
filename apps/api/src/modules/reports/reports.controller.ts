@@ -1,4 +1,5 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, StreamableFile } from '@nestjs/common';
+import { Readable } from 'node:stream';
 import {
   ReportRangeQuerySchema,
   TeamOverviewQuerySchema,
@@ -44,10 +45,16 @@ export class ReportsController {
   }
 
   @Get('export.csv')
-  exportCsv(
+  async exportCsv(
     @Query(new ZodValidationPipe(ReportRangeQuerySchema)) query: ReportRangeQuery,
     @CurrentUser() user: SessionUser,
-  ): Promise<string> {
-    return this.service.exportCsv(query, user);
+  ): Promise<StreamableFile> {
+    const iterable = await this.service.exportCsv(query, user);
+    const filename = `timetrack-export-${query.from.slice(0, 10)}_${query.to.slice(0, 10)}.csv`;
+    const stream = Readable.from(iterable, { objectMode: false });
+    return new StreamableFile(stream, {
+      type: 'text/csv; charset=utf-8',
+      disposition: `attachment; filename="${filename}"`,
+    });
   }
 }
