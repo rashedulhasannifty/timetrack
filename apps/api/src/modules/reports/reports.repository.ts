@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+import type { CsvEntryRow } from './csv-writer.js';
 
 export interface OverviewRow {
   userId: string;
@@ -197,5 +198,106 @@ export class ReportsRepository {
       name: r.name,
       trackedSeconds: Number(r.trackedSeconds),
     }));
+  }
+
+  /**
+   * Streams individual time entries for the CSV export (slice 3.2) via keyset pagination
+   * on (startTime, id) — one bounded `$queryRaw` per batch, so the full set is never
+   * buffered. Times are window-clamped AND truncated to whole seconds so each row
+   * self-reconciles (end - start == durationSeconds) unconditionally — real client
+   * timestamps are already whole-second, but the dashboard's `to` boundary can carry
+   * milliseconds (e.g. end-of-day `T23:59:59.999Z`), and without truncating the clamped
+   * edge a boundary-crossing entry's emitted endTime would retain the `.999` while
+   * durationSeconds (FLOORed) would not, breaking the invariant. A running entry (endTime
+   * NULL) yields a null endTime and a duration clamped to now(). `batchSize` exists so
+   * tests can force multi-batch continuation; production uses the default.
+   */
+  async *streamEntries(
+    scope: ReportScope,
+    from: Date,
+    to: Date,
+    projectId?: string,
+    batchSize = 500,
+  ): AsyncGenerator<CsvEntryRow> {
+    // Named row shape (rather than an inline object type) so `rows`/`keyset`/`cursor` each
+    // get an explicit annotation — without one, the mutual reassignment across `for(;;)`
+    // iterations (cursor -> keyset -> rows -> cursor) is a genuine circular-inference cycle
+    // (TS7022), not a spurious one.
+    type StreamEntriesRow = {
+      entryId: string;
+      user: string;
+      project: string | null;
+      task: string | null;
+      // pg may return computed timestamptz columns as Date OR ISO string — see the
+      // defensive `new Date(...)` coercion below.
+      seqStart: Date | string;
+      startTime: Date | string;
+      endTime: Date | string | null;
+      durationSeconds: number | bigint;
+      source: string;
+      note: string | null;
+    };
+
+    const projectFilter = projectId ? Prisma.sql`AND te."projectId" = ${projectId}` : Prisma.empty;
+    let cursor: { seqStart: Date | string; id: string } | null = null;
+
+    for (;;) {
+      const keyset: Prisma.Sql = cursor
+        ? Prisma.sql`AND (te."startTime", te.id) > (${cursor.seqStart}::timestamptz, ${cursor.id})`
+        : Prisma.empty;
+
+      const rows: StreamEntriesRow[] = await this.prisma.$queryRaw<StreamEntriesRow[]>`
+        SELECT te.id AS "entryId",
+               u.name AS "user",
+               p.name AS "project",
+               t.name AS "task",
+               te."startTime" AS "seqStart",
+               date_trunc('second', GREATEST(te."startTime", ${from}::timestamptz)) AS "startTime",
+               CASE WHEN te."endTime" IS NULL THEN NULL
+                    ELSE date_trunc('second', LEAST(te."endTime", ${to}::timestamptz)) END AS "endTime",
+               FLOOR(GREATEST(
+                 EXTRACT(EPOCH FROM (
+                   date_trunc('second', LEAST(COALESCE(te."endTime", now()), ${to}::timestamptz))
+                   - date_trunc('second', GREATEST(te."startTime", ${from}::timestamptz))
+                 )), 0
+               ))::int AS "durationSeconds",
+               te.source::text AS "source",
+               te.note AS "note"
+        FROM time_entries te
+        JOIN users u ON u.id = te."userId"
+        LEFT JOIN projects p ON p.id = te."projectId"
+        LEFT JOIN tasks t ON t.id = te."taskId"
+        WHERE te."startTime" < ${to}::timestamptz
+          AND COALESCE(te."endTime", now()) > ${from}::timestamptz
+          AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
+          ${projectFilter}
+          ${keyset}
+        ORDER BY te."startTime" ASC, te.id ASC
+        LIMIT ${batchSize}
+      `;
+
+      for (const r of rows) {
+        // Defensive coercion: the `$queryRaw<...>` annotation is an UNCHECKED cast, and
+        // the pg driver may hand back computed `timestamptz` columns as strings, not Date
+        // objects. `new Date(x)` is correct whether x is a Date or an ISO string, and keeps
+        // `formatCsvRow(...).toISOString()` from throwing. Mirrors the repo's `Number(...)`
+        // defensiveness on bigint/number columns elsewhere.
+        yield {
+          entryId: r.entryId,
+          user: r.user,
+          project: r.project,
+          task: r.task,
+          startTime: new Date(r.startTime),
+          endTime: r.endTime == null ? null : new Date(r.endTime),
+          durationSeconds: Number(r.durationSeconds),
+          source: r.source,
+          note: r.note,
+        };
+      }
+
+      if (rows.length < batchSize) return;
+      const last = rows[rows.length - 1]!;
+      cursor = { seqStart: last.seqStart, id: last.entryId };
+    }
   }
 }

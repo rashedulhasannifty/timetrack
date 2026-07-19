@@ -483,3 +483,222 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
     expect(rows.map((r) => r.projectId)).toEqual([p1.id, p2.id]);
   });
 });
+
+describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', () => {
+  let db: TestDb;
+  beforeAll(async () => {
+    db = await startTestDb();
+  });
+  afterAll(async () => {
+    await db.close();
+  });
+  afterEach(async () => {
+    await truncateAll(db.prisma);
+  });
+
+  const FROM = new Date('2026-07-01T00:00:00.000Z');
+  const TO = new Date('2026-07-08T00:00:00.000Z');
+  function repo(): ReportsRepository {
+    return new ReportsRepository(db.prisma as unknown as PrismaService);
+  }
+  async function collect(
+    scope: Parameters<ReportsRepository['streamEntries']>[0],
+    projectId?: string,
+    batchSize?: number,
+  ) {
+    const out: Array<Record<string, unknown>> = [];
+    for await (const row of repo().streamEntries(scope, FROM, TO, projectId, batchSize)) {
+      out.push(row);
+    }
+    return out;
+  }
+  async function team() {
+    return db.prisma.team.create({ data: { name: 'Eng', settings: {} }, select: { id: true } });
+  }
+  async function user(teamId: string, name: string, email: string) {
+    return db.prisma.user.create({
+      data: { email, name, passwordHash: 'x', teamId },
+      select: { id: true },
+    });
+  }
+
+  it('yields nothing for an empty set', async () => {
+    const t = await team();
+    await user(t.id, 'Ada', 'ada@example.com');
+    expect(await collect({ kind: 'team', teamId: t.id })).toEqual([]);
+  });
+
+  it('joins user/project/task names and clamps a boundary-crossing entry', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    const p = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Acme' },
+      select: { id: true },
+    });
+    const tk = await db.prisma.task.create({
+      data: { projectId: p.id, name: 'Build' },
+      select: { id: true },
+    });
+    // starts 1h before FROM, ends 1h into range → clamped to [FROM, FROM+1h], 3600s.
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000401',
+        userId: u.id,
+        projectId: p.id,
+        taskId: tk.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-06-30T23:00:00Z'),
+        endTime: new Date('2026-07-01T01:00:00Z'),
+      },
+    });
+    const rows = await collect({ kind: 'team', teamId: t.id });
+    expect(rows).toEqual([
+      {
+        entryId: '019797a0-0000-7000-8000-000000000401',
+        user: 'Ada',
+        project: 'Acme',
+        task: 'Build',
+        startTime: new Date('2026-07-01T00:00:00.000Z'), // clamped to FROM
+        endTime: new Date('2026-07-01T01:00:00.000Z'),
+        durationSeconds: 3600,
+        source: 'MANUAL',
+        note: null,
+      },
+    ]);
+    // clamp invariant: end - start == durationSeconds
+    const r = rows[0]!;
+    expect(((r.endTime as Date).getTime() - (r.startTime as Date).getTime()) / 1000).toBe(
+      r.durationSeconds,
+    );
+  });
+
+  it('renders a running entry with a null endTime clamped to now()', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    const from = new Date(Date.now() - 3_600_000);
+    const to = new Date(Date.now() + 3_600_000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000402',
+        userId: u.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 60_000),
+        endTime: null,
+      },
+    });
+    const out: Array<Record<string, unknown>> = [];
+    for await (const row of repo().streamEntries({ kind: 'team', teamId: t.id }, from, to)) {
+      out.push(row);
+    }
+    expect(out).toHaveLength(1);
+    expect(out[0]!.endTime).toBeNull();
+    expect(out[0]!.durationSeconds as number).toBeGreaterThanOrEqual(59);
+    expect(out[0]!.durationSeconds as number).toBeLessThan(120);
+  });
+
+  it('applies the projectId filter', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    const p1 = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Acme' },
+      select: { id: true },
+    });
+    const p2 = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Beta' },
+      select: { id: true },
+    });
+    for (const [i, pid] of [p1.id, p2.id].entries()) {
+      await db.prisma.timeEntry.create({
+        data: {
+          id: `019797a0-0000-7000-8000-00000000041${i}`,
+          userId: u.id,
+          projectId: pid,
+          source: 'MANUAL',
+          startTime: new Date('2026-07-02T09:00:00Z'),
+          endTime: new Date('2026-07-02T10:00:00Z'),
+        },
+      });
+    }
+    const rows = await collect({ kind: 'team', teamId: t.id }, p1.id);
+    expect(rows.map((r) => r.project)).toEqual(['Acme']);
+  });
+
+  it('paginates across batches in (startTime, id) order without dropping or duplicating', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    // 5 entries, distinct start times; batchSize 2 forces 3 pages (2 + 2 + 1).
+    for (let i = 0; i < 5; i++) {
+      await db.prisma.timeEntry.create({
+        data: {
+          id: `019797a0-0000-7000-8000-0000000004${20 + i}`,
+          userId: u.id,
+          source: 'MANUAL',
+          startTime: new Date(`2026-07-02T0${i}:00:00Z`),
+          endTime: new Date(`2026-07-02T0${i}:30:00Z`),
+        },
+      });
+    }
+    const rows = await collect({ kind: 'team', teamId: t.id }, undefined, 2);
+    expect(rows).toHaveLength(5);
+    // ascending by startTime → the seeded 00:00..04:00 order
+    expect(rows.map((r) => (r.startTime as Date).toISOString())).toEqual([
+      '2026-07-02T00:00:00.000Z',
+      '2026-07-02T01:00:00.000Z',
+      '2026-07-02T02:00:00.000Z',
+      '2026-07-02T03:00:00.000Z',
+      '2026-07-02T04:00:00.000Z',
+    ]);
+    // no duplicates across the batch boundary
+    expect(new Set(rows.map((r) => r.entryId)).size).toBe(5);
+  });
+
+  it('scopes kind=user to a single user and kind=all across teams', async () => {
+    const t1 = await team();
+    const t2 = await team();
+    const a = await user(t1.id, 'Ada', 'ada@example.com');
+    const z = await user(t2.id, 'Zoe', 'zoe@example.com');
+    for (const [i, uid] of [a.id, z.id].entries()) {
+      await db.prisma.timeEntry.create({
+        data: {
+          id: `019797a0-0000-7000-8000-00000000043${i}`,
+          userId: uid,
+          source: 'MANUAL',
+          startTime: new Date('2026-07-02T09:00:00Z'),
+          endTime: new Date('2026-07-02T10:00:00Z'),
+        },
+      });
+    }
+    expect((await collect({ kind: 'user', userId: a.id })).map((r) => r.user)).toEqual(['Ada']);
+    expect((await collect({ kind: 'all' })).map((r) => r.user).sort()).toEqual(['Ada', 'Zoe']);
+  });
+
+  it('truncates a sub-second `to` boundary clamp so the row self-reconciles', async () => {
+    // Real trigger: the dashboard range picker sends `to` at end-of-day with milliseconds
+    // (…T23:59:59.999Z). An entry clamped to that boundary must still satisfy
+    // end - start == durationSeconds — sub-second endTime with a floored duration breaks it.
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    const TO_MS = new Date('2026-07-08T23:59:59.999Z');
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000440',
+        userId: u.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-08T23:00:00.000Z'),
+        endTime: new Date('2026-07-09T02:00:00.000Z'), // crosses TO_MS
+      },
+    });
+    const out: Array<Record<string, unknown>> = [];
+    for await (const row of repo().streamEntries({ kind: 'team', teamId: t.id }, FROM, TO_MS)) {
+      out.push(row);
+    }
+    expect(out).toHaveLength(1);
+    const r = out[0]!;
+    // clamped to whole seconds — not the sub-second `.999` boundary
+    expect((r.endTime as Date).getMilliseconds()).toBe(0);
+    // row self-reconciles: end - start == durationSeconds, unconditionally
+    expect(((r.endTime as Date).getTime() - (r.startTime as Date).getTime()) / 1000).toBe(
+      r.durationSeconds,
+    );
+  });
+});
