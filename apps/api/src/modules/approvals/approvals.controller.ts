@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import {
   ApprovalListQuerySchema,
   DecisionSchema,
@@ -26,6 +26,7 @@ export class ApprovalsController {
 
   @Post(':id/decide')
   @Roles('MANAGER', 'ADMIN')
+  @HttpCode(200) // decision UPDATES an existing timesheet — not a creation (cf. users ack-monitoring)
   decide(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(DecisionSchema)) body: Decision,
