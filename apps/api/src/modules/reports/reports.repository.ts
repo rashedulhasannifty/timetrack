@@ -203,8 +203,12 @@ export class ReportsRepository {
   /**
    * Streams individual time entries for the CSV export (slice 3.2) via keyset pagination
    * on (startTime, id) — one bounded `$queryRaw` per batch, so the full set is never
-   * buffered. Times are window-clamped so each row self-reconciles (end - start ==
-   * durationSeconds) and the file total matches team-summary. A running entry (endTime
+   * buffered. Times are window-clamped AND truncated to whole seconds so each row
+   * self-reconciles (end - start == durationSeconds) unconditionally — real client
+   * timestamps are already whole-second, but the dashboard's `to` boundary can carry
+   * milliseconds (e.g. end-of-day `T23:59:59.999Z`), and without truncating the clamped
+   * edge a boundary-crossing entry's emitted endTime would retain the `.999` while
+   * durationSeconds (FLOORed) would not, breaking the invariant. A running entry (endTime
    * NULL) yields a null endTime and a duration clamped to now(). `batchSize` exists so
    * tests can force multi-batch continuation; production uses the default.
    */
@@ -248,13 +252,13 @@ export class ReportsRepository {
                p.name AS "project",
                t.name AS "task",
                te."startTime" AS "seqStart",
-               GREATEST(te."startTime", ${from}::timestamptz) AS "startTime",
+               date_trunc('second', GREATEST(te."startTime", ${from}::timestamptz)) AS "startTime",
                CASE WHEN te."endTime" IS NULL THEN NULL
-                    ELSE LEAST(te."endTime", ${to}::timestamptz) END AS "endTime",
+                    ELSE date_trunc('second', LEAST(te."endTime", ${to}::timestamptz)) END AS "endTime",
                FLOOR(GREATEST(
                  EXTRACT(EPOCH FROM (
-                   LEAST(COALESCE(te."endTime", now()), ${to}::timestamptz)
-                   - GREATEST(te."startTime", ${from}::timestamptz)
+                   date_trunc('second', LEAST(COALESCE(te."endTime", now()), ${to}::timestamptz))
+                   - date_trunc('second', GREATEST(te."startTime", ${from}::timestamptz))
                  )), 0
                ))::int AS "durationSeconds",
                te.source::text AS "source",

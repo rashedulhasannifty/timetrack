@@ -671,4 +671,34 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
     expect((await collect({ kind: 'user', userId: a.id })).map((r) => r.user)).toEqual(['Ada']);
     expect((await collect({ kind: 'all' })).map((r) => r.user).sort()).toEqual(['Ada', 'Zoe']);
   });
+
+  it('truncates a sub-second `to` boundary clamp so the row self-reconciles', async () => {
+    // Real trigger: the dashboard range picker sends `to` at end-of-day with milliseconds
+    // (…T23:59:59.999Z). An entry clamped to that boundary must still satisfy
+    // end - start == durationSeconds — sub-second endTime with a floored duration breaks it.
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    const TO_MS = new Date('2026-07-08T23:59:59.999Z');
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000440',
+        userId: u.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-08T23:00:00.000Z'),
+        endTime: new Date('2026-07-09T02:00:00.000Z'), // crosses TO_MS
+      },
+    });
+    const out: Array<Record<string, unknown>> = [];
+    for await (const row of repo().streamEntries({ kind: 'team', teamId: t.id }, FROM, TO_MS)) {
+      out.push(row);
+    }
+    expect(out).toHaveLength(1);
+    const r = out[0]!;
+    // clamped to whole seconds — not the sub-second `.999` boundary
+    expect((r.endTime as Date).getMilliseconds()).toBe(0);
+    // row self-reconciles: end - start == durationSeconds, unconditionally
+    expect(((r.endTime as Date).getTime() - (r.startTime as Date).getTime()) / 1000).toBe(
+      r.durationSeconds,
+    );
+  });
 });
