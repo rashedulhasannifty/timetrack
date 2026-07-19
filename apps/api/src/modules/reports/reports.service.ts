@@ -1,19 +1,26 @@
-import { Injectable, NotImplementedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotImplementedException } from '@nestjs/common';
 import {
+  ProjectSummarySchema,
   TeamOverviewSchema,
+  TeamSummarySchema,
+  type ProjectSummary,
   type ReportRangeQuery,
   type TeamOverview,
   type TeamOverviewQuery,
   type TeamSummary,
 } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
-import { ReportsRepository } from './reports.repository.js';
+import { ResourceAccessService } from '../../common/authz/resource-access.service.js';
+import { ReportsRepository, type ReportScope } from './reports.repository.js';
 
 const DAY_MS = 86_400_000;
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly repo: ReportsRepository) {}
+  constructor(
+    private readonly repo: ReportsRepository,
+    private readonly access: ResourceAccessService,
+  ) {}
 
   async overview(query: TeamOverviewQuery, user: SessionUser): Promise<TeamOverview> {
     const date = query.date ?? new Date().toISOString().slice(0, 10);
@@ -30,10 +37,41 @@ export class ReportsService {
     return TeamOverviewSchema.parse({ date, rows });
   }
 
-  teamSummary(_query: ReportRangeQuery, _user: SessionUser): Promise<TeamSummary> {
-    // TODO(scaffold): resolve the visible scope (own team for MANAGER, anyone for ADMIN),
-    //                 then aggregate via ReportsRepository.
-    throw new NotImplementedException('reports.teamSummary not yet implemented');
+  private async resolveScope(query: ReportRangeQuery, user: SessionUser): Promise<ReportScope> {
+    if (query.userId) {
+      await this.access.assertCanAccessUser(user, query.userId); // throws 403 if not permitted
+      return { kind: 'user', userId: query.userId };
+    }
+    if (query.teamId) {
+      if (user.role === 'ADMIN') return { kind: 'team', teamId: query.teamId };
+      if (user.role === 'MANAGER' && query.teamId === user.teamId) {
+        return { kind: 'team', teamId: user.teamId };
+      }
+      throw new ForbiddenException({
+        type: 'https://timetrack.internal/errors/forbidden',
+        title: 'Not permitted to report on this team',
+        status: 403,
+      });
+    }
+    if (user.role === 'ADMIN') return { kind: 'all' };
+    return { kind: 'team', teamId: user.teamId };
+  }
+
+  async teamSummary(query: ReportRangeQuery, user: SessionUser): Promise<TeamSummary> {
+    const scope = await this.resolveScope(query, user);
+    const rows = await this.repo.teamSummary(scope, new Date(query.from), new Date(query.to));
+    return TeamSummarySchema.parse({ from: query.from, to: query.to, rows });
+  }
+
+  async projects(query: ReportRangeQuery, user: SessionUser): Promise<ProjectSummary> {
+    const scope = await this.resolveScope(query, user);
+    const rows = await this.repo.projects(
+      scope,
+      new Date(query.from),
+      new Date(query.to),
+      query.projectId,
+    );
+    return ProjectSummarySchema.parse({ from: query.from, to: query.to, rows });
   }
 
   exportCsv(_query: ReportRangeQuery, _user: SessionUser): Promise<string> {

@@ -19,6 +19,8 @@ import {
   type TokenPair,
   TeamOverviewSchema,
   type TeamOverview,
+  TeamSummarySchema,
+  type TeamSummary,
   InviteResultSchema,
   type InviteResult,
   type InviteUser,
@@ -26,6 +28,8 @@ import {
   type TeamSettings,
   type UpdateSettings,
   type RedactScreenshot,
+  ProjectSummarySchema,
+  type ProjectSummary,
 } from '@timetrack/contracts';
 import { z } from 'zod';
 
@@ -43,7 +47,14 @@ async function get<T>(path: string, schema: z.ZodType<T>, token: string): Promis
     headers: { authorization: `Bearer ${token}` },
     cache: 'no-store',
   });
-  if (!res.ok) throw new Error(`api ${res.status} on ${path}`);
+  if (!res.ok) {
+    const problem = (await res.json().catch(() => null)) as { title?: unknown } | null;
+    const title =
+      problem && typeof problem.title === 'string'
+        ? problem.title
+        : `Request failed (${res.status})`;
+    throw new ApiError(res.status, title);
+  }
   return schema.parse(await res.json());
 }
 
@@ -129,6 +140,10 @@ export const api = {
   getCurrentTeam: (token: string): Promise<Team> => get('/teams/current', TeamSchema, token),
   teamOverview: (token: string, date?: string): Promise<TeamOverview> =>
     get(`/reports/overview${date ? `?date=${date}` : ''}`, TeamOverviewSchema, token),
+  teamSummary: (token: string, params: URLSearchParams): Promise<TeamSummary> =>
+    get(`/reports/team-summary?${params}`, TeamSummarySchema, token),
+  projectSummary: (token: string, params: URLSearchParams): Promise<ProjectSummary> =>
+    get(`/reports/projects?${params}`, ProjectSummarySchema, token),
 
   // Admin mutations (ADMIN-gated at the API; called only from server-side Server Actions).
   inviteUser: (token: string, dto: InviteUser): Promise<InviteResult> =>

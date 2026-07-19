@@ -44,3 +44,18 @@ export const TeamOverviewSchema = z.object({
 export type TeamOverviewQuery = z.infer<typeof TeamOverviewQuerySchema>;
 export type TeamOverviewRow = z.infer<typeof TeamOverviewRowSchema>;
 export type TeamOverview = z.infer<typeof TeamOverviewSchema>;
+
+export const ProjectSummaryRowSchema = z.object({
+  projectId: z.uuid().nullable(), // null → the "No project" bucket
+  name: z.string(), // project name, or "No project"
+  trackedSeconds: z.number().int().nonnegative(),
+});
+
+export const ProjectSummarySchema = z.object({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  rows: z.array(ProjectSummaryRowSchema),
+});
+
+export type ProjectSummaryRow = z.infer<typeof ProjectSummaryRowSchema>;
+export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
