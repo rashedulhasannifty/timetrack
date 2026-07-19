@@ -50,7 +50,16 @@ export default async function ReportsPage({
         </p>
       ) : (
         <div className="flex flex-col gap-8">
-          <ReportRangePicker from={from} to={to} />
+          <div className="flex items-center justify-between gap-4">
+            <ReportRangePicker from={from} to={to} />
+            <a
+              href={`/reports/export?${params.toString()}`}
+              className="inline-flex items-center rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium hover:bg-neutral-50"
+              download
+            >
+              Export CSV
+            </a>
+          </div>
           {hasReportData(team.rows, projects.rows) ? (
             <>
               <section>

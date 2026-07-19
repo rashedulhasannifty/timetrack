@@ -325,3 +325,26 @@ describe('api.projectSummary', () => {
     expect(String(url)).toContain('/v1/reports/projects?from=');
   });
 });
+
+describe('api.exportReportCsv', () => {
+  it('hits /reports/export.csv with the bearer token and forwarded params', async () => {
+    const fetchMock = vi.fn(() => new Response('csv', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const params = new URLSearchParams({
+      from: '2026-07-01T00:00:00.000Z',
+      to: '2026-07-08T00:00:00.000Z',
+      teamId: 't1',
+    });
+    const res = await api.exportReportCsv('tok', params);
+
+    expect(res.status).toBe(200);
+    const call = fetchMock.mock.calls[0];
+    if (!call) throw new Error('fetch was not called');
+    const [url, init] = call as unknown as [string, RequestInit];
+    expect(String(url)).toBe(
+      'http://localhost:3001/v1/reports/export.csv?from=2026-07-01T00%3A00%3A00.000Z&to=2026-07-08T00%3A00%3A00.000Z&teamId=t1',
+    );
+    expect(init.headers).toMatchObject({ authorization: 'Bearer tok' });
+  });
+});

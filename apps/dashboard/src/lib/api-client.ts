@@ -103,6 +103,18 @@ async function send<T>(
 }
 
 /**
+ * Streaming download: returns the RAW upstream Response (body left as a stream, not
+ * parsed). Used by the /reports/export Route Handler to pipe the CSV straight to the
+ * browser without buffering. The bearer token stays server-side (CLAUDE.md §4).
+ */
+async function getRaw(path: string, token: string): Promise<Response> {
+  return fetch(`${API_URL}${path}`, {
+    headers: { authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+}
+
+/**
  * Unauthenticated POST used by the auth Route Handler. Returns null on any non-2xx so the
  * handler can redirect (e.g. bad credentials → /login?error=1) without surfacing the API
  * error body to the browser.
@@ -144,6 +156,8 @@ export const api = {
     get(`/reports/team-summary?${params}`, TeamSummarySchema, token),
   projectSummary: (token: string, params: URLSearchParams): Promise<ProjectSummary> =>
     get(`/reports/projects?${params}`, ProjectSummarySchema, token),
+  exportReportCsv: (token: string, params: URLSearchParams): Promise<Response> =>
+    getRaw(`/reports/export.csv?${params}`, token),
 
   // Admin mutations (ADMIN-gated at the API; called only from server-side Server Actions).
   inviteUser: (token: string, dto: InviteUser): Promise<InviteResult> =>
