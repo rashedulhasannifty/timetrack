@@ -57,8 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dailyTotal: DailyTotalAccumulator?
     private var endOfDayScheduler: EndOfDayScheduler?
     private var manualNudgeMonitor: ManualNudgeMonitor?
+    private var distractionMonitor: DistractionMonitor?
+    private var dailyDistraction: DailyDistractionAccumulator?
     private let endOfDayHour = 18
     private let forgotToStartMinutes = 10
+    // 60s sampler window ⇒ threshold in minutes == consecutive-sample count (see ActivitySampler).
+    private let distractionThresholdMinutes = 10
 
     override init() {
         let baseURL = AppDelegate.apiBaseURL()
@@ -236,9 +240,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.dailyTotal?.add(start: start, end: end)
         }
 
+        let distraction = DailyDistractionAccumulator()
+        self.dailyDistraction = distraction
+        self.distractionMonitor = DistractionMonitor(
+            notifier: notifier, threshold: distractionThresholdMinutes)
+
         let scheduler = EndOfDayScheduler(
             hour: endOfDayHour, notifier: notifier,
-            total: { [weak self] now in self?.dailyTotal?.todaySeconds(now: now) ?? 0 }
+            total: { [weak self] now in self?.dailyTotal?.todaySeconds(now: now) ?? 0 },
+            distractionTotal: { [weak self] now in self?.dailyDistraction?.todaySeconds(now: now) ?? 0 }
         )
         self.endOfDayScheduler = scheduler
         scheduler.start()
@@ -379,7 +389,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store: ActivitySampleStore.shared,
             captureWindowTitles: policy.settings.captureWindowTitles,
             isTracking: { [weak self] in self?.timeTracker.isRunning ?? false },
-            onSampled: { [weak self] in Task { await self?.activitySync?.syncNow() } }
+            onSampled: { [weak self] in Task { await self?.activitySync?.syncNow() } },
+            onCategorized: { [weak self] category in
+                // Hop to the main actor — the monitor/tally are main-thread-only (like DailyTotal).
+                Task { @MainActor in
+                    guard let self else { return }
+                    let now = Date()
+                    self.distractionMonitor?.tick(category: category, now: now)
+                    if category == .unproductive { self.dailyDistraction?.addUnproductive(now: now) }
+                }
+            }
         )
         activitySampler = sampler
         sampler.start()
@@ -512,6 +531,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         manualNudgeMonitor = nil
         dailyTotal?.reset()
         dailyTotal = nil
+        // Slice 3.4 — same cross-user integrity guard: clear the distraction streak + today's tally
+        // so a prior user's nudge state never bleeds into the next user's session.
+        distractionMonitor?.stop()
+        distractionMonitor = nil
+        dailyDistraction?.reset()
+        dailyDistraction = nil
         timeTracker.onSpanClosed = nil
         notifier?.clearAll()
         notifier = nil
