@@ -10,7 +10,9 @@ import { ScreenshotProcessProcessor } from './processors/screenshot-process.proc
 import { RollupDailyProcessor } from './processors/rollup-daily.processor.js';
 import { PartitionProvisionProcessor } from './processors/partition-provision.processor.js';
 import { EmailProcessor } from './processors/email/email.processor.js';
+import { TimesheetGenerateProcessor } from './processors/timesheet-generate.processor.js';
 import { RollupScheduler } from './schedulers/rollup.scheduler.js';
+import { TimesheetScheduler } from './schedulers/timesheet.scheduler.js';
 
 const env = loadEnv();
 const redis = new URL(env.REDIS_URL);
@@ -30,6 +32,7 @@ const connection = { host: redis.hostname, port: Number(redis.port) || 6379 };
       { name: 'retention' },
       { name: 'partition-provision' },
       { name: 'email' },
+      { name: 'timesheet-generate' },
     ),
   ],
   providers: [
@@ -40,7 +43,9 @@ const connection = { host: redis.hostname, port: Number(redis.port) || 6379 };
     RollupDailyProcessor,
     PartitionProvisionProcessor,
     EmailProcessor,
+    TimesheetGenerateProcessor,
     RollupScheduler,
+    TimesheetScheduler,
   ],
 })
 export class WorkerModule {}

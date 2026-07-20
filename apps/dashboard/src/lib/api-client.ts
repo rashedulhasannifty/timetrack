@@ -30,6 +30,9 @@ import {
   type RedactScreenshot,
   ProjectSummarySchema,
   type ProjectSummary,
+  TimesheetApprovalSchema,
+  type TimesheetApproval,
+  type Decision,
 } from '@timetrack/contracts';
 import { z } from 'zod';
 
@@ -166,6 +169,12 @@ export const api = {
     send('PATCH', `/users/${id}`, { deactivated }, UserSchema, token),
   updateTeamSettings: (token: string, patch: UpdateSettings): Promise<TeamSettings> =>
     send('PATCH', '/admin/settings', patch, TeamSettingsSchema, token),
+
+  // Approvals (list: EMPLOYEE self-only / MANAGER own team / ADMIN any; decide: MANAGER/ADMIN + resource authz).
+  listApprovals: (token: string, params: URLSearchParams): Promise<TimesheetApproval[]> =>
+    get(`/approvals?${params}`, z.array(TimesheetApprovalSchema), token),
+  decideApproval: (token: string, id: string, body: Decision): Promise<TimesheetApproval> =>
+    send('POST', `/approvals/${id}/decide`, body, TimesheetApprovalSchema, token),
 
   login: (email: string, password: string): Promise<TokenPair | null> =>
     authPost('/auth/login', { email, password }, TokenPairSchema),

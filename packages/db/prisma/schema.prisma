@@ -32,6 +32,12 @@ enum ShotStatus {
   REDACTED
 }
 
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  FLAGGED
+}
+
 model User {
   id              String    @id @default(uuid(7))
   email           String    @unique
@@ -46,6 +52,7 @@ model User {
   createdAt       DateTime  @default(now())
   timeEntries     TimeEntry[]
   refreshTokens   RefreshToken[]
+  timesheetApprovals TimesheetApproval[]
 
   @@index([teamId, deactivatedAt])
   @@map("users")
@@ -137,6 +144,24 @@ model TimeEntry {
 
   @@index([userId, startTime])
   @@map("time_entries")
+}
+
+model TimesheetApproval {
+  id           String         @id @default(uuid(7))
+  userId       String
+  periodStart  DateTime // Monday 00:00:00 UTC (ISO week start)
+  periodEnd    DateTime // periodStart + 7 days (half-open)
+  status       ApprovalStatus @default(PENDING)
+  totalSeconds Int? // snapshotted at decision; null while PENDING
+  reviewerId   String? // manager/admin who decided (scalar, like AuditLog.actorId)
+  note         String? // reviewer note; visible to the employee
+  decidedAt    DateTime?
+  createdAt    DateTime       @default(now())
+  user         User           @relation(fields: [userId], references: [id])
+
+  @@unique([userId, periodStart])
+  @@index([status])
+  @@map("timesheet_approvals")
 }
 
 /// Partitioned monthly on `timestamp` — see migrations/*_partitions.

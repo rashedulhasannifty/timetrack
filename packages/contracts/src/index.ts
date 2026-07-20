@@ -12,3 +12,4 @@ export * from './reports.js';
 export * from './team-settings.js';
 export * from './policy.js';
 export * from './admin.js';
+export * from './approvals.js';
