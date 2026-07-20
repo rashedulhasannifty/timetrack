@@ -10,15 +10,18 @@ final class EndOfDayScheduler {
     private let calendar: Calendar
     private let notifier: LocalNotifying
     private let total: (Date) -> Int
+    private let distractionTotal: (Date) -> Int
     private let clock: () -> Date
     private var timer: Timer?
 
     init(hour: Int, calendar: Calendar = .current, notifier: LocalNotifying,
-         total: @escaping (Date) -> Int, clock: @escaping () -> Date = Date.init) {
+         total: @escaping (Date) -> Int, distractionTotal: @escaping (Date) -> Int = { _ in 0 },
+         clock: @escaping () -> Date = Date.init) {
         self.hour = hour
         self.calendar = calendar
         self.notifier = notifier
         self.total = total
+        self.distractionTotal = distractionTotal
         self.clock = clock
     }
 
@@ -31,9 +34,14 @@ final class EndOfDayScheduler {
 
     /// Post the summary for the current local day. `internal` so the test can drive it directly.
     func fire() {
-        let secs = total(clock())
-        notifier.notify(id: "end-of-day", title: "Time tracking",
-                        body: "Today: ~\(Self.formatDuration(seconds: secs)) tracked. Nice work.")
+        let now = clock()
+        let secs = total(now)
+        var body = "Today: ~\(Self.formatDuration(seconds: secs)) tracked. Nice work."
+        let distraction = distractionTotal(now)
+        if distraction > 0 {
+            body += " ~\(Self.formatDuration(seconds: distraction)) on distracting apps."
+        }
+        notifier.notify(id: "end-of-day", title: "Time tracking", body: body)
     }
 
     static func nextFire(after now: Date, hour: Int, calendar: Calendar) -> Date {
