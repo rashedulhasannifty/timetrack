@@ -22,6 +22,7 @@ final class ActivitySampler {
     private let clock: () -> Date
     private let sleep: (TimeInterval) async -> Void
     private let onSampled: () -> Void
+    private let onCategorized: (Category) -> Void
 
     private var timer: Timer?
     private var started = false
@@ -35,7 +36,8 @@ final class ActivitySampler {
          idGen: @escaping (Date) -> String = { UUIDv7.generate(now: $0) },
          clock: @escaping () -> Date = Date.init,
          sleep: @escaping (TimeInterval) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) },
-         onSampled: @escaping () -> Void = {}) {
+         onSampled: @escaping () -> Void = {},
+         onCategorized: @escaping (Category) -> Void = { _ in }) {
         self.ackGate = ackGate
         self.counter = counter
         self.appSampler = appSampler
@@ -50,6 +52,7 @@ final class ActivitySampler {
         self.clock = clock
         self.sleep = sleep
         self.onSampled = onSampled
+        self.onCategorized = onCategorized
     }
 
     func start() {
@@ -99,6 +102,7 @@ final class ActivitySampler {
                     activityPct: meter.activityPct(), category: category.rawValue)
                 store.enqueue(sample)
                 onSampled()
+                onCategorized(category)
                 return true
             }
         } catch {

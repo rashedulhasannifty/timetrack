@@ -3,6 +3,7 @@ import XCTest
 
 final class ActivitySamplerTests: XCTestCase {
     private let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+    private final class CategoryBox { var values: [TimeTrack.Category] = [] }
 
     private func makeSampler(
         ackRequired: Bool,
@@ -12,7 +13,8 @@ final class ActivitySamplerTests: XCTestCase {
         app: AppSampling = FakeAppSampler(),
         buffer: ActivitySampleBuffering,
         policy: PolicyProviding? = nil,
-        captureWindowTitles: Bool = true
+        captureWindowTitles: Bool = true,
+        onCategorized: @escaping (TimeTrack.Category) -> Void = { _ in }
     ) -> ActivitySampler {
         ActivitySampler(
             ackGate: AckGate(policyProvider: policy ?? FakePolicyProvider(ackRequired: ackRequired)),
@@ -26,7 +28,8 @@ final class ActivitySamplerTests: XCTestCase {
             subBuckets: 12,
             isTracking: isTracking,
             clock: { self.t0 },
-            sleep: { _ in }  // instant
+            sleep: { _ in },  // instant
+            onCategorized: onCategorized
         )
     }
 
@@ -93,6 +96,29 @@ final class ActivitySamplerTests: XCTestCase {
         XCTAssertTrue(first)
         XCTAssertTrue(second)
         XCTAssertEqual(buffer.samples.count, 2)
+    }
+
+    func testMeasuredTickInvokesOnCategorizedWithCategory() async {
+        let buffer = MemoryActivityBuffer()
+        let box = CategoryBox()
+        let sampler = makeSampler(ackRequired: false, isTracking: { true },
+                                  counter: halfActiveCounter(),
+                                  site: FakeSiteResolver(host: "youtube.com"),
+                                  buffer: buffer,
+                                  onCategorized: { box.values.append($0) })
+        let measured = await sampler.captureTick()
+        XCTAssertTrue(measured)
+        XCTAssertEqual(box.values, [TimeTrack.Category.unproductive]) // host youtube.com → UNPRODUCTIVE
+    }
+
+    func testSkipPathDoesNotInvokeOnCategorized() async {
+        let buffer = MemoryActivityBuffer()
+        let box = CategoryBox()
+        let sampler = makeSampler(ackRequired: false, isTracking: { false }, // not tracking → skip
+                                  counter: halfActiveCounter(), buffer: buffer,
+                                  onCategorized: { box.values.append($0) })
+        _ = await sampler.captureTick()
+        XCTAssertTrue(box.values.isEmpty)
     }
 
     /// A cycle cancelled mid-flight (sign-out teardown calling `stop()`, which cancels
