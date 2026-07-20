@@ -240,6 +240,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.dailyTotal?.add(start: start, end: end)
         }
 
+        // Both the tally (`sampleSeconds` default 60) and the monitor threshold (minutes) assume
+        // the ActivitySampler's 60s window — one sample == one minute. If that interval ever
+        // changes, revisit `sampleSeconds` here and `distractionThresholdMinutes` together.
         let distraction = DailyDistractionAccumulator()
         self.dailyDistraction = distraction
         self.distractionMonitor = DistractionMonitor(
