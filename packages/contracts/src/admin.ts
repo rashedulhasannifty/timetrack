@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { TeamSettingsFieldsSchema } from './team-settings.js';
 
+/**
+ * The audit actor for rows written by a background job (no human actor), e.g. the nightly
+ * retention cleanup. Must be a valid UUID because AuditLogEntrySchema.actorId is z.uuid()
+ * (the Slice 4.2 audit UI parses it); the nil UUID is the recognizable sentinel.
+ */
+export const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
+
 /** PATCH /admin/settings — a partial update. Uses the DEFAULT-FREE field schema so an absent
  * key is omitted, never reset to a default (a one-field edit must not silently reset others). */
 export const UpdateSettingsSchema = TeamSettingsFieldsSchema.partial();
