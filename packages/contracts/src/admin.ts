@@ -22,11 +22,26 @@ export const AuditLogEntrySchema = z.object({
   timestamp: z.iso.datetime(),
 });
 
+export const AuditLogListItemSchema = AuditLogEntrySchema.extend({
+  // Resolved by the API from actorId; null when the actor is not (or no longer) a User.
+  actorName: z.string().nullable(),
+  actorEmail: z.string().nullable(),
+});
+
+/** One page of the audit log. nextCursor is the id to pass back for the next page, or null. */
+export const AuditLogPageSchema = z.object({
+  items: z.array(AuditLogListItemSchema),
+  nextCursor: z.uuid().nullable(),
+});
+
 export const AuditLogQuerySchema = z.object({
   targetType: z.string().optional(),
   targetId: z.string().optional(),
   from: z.iso.datetime().optional(),
   to: z.iso.datetime().optional(),
+  // Pagination — query strings, so coerce. Keyset cursor is the last-seen row id (a uuid).
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.uuid().optional(),
 });
 
 /**
@@ -39,5 +54,7 @@ export const EraseUserSchema = z.object({
 
 export type UpdateSettings = z.infer<typeof UpdateSettingsSchema>;
 export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>;
+export type AuditLogListItem = z.infer<typeof AuditLogListItemSchema>;
+export type AuditLogPage = z.infer<typeof AuditLogPageSchema>;
 export type AuditLogQuery = z.infer<typeof AuditLogQuerySchema>;
 export type EraseUser = z.infer<typeof EraseUserSchema>;
