@@ -231,5 +231,6 @@ model AuditLog {
   timestamp  DateTime @default(now())
 
   @@index([targetType, targetId])
+  @@index([timestamp, id])
   @@map("audit_log")
 }

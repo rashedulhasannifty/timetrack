@@ -1,7 +1,7 @@
 import { Injectable, NotImplementedException } from '@nestjs/common';
 import { TeamSettingsSchema } from '@timetrack/contracts';
 import type {
-  AuditLogEntry,
+  AuditLogPage,
   AuditLogQuery,
   EraseUser,
   TeamSettings,
@@ -14,7 +14,7 @@ import { AdminRepository } from './admin.repository.js';
 export class AdminService {
   constructor(private readonly repo: AdminRepository) {}
 
-  listAudit(query: AuditLogQuery): Promise<AuditLogEntry[]> {
+  listAudit(query: AuditLogQuery): Promise<AuditLogPage> {
     return this.repo.listAudit(query);
   }
 

@@ -3,7 +3,7 @@ import {
   AuditLogQuerySchema,
   EraseUserSchema,
   UpdateSettingsSchema,
-  type AuditLogEntry,
+  type AuditLogPage,
   type AuditLogQuery,
   type EraseUser,
   type TeamSettings,
@@ -23,7 +23,7 @@ export class AdminController {
   @Get('audit-log')
   auditLog(
     @Query(new ZodValidationPipe(AuditLogQuerySchema)) query: AuditLogQuery,
-  ): Promise<AuditLogEntry[]> {
+  ): Promise<AuditLogPage> {
     return this.service.listAudit(query);
   }
 

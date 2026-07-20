@@ -33,6 +33,8 @@ import {
   TimesheetApprovalSchema,
   type TimesheetApproval,
   type Decision,
+  AuditLogPageSchema,
+  type AuditLogPage,
 } from '@timetrack/contracts';
 import { z } from 'zod';
 
@@ -169,6 +171,8 @@ export const api = {
     send('PATCH', `/users/${id}`, { deactivated }, UserSchema, token),
   updateTeamSettings: (token: string, patch: UpdateSettings): Promise<TeamSettings> =>
     send('PATCH', '/admin/settings', patch, TeamSettingsSchema, token),
+  listAudit: (token: string, params: URLSearchParams): Promise<AuditLogPage> =>
+    get(`/admin/audit-log?${params}`, AuditLogPageSchema, token),
 
   // Approvals (list: EMPLOYEE self-only / MANAGER own team / ADMIN any; decide: MANAGER/ADMIN + resource authz).
   listApprovals: (token: string, params: URLSearchParams): Promise<TimesheetApproval[]> =>
