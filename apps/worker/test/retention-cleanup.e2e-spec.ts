@@ -144,6 +144,17 @@ describe.runIf(RUN_E2E)('retention-cleanup processor — real Postgres + MinIO',
     );
     expect(still).toHaveLength(0); // partition dropped
     expect(await exists(oldKey)).toBe(false); // object deleted first
+
+    // Audit reflects the DROP: the partition name is listed and its rows are counted.
+    const audit = await env.prisma.auditLog.findFirst({
+      where: { action: 'retention.cleanup' },
+      orderBy: { timestamp: 'desc' },
+    });
+    const diff = audit?.diff as {
+      screenshots: { droppedPartitions: string[]; deletedRows: number };
+    };
+    expect(diff.screenshots.droppedPartitions).toContain('screenshots_2025_12');
+    expect(diff.screenshots.deletedRows).toBeGreaterThanOrEqual(1); // the dropped row is counted
   });
 
   it('ABORT: an S3 failure defers that unit — rows stay, audit records deferral; a healthy re-run completes it', async () => {

@@ -99,8 +99,10 @@ export class RetentionCleanupProcessor extends WorkerHost {
       if (!isDroppable(partitionBounds(name), cutoffMax)) continue;
       try {
         if (table.hasObjects) report.deletedObjects += await this.deletePartitionObjects(name);
-        await this.prisma.$executeRawUnsafe(`DROP TABLE "${name}"`);
+        const droppedRows = await this.countPartitionRows(name);
+        await this.prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${name}"`);
         report.droppedPartitions.push(name);
+        report.deletedRows += droppedRows;
       } catch (err) {
         report.deferred.push({ unit: name, reason: (err as Error).message });
         this.logger.log(
@@ -140,17 +142,27 @@ export class RetentionCleanupProcessor extends WorkerHost {
     return rows.map((r) => r.relname);
   }
 
-  /** Delete every screenshot object in a partition (about to be dropped). Returns object count. */
+  /** Count rows in a partition about to be dropped, so the audit reflects rows destroyed by the DROP. */
+  private async countPartitionRows(partition: string): Promise<number> {
+    const rows = await this.prisma.$queryRawUnsafe<{ n: number }[]>(
+      `SELECT count(*)::int AS n FROM "${partition}"`,
+    );
+    return rows[0]?.n ?? 0;
+  }
+
+  /** Delete every screenshot object in a partition (about to be dropped). Returns objects deleted. */
   private async deletePartitionObjects(partition: string): Promise<number> {
     const rows = await this.prisma.$queryRawUnsafe<
       { storageKey: string; thumbnailKey: string | null }[]
     >(`SELECT "storageKey", "thumbnailKey" FROM "${partition}"`);
-    const keys = rows.flatMap((r) => [r.storageKey, r.thumbnailKey ?? '']);
+    const keys = rows
+      .flatMap((r) => [r.storageKey, r.thumbnailKey ?? ''])
+      .filter((k) => k.length > 0);
     await this.s3.deleteObjects(keys); // throws → caller defers the DROP
-    return rows.length;
+    return keys.length;
   }
 
-  /** Delete a team's expired screenshot objects (before deleting their rows). Returns count. */
+  /** Delete a team's expired screenshot objects (before deleting their rows). Returns objects deleted. */
   private async deleteTeamStragglerObjects(teamId: string, cutoff: Date): Promise<number> {
     const rows = await this.prisma.$queryRawUnsafe<
       { storageKey: string; thumbnailKey: string | null }[]
@@ -161,9 +173,11 @@ export class RetentionCleanupProcessor extends WorkerHost {
       cutoff,
     );
     if (rows.length === 0) return 0;
-    const keys = rows.flatMap((r) => [r.storageKey, r.thumbnailKey ?? '']);
+    const keys = rows
+      .flatMap((r) => [r.storageKey, r.thumbnailKey ?? ''])
+      .filter((k) => k.length > 0);
     await this.s3.deleteObjects(keys); // throws → caller defers the DELETE
-    return rows.length;
+    return keys.length;
   }
 
   private async deleteTeamStragglerRows(
