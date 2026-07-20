@@ -163,4 +163,11 @@ describe.runIf(RUN_E2E)('admin audit-log — keyset paging + actor resolution', 
     expect(page.items).toHaveLength(1);
     expect(page.items[0]?.targetType).toBe('team');
   });
+
+  it('returns an empty page (no actor query) when nothing matches', async () => {
+    // Exercises the actorIds-empty branch: with zero rows, no user.findMany runs.
+    const page = await svc().listAudit({ limit: 50 } as never);
+    expect(page.items).toEqual([]);
+    expect(page.nextCursor).toBeNull();
+  });
 });
