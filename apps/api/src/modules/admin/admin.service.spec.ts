@@ -52,3 +52,13 @@ describe('AdminService.updateSettings', () => {
     expect(result.idleThresholdMinutes).toBe(5); // default filled
   });
 });
+
+describe('AdminService.listAudit', () => {
+  it('passes the query straight to the repository and returns its page', async () => {
+    const page = { items: [], nextCursor: null };
+    const { svc, repo } = makeService({ listAudit: vi.fn().mockResolvedValue(page) });
+    const query = { targetType: 'user', limit: 50 } as never;
+    await expect(svc.listAudit(query)).resolves.toBe(page);
+    expect(repo.listAudit).toHaveBeenCalledWith(query);
+  });
+});
