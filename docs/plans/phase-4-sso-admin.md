@@ -84,7 +84,7 @@
 ## Phase 4 Definition of Done
 
 - [x] 4.1 Retention automation (partition drop + audit + MinIO cleanup).
-- [ ] 4.2 Audit-log UI.
+- [x] 4.2 Audit-log UI.
 - [ ] 4.3 Export + erasure (atomic, audited).
 - [ ] 4.4 SSO (OIDC/SAML).
 - [ ] 4.5 Advanced admin controls.
