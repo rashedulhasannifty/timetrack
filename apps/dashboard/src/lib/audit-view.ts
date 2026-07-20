@@ -22,11 +22,20 @@ export function formatDiff(diff: unknown): string {
 
 /** Normalize a filter date (from a <input type="date">, "YYYY-MM-DD") to the ISO instant the API
  *  requires (z.iso.datetime()). Empty/unparseable → undefined (filter omitted). Date-only strings
- *  parse as UTC midnight per spec, so this is timezone-stable. */
-export function toIso(date?: string): string | undefined {
+ *  parse as UTC midnight per spec, so this is timezone-stable.
+ *
+ *  `boundary` picks which end of the day the date maps to: 'start' (default) → 00:00:00.000Z, so
+ *  a `from` filter includes the whole day; 'end' → 23:59:59.999Z (the last ms-precision instant of
+ *  that UTC day), so a `to` filter with an `lte` comparison is INCLUSIVE of that day's rows rather
+ *  than dropping them. */
+export function toIso(date?: string, boundary: 'start' | 'end' = 'start'): string | undefined {
   if (!date) return undefined;
   const d = new Date(date);
-  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+  if (Number.isNaN(d.getTime())) return undefined;
+  // 86_400_000 ms = 1 day; − 1 ms lands on the last representable instant of the same UTC day.
+  return boundary === 'end'
+    ? new Date(d.getTime() + 86_400_000 - 1).toISOString()
+    : d.toISOString();
 }
 
 /** Build the audit query string. Reads only the four filters from `filters`; the cursor comes

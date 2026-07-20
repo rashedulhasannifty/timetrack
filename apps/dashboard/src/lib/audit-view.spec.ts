@@ -39,12 +39,18 @@ describe('toIso', () => {
     expect(toIso(undefined)).toBeUndefined();
     expect(toIso('')).toBeUndefined();
   });
-  it('converts a date-only value to a Z-terminated ISO instant', () => {
+  it('converts a date-only value to a Z-terminated ISO instant (start of day by default)', () => {
     // Date-only strings parse as UTC midnight per the ES spec — tz-stable.
     expect(toIso('2026-07-20')).toBe('2026-07-20T00:00:00.000Z');
+    expect(toIso('2026-07-20', 'start')).toBe('2026-07-20T00:00:00.000Z');
   });
-  it('returns undefined for an unparseable value', () => {
+  it("maps a 'to' date to the last instant of that UTC day (inclusive-of-day)", () => {
+    // So an lte comparison on the API includes every row of 2026-07-20, not just its midnight.
+    expect(toIso('2026-07-20', 'end')).toBe('2026-07-20T23:59:59.999Z');
+  });
+  it('returns undefined for an unparseable value (either boundary)', () => {
     expect(toIso('not-a-date')).toBeUndefined();
+    expect(toIso('not-a-date', 'end')).toBeUndefined();
   });
 });
 

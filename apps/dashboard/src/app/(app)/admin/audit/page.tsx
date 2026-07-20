@@ -25,7 +25,8 @@ export default async function AdminAuditPage({
   // The URL carries the raw <input type="date"> values; normalize only at the API boundary.
   // (exactOptionalPropertyTypes: only spread a key in when its value is defined.)
   const fromIso = toIso(sp.from);
-  const toIsoVal = toIso(sp.to);
+  // `to` maps to end-of-day so an inclusive lte covers that whole day's rows (not just its midnight).
+  const toIsoVal = toIso(sp.to, 'end');
   const apiParams = buildAuditParams(
     {
       ...(sp.targetType ? { targetType: sp.targetType } : {}),
