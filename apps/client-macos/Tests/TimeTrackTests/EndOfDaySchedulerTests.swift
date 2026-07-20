@@ -48,4 +48,18 @@ final class EndOfDaySchedulerTests: XCTestCase {
         XCTAssertEqual(spy.posted.first?.id, "end-of-day")
         XCTAssertEqual(spy.posted.first?.body, "Today: ~6h 20m tracked. Nice work.")
     }
+
+    func testFireAppendsDistractionLineWhenPositive() {
+        let spy = SpyNotifier()
+        let scheduler = EndOfDayScheduler(
+            hour: 18, calendar: utcCalendar(), notifier: spy,
+            total: { _ in 6 * 3600 + 20 * 60 },
+            distractionTotal: { _ in 40 * 60 },
+            clock: { self.date("2026-07-20T18:00:00Z") }
+        )
+        scheduler.fire()
+        XCTAssertEqual(spy.posted.count, 1)
+        XCTAssertEqual(spy.posted.first?.body,
+                       "Today: ~6h 20m tracked. Nice work. ~40m on distracting apps.")
+    }
 }
