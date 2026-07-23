@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { AuditLogPage, AuditLogQuery, TeamSettings } from '@timetrack/contracts';
+import type { AuditLogPage, AuditLogQuery, Role, TeamSettings } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 
 /**
@@ -118,6 +118,20 @@ export class AdminRepository {
           diff,
         },
       });
+    });
+  }
+
+  /** The guard read for erase: the target's real email + team/role, or null when unknown. */
+  findForErase(id: string): Promise<{
+    id: string;
+    email: string;
+    teamId: string;
+    role: Role;
+    deactivatedAt: Date | null;
+  } | null> {
+    return this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true, teamId: true, role: true, deactivatedAt: true },
     });
   }
 

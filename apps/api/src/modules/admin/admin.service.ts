@@ -1,4 +1,9 @@
-import { Injectable, NotImplementedException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { TeamSettingsSchema } from '@timetrack/contracts';
 import type {
   AuditLogPage,
@@ -8,11 +13,15 @@ import type {
   UpdateSettings,
 } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
+import { MinioService } from '../../infra/storage/minio.service.js';
 import { AdminRepository } from './admin.repository.js';
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly repo: AdminRepository) {}
+  constructor(
+    private readonly repo: AdminRepository,
+    private readonly storage: MinioService,
+  ) {}
 
   listAudit(query: AuditLogQuery): Promise<AuditLogPage> {
     return this.repo.listAudit(query);
@@ -32,8 +41,56 @@ export class AdminService {
     return merged;
   }
 
-  eraseUser(_userId: string, _dto: EraseUser, _actor: SessionUser): Promise<void> {
-    // TODO(scaffold): right-to-erasure — delete + AuditLog in the same transaction.
-    throw new NotImplementedException('admin.eraseUser not yet implemented');
+  /**
+   * PRD §4.4 — right to erasure. ORDER IS THE COMPLIANCE PROPERTY:
+   * guards → S3 prefix sweep → one DB transaction. Object keys are derivable from the userId
+   * (`raw/<id>/`, `thumb/<id>/`), so the sweep needs no DB read and is idempotent. Any S3 failure
+   * throws here, before a single row changes — a row must never be dropped while its object could
+   * survive (the rule slice 4.1 established). The user's REAL email is captured before the
+   * transaction, because `invites` is keyed by email, not userId.
+   */
+  async eraseUser(userId: string, dto: EraseUser, actor: SessionUser): Promise<void> {
+    const target = await this.repo.findForErase(userId);
+    if (!target) {
+      throw new NotFoundException({
+        type: 'https://timetrack.internal/errors/not-found',
+        title: 'User not found',
+        status: 404,
+      });
+    }
+    if (target.teamId !== actor.teamId) {
+      throw new ForbiddenException({
+        type: 'https://timetrack.internal/errors/forbidden',
+        title: 'Cannot manage a user in another team',
+        status: 403,
+      });
+    }
+    if (target.id === actor.id) {
+      throw new ConflictException({
+        type: 'https://timetrack.internal/errors/conflict',
+        title: 'You cannot erase your own account',
+        status: 409,
+      });
+    }
+
+    // Objects first — abort the whole erase if any delete fails.
+    const deletedObjects =
+      (await this.storage.deleteByPrefix(`raw/${userId}/`)) +
+      (await this.storage.deleteByPrefix(`thumb/${userId}/`));
+
+    const result = await this.repo.eraseUser(
+      userId,
+      target.email,
+      actor.id,
+      dto.reason,
+      deletedObjects,
+    );
+    if (result.status === 'LAST_ADMIN') {
+      throw new ConflictException({
+        type: 'https://timetrack.internal/errors/conflict',
+        title: 'Cannot erase the last active admin',
+        status: 409,
+      });
+    }
   }
 }
