@@ -78,6 +78,7 @@ describe('AdminService.eraseUser guards', () => {
   function make(overrides: Record<string, unknown> = {}, targetRow: unknown = target) {
     const repo = {
       findForErase: vi.fn().mockResolvedValue(targetRow),
+      countActiveAdmins: vi.fn().mockResolvedValue(2),
       eraseUser: vi.fn().mockResolvedValue({ status: 'OK', counts: {} }),
       ...overrides,
     } as unknown as AdminRepository;
@@ -117,6 +118,18 @@ describe('AdminService.eraseUser guards', () => {
     await expect(svc.eraseUser('u2', { reason: 'r' }, actor)).rejects.toBeInstanceOf(
       ConflictException,
     );
+  });
+
+  it('409s the last-admin PRE-CHECK for a solo active admin, without sweeping or calling repo.eraseUser', async () => {
+    const { svc, repo, storage } = make(
+      { countActiveAdmins: vi.fn().mockResolvedValue(1) },
+      { ...target, role: 'ADMIN' as const, deactivatedAt: null },
+    );
+    await expect(svc.eraseUser('u2', { reason: 'r' }, actor)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(storage.deleteByPrefix).not.toHaveBeenCalled();
+    expect(repo.eraseUser).not.toHaveBeenCalled();
   });
 
   it('sweeps BOTH object prefixes before delegating, and passes the real email + count', async () => {

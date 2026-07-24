@@ -136,6 +136,16 @@ export class AdminRepository {
   }
 
   /**
+   * Cheap, non-locking count of active admins on a team — the service's pre-sweep last-admin
+   * check. NOT authoritative under concurrency (no FOR UPDATE); `eraseUser`'s in-transaction
+   * re-check is what actually prevents the race, this just avoids the destructive S3 sweep for
+   * the common non-racing case.
+   */
+  countActiveAdmins(teamId: string): Promise<number> {
+    return this.prisma.user.count({ where: { teamId, role: 'ADMIN', deactivatedAt: null } });
+  }
+
+  /**
    * PRD §4.4 — right to erasure. ONE transaction: delete every user-owned table, tombstone the
    * `users` row, and audit — so a partial erase can never commit (CLAUDE.md §4).
    *

@@ -43,11 +43,14 @@ export class AdminService {
 
   /**
    * PRD §4.4 — right to erasure. ORDER IS THE COMPLIANCE PROPERTY:
-   * guards → S3 prefix sweep → one DB transaction. Object keys are derivable from the userId
-   * (`raw/<id>/`, `thumb/<id>/`), so the sweep needs no DB read and is idempotent. Any S3 failure
-   * throws here, before a single row changes — a row must never be dropped while its object could
-   * survive (the rule slice 4.1 established). The user's REAL email is captured before the
-   * transaction, because `invites` is keyed by email, not userId.
+   * guards → last-admin PRE-CHECK → S3 prefix sweep → one DB transaction. Object keys are
+   * derivable from the userId (`raw/<id>/`, `thumb/<id>/`), so the sweep needs no DB read and is
+   * idempotent. Any S3 failure throws here, before a single row changes — a row must never be
+   * dropped while its object could survive (the rule slice 4.1 established). The pre-check is a
+   * cheap, non-locking read that refuses BEFORE touching S3 for the common (non-racing) case; the
+   * repository's `FOR UPDATE` re-check inside the transaction remains the authoritative, race-safe
+   * guard and stays unchanged. The user's REAL email is captured before the transaction, because
+   * `invites` is keyed by email, not userId.
    */
   async eraseUser(userId: string, dto: EraseUser, actor: SessionUser): Promise<void> {
     const target = await this.repo.findForErase(userId);
@@ -71,6 +74,19 @@ export class AdminService {
         title: 'You cannot erase your own account',
         status: 409,
       });
+    }
+
+    // Last-admin PRE-CHECK (cheap read) — refuse BEFORE touching S3. The repository's FOR UPDATE
+    // re-check remains the authoritative, race-safe guard for the LAST_ADMIN case below.
+    if (target.role === 'ADMIN' && target.deactivatedAt === null) {
+      const activeAdmins = await this.repo.countActiveAdmins(target.teamId);
+      if (activeAdmins <= 1) {
+        throw new ConflictException({
+          type: 'https://timetrack.internal/errors/conflict',
+          title: 'Cannot erase the last active admin',
+          status: 409,
+        });
+      }
     }
 
     // Objects first — abort the whole erase if any delete fails.
