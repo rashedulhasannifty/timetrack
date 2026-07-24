@@ -91,5 +91,5 @@
 - [x] 4.5 Advanced admin controls. Policy editor + app lists already shipped; this slice
       added separate productive/unproductive SITE lists (client host-categorization split)
       and admin role management (audited, last-active-admin + self-lockout guards).
-- [ ] Green gate ✅; compliance paths (retention, erasure) integration-tested ✅; SSO
-      validated against a real IdP — **still a manual gate** (CI cannot cover it).
+- [x] Green gate; compliance paths (retention, erasure) integration-tested; SSO validated
+      end-to-end against a real Keycloak IdP (surfaced + fixed the RFC 9207 `iss` bug).
