@@ -17,25 +17,25 @@ export default async function TeamOverviewPage() {
     <>
       <PageHeader title="Team overview" subtitle={`Today · ${overview.date} (UTC)`} />
       {overview.rows.length === 0 ? (
-        <p className="text-sm text-neutral-500">No team members to show.</p>
+        <p className="text-text-secondary text-body">No team members to show.</p>
       ) : (
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {overview.rows.map((row) => (
             <li key={row.userId}>
               <Link
                 href={`/people/${row.userId}`}
-                className="block rounded-lg border border-neutral-200 bg-white p-4 hover:border-neutral-300"
+                className="bg-surface-raised border-separator hover:border-accent block rounded-lg border p-4 shadow-e1 transition-colors"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">{row.name}</span>
+                  <span className="text-text font-medium">{row.name}</span>
                   <span
                     className={`inline-block h-2.5 w-2.5 rounded-full ${
-                      row.tracking ? 'bg-green-500' : 'bg-neutral-300'
+                      row.tracking ? 'bg-recording' : 'bg-separator'
                     }`}
                     aria-label={row.tracking ? 'tracking' : 'idle'}
                   />
                 </div>
-                <div className="mt-2 text-sm text-neutral-500">
+                <div className="tt-numeric text-text-secondary text-label mt-2">
                   {formatDuration(row.trackedSecondsToday)} today
                 </div>
               </Link>

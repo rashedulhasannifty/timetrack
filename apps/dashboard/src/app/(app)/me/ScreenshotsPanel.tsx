@@ -14,12 +14,12 @@ export function ScreenshotsPanel({
   onRedact: RedactFn;
 }) {
   if (shots.length === 0) {
-    return <p className="text-sm text-neutral-500">No screenshots recorded today.</p>;
+    return <p className="text-text-secondary text-body">No screenshots recorded today.</p>;
   }
   return (
     <ul className="grid grid-cols-3 gap-2">
       {shots.map((s) => (
-        <li key={s.id} className="rounded-md border border-neutral-200 p-2 text-xs">
+        <li key={s.id} className="border-separator text-caption rounded-md border p-2">
           <Tile shot={s} onRedact={onRedact} />
         </li>
       ))}
@@ -37,21 +37,21 @@ function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact: RedactFn }) 
   if (mode === 'redacted') {
     return (
       <div className="flex flex-col gap-1">
-        <span className="w-fit rounded bg-neutral-200 px-1.5 py-0.5 font-medium text-neutral-700">
+        <span className="bg-surface text-text-secondary w-fit rounded px-1.5 py-0.5 font-medium">
           Redacted
         </span>
         {shot.redactedReason ? (
-          <span className="text-neutral-600">{shot.redactedReason}</span>
+          <span className="text-text-secondary">{shot.redactedReason}</span>
         ) : null}
-        <span className="text-neutral-400">{shot.timestamp.slice(11, 16)}</span>
+        <span className="tt-numeric text-text-secondary">{shot.timestamp.slice(11, 16)}</span>
       </div>
     );
   }
 
   if (mode === 'pending') {
     return (
-      <span className="text-neutral-500">
-        {shot.timestamp.slice(11, 16)} · {shot.status}
+      <span className="text-text-secondary">
+        <span className="tt-numeric">{shot.timestamp.slice(11, 16)}</span> · {shot.status}
       </span>
     );
   }
@@ -81,16 +81,16 @@ function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact: RedactFn }) 
             maxLength={500}
             placeholder="Reason…"
             aria-label="Redaction reason"
-            className="rounded border border-neutral-300 px-1.5 py-1"
+            className="bg-surface-raised border-separator text-text focus:border-accent rounded border px-1.5 py-1 outline-none"
           />
-          <span className="text-amber-600">⚠ Permanently deletes this image.</span>
-          {error ? <span className="text-red-600">{error}</span> : null}
+          <span className="text-category-unproductive">⚠ Permanently deletes this image.</span>
+          {error ? <span className="text-destructive">{error}</span> : null}
           <div className="flex gap-2">
             <button
               type="button"
               disabled={pending || reason.trim().length === 0}
               onClick={submit}
-              className="rounded bg-neutral-900 px-2 py-1 text-white disabled:opacity-50"
+              className="bg-accent hover:bg-accent-hover rounded px-2 py-1 text-white transition-colors disabled:opacity-50"
             >
               {pending ? 'Redacting…' : 'Confirm'}
             </button>
@@ -102,7 +102,7 @@ function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact: RedactFn }) 
                 setReason('');
                 setError(null);
               }}
-              className="rounded border border-neutral-300 px-2 py-1"
+              className="border-separator text-text hover:bg-surface rounded border px-2 py-1 transition-colors"
             >
               Cancel
             </button>
@@ -112,7 +112,7 @@ function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact: RedactFn }) 
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="w-fit rounded border border-neutral-300 px-2 py-1 text-neutral-700"
+          className="border-separator text-text hover:bg-surface w-fit rounded border px-2 py-1 transition-colors"
         >
           Redact
         </button>

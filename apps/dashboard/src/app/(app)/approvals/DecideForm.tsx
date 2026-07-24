@@ -22,14 +22,14 @@ export function DecideForm({ approvalId }: { approvalId: string }) {
         name="note"
         placeholder="Note (optional)"
         maxLength={2000}
-        className="w-40 rounded-md border border-neutral-300 px-2 py-1 text-xs"
+        className="bg-surface-raised border-separator text-text focus:border-accent w-40 rounded-md border px-2 py-1 text-caption outline-none transition-colors"
       />
       <button
         type="submit"
         name="status"
         value="APPROVED"
         disabled={pending}
-        className="rounded-md border border-green-200 px-2.5 py-1 text-xs font-medium text-green-700 hover:bg-green-50 disabled:opacity-50"
+        className="border-accent/30 text-accent hover:bg-accent/10 rounded-md border px-2.5 py-1 text-caption font-medium transition-colors disabled:opacity-50"
       >
         Approve
       </button>
@@ -38,11 +38,13 @@ export function DecideForm({ approvalId }: { approvalId: string }) {
         name="status"
         value="FLAGGED"
         disabled={pending}
-        className="rounded-md border border-amber-200 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+        className="border-category-unproductive/30 text-category-unproductive hover:bg-category-unproductive/10 rounded-md border px-2.5 py-1 text-caption font-medium transition-colors disabled:opacity-50"
       >
         Flag
       </button>
-      {state.message ? <span className="text-xs text-red-600">{state.message}</span> : null}
+      {state.message ? (
+        <span className="text-destructive text-caption">{state.message}</span>
+      ) : null}
     </form>
   );
 }

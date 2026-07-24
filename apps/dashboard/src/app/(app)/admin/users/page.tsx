@@ -28,12 +28,14 @@ export default async function AdminUsersPage() {
       <InviteForm />
 
       {users.length === 0 ? (
-        <p className="text-sm text-neutral-500">No users yet. Invite your first teammate above.</p>
+        <p className="text-text-secondary text-body">
+          No users yet. Invite your first teammate above.
+        </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
-          <table className="w-full text-sm">
+        <div className="bg-surface-raised border-separator overflow-x-auto rounded-lg border shadow-e1">
+          <table className="w-full text-body">
             <thead>
-              <tr className="border-b border-neutral-200 text-left text-neutral-500">
+              <tr className="border-separator text-text-secondary border-b text-left">
                 <th className="px-4 py-2 font-medium">Name</th>
                 <th className="px-4 py-2 font-medium">Email</th>
                 <th className="px-4 py-2 font-medium">Role</th>
@@ -46,24 +48,24 @@ export default async function AdminUsersPage() {
               {users.map((u) => {
                 const deactivated = u.deactivatedAt !== null;
                 return (
-                  <tr key={u.id} className="border-b border-neutral-100 last:border-0">
-                    <td className="px-4 py-2 font-medium">{u.name}</td>
-                    <td className="px-4 py-2 text-neutral-600">{u.email}</td>
-                    <td className="px-4 py-2 text-neutral-600">
+                  <tr key={u.id} className="border-separator border-b last:border-0">
+                    <td className="text-text px-4 py-2 font-medium">{u.name}</td>
+                    <td className="text-text-secondary px-4 py-2">{u.email}</td>
+                    <td className="text-text-secondary px-4 py-2">
                       <RoleSelect userId={u.id} role={u.role} />
                     </td>
-                    <td className="px-4 py-2 text-neutral-600">
+                    <td className="text-text-secondary px-4 py-2">
                       {u.monitoringAckAt ? (
                         `Acknowledged ${formatDate(u.monitoringAckAt)}`
                       ) : (
-                        <span className="text-neutral-400">Not acknowledged</span>
+                        <span className="text-text-secondary">Not acknowledged</span>
                       )}
                     </td>
                     <td className="px-4 py-2">
                       {deactivated ? (
-                        <span className="text-neutral-400">Deactivated</span>
+                        <span className="text-text-secondary">Deactivated</span>
                       ) : (
-                        <span className="text-green-700">Active</span>
+                        <span className="text-recording">Active</span>
                       )}
                     </td>
                     <td className="px-4 py-2">

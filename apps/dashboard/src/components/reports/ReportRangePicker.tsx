@@ -17,22 +17,22 @@ export function ReportRangePicker({ from, to }: { from: string; to: string }) {
 
   return (
     <div className="flex items-end gap-3">
-      <label className="flex flex-col text-xs text-neutral-500">
+      <label className="text-text-secondary text-caption flex flex-col">
         From
         <input
           type="date"
           defaultValue={from.slice(0, 10)}
           onChange={(e) => update('from', e.target.value)}
-          className="mt-1 rounded border border-neutral-300 px-2 py-1 text-sm"
+          className="bg-surface-raised border-separator text-text focus:border-accent mt-1 rounded-md border px-2 py-1 text-label outline-none transition-colors"
         />
       </label>
-      <label className="flex flex-col text-xs text-neutral-500">
+      <label className="text-text-secondary text-caption flex flex-col">
         To
         <input
           type="date"
           defaultValue={to.slice(0, 10)}
           onChange={(e) => update('to', e.target.value)}
-          className="mt-1 rounded border border-neutral-300 px-2 py-1 text-sm"
+          className="bg-surface-raised border-separator text-text focus:border-accent mt-1 rounded-md border px-2 py-1 text-label outline-none transition-colors"
         />
       </label>
     </div>

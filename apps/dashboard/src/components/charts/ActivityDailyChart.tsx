@@ -16,10 +16,10 @@ export function ActivityDailyChart({ data }: { data: DailyActivityPoint[] }) {
     <div className="h-56 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data}>
-          <XAxis dataKey="label" fontSize={12} />
-          <YAxis domain={[0, 100]} fontSize={12} />
+          <XAxis dataKey="label" fontSize={12} tick={{ fill: 'var(--color-text-secondary)' }} />
+          <YAxis domain={[0, 100]} fontSize={12} tick={{ fill: 'var(--color-text-secondary)' }} />
           <Tooltip />
-          <Bar dataKey="activityPct" fill="#171717" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="activityPct" fill="var(--color-accent)" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

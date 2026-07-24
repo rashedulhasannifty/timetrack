@@ -33,10 +33,10 @@ export function UserRowActions({
           <button
             type="submit"
             disabled={pending}
-            className={`rounded-md border px-2.5 py-1 text-xs font-medium disabled:opacity-50 ${
+            className={`rounded-md border px-2.5 py-1 text-caption font-medium transition-colors disabled:opacity-50 ${
               deactivated
-                ? 'border-neutral-300 text-neutral-700 hover:bg-neutral-100'
-                : 'border-red-200 text-red-700 hover:bg-red-50'
+                ? 'border-separator text-text hover:bg-surface'
+                : 'border-destructive/30 text-destructive hover:bg-destructive/10'
             }`}
           >
             {deactivated ? 'Reactivate' : 'Deactivate'}
@@ -44,7 +44,7 @@ export function UserRowActions({
         </form>
         <a
           href={`/admin/users/${userId}/export`}
-          className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100"
+          className="border-separator text-text hover:bg-surface rounded-md border px-2.5 py-1 text-caption font-medium transition-colors"
         >
           Export
         </a>
@@ -52,19 +52,21 @@ export function UserRowActions({
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+            className="border-destructive/30 text-destructive hover:bg-destructive/10 rounded-md border px-2.5 py-1 text-caption font-medium transition-colors"
           >
             Erase…
           </button>
         ) : null}
       </div>
 
-      {state.message ? <span className="text-xs text-red-600">{state.message}</span> : null}
+      {state.message ? (
+        <span className="text-destructive text-caption">{state.message}</span>
+      ) : null}
 
       {open ? (
         <form action={eraseAction} className="flex flex-col items-end gap-1">
           <input type="hidden" name="userId" value={userId} />
-          <span className="text-xs text-amber-600">
+          <span className="text-category-unproductive text-caption">
             ⚠ Permanently deletes all data for {name}. This cannot be undone.
           </span>
           <input
@@ -74,16 +76,16 @@ export function UserRowActions({
             maxLength={500}
             placeholder="Reason (required)…"
             aria-label="Erasure reason"
-            className="rounded border border-neutral-300 px-1.5 py-1 text-xs"
+            className="bg-surface border-separator text-text focus:border-accent rounded border px-1.5 py-1 text-caption outline-none transition-colors"
           />
           {eraseState.message ? (
-            <span className="text-xs text-red-600">{eraseState.message}</span>
+            <span className="text-destructive text-caption">{eraseState.message}</span>
           ) : null}
           <div className="flex gap-2">
             <button
               type="submit"
               disabled={erasing || reason.trim().length === 0}
-              className="rounded bg-red-700 px-2 py-1 text-xs text-white disabled:opacity-50"
+              className="bg-destructive rounded px-2 py-1 text-caption text-white transition-colors disabled:opacity-50"
             >
               {erasing ? 'Erasing…' : 'Confirm erase'}
             </button>
@@ -94,7 +96,7 @@ export function UserRowActions({
                 setOpen(false);
                 setReason('');
               }}
-              className="rounded border border-neutral-300 px-2 py-1 text-xs"
+              className="border-separator text-text hover:bg-surface rounded border px-2 py-1 text-caption transition-colors"
             >
               Cancel
             </button>

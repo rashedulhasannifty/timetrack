@@ -62,7 +62,7 @@ export default async function MyDataPage() {
         subtitle={`Everything recorded about you · today (${today}, UTC)`}
       />
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium text-neutral-700">Timesheet status</h2>
+        <h2 className="text-text text-label font-semibold">Timesheet status</h2>
         <ApprovalsPanel rows={myApprovals} />
       </section>
       <MeTabs
@@ -77,16 +77,16 @@ export default async function MyDataPage() {
           ),
           Idle:
             idle.length === 0 ? (
-              <p className="text-sm text-neutral-500">No idle periods today.</p>
+              <p className="text-text-secondary text-body">No idle periods today.</p>
             ) : (
               <ul className="flex flex-col gap-2">
                 {idle.map((e) => (
                   <li
                     key={e.id}
-                    className="rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm"
+                    className="bg-surface-raised border-separator text-body rounded-md border px-3 py-2"
                   >
                     <span className="font-medium">{formatTimeRange(e.startTime, e.endTime)}</span>
-                    <span className="ml-2 text-neutral-500">{e.resolvedAction}</span>
+                    <span className="text-text-secondary ml-2">{e.resolvedAction}</span>
                   </li>
                 ))}
               </ul>

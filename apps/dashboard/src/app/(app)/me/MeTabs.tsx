@@ -9,7 +9,7 @@ export function MeTabs({ panels }: { panels: Record<Tab, ReactNode> }) {
   const [active, setActive] = useState<Tab>('Timeline');
   return (
     <div className="flex flex-col gap-4">
-      <nav className="flex gap-1 border-b border-neutral-200" role="tablist">
+      <nav className="border-separator flex gap-1 border-b" role="tablist">
         {TABS.map((tab) => (
           <button
             key={tab}
@@ -18,8 +18,8 @@ export function MeTabs({ panels }: { panels: Record<Tab, ReactNode> }) {
             onClick={() => setActive(tab)}
             className={
               active === tab
-                ? 'border-b-2 border-neutral-900 px-3 py-2 text-sm font-medium text-neutral-900'
-                : 'px-3 py-2 text-sm text-neutral-500 hover:text-neutral-800'
+                ? 'border-accent text-text text-label border-b-2 px-3 py-2 font-medium'
+                : 'text-text-secondary hover:text-text text-label px-3 py-2'
             }
           >
             {tab}
