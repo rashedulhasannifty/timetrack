@@ -184,8 +184,12 @@ export const api = {
     get(`/screenshots?${params}`, z.array(ScreenshotSchema), token),
   redactScreenshot: (token: string, id: string, dto: RedactScreenshot): Promise<Screenshot> =>
     send('POST', `/screenshots/${id}/redact`, dto, ScreenshotSchema, token),
-  listProjects: (token: string): Promise<Project[]> =>
-    get('/projects', z.array(ProjectSchema), token),
+  listProjects: (token: string, opts?: { includeArchived?: boolean }): Promise<Project[]> =>
+    get(
+      `/projects${opts?.includeArchived ? '?includeArchived=true' : ''}`,
+      z.array(ProjectSchema),
+      token,
+    ),
   listUsers: (token: string): Promise<User[]> => get('/users', z.array(UserSchema), token),
   getCurrentTeam: (token: string): Promise<Team> => get('/teams/current', TeamSchema, token),
   teamOverview: (token: string, date?: string): Promise<TeamOverview> =>
