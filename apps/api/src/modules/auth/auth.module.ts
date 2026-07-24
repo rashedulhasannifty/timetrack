@@ -5,6 +5,7 @@ import { InvitesModule } from '../invites/invites.module.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { AuthRepository } from './auth.repository.js';
+import { OidcService } from './oidc.service.js';
 
 const env = loadEnv();
 
@@ -19,7 +20,7 @@ const env = loadEnv();
     InvitesModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, AuthRepository],
+  providers: [AuthService, AuthRepository, OidcService],
   exports: [JwtModule],
 })
 export class AuthModule {}

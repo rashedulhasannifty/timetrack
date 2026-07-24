@@ -2,9 +2,12 @@ import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import {
   AcceptInviteSchema,
   LoginSchema,
+  OidcCallbackSchema,
   RefreshSchema,
   type AcceptInvite,
   type Login,
+  type OidcAuthorizeResult,
+  type OidcCallback,
   type Refresh,
   type TokenPair,
 } from '@timetrack/contracts';
@@ -49,5 +52,27 @@ export class AuthController {
   @HttpCode(204)
   logout(@Body(new ZodValidationPipe(RefreshSchema)) dto: Refresh): Promise<void> {
     return this.service.logout(dto);
+  }
+
+  /**
+   * PRD §6.8 (slice 4.4) — OIDC. Both routes are @Public and server-to-server: only the
+   * dashboard BFF calls them (the browser talks to the dashboard, never here). `authorize`
+   * mints the redirect + per-request secrets; `callback` verifies and issues a TokenPair.
+   * When SSO is not configured both 404. The client secret never leaves the API.
+   */
+  @Post('oidc/authorize')
+  @Public()
+  @HttpCode(200)
+  oidcAuthorize(): Promise<OidcAuthorizeResult> {
+    return this.service.oidcAuthorize();
+  }
+
+  @Post('oidc/callback')
+  @Public()
+  @HttpCode(200)
+  oidcCallback(
+    @Body(new ZodValidationPipe(OidcCallbackSchema)) dto: OidcCallback,
+  ): Promise<TokenPair> {
+    return this.service.oidcCallback(dto);
   }
 }

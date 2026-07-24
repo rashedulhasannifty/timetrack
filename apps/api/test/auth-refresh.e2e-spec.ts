@@ -5,6 +5,7 @@ import * as argon2 from 'argon2';
 import { AuthService } from '../src/modules/auth/auth.service.js';
 import { AuthRepository } from '../src/modules/auth/auth.repository.js';
 import type { InvitesService } from '../src/modules/invites/invites.service.js';
+import type { OidcService } from '../src/modules/auth/oidc.service.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
 
@@ -28,8 +29,8 @@ describe.runIf(RUN_E2E)('auth refresh — grace window (real Postgres)', () => {
       signOptions: { expiresIn: '15m' },
     });
     const repo = new AuthRepository(db.prisma as unknown as PrismaService);
-    // refresh() never touches InvitesService; a bare stub is safe here.
-    return new AuthService(jwt, repo, {} as InvitesService);
+    // refresh() never touches InvitesService or OidcService; bare stubs are safe here.
+    return new AuthService(jwt, repo, {} as InvitesService, {} as OidcService);
   }
 
   async function seedUserAndLogin(svc: AuthService) {

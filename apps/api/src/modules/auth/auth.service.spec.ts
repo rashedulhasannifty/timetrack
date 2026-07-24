@@ -1,15 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 
 // Decouple the unit test from real env and native argon2 (slow) — both are mocked.
-vi.mock('@timetrack/config', () => ({
-  loadEnv: () => ({
-    ACCESS_TOKEN_TTL: '15m',
-    REFRESH_TOKEN_TTL: '30d',
-    REFRESH_GRACE_SECONDS: 10,
-    JWT_REFRESH_SECRET: 'test-refresh-secret-000000000000000000',
-  }),
-}));
+// oidcConfig is the real helper (it just reads the env object) so provisioning can find
+// OIDC_DEFAULT_TEAM_ID; the SSO tests set OIDC_* so oidcConfig returns a live config.
+vi.mock('@timetrack/config', async () => {
+  const actual = await vi.importActual<typeof import('@timetrack/config')>('@timetrack/config');
+  return {
+    oidcConfig: actual.oidcConfig,
+    loadEnv: () => ({
+      ACCESS_TOKEN_TTL: '15m',
+      REFRESH_TOKEN_TTL: '30d',
+      REFRESH_GRACE_SECONDS: 10,
+      JWT_REFRESH_SECRET: 'test-refresh-secret-000000000000000000',
+      OIDC_ISSUER: 'https://idp.example.com',
+      OIDC_CLIENT_ID: 'client-id',
+      OIDC_CLIENT_SECRET: 'client-secret',
+      OIDC_REDIRECT_URI: 'https://app.example.com/api/auth/sso/callback',
+      OIDC_DEFAULT_TEAM_ID: 'team-default',
+    }),
+  };
+});
 
 vi.mock('argon2', () => ({
   hash: vi.fn().mockResolvedValue('hashed'),
@@ -41,11 +52,16 @@ const liveToken = {
 function makeService(
   repo: Partial<AuthRepository> = {},
   invites: Partial<{ accept: unknown }> = {},
+  oidc: Partial<import('./oidc.service.js').OidcService> = {},
 ) {
   const jwt = { signAsync: vi.fn().mockResolvedValue('access.jwt.token') } as unknown as JwtService;
   const fullRepo = {
     findByEmail: vi.fn(),
     findIdentityById: vi.fn(),
+    findBySsoIdentity: vi.fn(),
+    findIdentityByEmail: vi.fn(),
+    linkSso: vi.fn().mockResolvedValue(undefined),
+    createSsoUser: vi.fn(),
     createRefreshToken: vi.fn().mockResolvedValue('rt2'),
     findRefreshToken: vi.fn(),
     revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
@@ -56,7 +72,18 @@ function makeService(
     accept: vi.fn(),
     ...invites,
   } as unknown as import('../invites/invites.service.js').InvitesService;
-  return { svc: new AuthService(jwt, fullRepo, invitesSvc), repo: fullRepo, invites: invitesSvc };
+  const oidcSvc = {
+    isEnabled: vi.fn().mockReturnValue(true),
+    authorize: vi.fn(),
+    verifyCallback: vi.fn(),
+    ...oidc,
+  } as unknown as import('./oidc.service.js').OidcService;
+  return {
+    svc: new AuthService(jwt, fullRepo, invitesSvc, oidcSvc),
+    repo: fullRepo,
+    invites: invitesSvc,
+    oidc: oidcSvc,
+  };
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -95,6 +122,131 @@ describe('AuthService.login', () => {
     await expect(svc.login({ email: 'a@b.co', password: 'x' })).rejects.toThrow(
       UnauthorizedException,
     );
+  });
+
+  it('rejects an SSO-only user (null passwordHash) without calling argon2.verify', async () => {
+    const { svc } = makeService({
+      findByEmail: vi.fn().mockResolvedValue({ ...USER, passwordHash: null }),
+    });
+    await expect(svc.login({ email: 'a@b.co', password: 'anything' })).rejects.toThrow(
+      UnauthorizedException,
+    );
+    // verify must never run on a null hash (it would throw → 500); time is still burned.
+    expect(argon2.verify).not.toHaveBeenCalled();
+    expect(argon2.hash).toHaveBeenCalled();
+  });
+});
+
+describe('AuthService.oidcCallback', () => {
+  const identity = {
+    sub: 'idp-sub-1',
+    email: 'sso@company.com',
+    emailVerified: true,
+    name: 'SSO User',
+  };
+
+  it('reuses an existing user matched by (provider, subject) — bypassing the email gate', async () => {
+    const { svc, repo } = makeService(
+      {
+        findBySsoIdentity: vi.fn().mockResolvedValue(IDENTITY),
+        findIdentityByEmail: vi.fn(),
+      },
+      {},
+      { verifyCallback: vi.fn().mockResolvedValue({ ...identity, emailVerified: false }) },
+    );
+    const pair = await svc.oidcCallback({ code: 'c', state: 's', nonce: 'n', codeVerifier: 'v' });
+    expect(pair.accessToken).toBe('access.jwt.token');
+    // Subject match short-circuits: no email lookup, no link, no create.
+    expect(repo.findIdentityByEmail).not.toHaveBeenCalled();
+    expect(repo.linkSso).not.toHaveBeenCalled();
+    expect(repo.createSsoUser).not.toHaveBeenCalled();
+  });
+
+  it('links a verified email to an existing user and backfills the sso identity', async () => {
+    const { svc, repo } = makeService(
+      {
+        findBySsoIdentity: vi.fn().mockResolvedValue(null),
+        findIdentityByEmail: vi.fn().mockResolvedValue(IDENTITY),
+      },
+      {},
+      { verifyCallback: vi.fn().mockResolvedValue(identity) },
+    );
+    const pair = await svc.oidcCallback({ code: 'c', state: 's', nonce: 'n', codeVerifier: 'v' });
+    expect(pair.accessToken).toBe('access.jwt.token');
+    expect(repo.linkSso).toHaveBeenCalledWith('u1', 'oidc', 'idp-sub-1');
+    expect(repo.createSsoUser).not.toHaveBeenCalled();
+  });
+
+  it('auto-provisions a new user into the default team when no match exists', async () => {
+    const { svc, repo } = makeService(
+      {
+        findBySsoIdentity: vi.fn().mockResolvedValue(null),
+        findIdentityByEmail: vi.fn().mockResolvedValue(null),
+        createSsoUser: vi.fn().mockResolvedValue({ ...IDENTITY, id: 'new' }),
+      },
+      {},
+      { verifyCallback: vi.fn().mockResolvedValue(identity) },
+    );
+    await svc.oidcCallback({ code: 'c', state: 's', nonce: 'n', codeVerifier: 'v' });
+    expect(repo.createSsoUser).toHaveBeenCalledWith({
+      email: 'sso@company.com',
+      name: 'SSO User',
+      teamId: 'team-default',
+      ssoProvider: 'oidc',
+      ssoSubject: 'idp-sub-1',
+    });
+  });
+
+  it('REJECTS an unverified email on the LINK path (no link, no provision) — anti-takeover', async () => {
+    const findIdentityByEmail = vi.fn().mockResolvedValue(IDENTITY);
+    const { svc, repo } = makeService(
+      { findBySsoIdentity: vi.fn().mockResolvedValue(null), findIdentityByEmail },
+      {},
+      { verifyCallback: vi.fn().mockResolvedValue({ ...identity, emailVerified: false }) },
+    );
+    await expect(
+      svc.oidcCallback({ code: 'c', state: 's', nonce: 'n', codeVerifier: 'v' }),
+    ).rejects.toThrow(ForbiddenException);
+    // The gate sits ABOVE the email branch: no lookup, no link.
+    expect(findIdentityByEmail).not.toHaveBeenCalled();
+    expect(repo.linkSso).not.toHaveBeenCalled();
+    expect(repo.createSsoUser).not.toHaveBeenCalled();
+  });
+
+  it('REJECTS an unverified email on the PROVISION path', async () => {
+    const { svc, repo } = makeService(
+      { findBySsoIdentity: vi.fn().mockResolvedValue(null), findIdentityByEmail: vi.fn() },
+      {},
+      { verifyCallback: vi.fn().mockResolvedValue({ ...identity, emailVerified: false }) },
+    );
+    await expect(
+      svc.oidcCallback({ code: 'c', state: 's', nonce: 'n', codeVerifier: 'v' }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(repo.createSsoUser).not.toHaveBeenCalled();
+  });
+
+  it('rejects a deactivated user matched by subject', async () => {
+    const { svc } = makeService(
+      { findBySsoIdentity: vi.fn().mockResolvedValue({ ...IDENTITY, deactivatedAt: new Date() }) },
+      {},
+      { verifyCallback: vi.fn().mockResolvedValue(identity) },
+    );
+    await expect(
+      svc.oidcCallback({ code: 'c', state: 's', nonce: 'n', codeVerifier: 'v' }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('404s when SSO is disabled, without calling the IdP', async () => {
+    const verifyCallback = vi.fn();
+    const { svc } = makeService(
+      {},
+      {},
+      { isEnabled: vi.fn().mockReturnValue(false), verifyCallback },
+    );
+    await expect(
+      svc.oidcCallback({ code: 'c', state: 's', nonce: 'n', codeVerifier: 'v' }),
+    ).rejects.toThrow(NotFoundException);
+    expect(verifyCallback).not.toHaveBeenCalled();
   });
 });
 
