@@ -62,6 +62,9 @@ export async function startFakeIdp(): Promise<FakeIdp> {
         response_types_supported: ['code'],
         subject_types_supported: ['public'],
         id_token_signing_alg_values_supported: ['RS256'],
+        // RFC 9207 — mirrors Keycloak/Entra so the e2e exercises the `iss` response-param
+        // path that a real IdP requires (regression guard for the missing-iss 401 bug).
+        authorization_response_iss_parameter_supported: true,
         token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
         grant_types_supported: ['authorization_code'],
         scopes_supported: ['openid', 'email', 'profile'],
