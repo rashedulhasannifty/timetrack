@@ -37,12 +37,12 @@ export default async function PersonPage({ params }: { params: Promise<{ userId:
     <>
       <PageHeader title="Person" subtitle={`Timeline · today · Activity · last 7 days (UTC)`} />
       {entries === null ? (
-        <p className="text-sm text-neutral-500">You’re not permitted to view this person.</p>
+        <p className="text-text-secondary text-body">You’re not permitted to view this person.</p>
       ) : (
         <div className="flex flex-col gap-8">
           <Timeline entries={entries} />
           <section>
-            <h2 className="mb-3 text-lg font-medium">Activity · last 7 days (UTC)</h2>
+            <h2 className="text-text text-h2 mb-3 font-semibold">Activity · last 7 days (UTC)</h2>
             <ActivitySummaryPanel summaries={summaries} from={from} to={to} />
           </section>
         </div>

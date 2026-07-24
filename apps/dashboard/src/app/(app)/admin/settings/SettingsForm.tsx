@@ -31,9 +31,9 @@ function NumberField({
         min={min}
         max={max}
         required
-        className="w-32 rounded-md border border-neutral-300 px-3 py-2 text-sm tabular-nums"
+        className="tt-numeric bg-surface border-separator text-text focus:border-accent w-32 rounded-md border px-3 py-2 outline-none transition-colors"
       />
-      <span className="text-xs text-neutral-500">{hint}</span>
+      <span className="text-text-secondary text-caption">{hint}</span>
     </label>
   );
 }
@@ -54,7 +54,7 @@ function Toggle({
       <input name={name} type="checkbox" defaultChecked={checked} className="mt-1" />
       <span>
         <span className="block font-medium">{label}</span>
-        <span className="text-xs text-neutral-500">{hint}</span>
+        <span className="text-text-secondary text-caption">{hint}</span>
       </span>
     </label>
   );
@@ -70,8 +70,8 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
 
   return (
     <form action={formAction} className="flex max-w-2xl flex-col gap-6">
-      <section className="flex flex-col gap-4 rounded-lg border border-neutral-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-neutral-700">Screenshots</h2>
+      <section className="bg-surface-raised border-separator flex flex-col gap-4 rounded-lg border p-4 shadow-e1">
+        <h2 className="text-text text-label font-semibold">Screenshots</h2>
         <Toggle
           name="screenshotsEnabled"
           label="Capture screenshots"
@@ -92,13 +92,13 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
             <select
               name="screenshotBlur"
               defaultValue={settings.screenshotBlur}
-              className="rounded-md border border-neutral-300 px-3 py-2 text-sm"
+              className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 outline-none transition-colors"
             >
               <option value="NONE">No blur</option>
               <option value="BLUR">Blur</option>
               <option value="THUMBNAIL_ONLY">Thumbnail only</option>
             </select>
-            <span className="text-xs text-neutral-500">How much of a shot is legible.</span>
+            <span className="text-text-secondary text-caption">How much of a shot is legible.</span>
           </label>
           <NumberField
             name="screenshotRetentionDays"
@@ -111,8 +111,8 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
         </div>
       </section>
 
-      <section className="flex flex-col gap-4 rounded-lg border border-neutral-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-neutral-700">Activity & idle</h2>
+      <section className="bg-surface-raised border-separator flex flex-col gap-4 rounded-lg border p-4 shadow-e1">
+        <h2 className="text-text text-label font-semibold">Activity & idle</h2>
         <div className="flex flex-wrap gap-6">
           <NumberField
             name="activityRetentionDays"
@@ -151,8 +151,8 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
         />
       </section>
 
-      <section className="flex flex-col gap-4 rounded-lg border border-neutral-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-neutral-700">App categories</h2>
+      <section className="bg-surface-raised border-separator flex flex-col gap-4 rounded-lg border p-4 shadow-e1">
+        <h2 className="text-text text-label font-semibold">App categories</h2>
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-medium">Productive apps</span>
           <textarea
@@ -160,9 +160,9 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
             defaultValue={settings.productiveApps.join('\n')}
             rows={3}
             placeholder="One app per line"
-            className="rounded-md border border-neutral-300 px-3 py-2 text-sm"
+            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 outline-none transition-colors"
           />
-          <span className="text-xs text-neutral-500">
+          <span className="text-text-secondary text-caption">
             One app name per line (or comma-separated).
           </span>
         </label>
@@ -173,15 +173,17 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
             defaultValue={settings.unproductiveApps.join('\n')}
             rows={3}
             placeholder="One app per line"
-            className="rounded-md border border-neutral-300 px-3 py-2 text-sm"
+            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 outline-none transition-colors"
           />
-          <span className="text-xs text-neutral-500">A category label, not a judgement.</span>
+          <span className="text-text-secondary text-caption">
+            A category label, not a judgement.
+          </span>
         </label>
       </section>
 
-      <section className="flex flex-col gap-4 rounded-lg border border-neutral-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-neutral-700">Site categories</h2>
-        <p className="text-xs text-neutral-500">
+      <section className="bg-surface-raised border-separator flex flex-col gap-4 rounded-lg border p-4 shadow-e1">
+        <h2 className="text-text text-label font-semibold">Site categories</h2>
+        <p className="text-text-secondary text-caption">
           Matched against the browser&rsquo;s current site host (e.g. <code>youtube.com</code>),
           separately from apps. A host matches its subdomains.
         </p>
@@ -192,9 +194,11 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
             defaultValue={settings.productiveSites.join('\n')}
             rows={3}
             placeholder="One site host per line, e.g. docs.google.com"
-            className="rounded-md border border-neutral-300 px-3 py-2 text-sm"
+            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 outline-none transition-colors"
           />
-          <span className="text-xs text-neutral-500">One host per line (or comma-separated).</span>
+          <span className="text-text-secondary text-caption">
+            One host per line (or comma-separated).
+          </span>
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-medium">Unproductive sites</span>
@@ -203,9 +207,11 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
             defaultValue={settings.unproductiveSites.join('\n')}
             rows={3}
             placeholder="One site host per line, e.g. youtube.com"
-            className="rounded-md border border-neutral-300 px-3 py-2 text-sm"
+            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 outline-none transition-colors"
           />
-          <span className="text-xs text-neutral-500">A category label, not a judgement.</span>
+          <span className="text-text-secondary text-caption">
+            A category label, not a judgement.
+          </span>
         </label>
       </section>
 
@@ -213,12 +219,12 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
         <button
           type="submit"
           disabled={pending}
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="bg-accent hover:bg-accent-hover text-body rounded-md px-4 py-2 font-medium text-white transition-colors disabled:opacity-50"
         >
           {pending ? 'Saving…' : 'Save settings'}
         </button>
         {state.message ? (
-          <p className={`text-sm ${state.ok ? 'text-green-700' : 'text-red-700'}`} role="status">
+          <p className={`text-body ${state.ok ? 'text-accent' : 'text-destructive'}`} role="status">
             {state.message}
           </p>
         ) : null}

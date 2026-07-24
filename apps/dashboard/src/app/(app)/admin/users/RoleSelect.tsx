@@ -23,13 +23,15 @@ export function RoleSelect({ userId, role }: { userId: string; role: Role }) {
         disabled={pending}
         aria-label="Role"
         onChange={(e) => e.currentTarget.form?.requestSubmit()}
-        className="rounded-md border border-neutral-300 px-2 py-1 text-xs disabled:opacity-50"
+        className="bg-surface border-separator text-text focus:border-accent rounded-md border px-2 py-1 text-caption outline-none transition-colors disabled:opacity-50"
       >
         <option value="EMPLOYEE">Employee</option>
         <option value="MANAGER">Manager</option>
         <option value="ADMIN">Admin</option>
       </select>
-      {state.message ? <span className="text-xs text-red-600">{state.message}</span> : null}
+      {state.message ? (
+        <span className="text-destructive text-caption">{state.message}</span>
+      ) : null}
     </form>
   );
 }

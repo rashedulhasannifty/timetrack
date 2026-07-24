@@ -43,9 +43,9 @@ export default async function ReportsPage({
     <>
       <PageHeader title="Reports" subtitle="Per-user and per-project rollups (PRD §6.5)." />
       {forbidden ? (
-        <p className="text-sm text-neutral-500">You’re not permitted to view reports.</p>
+        <p className="text-text-secondary text-body">You’re not permitted to view reports.</p>
       ) : team === null || projects === null ? (
-        <p className="text-sm text-neutral-500">
+        <p className="text-text-secondary text-body">
           Something went wrong loading reports. Please try again.
         </p>
       ) : (
@@ -54,7 +54,7 @@ export default async function ReportsPage({
             <ReportRangePicker from={from} to={to} />
             <a
               href={`/reports/export?${params.toString()}`}
-              className="inline-flex items-center rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium hover:bg-neutral-50"
+              className="border-separator text-text hover:bg-surface inline-flex items-center rounded-md border px-3 py-1.5 text-label font-medium transition-colors"
               download
             >
               Export CSV
@@ -63,16 +63,16 @@ export default async function ReportsPage({
           {hasReportData(team.rows, projects.rows) ? (
             <>
               <section>
-                <h2 className="mb-3 text-lg font-medium">By person</h2>
+                <h2 className="text-text text-h2 mb-3 font-semibold">By person</h2>
                 <TeamSummaryTable rows={team.rows} />
               </section>
               <section>
-                <h2 className="mb-3 text-lg font-medium">By project</h2>
+                <h2 className="text-text text-h2 mb-3 font-semibold">By project</h2>
                 <ProjectHoursChart data={toProjectBars(projects.rows)} />
               </section>
             </>
           ) : (
-            <p className="text-sm text-neutral-500">No data in this range.</p>
+            <p className="text-text-secondary text-body">No data in this range.</p>
           )}
         </div>
       )}

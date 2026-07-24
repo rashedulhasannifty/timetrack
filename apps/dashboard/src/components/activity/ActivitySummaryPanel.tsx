@@ -8,10 +8,12 @@ import {
   type CategorySlice,
 } from '../../lib/activity-summary-view';
 
+// Design palette (indigo / gray / orange), routed through the shared tokens so the hue and the
+// dark-mode shift come from one source (matches the macOS client's category colors).
 const CATEGORY_COLOR: Record<CategorySlice['category'], string> = {
-  PRODUCTIVE: '#16a34a',
-  NEUTRAL: '#a3a3a3',
-  UNPRODUCTIVE: '#d97706',
+  PRODUCTIVE: 'var(--color-category-productive)',
+  NEUTRAL: 'var(--color-category-neutral)',
+  UNPRODUCTIVE: 'var(--color-category-unproductive)',
 };
 
 const CATEGORY_LABEL: Record<CategorySlice['category'], string> = {
@@ -40,7 +42,9 @@ export function ActivitySummaryPanel({
   to: string;
 }) {
   if (summaries.length === 0) {
-    return <p className="text-sm text-neutral-500">No activity recorded in the last 7 days.</p>;
+    return (
+      <p className="text-text-secondary text-body">No activity recorded in the last 7 days.</p>
+    );
   }
 
   const points = toDailyActivityPoints(summaries, from, to);
@@ -51,25 +55,22 @@ export function ActivitySummaryPanel({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <span className="text-2xl font-light">{formatMinutes(active)}</span>
-        <span className="ml-2 text-sm text-neutral-500">active · last 7 days (UTC)</span>
+        <span className="tt-numeric text-h2 font-light">{formatMinutes(active)}</span>
+        <span className="text-text-secondary text-body ml-2">active · last 7 days (UTC)</span>
       </div>
 
       <ActivityDailyChart data={points} />
 
       <div>
-        <h3 className="mb-3 text-sm font-medium text-neutral-900">Apps &amp; sites</h3>
+        <h3 className="text-text text-label mb-3 font-medium">Apps &amp; sites</h3>
         <ul className="flex flex-col gap-2">
           {apps.map((a) => (
             <li key={a.name} className="flex items-center gap-3">
-              <span className="w-40 shrink-0 truncate text-sm">{a.name}</span>
-              <span className="h-2 flex-1 overflow-hidden rounded bg-neutral-100">
-                <span
-                  className="block h-full rounded bg-neutral-900"
-                  style={{ width: `${a.pct}%` }}
-                />
+              <span className="text-body w-40 shrink-0 truncate">{a.name}</span>
+              <span className="bg-separator h-2 flex-1 overflow-hidden rounded">
+                <span className="bg-accent block h-full rounded" style={{ width: `${a.pct}%` }} />
               </span>
-              <span className="w-16 shrink-0 text-right text-sm tabular-nums text-neutral-500">
+              <span className="tt-numeric text-text-secondary text-body w-16 shrink-0 text-right">
                 {formatMinutes(a.minutes)}
               </span>
             </li>
@@ -78,7 +79,7 @@ export function ActivitySummaryPanel({
       </div>
 
       <div>
-        <h3 className="mb-3 text-sm font-medium text-neutral-900">Category mix</h3>
+        <h3 className="text-text text-label mb-3 font-medium">Category mix</h3>
         <span className="flex h-3 overflow-hidden rounded">
           {categories.map((c) => (
             <span
@@ -87,7 +88,7 @@ export function ActivitySummaryPanel({
             />
           ))}
         </span>
-        <div className="mt-2 flex flex-wrap gap-4 text-xs text-neutral-500">
+        <div className="text-text-secondary text-caption mt-2 flex flex-wrap gap-4">
           {categories.map((c) => (
             <span key={c.category} className="flex items-center gap-1.5">
               <span

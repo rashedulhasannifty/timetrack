@@ -5,19 +5,19 @@ import { useState } from 'react';
 /** Expand/collapse a single row's pretty-printed diff. The only client component on the page. */
 export function DiffToggle({ json }: { json: string }) {
   const [open, setOpen] = useState(false);
-  if (json === '—') return <span className="text-neutral-400">—</span>;
+  if (json === '—') return <span className="text-text-secondary">—</span>;
   return (
     <div>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="text-xs text-blue-600 hover:underline"
+        className="text-accent text-caption hover:underline"
       >
         {open ? 'Hide' : 'View'}
       </button>
       {open ? (
-        <pre className="mt-1 max-w-md overflow-x-auto rounded-md bg-neutral-50 p-2 text-xs text-neutral-700">
+        <pre className="bg-surface text-text mt-1 max-w-md overflow-x-auto rounded-md p-2 text-caption">
           {json}
         </pre>
       ) : null}
