@@ -107,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tracker: tracker,
             dashboardURL: AppDelegate.dashboardURL(),
             openURL: { NSWorkspace.shared.open($0) },
+            onSignIn: { Task { @MainActor in presentLoginBox.call?() } },
             onSignOut: {
                 Task {
                     // Tear down auto-tracking first: stop the observer/timer and deactivate the
@@ -146,8 +147,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Keep the indicator in sync with tracking state (always visible; no kill switch).
         // onPhaseChanged fires on the main thread (from a SwiftUI button action).
-        menuViewModel.onPhaseChanged = { [weak self] isTracking in
-            self?.statusItem.setState(isTracking ? .tracking : .idle)
+        menuViewModel.onPhaseChanged = { [weak self] isTracking, startedAt in
+            self?.statusItem.setState(isTracking ? .tracking : .idle, startedAt: startedAt)
         }
         statusItem.install(content: MenuBarView(viewModel: menuViewModel))
         startHeartbeat()
@@ -357,7 +358,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             buffer: ImageBufferStore.shared,
             intervalMinutes: intervalMinutes,
             isTracking: { [weak self] in self?.timeTracker.isRunning ?? false },
-            onCaptured: { [weak self] in Task { await self?.screenshotSync?.syncNow() } },
+            onCaptured: { [weak self] in
+                // Surface the capture moment in the menu bar ("Saving a screenshot right now"),
+                // then sync it up. Always visible, never silent (CLAUDE.md §1).
+                Task { @MainActor in self?.statusItem.flashCapturing() }
+                Task { await self?.screenshotSync?.syncNow() }
+            },
             onPermissionDenied: { [weak self] in Task { @MainActor in self?.statusItem.showScreenRecordingDenied() } },
             onCaptureSucceeded: { [weak self] in Task { @MainActor in self?.statusItem.clearWarning() } }
         )

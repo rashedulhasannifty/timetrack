@@ -7,16 +7,50 @@ struct MenuBarView: View {
     @ObservedObject var viewModel: MenuViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            controls
-            Divider()
-            picker
-            Divider()
-            footer
+        Group {
+            if viewModel.isSignedIn {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    controls
+                    Divider()
+                    picker
+                    Divider()
+                    footer
+                }
+            } else {
+                signedOut
+            }
         }
         .frame(width: 340)
         .background(TT.Palette.surfaceRaised)
+    }
+
+    // MARK: Signed-out — no My Data / Sign Out (those belong to a session)
+
+    @ViewBuilder private var signedOut: some View {
+        VStack(alignment: .leading, spacing: TT.Space.x3) {
+            HStack(spacing: 6) {
+                Circle().fill(TT.Palette.textSecondary).frame(width: 7, height: 7)
+                Text("Not signed in").font(.ttLabel)
+            }
+            .foregroundStyle(TT.Palette.textSecondary)
+            Text("Sign in to start tracking your time.")
+                .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)
+            Button(action: viewModel.signIn) {
+                Text("Sign In").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(TT.Palette.accent)
+            HStack {
+                Spacer()
+                Button("Quit", action: viewModel.quit).buttonStyle(.link)
+            }
+            .font(.ttCaption)
+        }
+        .padding(.horizontal, TT.Space.x4)
+        .padding(.vertical, TT.Space.x3)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Header — status + elapsed
