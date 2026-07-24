@@ -113,7 +113,9 @@ final class MenuViewModel: ObservableObject {
         sync()
     }
 
-    func openMyData() { openURL(dashboardURL) }
+    /// Open the employee self-view directly (the dashboard's /me page), not the dashboard root —
+    /// the rich "My data" screen (time ribbon, activity, screenshots + redaction) lives on the web.
+    func openMyData() { openURL(dashboardURL.appendingPathComponent("me")) }
 
     /// Returns the VM to a clean signed-out state: closes/enqueues any live span (`stop()`
     /// drives phase→idle + icon via `sync()`) and clears everything selection/search/project

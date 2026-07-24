@@ -80,6 +80,19 @@ final class MenuViewModelTests: XCTestCase {
         XCTAssertTrue(signedOut, "onSignOut must be invoked")
     }
 
+    func testOpenMyDataOpensSelfView() {
+        let tracker = TimeTracker(buffer: BufferSpy(),
+                                  clock: { Date(timeIntervalSince1970: 0) },
+                                  idGen: { _ in "id-1" })
+        var opened: URL?
+        let vm = MenuViewModel(tracker: tracker,
+                               dashboardURL: URL(string: "http://localhost:3000")!,
+                               openURL: { opened = $0 }, onSignIn: {}, onSignOut: {}, onQuit: {})
+        vm.openMyData()
+        XCTAssertEqual(opened?.absoluteString, "http://localhost:3000/me",
+                       "My Data must open the /me self-view, not the dashboard root")
+    }
+
     func testFilteredChoicesMatchQuery() {
         let vm = makeVM()
         vm.projects = [
