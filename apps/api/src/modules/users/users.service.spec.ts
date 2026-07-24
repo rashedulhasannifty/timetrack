@@ -55,7 +55,9 @@ const activeEmployee = { id: 'u2', role: 'EMPLOYEE' as const, teamId: 't1', deac
 function makeSetActiveService(repoOverrides: Partial<UsersRepository>) {
   const repo = {
     findForAdmin: vi.fn(),
+    findUser: vi.fn(),
     setActive: vi.fn(),
+    setRole: vi.fn(),
     ackMonitoring: vi.fn(),
     ...repoOverrides,
   } as unknown as UsersRepository;
@@ -63,10 +65,10 @@ function makeSetActiveService(repoOverrides: Partial<UsersRepository>) {
   return { svc: new UsersService(repo, invites), repo };
 }
 
-describe('UsersService.setActive guards', () => {
+describe('UsersService.update — active-state guards', () => {
   it('404 when the target does not exist', async () => {
     const { svc } = makeSetActiveService({ findForAdmin: vi.fn().mockResolvedValue(null) });
-    await expect(svc.setActive('nope', { deactivated: true }, admin)).rejects.toBeInstanceOf(
+    await expect(svc.update('nope', { deactivated: true }, admin)).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
@@ -75,7 +77,7 @@ describe('UsersService.setActive guards', () => {
     const { svc } = makeSetActiveService({
       findForAdmin: vi.fn().mockResolvedValue({ ...activeEmployee, teamId: 'other' }),
     });
-    await expect(svc.setActive('u2', { deactivated: true }, admin)).rejects.toBeInstanceOf(
+    await expect(svc.update('u2', { deactivated: true }, admin)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
   });
@@ -86,7 +88,7 @@ describe('UsersService.setActive guards', () => {
         .fn()
         .mockResolvedValue({ id: 'a1', role: 'ADMIN', teamId: 't1', deactivatedAt: null }),
     });
-    await expect(svc.setActive('a1', { deactivated: true }, admin)).rejects.toBeInstanceOf(
+    await expect(svc.update('a1', { deactivated: true }, admin)).rejects.toBeInstanceOf(
       ConflictException,
     );
   });
@@ -98,7 +100,7 @@ describe('UsersService.setActive guards', () => {
         .mockResolvedValue({ id: 'u2', role: 'ADMIN', teamId: 't1', deactivatedAt: null }),
       setActive: vi.fn().mockResolvedValue({ status: 'LAST_ADMIN' }),
     });
-    await expect(svc.setActive('u2', { deactivated: true }, admin)).rejects.toBeInstanceOf(
+    await expect(svc.update('u2', { deactivated: true }, admin)).rejects.toBeInstanceOf(
       ConflictException,
     );
   });
@@ -111,7 +113,7 @@ describe('UsersService.setActive guards', () => {
         .mockResolvedValue({ id: 'u2', role: 'ADMIN', teamId: 't1', deactivatedAt: null }),
       setActive: vi.fn().mockResolvedValue({ status: 'OK', user }),
     });
-    await expect(svc.setActive('u2', { deactivated: true }, admin)).resolves.toBe(user);
+    await expect(svc.update('u2', { deactivated: true }, admin)).resolves.toBe(user);
     expect(repo.setActive).toHaveBeenCalledWith('u2', true, 'a1');
   });
 
@@ -121,8 +123,63 @@ describe('UsersService.setActive guards', () => {
       findForAdmin: vi.fn().mockResolvedValue({ ...activeEmployee, deactivatedAt: new Date() }),
       setActive: vi.fn().mockResolvedValue({ status: 'OK', user }),
     });
-    await expect(svc.setActive('u2', { deactivated: false }, admin)).resolves.toBe(user);
+    await expect(svc.update('u2', { deactivated: false }, admin)).resolves.toBe(user);
     expect(repo.setActive).toHaveBeenCalledWith('u2', false, 'a1');
+  });
+});
+
+describe('UsersService.update — role guards', () => {
+  it('changes another user’s role when allowed', async () => {
+    const user = { id: 'u2', role: 'MANAGER' } as User;
+    const { svc, repo } = makeSetActiveService({
+      findForAdmin: vi.fn().mockResolvedValue(activeEmployee),
+      setRole: vi.fn().mockResolvedValue({ status: 'OK', user }),
+    });
+    await expect(svc.update('u2', { role: 'MANAGER' }, admin)).resolves.toBe(user);
+    expect(repo.setRole).toHaveBeenCalledWith('u2', 'MANAGER', 'a1');
+  });
+
+  it('is a no-op (no setRole, no audit) when the role is unchanged', async () => {
+    const user = { id: 'u2', role: 'EMPLOYEE' } as User;
+    const { svc, repo } = makeSetActiveService({
+      findForAdmin: vi.fn().mockResolvedValue(activeEmployee),
+      findUser: vi.fn().mockResolvedValue(user),
+    });
+    await expect(svc.update('u2', { role: 'EMPLOYEE' }, admin)).resolves.toBe(user);
+    expect(repo.setRole).not.toHaveBeenCalled();
+  });
+
+  it('409 when an admin demotes their OWN role (self-lockout)', async () => {
+    const { svc, repo } = makeSetActiveService({
+      findForAdmin: vi
+        .fn()
+        .mockResolvedValue({ id: 'a1', role: 'ADMIN', teamId: 't1', deactivatedAt: null }),
+    });
+    await expect(svc.update('a1', { role: 'EMPLOYEE' }, admin)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(repo.setRole).not.toHaveBeenCalled();
+  });
+
+  it('409 when demoting the last active admin', async () => {
+    const { svc } = makeSetActiveService({
+      findForAdmin: vi
+        .fn()
+        .mockResolvedValue({ id: 'u2', role: 'ADMIN', teamId: 't1', deactivatedAt: null }),
+      setRole: vi.fn().mockResolvedValue({ status: 'LAST_ADMIN' }),
+    });
+    await expect(svc.update('u2', { role: 'EMPLOYEE' }, admin)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('403 when the target is on another team', async () => {
+    const { svc } = makeSetActiveService({
+      findForAdmin: vi.fn().mockResolvedValue({ ...activeEmployee, teamId: 'other' }),
+    });
+    await expect(svc.update('u2', { role: 'MANAGER' }, admin)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 });
 

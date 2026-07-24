@@ -90,6 +90,33 @@ describe('api.setUserActive', () => {
   });
 });
 
+describe('api.setUserRole', () => {
+  it('sends the role and returns the parsed User', async () => {
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify({ ...USER, role: 'MANAGER' }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await api.setUserRole('tok', USER.id, 'MANAGER');
+    expect(result.role).toBe('MANAGER');
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(init).toMatchObject({ method: 'PATCH', body: JSON.stringify({ role: 'MANAGER' }) });
+  });
+
+  it('surfaces the last-admin 409 as an ApiError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Response(JSON.stringify({ title: 'Cannot demote the last active admin' }), {
+            status: 409,
+          }),
+      ),
+    );
+    await expect(api.setUserRole('tok', USER.id, 'EMPLOYEE')).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
 describe('api.updateTeamSettings', () => {
   it('parses the returned TeamSettings on 200', async () => {
     const settings = {

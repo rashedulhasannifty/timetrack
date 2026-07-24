@@ -5,12 +5,7 @@ import { api } from '../../../../lib/api-client';
 import { formatDate } from '../../../../lib/format';
 import { InviteForm } from './InviteForm';
 import { UserRowActions } from './UserRowActions';
-
-const ROLE_LABEL: Record<string, string> = {
-  EMPLOYEE: 'Employee',
-  MANAGER: 'Manager',
-  ADMIN: 'Admin',
-};
+import { RoleSelect } from './RoleSelect';
 
 /**
  * Slice 1.2 — the admin's workforce screen: list the team, invite new members, and
@@ -54,7 +49,9 @@ export default async function AdminUsersPage() {
                   <tr key={u.id} className="border-b border-neutral-100 last:border-0">
                     <td className="px-4 py-2 font-medium">{u.name}</td>
                     <td className="px-4 py-2 text-neutral-600">{u.email}</td>
-                    <td className="px-4 py-2 text-neutral-600">{ROLE_LABEL[u.role] ?? u.role}</td>
+                    <td className="px-4 py-2 text-neutral-600">
+                      <RoleSelect userId={u.id} role={u.role} />
+                    </td>
                     <td className="px-4 py-2 text-neutral-600">
                       {u.monitoringAckAt ? (
                         `Acknowledged ${formatDate(u.monitoringAckAt)}`

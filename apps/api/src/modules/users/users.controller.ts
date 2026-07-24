@@ -34,7 +34,7 @@ export class UsersController {
     @Body(new ZodValidationPipe(UpdateUserSchema)) dto: UpdateUser,
     @CurrentUser() actor: SessionUser,
   ): Promise<User> {
-    return this.service.setActive(id, dto, actor);
+    return this.service.update(id, dto, actor);
   }
 
   @Post('invite')

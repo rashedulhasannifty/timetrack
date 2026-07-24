@@ -9,6 +9,7 @@ import type {
   AckMonitoring,
   InviteResult,
   InviteUser,
+  Role,
   UpdateUser,
   User,
 } from '@timetrack/contracts';
@@ -29,12 +30,12 @@ export class UsersService {
   }
 
   /**
-   * Deactivate (revokes sessions) or reactivate a user. ADMIN-gated in the controller;
-   * here we enforce same team only and no self-deactivation. The last-active-admin guard
-   * is authoritative in `repo.setActive` (a locked re-check inside its transaction) — we
-   * just translate its LAST_ADMIN sentinel to a 409 here.
+   * ADMIN-gated user mutation: change role and/or active state. Same-team is enforced once
+   * here; the last-active-admin guard is authoritative inside each repo transaction (a locked
+   * re-check) — we translate its LAST_ADMIN sentinel to a 409. When both fields are present,
+   * the role change is applied first, then the active change; the final User is returned.
    */
-  async setActive(id: string, dto: UpdateUser, actor: SessionUser): Promise<User> {
+  async update(id: string, dto: UpdateUser, actor: SessionUser): Promise<User> {
     const target = await this.repo.findForAdmin(id);
     if (!target) {
       throw new NotFoundException({
@@ -50,14 +51,58 @@ export class UsersService {
         status: 403,
       });
     }
-    if (dto.deactivated && id === actor.id) {
+
+    let user: User | undefined;
+    if (dto.role !== undefined) {
+      user = await this.applyRole(id, dto.role, target.role, actor);
+    }
+    if (dto.deactivated !== undefined) {
+      user = await this.applyActive(id, dto.deactivated, actor);
+    }
+    // UpdateUserSchema's refine guarantees at least one field was present.
+    return user as User;
+  }
+
+  private async applyRole(
+    id: string,
+    role: Role,
+    currentRole: Role,
+    actor: SessionUser,
+  ): Promise<User> {
+    // No-op: role unchanged. Return the current record without a spurious audit row.
+    if (role === currentRole) {
+      const current = await this.repo.findUser(id);
+      return current as User; // existence already established by findForAdmin
+    }
+    // No self-demotion: an admin cannot drop their own ADMIN role (self-lockout). Mirrors the
+    // no-self-deactivation rule, so it is a 409 like that guard.
+    if (id === actor.id && currentRole === 'ADMIN' && role !== 'ADMIN') {
+      throw new ConflictException({
+        type: 'https://timetrack.internal/errors/conflict',
+        title: 'You cannot change your own role',
+        status: 409,
+      });
+    }
+    const result = await this.repo.setRole(id, role, actor.id);
+    if (result.status === 'LAST_ADMIN') {
+      throw new ConflictException({
+        type: 'https://timetrack.internal/errors/conflict',
+        title: 'Cannot demote the last active admin',
+        status: 409,
+      });
+    }
+    return result.user;
+  }
+
+  private async applyActive(id: string, deactivated: boolean, actor: SessionUser): Promise<User> {
+    if (deactivated && id === actor.id) {
       throw new ConflictException({
         type: 'https://timetrack.internal/errors/conflict',
         title: 'You cannot deactivate your own account',
         status: 409,
       });
     }
-    const result = await this.repo.setActive(id, dto.deactivated, actor.id);
+    const result = await this.repo.setActive(id, deactivated, actor.id);
     if (result.status === 'LAST_ADMIN') {
       throw new ConflictException({
         type: 'https://timetrack.internal/errors/conflict',

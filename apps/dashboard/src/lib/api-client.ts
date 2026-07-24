@@ -39,6 +39,7 @@ import {
   OidcAuthorizeResultSchema,
   type OidcAuthorizeResult,
   type OidcCallback,
+  type Role,
 } from '@timetrack/contracts';
 import { z } from 'zod';
 
@@ -201,6 +202,8 @@ export const api = {
     send('POST', '/users/invite', dto, InviteResultSchema, token),
   setUserActive: (token: string, id: string, deactivated: boolean): Promise<User> =>
     send('PATCH', `/users/${id}`, { deactivated }, UserSchema, token),
+  setUserRole: (token: string, id: string, role: Role): Promise<User> =>
+    send('PATCH', `/users/${id}`, { role }, UserSchema, token),
   updateTeamSettings: (token: string, patch: UpdateSettings): Promise<TeamSettings> =>
     send('PATCH', '/admin/settings', patch, TeamSettingsSchema, token),
   listAudit: (token: string, params: URLSearchParams): Promise<AuditLogPage> =>
