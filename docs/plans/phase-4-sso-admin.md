@@ -86,6 +86,7 @@
 - [x] 4.1 Retention automation (partition drop + audit + MinIO cleanup).
 - [x] 4.2 Audit-log UI.
 - [x] 4.3 Export + erasure (atomic, audited).
-- [ ] 4.4 SSO (OIDC/SAML).
+- [x] 4.4 SSO (OIDC). API owns the protocol; dashboard BFF owns the cookie + redirects.
+      Link-by-verified-email + auto-provision; SAML deferred.
 - [ ] 4.5 Advanced admin controls.
 - [ ] Green gate; compliance paths (retention, erasure) integration-tested; SSO validated against a real IdP.
