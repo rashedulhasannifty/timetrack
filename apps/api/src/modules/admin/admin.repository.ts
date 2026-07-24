@@ -399,58 +399,65 @@ export class AdminRepository {
     reason: string,
     deletedObjects: number,
   ): Promise<EraseResult> {
-    return this.prisma.$transaction(async (tx) => {
-      // Authoritative last-admin re-check. FOR UPDATE serializes concurrent erases/deactivations
-      // so two requests cannot each read "2 admins" and both proceed to zero.
-      const target = await tx.user.findUnique({
-        where: { id: userId },
-        select: { teamId: true, role: true, deactivatedAt: true },
-      });
-      if (target && target.role === 'ADMIN' && target.deactivatedAt === null) {
-        const activeAdmins = await tx.$queryRaw<{ id: string }[]>`
+    return this.prisma.$transaction(
+      async (tx) => {
+        // Authoritative last-admin re-check. FOR UPDATE serializes concurrent erases/deactivations
+        // so two requests cannot each read "2 admins" and both proceed to zero.
+        const target = await tx.user.findUnique({
+          where: { id: userId },
+          select: { teamId: true, role: true, deactivatedAt: true },
+        });
+        if (target && target.role === 'ADMIN' && target.deactivatedAt === null) {
+          const activeAdmins = await tx.$queryRaw<{ id: string }[]>`
           SELECT "id" FROM "users"
           WHERE "teamId" = ${target.teamId} AND "role"::text = 'ADMIN' AND "deactivatedAt" IS NULL
           FOR UPDATE`;
-        if (activeAdmins.length <= 1) return { status: 'LAST_ADMIN' as const };
-      }
+          if (activeAdmins.length <= 1) return { status: 'LAST_ADMIN' as const };
+        }
 
-      const counts: EraseCounts = {
-        refreshTokens: (await tx.refreshToken.deleteMany({ where: { userId } })).count,
-        timeEntries: (await tx.timeEntry.deleteMany({ where: { userId } })).count,
-        timesheetApprovals: (await tx.timesheetApproval.deleteMany({ where: { userId } })).count,
-        activitySamples: (await tx.activitySample.deleteMany({ where: { userId } })).count,
-        screenshots: (await tx.screenshot.deleteMany({ where: { userId } })).count,
-        idleEvents: (await tx.idleEvent.deleteMany({ where: { userId } })).count,
-        activityDailySummaries: (await tx.activityDailySummary.deleteMany({ where: { userId } }))
-          .count,
-        // Keyed by EMAIL — the table a userId sweep misses.
-        invites: (await tx.invite.deleteMany({ where: { email } })).count,
-      };
+        const counts: EraseCounts = {
+          refreshTokens: (await tx.refreshToken.deleteMany({ where: { userId } })).count,
+          timeEntries: (await tx.timeEntry.deleteMany({ where: { userId } })).count,
+          timesheetApprovals: (await tx.timesheetApproval.deleteMany({ where: { userId } })).count,
+          activitySamples: (await tx.activitySample.deleteMany({ where: { userId } })).count,
+          screenshots: (await tx.screenshot.deleteMany({ where: { userId } })).count,
+          idleEvents: (await tx.idleEvent.deleteMany({ where: { userId } })).count,
+          activityDailySummaries: (await tx.activityDailySummary.deleteMany({ where: { userId } }))
+            .count,
+          // Keyed by EMAIL — the table a userId sweep misses.
+          invites: (await tx.invite.deleteMany({ where: { email } })).count,
+        };
 
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          email: `erased-${userId}@erased.invalid`, // .invalid is RFC-2606 reserved; email is @unique
-          name: 'Erased user',
-          passwordHash: ERASED_PASSWORD_HASH,
-          monitoringAckAt: null, // PRD §4.1 — null means monitoring MUST NOT run
-          deactivatedAt: new Date(),
-        },
-      });
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            email: `erased-${userId}@erased.invalid`, // .invalid is RFC-2606 reserved; email is @unique
+            name: 'Erased user',
+            passwordHash: ERASED_PASSWORD_HASH,
+            monitoringAckAt: null, // PRD §4.1 — null means monitoring MUST NOT run
+            deactivatedAt: new Date(),
+          },
+        });
 
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          action: 'user.erase',
-          targetType: 'user',
-          targetId: userId,
-          // Counts + reason ONLY. Never the erased email/name: re-recording the PII we just
-          // destroyed into a row we keep forever would defeat the erasure.
-          diff: { reason, deleted: counts, deletedObjects },
-        },
-      });
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: 'user.erase',
+            targetType: 'user',
+            targetId: userId,
+            // Counts + reason ONLY. Never the erased email/name: re-recording the PII we just
+            // destroyed into a row we keep forever would defeat the erasure.
+            diff: { reason, deleted: counts, deletedObjects },
+          },
+        });
 
-      return { status: 'OK' as const, counts };
-    });
+        return { status: 'OK' as const, counts };
+      },
+      // A long-tenured user's activity_samples/screenshots (monthly-partitioned) can be
+      // hundreds of thousands of rows; the default 5s interactive-transaction timeout would
+      // roll the erase back (P2028) AFTER the caller's S3 sweep already ran, so erasure could
+      // never complete for exactly the heaviest users. Give the delete sweep generous headroom.
+      { timeout: 120_000, maxWait: 10_000 },
+    );
   }
 }
