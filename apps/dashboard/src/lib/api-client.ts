@@ -36,6 +36,9 @@ import {
   AuditLogPageSchema,
   type AuditLogPage,
   type EraseUser,
+  OidcAuthorizeResultSchema,
+  type OidcAuthorizeResult,
+  type OidcCallback,
 } from '@timetrack/contracts';
 import { z } from 'zod';
 
@@ -217,6 +220,14 @@ export const api = {
     authPost('/auth/login', { email, password }, TokenPairSchema),
   refresh: (refreshToken: string): Promise<TokenPair | null> =>
     authPost('/auth/refresh', { refreshToken }, TokenPairSchema),
+
+  // SSO (OIDC). start() mints the flow (secrets stored in the tt_oidc cookie by the BFF);
+  // callback() exchanges the IdP code for a TokenPair. Both return null on any API failure
+  // (incl. 404 when SSO is disabled) so the BFF route can bounce to /login?error=sso.
+  oidcAuthorize: (): Promise<OidcAuthorizeResult | null> =>
+    authPost('/auth/oidc/authorize', {}, OidcAuthorizeResultSchema),
+  oidcCallback: (body: OidcCallback): Promise<TokenPair | null> =>
+    authPost('/auth/oidc/callback', body, TokenPairSchema),
   logout: async (refreshToken: string): Promise<void> => {
     // Idempotent server-side; fire-and-ignore the result. Never throw on logout.
     try {
