@@ -31,6 +31,12 @@ final class StatusItemController: NSObject {
         refresh()
     }
 
+    /// Dismiss the dropdown — e.g. when a Sign In / policy window is presented over it, so the
+    /// popover doesn't linger behind the new window.
+    func closePopover() {
+        if popover.isShown { popover.performClose(nil) }
+    }
+
     @objc private func togglePopover() {
         guard let button = item.button else { return }
         if popover.isShown {

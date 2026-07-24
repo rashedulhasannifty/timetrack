@@ -173,6 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor private func presentLogin() {
+        statusItem.closePopover()   // don't leave the dropdown lingering behind the login window
         // Idempotent: reuse the window that's already up instead of stacking a second one (the
         // signed-out dropdown's Sign In and the sign-out flow both route here).
         if loginWindow?.bringToFrontIfShowing() == true { return }
@@ -557,6 +558,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor private func presentAck(policy: EffectivePolicy, userId: String) {
+        statusItem.closePopover()   // don't leave the dropdown lingering behind the policy window
         let controller = AckWindowController(policy: policy, userId: userId, ackClient: ackClient) { [weak self] in
             self?.ackMarker.record(userId: userId, policyVersion: policy.policyVersion)
             Task { await self?.proceedToPolicy() }
