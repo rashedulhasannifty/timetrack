@@ -1,6 +1,7 @@
 export * from './common.js';
 export * from './enums.js';
 export * from './auth.js';
+export * from './oidc.js';
 export * from './users.js';
 export * from './teams.js';
 export * from './projects.js';
