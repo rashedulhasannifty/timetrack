@@ -1,0 +1,33 @@
+import { test, expect } from '@playwright/test';
+
+/**
+ * SCAFFOLD: skipped so `test:e2e` passes without a browser install or a running app
+ * (matches overview.spec.ts / admin.spec.ts). Un-skip once seeded data + auth are wired.
+ * Intended assertions for the Projects index (Slice 1):
+ */
+test.describe('projects index', () => {
+  test.skip('lists team projects with tracked hours, sorted by hours desc', async ({ page }) => {
+    await page.goto('/projects');
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+    // Seeded: two projects with time entries; the higher-hours project appears first.
+  });
+
+  test.skip('archived toggle reveals archived projects; default hides them', async ({ page }) => {
+    await page.goto('/projects');
+    await expect(page.getByText('Archived')).toHaveCount(0);
+    await page.getByRole('link', { name: 'Show archived' }).click();
+    await expect(page.getByText('Archived').first()).toBeVisible();
+  });
+
+  test.skip('a project row links to its detail page', async ({ page }) => {
+    await page.goto('/projects');
+    await page.getByRole('link').filter({ hasText: /./ }).first().click();
+    await expect(page).toHaveURL(/\/projects\/[0-9a-f-]+/);
+  });
+
+  test.skip('an employee sees the not-permitted state', async ({ page }) => {
+    // With an EMPLOYEE session, /reports/projects 403s → the not-permitted copy renders.
+    await page.goto('/projects');
+    await expect(page.getByText("You're not permitted to view projects.")).toBeVisible();
+  });
+});
