@@ -80,6 +80,13 @@ export class OidcService {
     const currentUrl = new URL(cfg.redirectUri);
     currentUrl.searchParams.set('code', dto.code);
     currentUrl.searchParams.set('state', dto.state);
+    // RFC 9207: IdPs that advertise `authorization_response_iss_parameter_supported`
+    // (Keycloak, Entra, most modern IdPs) return an `iss` authorization-response parameter,
+    // and openid-client REJECTS the exchange if it's absent. The dashboard doesn't forward
+    // it, but with a single configured issuer we know it — set it to the discovered issuer so
+    // the (single-IdP) mix-up check passes. CSRF is already covered by the dashboard's
+    // cookie state-match; nonce + PKCE + signature are verified here.
+    currentUrl.searchParams.set('iss', discovery.serverMetadata().issuer);
 
     let claims: Record<string, unknown> | undefined;
     try {
