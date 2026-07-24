@@ -13,6 +13,14 @@ export type ProjectIndexRow = {
  * Merge the project list (names, archived) with per-project hours (from /reports/projects) into
  * sorted index rows. The null-projectId "No project" bucket is not a project — its seconds are
  * returned separately for a muted footer row. Pure; unit-tested. No I/O.
+ *
+ * KNOWN GAP (revisit when a slice renders a grand total): only the forward join is covered —
+ * every project gets a row. A non-null-projectId summary row with NO matching project in
+ * `projects` has its seconds silently dropped (neither a row nor `noProjectSeconds`). This IS
+ * reachable on the default view: /reports/projects aggregates all projects incl. archived, but
+ * listProjects returns active-only by default, so an archived project with in-range hours is
+ * absent from `projects`. Benign here (Slice 1 shows no total, so nothing fails to reconcile);
+ * when a total/reconciliation is added, route unmatched non-null seconds into a residual bucket.
  */
 export function toProjectIndexRows(
   projects: Project[],

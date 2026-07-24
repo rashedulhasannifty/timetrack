@@ -168,8 +168,8 @@ Sidebar "Projects" → /projects
 
 - **Employee visibility:** decision is to match Reports (403 → forbidden state), not to show a
   hours-less list. Revisit only if product wants employees browsing projects.
-- **Range semantics:** "total hours" is range-scoped (default last 30 days) — the subtitle must
-  state the range so the number isn't read as all-time.
+- **Range semantics:** "total hours" is range-scoped (default last 7 days, via the existing
+  `defaultReportRange`) — the subtitle must state the range so the number isn't read as all-time.
 - **No API/contract/db change here** keeps the slice low-risk; the `includeArchived` forward is the
   only non-dashboard-view edit and is backward-compatible.
 - **`ReportRangePicker` reuse:** verify it doesn't hardcode navigation to `/reports`. If it does,
