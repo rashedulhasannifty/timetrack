@@ -109,4 +109,61 @@ export class AdminService {
       });
     }
   }
+
+  /**
+   * PRD §4.4 — a full data export for one user, streamed as JSON. Same guards as erase (404 /
+   * cross-team 403). Emits the envelope incrementally and delegates each table to a paged
+   * repository generator, so a user with tens of thousands of activity samples is never
+   * materialized in memory. `refresh_tokens` is deliberately excluded — `tokenHash` is live
+   * session material, not personal data.
+   */
+  async exportUser(userId: string, actor: SessionUser): Promise<AsyncIterable<string>> {
+    const target = await this.repo.findForErase(userId);
+    if (!target) {
+      throw new NotFoundException({
+        type: 'https://timetrack.internal/errors/not-found',
+        title: 'User not found',
+        status: 404,
+      });
+    }
+    if (target.teamId !== actor.teamId) {
+      throw new ForbiddenException({
+        type: 'https://timetrack.internal/errors/forbidden',
+        title: 'Cannot manage a user in another team',
+        status: 403,
+      });
+    }
+    return this.generateExport(userId, target.email);
+  }
+
+  /**
+   * `email` is threaded through separately from `userId`: `invites` is keyed by email (not
+   * userId), so `streamInvites` needs the target's real address, which only the guard read in
+   * `exportUser` has.
+   */
+  private async *generateExport(userId: string, email: string): AsyncGenerator<string> {
+    const header = await this.repo.exportUserHeader(userId);
+    yield `{"exportedAt":${JSON.stringify(new Date().toISOString())},"user":${JSON.stringify(header)}`;
+
+    const sections: [string, AsyncGenerator<unknown>][] = [
+      ['timeEntries', this.repo.streamTimeEntries(userId)],
+      ['timesheetApprovals', this.repo.streamTimesheetApprovals(userId)],
+      ['activitySamples', this.repo.streamActivitySamples(userId)],
+      ['activityDailySummaries', this.repo.streamActivityDailySummaries(userId)],
+      ['screenshots', this.repo.streamScreenshots(userId)],
+      ['idleEvents', this.repo.streamIdleEvents(userId)],
+      ['invites', this.repo.streamInvites(email)],
+      ['auditLog', this.repo.streamAuditLog(userId)],
+    ];
+    for (const [name, rows] of sections) {
+      yield `,${JSON.stringify(name)}:[`;
+      let first = true;
+      for await (const row of rows) {
+        yield first ? JSON.stringify(row) : `,${JSON.stringify(row)}`;
+        first = false;
+      }
+      yield ']';
+    }
+    yield '}';
+  }
 }

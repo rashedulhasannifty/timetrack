@@ -121,6 +121,244 @@ export class AdminRepository {
     });
   }
 
+  /** Page size for export streaming — large enough to be efficient, small enough to bound memory. */
+  private static readonly EXPORT_BATCH = 500;
+
+  exportUserHeader(id: string): Promise<{
+    id: string;
+    email: string;
+    name: string;
+    role: Role;
+    teamId: string;
+    monitoringAckAt: Date | null;
+    deactivatedAt: Date | null;
+    createdAt: Date;
+  } | null> {
+    return this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        teamId: true,
+        monitoringAckAt: true,
+        deactivatedAt: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  async *streamTimeEntries(userId: string): AsyncGenerator<unknown> {
+    let cursor: string | undefined;
+    for (;;) {
+      const rows = await this.prisma.timeEntry.findMany({
+        where: { userId },
+        orderBy: { id: 'asc' },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: AdminRepository.EXPORT_BATCH,
+        select: {
+          id: true,
+          projectId: true,
+          taskId: true,
+          startTime: true,
+          endTime: true,
+          source: true,
+          note: true,
+          editedById: true,
+          editedAt: true,
+        },
+      });
+      for (const r of rows) yield r;
+      if (rows.length < AdminRepository.EXPORT_BATCH) return;
+      cursor = rows[rows.length - 1]?.id;
+      if (!cursor) return;
+    }
+  }
+
+  async *streamTimesheetApprovals(userId: string): AsyncGenerator<unknown> {
+    let cursor: string | undefined;
+    for (;;) {
+      const rows = await this.prisma.timesheetApproval.findMany({
+        where: { userId },
+        orderBy: { id: 'asc' },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: AdminRepository.EXPORT_BATCH,
+        select: {
+          id: true,
+          periodStart: true,
+          periodEnd: true,
+          status: true,
+          totalSeconds: true,
+          reviewerId: true,
+          note: true,
+          decidedAt: true,
+          createdAt: true,
+        },
+      });
+      for (const r of rows) yield r;
+      if (rows.length < AdminRepository.EXPORT_BATCH) return;
+      cursor = rows[rows.length - 1]?.id;
+      if (!cursor) return;
+    }
+  }
+
+  /** Partitioned table: the PK is composite, so the cursor is the compound unique. */
+  async *streamActivitySamples(userId: string): AsyncGenerator<unknown> {
+    let cursor: { id: string; timestamp: Date } | undefined;
+    for (;;) {
+      const rows = await this.prisma.activitySample.findMany({
+        where: { userId },
+        orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
+        ...(cursor ? { cursor: { id_timestamp: cursor }, skip: 1 } : {}),
+        take: AdminRepository.EXPORT_BATCH,
+        select: {
+          id: true,
+          timestamp: true,
+          appName: true,
+          windowTitle: true,
+          activityPct: true,
+          category: true,
+        },
+      });
+      for (const r of rows) yield r;
+      if (rows.length < AdminRepository.EXPORT_BATCH) return;
+      const last = rows[rows.length - 1];
+      if (!last) return;
+      cursor = { id: last.id, timestamp: last.timestamp };
+    }
+  }
+
+  /** Partitioned table: the PK is composite, so the cursor is the compound unique. Metadata
+   *  only — never the screenshot bytes. */
+  async *streamScreenshots(userId: string): AsyncGenerator<unknown> {
+    let cursor: { id: string; timestamp: Date } | undefined;
+    for (;;) {
+      const rows = await this.prisma.screenshot.findMany({
+        where: { userId },
+        orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
+        ...(cursor ? { cursor: { id_timestamp: cursor }, skip: 1 } : {}),
+        take: AdminRepository.EXPORT_BATCH,
+        select: {
+          id: true,
+          timestamp: true,
+          storageKey: true,
+          thumbnailKey: true,
+          blurred: true,
+          status: true,
+          redactedReason: true,
+        },
+      });
+      for (const r of rows) yield r;
+      if (rows.length < AdminRepository.EXPORT_BATCH) return;
+      const last = rows[rows.length - 1];
+      if (!last) return;
+      cursor = { id: last.id, timestamp: last.timestamp };
+    }
+  }
+
+  async *streamIdleEvents(userId: string): AsyncGenerator<unknown> {
+    let cursor: string | undefined;
+    for (;;) {
+      const rows = await this.prisma.idleEvent.findMany({
+        where: { userId },
+        orderBy: { id: 'asc' },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: AdminRepository.EXPORT_BATCH,
+        select: {
+          id: true,
+          startTime: true,
+          endTime: true,
+          resolvedAction: true,
+        },
+      });
+      for (const r of rows) yield r;
+      if (rows.length < AdminRepository.EXPORT_BATCH) return;
+      cursor = rows[rows.length - 1]?.id;
+      if (!cursor) return;
+    }
+  }
+
+  /** Small, unpartitioned rollup table. PK is composite (userId, day). */
+  async *streamActivityDailySummaries(userId: string): AsyncGenerator<unknown> {
+    let cursor: { userId: string; day: Date } | undefined;
+    for (;;) {
+      const rows = await this.prisma.activityDailySummary.findMany({
+        where: { userId },
+        orderBy: { day: 'asc' },
+        ...(cursor ? { cursor: { userId_day: cursor }, skip: 1 } : {}),
+        take: AdminRepository.EXPORT_BATCH,
+        select: {
+          userId: true,
+          day: true,
+          avgActivityPct: true,
+          activeMinutes: true,
+          byApp: true,
+          byCategory: true,
+        },
+      });
+      for (const r of rows) yield r;
+      if (rows.length < AdminRepository.EXPORT_BATCH) return;
+      const last = rows[rows.length - 1];
+      if (!last) return;
+      cursor = { userId: last.userId, day: last.day };
+    }
+  }
+
+  /** Keyed by EMAIL, not userId — same table a userId-only sweep would miss. NEVER select
+   *  `tokenHash` — it is live session material, not personal data. */
+  async *streamInvites(email: string): AsyncGenerator<unknown> {
+    let cursor: string | undefined;
+    for (;;) {
+      const rows = await this.prisma.invite.findMany({
+        where: { email },
+        orderBy: { id: 'asc' },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: AdminRepository.EXPORT_BATCH,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          teamId: true,
+          expiresAt: true,
+          acceptedAt: true,
+          createdAt: true,
+        },
+      });
+      for (const r of rows) yield r;
+      if (rows.length < AdminRepository.EXPORT_BATCH) return;
+      cursor = rows[rows.length - 1]?.id;
+      if (!cursor) return;
+    }
+  }
+
+  /** Audit rows ABOUT the user: ones they performed, and ones targeting their user row. */
+  async *streamAuditLog(userId: string): AsyncGenerator<unknown> {
+    let cursor: string | undefined;
+    for (;;) {
+      const rows = await this.prisma.auditLog.findMany({
+        where: { OR: [{ actorId: userId }, { targetType: 'user', targetId: userId }] },
+        orderBy: { id: 'asc' },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: AdminRepository.EXPORT_BATCH,
+        select: {
+          id: true,
+          actorId: true,
+          action: true,
+          targetType: true,
+          targetId: true,
+          diff: true,
+          timestamp: true,
+        },
+      });
+      for (const r of rows) yield r;
+      if (rows.length < AdminRepository.EXPORT_BATCH) return;
+      cursor = rows[rows.length - 1]?.id;
+      if (!cursor) return;
+    }
+  }
+
   /** The guard read for erase: the target's real email + team/role, or null when unknown. */
   findForErase(id: string): Promise<{
     id: string;
