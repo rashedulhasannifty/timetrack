@@ -46,20 +46,44 @@ struct LoginView: View {
     @State private var busy = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Sign in").font(.headline)
-            TextField("Email", text: $email).textFieldStyle(.roundedBorder)
-            SecureField("Password", text: $password).textFieldStyle(.roundedBorder)
-            if let error { Text(error).foregroundColor(.red).font(.caption) }
-            HStack {
-                Spacer()
-                Button(busy ? "Signing in…" : "Sign in") { submit() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(busy || email.isEmpty || password.isEmpty)
+        VStack(alignment: .leading, spacing: TT.Space.x4) {
+            HStack(spacing: TT.Space.x3) {
+                RoundedRectangle(cornerRadius: TT.Radius.sm)
+                    .fill(TT.Palette.accent)
+                    .frame(width: 32, height: 32)
+                    .overlay(
+                        Image(systemName: "clock.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                    )
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Sign in to TimeTrack")
+                        .font(.ttH2).foregroundStyle(TT.Palette.text)
+                    Text("Your workspace is waiting.")
+                        .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)
+                }
             }
+
+            VStack(spacing: TT.Space.x2) {
+                TextField("you@company.com", text: $email).textFieldStyle(.roundedBorder)
+                SecureField("Password", text: $password).textFieldStyle(.roundedBorder)
+            }
+
+            if let error {
+                Text(error).font(.ttCaption).foregroundStyle(TT.Palette.destructive)
+            }
+
+            Button(busy ? "Signing in…" : "Sign in") { submit() }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(TT.Palette.accent)
+                .frame(maxWidth: .infinity)
+                .disabled(busy || email.isEmpty || password.isEmpty)
         }
-        .padding(20)
-        .frame(width: 360)
+        .padding(TT.Space.x6)
+        .frame(width: 360, alignment: .leading)
+        .background(TT.Palette.surface)
     }
 
     private func submit() {

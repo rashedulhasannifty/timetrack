@@ -51,22 +51,39 @@ struct AckView: View {
     @State private var busy = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Monitoring policy (\(policy.policyVersion))").font(.headline)
-            ScrollView { Text(policy.policyText).frame(maxWidth: .infinity, alignment: .leading) }
-                .frame(maxHeight: 260)
+        VStack(alignment: .leading, spacing: TT.Space.x3) {
+            Text("Monitoring policy (\(policy.policyVersion))")
+                .font(.ttH2).foregroundStyle(TT.Palette.text)
+            ScrollView {
+                Text(policy.policyText)
+                    .font(.ttBody).foregroundStyle(TT.Palette.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(TT.Space.x3)
+            }
+            .frame(maxHeight: 260)
+            .background(TT.Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: TT.Radius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: TT.Radius.md)
+                    .stroke(TT.Palette.separator, lineWidth: 1)
+            )
             Text("While tracking, TimeTrack monitors activity as described above. The menu-bar indicator is always visible.")
-                .font(.caption).foregroundColor(.secondary)
-            if let error { Text(error).foregroundColor(.red).font(.caption) }
+                .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)
+            if let error {
+                Text(error).font(.ttCaption).foregroundStyle(TT.Palette.destructive)
+            }
             HStack {
                 Spacer()
                 Button(busy ? "Recording…" : "I acknowledge") { acknowledge() }
                     .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(TT.Palette.accent)
                     .disabled(busy)
             }
         }
-        .padding(20)
-        .frame(width: 460)
+        .padding(TT.Space.x6)
+        .frame(width: 460, alignment: .leading)
+        .background(TT.Palette.surface)
     }
 
     private func acknowledge() {
