@@ -51,8 +51,12 @@ final class StatusItemController: NSObject {
             return
         }
         guard let button = item.button else { return }
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // Activate BEFORE showing so the popover doesn't drift when the app comes forward.
         NSApp.activate(ignoringOtherApps: true)
+        // NSStatusBarButton is FLIPPED (isFlipped == true), so its visual bottom edge is .maxY,
+        // not .minY. Anchoring to .minY (the visual top) drops the dropdown ~180pt down the
+        // screen; .maxY hangs it flush under the menu-bar icon.
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
         // Global monitor fires only for events in OTHER apps, so a click on the icon or inside the
         // dropdown won't trip it — only a genuine click-away dismisses.
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
