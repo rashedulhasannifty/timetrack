@@ -15,7 +15,7 @@ struct AwayResolutionView: View {
                 .font(.ttH2)
             Text("Away for \(minutes) minute\(minutes == 1 ? "" : "s") while tracking. Keep this time or discard it?")
                 .font(.ttBody)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(TT.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
