@@ -11,7 +11,7 @@ export interface SettingsState {
   message?: string;
 }
 
-/** Parse a comma/newline-separated app list into a trimmed, non-empty string array. */
+/** Parse a comma/newline-separated app or site list into a trimmed, non-empty string array. */
 function parseAppList(raw: FormDataEntryValue | null): string[] {
   if (typeof raw !== 'string') return [];
   return raw
@@ -46,6 +46,8 @@ export async function updateSettingsAction(
     distractionAlertsEnabled: formData.get('distractionAlertsEnabled') === 'on',
     unproductiveApps: parseAppList(formData.get('unproductiveApps')),
     productiveApps: parseAppList(formData.get('productiveApps')),
+    unproductiveSites: parseAppList(formData.get('unproductiveSites')),
+    productiveSites: parseAppList(formData.get('productiveSites')),
   });
   if (!parsed.success) {
     return { ok: false, message: 'Some values are out of range — check the numeric fields.' };

@@ -104,6 +104,8 @@ describe('api.updateTeamSettings', () => {
       distractionAlertsEnabled: false,
       unproductiveApps: [],
       productiveApps: [],
+      unproductiveSites: [],
+      productiveSites: [],
     };
     vi.stubGlobal(
       'fetch',
