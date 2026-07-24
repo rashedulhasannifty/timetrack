@@ -35,6 +35,7 @@ import {
   type Decision,
   AuditLogPageSchema,
   type AuditLogPage,
+  type EraseUser,
 } from '@timetrack/contracts';
 import { z } from 'zod';
 
@@ -108,6 +109,34 @@ async function send<T>(
 }
 
 /**
+ * Authenticated mutating request whose success response has no body (204 No Content) —
+ * e.g. the erase route. Same auth header and ApiError handling as `send`, but never calls
+ * `res.json()` on a 2xx, so it doesn't throw parsing an empty body. Do not change `send`
+ * itself; existing callers depend on it parsing a JSON body on success.
+ */
+async function sendNoContent(
+  method: 'POST' | 'PATCH',
+  path: string,
+  body: unknown,
+  token: string,
+): Promise<void> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    const problem = (await res.json().catch(() => null)) as { title?: unknown } | null;
+    const title =
+      problem && typeof problem.title === 'string'
+        ? problem.title
+        : `Request failed (${res.status})`;
+    throw new ApiError(res.status, title);
+  }
+}
+
+/**
  * Streaming download: returns the RAW upstream Response (body left as a stream, not
  * parsed). Used by the /reports/export Route Handler to pipe the CSV straight to the
  * browser without buffering. The bearer token stays server-side (CLAUDE.md §4).
@@ -173,6 +202,10 @@ export const api = {
     send('PATCH', '/admin/settings', patch, TeamSettingsSchema, token),
   listAudit: (token: string, params: URLSearchParams): Promise<AuditLogPage> =>
     get(`/admin/audit-log?${params}`, AuditLogPageSchema, token),
+  eraseUser: (token: string, id: string, dto: EraseUser): Promise<void> =>
+    sendNoContent('POST', `/admin/users/${id}/erase`, dto, token),
+  exportUserData: (token: string, id: string): Promise<Response> =>
+    getRaw(`/admin/users/${id}/export`, token),
 
   // Approvals (list: EMPLOYEE self-only / MANAGER own team / ADMIN any; decide: MANAGER/ADMIN + resource authz).
   listApprovals: (token: string, params: URLSearchParams): Promise<TimesheetApproval[]> =>

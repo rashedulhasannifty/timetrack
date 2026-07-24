@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { InviteUserSchema } from '@timetrack/contracts';
+import { InviteUserSchema, EraseUserSchema } from '@timetrack/contracts';
 import { getSession } from '../../../../lib/session';
 import { api, ApiError } from '../../../../lib/api-client';
 
@@ -72,5 +72,27 @@ export async function setUserActiveAction(_prev: RowState, formData: FormData): 
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
+  }
+}
+
+/**
+ * PRD §4.4 — erase a user's data. The API enforces the same rules again (cross-team 403,
+ * self-erase 409, last-active-admin 409); those problem+json titles surface inline.
+ */
+export async function eraseUserAction(_prev: RowState, formData: FormData): Promise<RowState> {
+  const session = await getSession();
+  if (!session || session.role !== 'ADMIN') return { ok: false, message: 'Not authorized.' };
+
+  const rawId = formData.get('userId');
+  const id = typeof rawId === 'string' ? rawId : '';
+  const parsed = EraseUserSchema.safeParse({ reason: formData.get('reason') });
+  if (!parsed.success) return { ok: false, message: 'A reason is required (max 500 chars).' };
+
+  try {
+    await api.eraseUser(session.accessToken, id, parsed.data);
+    revalidatePath('/admin/users');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof ApiError ? e.message : 'Erase failed.' };
   }
 }

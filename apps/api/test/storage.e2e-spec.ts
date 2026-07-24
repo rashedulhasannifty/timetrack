@@ -38,6 +38,27 @@ describe.runIf(RUN_E2E)('MinioService — real MinIO container', () => {
     const res = await fetch(await svc.presignGet(key));
     expect(res.status).toBe(404);
   });
+
+  it('deleteByPrefix removes every object under the prefix and leaves others alone', async () => {
+    await svc.putObject('raw/eraseme/a', Buffer.from('a'), 'application/octet-stream');
+    await svc.putObject('raw/eraseme/b', Buffer.from('b'), 'application/octet-stream');
+    await svc.putObject('thumb/eraseme/a', Buffer.from('t'), 'application/octet-stream');
+    await svc.putObject('raw/keepme/a', Buffer.from('k'), 'application/octet-stream');
+
+    const deleted = await svc.deleteByPrefix('raw/eraseme/');
+    expect(deleted).toBe(2);
+
+    expect((await fetch(await svc.presignGet('raw/eraseme/a'))).status).toBe(404);
+    expect((await fetch(await svc.presignGet('raw/eraseme/b'))).status).toBe(404);
+    // a different user's prefix is untouched
+    expect((await fetch(await svc.presignGet('raw/keepme/a'))).status).toBe(200);
+    // the thumb prefix is a separate sweep
+    expect((await fetch(await svc.presignGet('thumb/eraseme/a'))).status).toBe(200);
+  });
+
+  it('deleteByPrefix on an empty prefix is a no-op returning 0 (idempotent re-run)', async () => {
+    expect(await svc.deleteByPrefix('raw/does-not-exist/')).toBe(0);
+  });
 });
 
 describe('storage e2e harness', () => {

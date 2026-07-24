@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+  StreamableFile,
+} from '@nestjs/common';
+import { Readable } from 'node:stream';
 import {
   AuditLogQuerySchema,
   EraseUserSchema,
@@ -43,5 +54,17 @@ export class AdminController {
     @CurrentUser() actor: SessionUser,
   ): Promise<void> {
     return this.service.eraseUser(id, dto, actor);
+  }
+
+  @Get('users/:id/export')
+  async exportUser(
+    @Param('id') id: string,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<StreamableFile> {
+    const iterable = await this.service.exportUser(id, actor);
+    return new StreamableFile(Readable.from(iterable, { objectMode: false }), {
+      type: 'application/json; charset=utf-8',
+      disposition: `attachment; filename="timetrack-user-${id}-export.json"`,
+    });
   }
 }

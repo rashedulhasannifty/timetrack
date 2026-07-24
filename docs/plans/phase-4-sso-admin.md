@@ -85,7 +85,7 @@
 
 - [x] 4.1 Retention automation (partition drop + audit + MinIO cleanup).
 - [x] 4.2 Audit-log UI.
-- [ ] 4.3 Export + erasure (atomic, audited).
+- [x] 4.3 Export + erasure (atomic, audited).
 - [ ] 4.4 SSO (OIDC/SAML).
 - [ ] 4.5 Advanced admin controls.
 - [ ] Green gate; compliance paths (retention, erasure) integration-tested; SSO validated against a real IdP.

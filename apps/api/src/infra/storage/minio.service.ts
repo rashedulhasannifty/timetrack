@@ -2,8 +2,10 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import {
   CreateBucketCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -72,5 +74,43 @@ export class MinioService implements OnModuleInit {
 
   deleteObject(key: string): Promise<unknown> {
     return this.client.send(new DeleteObjectCommand({ Bucket: this.env.S3_BUCKET, Key: key }));
+  }
+
+  /**
+   * Delete every object under `prefix`, paginating the listing and batching the deletes (S3 caps
+   * DeleteObjects at 1000 keys; ListObjectsV2 already returns at most 1000 per page). Returns the
+   * number deleted. THROWS if S3 reports a per-key error — slice 4.3 erasure removes objects
+   * BEFORE the rows that reference them, so a partial failure must abort the erase, never be
+   * swallowed. Safe to re-run: an already-empty prefix returns 0.
+   */
+  async deleteByPrefix(prefix: string): Promise<number> {
+    let deleted = 0;
+    let continuationToken: string | undefined;
+    do {
+      const listed = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.env.S3_BUCKET,
+          Prefix: prefix,
+          ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+        }),
+      );
+      const keys = (listed.Contents ?? [])
+        .map((o) => o.Key)
+        .filter((k): k is string => typeof k === 'string' && k.length > 0);
+      if (keys.length > 0) {
+        const res = await this.client.send(
+          new DeleteObjectsCommand({
+            Bucket: this.env.S3_BUCKET,
+            Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+          }),
+        );
+        if (res.Errors && res.Errors.length > 0) {
+          throw new Error(`deleteByPrefix(${prefix}): ${res.Errors.length} object(s) failed`);
+        }
+        deleted += keys.length;
+      }
+      continuationToken = listed.IsTruncated === true ? listed.NextContinuationToken : undefined;
+    } while (continuationToken);
+    return deleted;
   }
 }
