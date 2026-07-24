@@ -225,6 +225,26 @@ describe('AuthService.oidcCallback', () => {
     expect(repo.createSsoUser).not.toHaveBeenCalled();
   });
 
+  it('recovers from a concurrent-create race (P2002) by resolving to the winner row', async () => {
+    const { SsoConcurrentCreateError } = await import('./auth.repository.js');
+    const findBySsoIdentity = vi
+      .fn()
+      .mockResolvedValueOnce(null) // initial lookup: no user yet
+      .mockResolvedValueOnce({ ...IDENTITY, id: 'winner' }); // after the race: the winner's row
+    const { svc, repo } = makeService(
+      {
+        findBySsoIdentity,
+        findIdentityByEmail: vi.fn().mockResolvedValue(null),
+        createSsoUser: vi.fn().mockRejectedValue(new SsoConcurrentCreateError()),
+      },
+      {},
+      { verifyCallback: vi.fn().mockResolvedValue(identity) },
+    );
+    const pair = await svc.oidcCallback({ code: 'c', state: 's', nonce: 'n', codeVerifier: 'v' });
+    expect(pair.accessToken).toBe('access.jwt.token');
+    expect(repo.findBySsoIdentity).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects a deactivated user matched by subject', async () => {
     const { svc } = makeService(
       { findBySsoIdentity: vi.fn().mockResolvedValue({ ...IDENTITY, deactivatedAt: new Date() }) },

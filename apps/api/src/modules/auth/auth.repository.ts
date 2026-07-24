@@ -28,6 +28,13 @@ export interface ProvisionSsoUser {
  */
 export class SsoTeamMissingError extends Error {}
 
+/**
+ * Raised when two concurrent first logins for the same new identity race to create the User
+ * and the loser hits the `email` unique constraint (P2002). The service re-resolves to the
+ * winner's row instead of surfacing a 500 (mirrors the invites repo's P2002 discipline).
+ */
+export class SsoConcurrentCreateError extends Error {}
+
 export interface AuthIdentity {
   id: string;
   role: Role;
@@ -113,8 +120,9 @@ export class AuthRepository {
         select: { id: true, role: true, teamId: true, deactivatedAt: true },
       });
     } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
-        throw new SsoTeamMissingError();
+      if (err instanceof Prisma.PrismaClientKnownRequestError) {
+        if (err.code === 'P2003') throw new SsoTeamMissingError();
+        if (err.code === 'P2002') throw new SsoConcurrentCreateError();
       }
       throw err;
     }

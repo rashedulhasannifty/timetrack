@@ -19,7 +19,12 @@ import type {
 } from '@timetrack/contracts';
 import { loadEnv, oidcConfig } from '@timetrack/config';
 import { InvitesService } from '../invites/invites.service.js';
-import { AuthRepository, SsoTeamMissingError, type AuthIdentity } from './auth.repository.js';
+import {
+  AuthRepository,
+  SsoConcurrentCreateError,
+  SsoTeamMissingError,
+  type AuthIdentity,
+} from './auth.repository.js';
 import { OidcService, type OidcIdentity } from './oidc.service.js';
 import { durationToSeconds } from './token.util.js';
 
@@ -145,12 +150,8 @@ export class AuthService {
 
     if (!identity.emailVerified) throw this.emailNotVerified();
 
-    const byEmail = await this.repo.findIdentityByEmail(identity.email);
-    if (byEmail) {
-      const active = this.assertActive(byEmail);
-      await this.repo.linkSso(active.id, SSO_PROVIDER, identity.sub);
-      return active;
-    }
+    const linked = await this.linkByEmail(identity);
+    if (linked) return linked;
 
     const cfg = oidcConfig(this.env);
     if (!cfg) throw this.ssoDisabled(); // unreachable once isEnabled() passed; keeps types honest
@@ -171,8 +172,25 @@ export class AuthService {
           status: 503,
         });
       }
+      if (err instanceof SsoConcurrentCreateError) {
+        // A concurrent first login won the create — resolve to the winner's row rather than
+        // 500. Try the subject it just wrote, then fall back to linking by email.
+        const raced = await this.repo.findBySsoIdentity(SSO_PROVIDER, identity.sub);
+        if (raced) return this.assertActive(raced);
+        const relinked = await this.linkByEmail(identity);
+        if (relinked) return relinked;
+      }
       throw err;
     }
+  }
+
+  /** Link a verified identity to an existing user matched by email, or null if none. */
+  private async linkByEmail(identity: OidcIdentity): Promise<AuthIdentity | null> {
+    const byEmail = await this.repo.findIdentityByEmail(identity.email);
+    if (!byEmail) return null;
+    const active = this.assertActive(byEmail);
+    await this.repo.linkSso(active.id, SSO_PROVIDER, identity.sub);
+    return active;
   }
 
   private assertActive(identity: AuthIdentity): AuthIdentity {
