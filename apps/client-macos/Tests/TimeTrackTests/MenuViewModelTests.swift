@@ -8,7 +8,7 @@ final class MenuViewModelTests: XCTestCase {
                                   idGen: { _ in "id-1" })
         return MenuViewModel(tracker: tracker,
                              dashboardURL: URL(string: "http://localhost:3000")!,
-                             openURL: { _ in }, onSignOut: {}, onQuit: {})
+                             openURL: { _ in }, onSignIn: {}, onSignOut: {}, onQuit: {})
     }
 
     func testStartIsNoOpUntilReady() {
@@ -56,9 +56,10 @@ final class MenuViewModelTests: XCTestCase {
         var signedOut = false
         let vm = MenuViewModel(tracker: tracker,
                                dashboardURL: URL(string: "http://localhost:3000")!,
-                               openURL: { _ in }, onSignOut: { signedOut = true }, onQuit: {})
+                               openURL: { _ in }, onSignIn: {}, onSignOut: { signedOut = true }, onQuit: {})
 
         vm.markReady()
+        XCTAssertTrue(vm.isSignedIn, "precondition: a ready session reads as signed in")
         vm.select(Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Acme", taskName: nil))
         vm.query = "acme"
         vm.projects = [Project(id: "p1", teamId: "t1", name: "Acme", archived: false, tasks: nil)]
@@ -69,11 +70,27 @@ final class MenuViewModelTests: XCTestCase {
 
         XCTAssertEqual(vm.phase, .idle)
         XCTAssertFalse(vm.isReady)
+        // Regression: the dropdown must flip to signed-out so it no longer offers My Data /
+        // Sign Out after the user signs out (the reported bug).
+        XCTAssertFalse(vm.isSignedIn, "sign-out must clear the signed-in state")
         XCTAssertNil(vm.selectedChoice)
         XCTAssertEqual(vm.query, "")
         XCTAssertEqual(vm.projects, [])
         XCTAssertEqual(spy.entries.count, 1, "the in-progress span must be closed and enqueued")
         XCTAssertTrue(signedOut, "onSignOut must be invoked")
+    }
+
+    func testOpenMyDataOpensSelfView() {
+        let tracker = TimeTracker(buffer: BufferSpy(),
+                                  clock: { Date(timeIntervalSince1970: 0) },
+                                  idGen: { _ in "id-1" })
+        var opened: URL?
+        let vm = MenuViewModel(tracker: tracker,
+                               dashboardURL: URL(string: "http://localhost:3000")!,
+                               openURL: { opened = $0 }, onSignIn: {}, onSignOut: {}, onQuit: {})
+        vm.openMyData()
+        XCTAssertEqual(opened?.absoluteString, "http://localhost:3000/me",
+                       "My Data must open the /me self-view, not the dashboard root")
     }
 
     func testFilteredChoicesMatchQuery() {

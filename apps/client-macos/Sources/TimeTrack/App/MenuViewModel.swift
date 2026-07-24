@@ -21,19 +21,24 @@ final class MenuViewModel: ObservableObject {
     enum Phase: Equatable { case idle, tracking, paused }
 
     @Published private(set) var isReady = false
+    /// Whether a user session is open. Drives the dropdown's signed-in vs signed-out layout —
+    /// the signed-out dropdown never offers My Data / Sign Out (those belong to a session).
+    @Published private(set) var isSignedIn = false
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var startedAt: Date?
     @Published private(set) var selectedChoice: Choice?
     @Published var projects: [Project] = []
     @Published var query: String = ""
 
-    /// Called on every tracking-state change with `iconIsTracking`, so AppDelegate can update
-    /// the always-visible status icon without a Combine subscription.
-    var onPhaseChanged: ((Bool) -> Void)?
+    /// Called on every tracking-state change with `iconIsTracking` and the tracking start (nil
+    /// when not tracking), so AppDelegate can update the always-visible status icon — including
+    /// its live elapsed count — without a Combine subscription.
+    var onPhaseChanged: ((Bool, Date?) -> Void)?
 
     private let tracker: TimeTracker
     private let dashboardURL: URL
     private let openURL: (URL) -> Void
+    private let onSignIn: () -> Void
     private let onSignOut: () -> Void
     private let onQuit: () -> Void
 
@@ -41,12 +46,14 @@ final class MenuViewModel: ObservableObject {
         tracker: TimeTracker,
         dashboardURL: URL,
         openURL: @escaping (URL) -> Void,
+        onSignIn: @escaping () -> Void,
         onSignOut: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         self.tracker = tracker
         self.dashboardURL = dashboardURL
         self.openURL = openURL
+        self.onSignIn = onSignIn
         self.onSignOut = onSignOut
         self.onQuit = onQuit
     }
@@ -83,7 +90,10 @@ final class MenuViewModel: ObservableObject {
         }
     }
 
-    func markReady() { isReady = true }
+    func markReady() {
+        isReady = true
+        isSignedIn = true
+    }
     func markNotReady() { isReady = false }
 
     func select(_ choice: Choice) { selectedChoice = choice }
@@ -103,7 +113,9 @@ final class MenuViewModel: ObservableObject {
         sync()
     }
 
-    func openMyData() { openURL(dashboardURL) }
+    /// Open the employee self-view directly (the dashboard's /me page), not the dashboard root —
+    /// the rich "My data" screen (time ribbon, activity, screenshots + redaction) lives on the web.
+    func openMyData() { openURL(dashboardURL.appendingPathComponent("me")) }
 
     /// Returns the VM to a clean signed-out state: closes/enqueues any live span (`stop()`
     /// drives phase→idle + icon via `sync()`) and clears everything selection/search/project
@@ -112,10 +124,15 @@ final class MenuViewModel: ObservableObject {
     func reset() {
         stop()
         isReady = false
+        isSignedIn = false
         selectedChoice = nil
         query = ""
         projects = []
     }
+
+    /// Bring the sign-in window forward from the signed-out dropdown (the login window is
+    /// already presented on sign-out, but the user may have dismissed it).
+    func signIn() { onSignIn() }
 
     func signOut() {
         reset()
@@ -136,6 +153,6 @@ final class MenuViewModel: ObservableObject {
             phase = .paused
             startedAt = nil
         }
-        onPhaseChanged?(iconIsTracking)
+        onPhaseChanged?(iconIsTracking, startedAt)
     }
 }

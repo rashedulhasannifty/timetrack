@@ -13,6 +13,16 @@ final class LoginWindowController {
         self.onSuccess = onSuccess
     }
 
+    /// If a login window from this controller already exists, bring it to the front and report
+    /// true — so the caller reuses it instead of opening a second window. (`window` is only
+    /// cleared on success; a user-closed window is re-shown, which is the desired behaviour.)
+    func bringToFrontIfShowing() -> Bool {
+        guard let window else { return false }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        return true
+    }
+
     func show() {
         let view = LoginView(session: session) { [weak self] in
             self?.window?.close()
