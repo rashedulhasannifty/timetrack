@@ -103,6 +103,49 @@ describe.runIf(RUN_E2E)('users management — real Postgres', () => {
     expect(row?.deactivatedAt).not.toBeNull();
   });
 
+  it('setRole changes the role and writes a role_change audit row', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
+    const user = await seedUser(team.id, 'e@ex.co', 'EMPLOYEE');
+
+    const result = await repo().setRole(user.id, 'MANAGER', 'admin1');
+    expect(result.status).toBe('OK');
+    if (result.status !== 'OK') throw new Error('unreachable');
+    expect(result.user.role).toBe('MANAGER');
+
+    const audit = await db.prisma.auditLog.findMany({ where: { targetId: user.id } });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]?.action).toBe('user.role_change');
+    expect((audit[0]?.diff as { role: string; from: string }).role).toBe('MANAGER');
+    expect((audit[0]?.diff as { role: string; from: string }).from).toBe('EMPLOYEE');
+  });
+
+  it('refuses to demote the last active admin and writes nothing', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
+    const admin = await seedUser(team.id, 'admin@ex.co', 'ADMIN');
+
+    const result = await repo().setRole(admin.id, 'EMPLOYEE', 'actor1');
+    expect(result.status).toBe('LAST_ADMIN');
+
+    const row = await db.prisma.user.findUnique({
+      where: { id: admin.id },
+      select: { role: true },
+    });
+    expect(row?.role).toBe('ADMIN');
+    const audit = await db.prisma.auditLog.count({ where: { targetId: admin.id } });
+    expect(audit).toBe(0);
+  });
+
+  it('demotes an admin when another active admin remains', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
+    const a1 = await seedUser(team.id, 'a1@ex.co', 'ADMIN');
+    await seedUser(team.id, 'a2@ex.co', 'ADMIN');
+
+    const result = await repo().setRole(a1.id, 'MANAGER', 'actor1');
+    expect(result.status).toBe('OK');
+    const row = await db.prisma.user.findUnique({ where: { id: a1.id }, select: { role: true } });
+    expect(row?.role).toBe('MANAGER');
+  });
+
   it('ackMonitoring sets monitoringAckAt and audits the policy version', async () => {
     const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
     const user = await seedUser(team.id);

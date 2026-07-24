@@ -88,5 +88,8 @@
 - [x] 4.3 Export + erasure (atomic, audited).
 - [x] 4.4 SSO (OIDC). API owns the protocol; dashboard BFF owns the cookie + redirects.
       Link-by-verified-email + auto-provision; SAML deferred.
-- [ ] 4.5 Advanced admin controls.
-- [ ] Green gate; compliance paths (retention, erasure) integration-tested; SSO validated against a real IdP.
+- [x] 4.5 Advanced admin controls. Policy editor + app lists already shipped; this slice
+      added separate productive/unproductive SITE lists (client host-categorization split)
+      and admin role management (audited, last-active-admin + self-lockout guards).
+- [ ] Green gate ✅; compliance paths (retention, erasure) integration-tested ✅; SSO
+      validated against a real IdP — **still a manual gate** (CI cannot cover it).

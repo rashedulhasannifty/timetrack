@@ -38,6 +38,7 @@ function toUser(r: UserRow): User {
 }
 
 export type SetActiveResult = { status: 'OK'; user: User } | { status: 'LAST_ADMIN' };
+export type SetRoleResult = { status: 'OK'; user: User } | { status: 'LAST_ADMIN' };
 
 /** CLAUDE.md §3 — Prisma lives here. Never select `*` back to the client. */
 @Injectable()
@@ -60,6 +61,12 @@ export class UsersRepository {
       where: { id },
       select: { id: true, role: true, teamId: true, deactivatedAt: true },
     });
+  }
+
+  /** Full User by id (for returning an unchanged record on a no-op update). */
+  async findUser(id: string): Promise<User | null> {
+    const row = await this.prisma.user.findUnique({ where: { id }, select: USER_SELECT });
+    return row ? toUser(row) : null;
   }
 
   /**
@@ -103,6 +110,44 @@ export class UsersRepository {
           targetType: 'user',
           targetId: id,
           diff: { deactivated },
+        },
+      });
+      return { status: 'OK' as const, user: toUser(user) };
+    });
+  }
+
+  /**
+   * One atomic tx: change a user's role and audit it. Demoting a currently-active ADMIN out of
+   * ADMIN takes a `SELECT ... FOR UPDATE` on the team's active admins FIRST (same serialization
+   * as setActive) so two concurrent demotions can't both leave zero admins. Returns LAST_ADMIN
+   * (no writes) when this would remove the team's final active admin. A no-op (role unchanged)
+   * is handled in the service and never reaches here.
+   */
+  async setRole(id: string, role: Role, actorId: string): Promise<SetRoleResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const target = await tx.user.findUnique({
+        where: { id },
+        select: { teamId: true, role: true, deactivatedAt: true },
+      });
+      if (target && target.role === 'ADMIN' && role !== 'ADMIN' && target.deactivatedAt === null) {
+        const activeAdmins = await tx.$queryRaw<{ id: string }[]>`
+          SELECT "id" FROM "users"
+          WHERE "teamId" = ${target.teamId} AND "role"::text = 'ADMIN' AND "deactivatedAt" IS NULL
+          FOR UPDATE`;
+        if (activeAdmins.length <= 1) return { status: 'LAST_ADMIN' as const };
+      }
+      const user = await tx.user.update({
+        where: { id },
+        data: { role },
+        select: USER_SELECT,
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: 'user.role_change',
+          targetType: 'user',
+          targetId: id,
+          diff: { role, from: target?.role ?? null },
         },
       });
       return { status: 'OK' as const, user: toUser(user) };

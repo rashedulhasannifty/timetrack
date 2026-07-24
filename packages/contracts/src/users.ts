@@ -28,10 +28,21 @@ export const AckMonitoringSchema = z.object({
   policyVersion: z.string().min(1),
 });
 
-/** PATCH /v1/users/:id — deactivate (true) or reactivate (false) a user. */
-export const UpdateUserSchema = z.object({
-  deactivated: z.boolean(),
-});
+/**
+ * PATCH /v1/users/:id — an ADMIN mutates another user: deactivate/reactivate (`deactivated`)
+ * and/or change their role (`role`). Both are optional but at least one must be present, so an
+ * empty body is a 422 rather than a silent no-op. `.strict()` is baked in (the pipe can't add
+ * it once `.refine` wraps this in a ZodEffects) so an unexpected field is still rejected.
+ */
+export const UpdateUserSchema = z
+  .object({
+    deactivated: z.boolean().optional(),
+    role: Role.optional(),
+  })
+  .strict()
+  .refine((v) => v.deactivated !== undefined || v.role !== undefined, {
+    message: 'Provide at least one of: deactivated, role',
+  });
 
 /**
  * Response of POST /v1/users/invite. No User exists yet (the user is created on accept),

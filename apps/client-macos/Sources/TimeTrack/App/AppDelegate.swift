@@ -388,7 +388,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             siteResolver: AppleScriptSiteResolver(),
             categorizer: Categorizer(
                 productiveApps: policy.settings.productiveApps,
-                unproductiveApps: policy.settings.unproductiveApps),
+                unproductiveApps: policy.settings.unproductiveApps,
+                productiveSites: policy.settings.productiveSites,
+                unproductiveSites: policy.settings.unproductiveSites),
             store: ActivitySampleStore.shared,
             captureWindowTitles: policy.settings.captureWindowTitles,
             isTracking: { [weak self] in self?.timeTracker.isRunning ?? false },

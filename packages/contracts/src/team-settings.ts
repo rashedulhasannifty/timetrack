@@ -17,8 +17,13 @@ const teamSettingsFields = {
   captureWindowTitles: z.boolean(),
   autoStartOnLogin: z.boolean(),
   distractionAlertsEnabled: z.boolean(),
+  // App-name lists — matched against the frontmost app name (client Categorizer).
   unproductiveApps: z.array(z.string()),
   productiveApps: z.array(z.string()),
+  // Site (host) lists — matched against the front browser's active-tab host, SEPARATE from
+  // the app lists (slice 4.5). e.g. 'youtube.com'; dotted-suffix match on the client.
+  unproductiveSites: z.array(z.string()),
+  productiveSites: z.array(z.string()),
 };
 
 /** Bare (default-free) shape — the source for the partial PATCH schema. */
@@ -41,6 +46,8 @@ export const TeamSettingsSchema = z.object({
   distractionAlertsEnabled: teamSettingsFields.distractionAlertsEnabled.default(false),
   unproductiveApps: teamSettingsFields.unproductiveApps.default([]),
   productiveApps: teamSettingsFields.productiveApps.default([]),
+  unproductiveSites: teamSettingsFields.unproductiveSites.default([]),
+  productiveSites: teamSettingsFields.productiveSites.default([]),
 });
 
 export type TeamSettings = z.infer<typeof TeamSettingsSchema>;

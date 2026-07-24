@@ -8,7 +8,7 @@ const actor: SessionUser = { id: 'a1', role: 'ADMIN', teamId: 't1' };
 function make() {
   const service = {
     list: vi.fn().mockResolvedValue([{ id: 'u1' }]),
-    setActive: vi.fn().mockResolvedValue({ id: 'u1' }),
+    update: vi.fn().mockResolvedValue({ id: 'u1' }),
     invite: vi.fn().mockResolvedValue({ id: 'u2', inviteToken: 'tok' }),
     ackMonitoring: vi.fn().mockResolvedValue({ id: 'u1' }),
   } as unknown as UsersService;
@@ -22,11 +22,11 @@ describe('UsersController', () => {
     expect(service.list).toHaveBeenCalledWith(actor);
   });
 
-  it('update delegates id + dto + actor to setActive', async () => {
+  it('update delegates id + dto + actor to the service', async () => {
     const { ctrl, service } = make();
     const dto = { deactivated: true };
     await ctrl.update('u1', dto, actor);
-    expect(service.setActive).toHaveBeenCalledWith('u1', dto, actor);
+    expect(service.update).toHaveBeenCalledWith('u1', dto, actor);
   });
 
   it('invite delegates dto + actor', async () => {

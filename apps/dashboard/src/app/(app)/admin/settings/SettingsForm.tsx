@@ -179,6 +179,36 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
         </label>
       </section>
 
+      <section className="flex flex-col gap-4 rounded-lg border border-neutral-200 bg-white p-4">
+        <h2 className="text-sm font-semibold text-neutral-700">Site categories</h2>
+        <p className="text-xs text-neutral-500">
+          Matched against the browser&rsquo;s current site host (e.g. <code>youtube.com</code>),
+          separately from apps. A host matches its subdomains.
+        </p>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">Productive sites</span>
+          <textarea
+            name="productiveSites"
+            defaultValue={settings.productiveSites.join('\n')}
+            rows={3}
+            placeholder="One site host per line, e.g. docs.google.com"
+            className="rounded-md border border-neutral-300 px-3 py-2 text-sm"
+          />
+          <span className="text-xs text-neutral-500">One host per line (or comma-separated).</span>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">Unproductive sites</span>
+          <textarea
+            name="unproductiveSites"
+            defaultValue={settings.unproductiveSites.join('\n')}
+            rows={3}
+            placeholder="One site host per line, e.g. youtube.com"
+            className="rounded-md border border-neutral-300 px-3 py-2 text-sm"
+          />
+          <span className="text-xs text-neutral-500">A category label, not a judgement.</span>
+        </label>
+      </section>
+
       <div className="flex items-center gap-3">
         <button
           type="submit"

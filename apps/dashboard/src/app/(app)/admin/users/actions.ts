@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { InviteUserSchema, EraseUserSchema } from '@timetrack/contracts';
+import { InviteUserSchema, EraseUserSchema, Role } from '@timetrack/contracts';
 import { getSession } from '../../../../lib/session';
 import { api, ApiError } from '../../../../lib/api-client';
 
@@ -68,6 +68,28 @@ export async function setUserActiveAction(_prev: RowState, formData: FormData): 
 
   try {
     await api.setUserActive(session.accessToken, id, deactivated);
+    revalidatePath('/admin/users');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
+  }
+}
+
+/**
+ * Change a user's role (slice 4.5). The API re-enforces the guardrails (cross-team 403,
+ * self-role-change 409, demoting the last active admin 409); those titles surface inline.
+ */
+export async function setUserRoleAction(_prev: RowState, formData: FormData): Promise<RowState> {
+  const session = await getSession();
+  if (!session || session.role !== 'ADMIN') return { ok: false, message: 'Not authorized.' };
+
+  const rawId = formData.get('userId');
+  const id = typeof rawId === 'string' ? rawId : '';
+  const parsed = Role.safeParse(formData.get('role'));
+  if (!parsed.success) return { ok: false, message: 'Invalid role.' };
+
+  try {
+    await api.setUserRole(session.accessToken, id, parsed.data);
     revalidatePath('/admin/users');
     return { ok: true };
   } catch (e) {

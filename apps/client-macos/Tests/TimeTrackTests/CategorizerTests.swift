@@ -2,8 +2,12 @@ import XCTest
 @testable import TimeTrack
 
 final class CategorizerTests: XCTestCase {
-    private func make(prod: [String] = [], unprod: [String] = []) -> Categorizer {
-        Categorizer(productiveApps: prod, unproductiveApps: unprod)
+    private func make(
+        prod: [String] = [], unprod: [String] = [],
+        prodSites: [String] = [], unprodSites: [String] = []
+    ) -> Categorizer {
+        Categorizer(productiveApps: prod, unproductiveApps: unprod,
+                    productiveSites: prodSites, unproductiveSites: unprodSites)
     }
 
     func testDefaultsToNeutral() {
@@ -20,14 +24,26 @@ final class CategorizerTests: XCTestCase {
         XCTAssertEqual(c.category(appName: "Twitter", host: nil), .unproductive)
     }
 
-    func testHostWinsOverApp() {
-        // App would be neutral, but the host is productive.
-        let c = make(prod: ["github.com"])
+    func testHostMatchesSiteListNotAppList() {
+        // A host in the SITE list categorizes; the same term in the app list would not (split).
+        let c = make(prodSites: ["github.com"])
         XCTAssertEqual(c.category(appName: "Google Chrome", host: "github.com"), .productive)
     }
 
-    func testHostSuffixMatch() {
+    func testHostInAppListIsIgnored() {
+        // Slice 4.5 clean split: a host is matched only against site lists, never app lists.
         let c = make(unprod: ["youtube.com"])
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: "youtube.com"), .neutral)
+    }
+
+    func testAppNameNotMatchedAgainstSiteList() {
+        // Symmetric: an app name is matched only against app lists, never site lists.
+        let c = make(prodSites: ["Google Chrome"])
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: nil), .neutral)
+    }
+
+    func testHostSuffixMatch() {
+        let c = make(unprodSites: ["youtube.com"])
         XCTAssertEqual(c.category(appName: "Google Chrome", host: "m.youtube.com"), .unproductive)
     }
 
@@ -36,8 +52,8 @@ final class CategorizerTests: XCTestCase {
         XCTAssertEqual(c.category(appName: "Google Chrome", host: "example.com"), .productive)
     }
 
-    func testUnproductiveWinsOnOverlap() {
-        let c = make(prod: ["slack.com"], unprod: ["slack.com"])
+    func testUnproductiveSiteWinsOnOverlap() {
+        let c = make(prodSites: ["slack.com"], unprodSites: ["slack.com"])
         XCTAssertEqual(c.category(appName: "x", host: "slack.com"), .unproductive)
     }
 }
