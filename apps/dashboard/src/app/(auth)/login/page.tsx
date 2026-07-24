@@ -1,3 +1,5 @@
+import { IconClock } from '../../../components/ui/icons';
+
 export default async function LoginPage({
   searchParams,
 }: {
@@ -13,43 +15,52 @@ export default async function LoginPage({
       : error
         ? 'Invalid email or password.'
         : null;
+
+  const inputClass =
+    'bg-surface border-separator text-text placeholder:text-text-secondary focus:border-accent rounded-md border px-3 py-2.5 text-body outline-none transition-colors';
+
   return (
     <main className="flex min-h-screen items-center justify-center p-8">
-      <div className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
-        <h1 className="text-lg font-semibold">Sign in to TimeTrack</h1>
+      <div className="bg-surface-raised border-separator w-full max-w-sm rounded-2xl border p-7 shadow-e2">
+        <div className="mb-6 flex flex-col items-center gap-3 text-center">
+          <span className="bg-accent grid h-11 w-11 place-items-center rounded-[13px] text-white">
+            <IconClock width={24} height={24} />
+          </span>
+          <div>
+            <h1 className="text-text font-display text-h2 font-semibold tracking-tight">
+              Sign in to TimeTrack
+            </h1>
+            <p className="text-text-secondary text-label mt-1">Your workspace is waiting.</p>
+          </div>
+        </div>
+
         {message ? (
-          <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{message}</p>
+          <p className="bg-destructive/10 text-destructive text-label mb-4 rounded-md px-3 py-2">
+            {message}
+          </p>
         ) : null}
-        <form className="mt-4 flex flex-col gap-3" action="/api/auth/login" method="post">
-          <input
-            name="email"
-            type="email"
-            placeholder="you@company.com"
-            className="rounded-md border border-neutral-300 px-3 py-2 text-sm"
-          />
-          <input
-            name="password"
-            type="password"
-            placeholder="Password"
-            className="rounded-md border border-neutral-300 px-3 py-2 text-sm"
-          />
+
+        <form className="flex flex-col gap-3" action="/api/auth/login" method="post">
+          <input name="email" type="email" placeholder="you@company.com" className={inputClass} />
+          <input name="password" type="password" placeholder="Password" className={inputClass} />
           <button
             type="submit"
-            className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white"
+            className="bg-accent hover:bg-accent-hover text-body mt-1 rounded-md px-3 py-2.5 font-medium text-white transition-colors"
           >
             Sign in
           </button>
         </form>
+
         {ssoEnabled ? (
           <>
-            <div className="my-4 flex items-center gap-3 text-xs text-neutral-400">
-              <span className="h-px flex-1 bg-neutral-200" />
+            <div className="text-text-secondary text-caption my-4 flex items-center gap-3">
+              <span className="bg-separator h-px flex-1" />
               or
-              <span className="h-px flex-1 bg-neutral-200" />
+              <span className="bg-separator h-px flex-1" />
             </div>
             <a
               href="/api/auth/sso/start"
-              className="flex w-full items-center justify-center rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-50"
+              className="border-separator text-text hover:bg-surface text-body flex w-full items-center justify-center rounded-md border px-3 py-2.5 font-medium transition-colors"
             >
               Sign in with SSO
             </a>

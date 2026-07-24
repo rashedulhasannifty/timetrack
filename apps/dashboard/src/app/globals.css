@@ -1,1 +1,138 @@
+/* ============================================================================
+   TimeTrack — dashboard design tokens (Tailwind CSS v4).
+   Ported from the Claude Design handoff (design files/…/globals.css). Semantic
+   names match the macOS client's TimeTrackTokens.swift so both surfaces derive
+   from one source. Dark uses the CLASS strategy (.dark on <html>) so the manual
+   toggle wins in both directions; the root-layout inline script seeds .dark from
+   the stored preference (falling back to the OS setting) before first paint.
+   ============================================================================ */
+
 @import 'tailwindcss';
+
+/* Dark utilities key off the .dark class on <html>, not the media query. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* --- Raw palette: light (default) ---------------------------------------- */
+:root {
+  --tt-surface: #f4f4f6;
+  --tt-surface-raised: #ffffff;
+  --tt-separator: #d6d6db;
+  --tt-text: #1d1d1f;
+  --tt-text-secondary: #6e6e73;
+  --tt-accent: #007aff;
+  --tt-accent-hover: #0063cc;
+  --tt-destructive: #d70015;
+  --tt-category-productive: #5e5ce6;
+  --tt-category-neutral: #8e8e93;
+  --tt-category-unproductive: #ff9500;
+  --tt-recording: #30b0c7;
+
+  --tt-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.08);
+  --tt-elevation-2: 0 8px 24px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.1);
+  --tt-hairline: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+/* --- Raw palette: dark (manual .dark class) ------------------------------ */
+.dark {
+  --tt-surface: #1c1c1e;
+  --tt-surface-raised: #2c2c2e;
+  --tt-separator: #3a3a3c;
+  --tt-text: #f5f5f7;
+  --tt-text-secondary: #a1a1a6;
+  --tt-accent: #0a84ff;
+  --tt-accent-hover: #409cff;
+  --tt-destructive: #ff453a;
+  --tt-category-productive: #7d7aff;
+  --tt-category-neutral: #98989d;
+  --tt-category-unproductive: #ff9f0a;
+  --tt-recording: #40cbe0;
+
+  --tt-elevation-1: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --tt-elevation-2: 0 8px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --tt-hairline: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+/* --- Tailwind theme: map semantic tokens → utilities --------------------- */
+@theme inline {
+  /* Color roles → bg-surface, text-text, border-separator, bg-accent, etc. */
+  --color-surface: var(--tt-surface);
+  --color-surface-raised: var(--tt-surface-raised);
+  --color-separator: var(--tt-separator);
+  --color-text: var(--tt-text);
+  --color-text-secondary: var(--tt-text-secondary);
+  --color-accent: var(--tt-accent);
+  --color-accent-hover: var(--tt-accent-hover);
+  --color-destructive: var(--tt-destructive);
+  --color-category-productive: var(--tt-category-productive);
+  --color-category-neutral: var(--tt-category-neutral);
+  --color-category-unproductive: var(--tt-category-unproductive);
+  --color-recording: var(--tt-recording);
+
+  /* Type — SF Pro via the system stack so web + macOS read as one product. */
+  --font-sans: -apple-system, 'SF Pro Text', 'SF Pro', ui-sans-serif, system-ui, sans-serif;
+  --font-display: -apple-system, 'SF Pro Display', 'SF Pro', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Type scale (size / line-height). */
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.35;
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1.3;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.5;
+  --text-h2: 1.375rem;
+  --text-h2--line-height: 1.2;
+  --text-h1: 2rem;
+  --text-h1--line-height: 1.1;
+  --text-display: 3rem;
+  --text-display--line-height: 1.05;
+
+  /* Spacing (4pt base), radii, elevation. */
+  --spacing: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-e1: var(--tt-elevation-1);
+  --shadow-e2: var(--tt-elevation-2);
+}
+
+/* --- Base --------------------------------------------------------------- */
+body {
+  background: var(--tt-surface);
+  color: var(--tt-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--tt-accent);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--tt-accent-hover);
+}
+
+/* The numeric role: durations, %, timestamps, date ranges — tabular so digits
+   stack column-to-column. Right-align in tables. */
+.tt-numeric {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--tt-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

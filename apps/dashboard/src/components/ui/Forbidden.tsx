@@ -5,9 +5,11 @@
  */
 export function Forbidden() {
   return (
-    <div className="max-w-md rounded-lg border border-neutral-200 bg-white p-6">
-      <h1 className="text-lg font-semibold">You can only see your own data</h1>
-      <p className="mt-2 text-sm text-neutral-500">
+    <div className="bg-surface-raised border-separator max-w-md rounded-lg border p-6 shadow-e1">
+      <h1 className="text-text text-h2 font-display font-semibold">
+        You can only see your own data
+      </h1>
+      <p className="text-text-secondary text-body mt-2">
         This page is available to administrators. If you need access, ask your admin.
       </p>
     </div>
