@@ -19,15 +19,18 @@ struct EffectivePolicy: Decodable {
         let captureWindowTitles: Bool
         let productiveApps: [String]
         let unproductiveApps: [String]
+        let productiveSites: [String]
+        let unproductiveSites: [String]
 
         /// Explicit memberwise init: declaring a custom `init(from:)` below suppresses the
         /// synthesized memberwise initializer, so test doubles (`FakePolicyProvider`) that
-        /// construct `Settings` directly would break. The three activity fields default here so
-        /// existing call sites (written before 2.3b) keep compiling unchanged — do NOT edit
-        /// `FakePolicyProvider`.
+        /// construct `Settings` directly would break. Optional fields default here so existing
+        /// call sites (written before this field was added) keep compiling unchanged — do NOT
+        /// edit `FakePolicyProvider`.
         init(idleThresholdMinutes: Int, autoStartOnLogin: Bool, screenshotsEnabled: Bool,
              screenshotIntervalMinutes: Int, captureWindowTitles: Bool = true,
-             productiveApps: [String] = [], unproductiveApps: [String] = []) {
+             productiveApps: [String] = [], unproductiveApps: [String] = [],
+             productiveSites: [String] = [], unproductiveSites: [String] = []) {
             self.idleThresholdMinutes = idleThresholdMinutes
             self.autoStartOnLogin = autoStartOnLogin
             self.screenshotsEnabled = screenshotsEnabled
@@ -35,11 +38,14 @@ struct EffectivePolicy: Decodable {
             self.captureWindowTitles = captureWindowTitles
             self.productiveApps = productiveApps
             self.unproductiveApps = unproductiveApps
+            self.productiveSites = productiveSites
+            self.unproductiveSites = unproductiveSites
         }
 
         enum CodingKeys: String, CodingKey {
             case idleThresholdMinutes, autoStartOnLogin, screenshotsEnabled, screenshotIntervalMinutes
             case captureWindowTitles, productiveApps, unproductiveApps
+            case productiveSites, unproductiveSites
         }
 
         init(from decoder: Decoder) throws {
@@ -51,6 +57,8 @@ struct EffectivePolicy: Decodable {
             captureWindowTitles = try c.decodeIfPresent(Bool.self, forKey: .captureWindowTitles) ?? true
             productiveApps = try c.decodeIfPresent([String].self, forKey: .productiveApps) ?? []
             unproductiveApps = try c.decodeIfPresent([String].self, forKey: .unproductiveApps) ?? []
+            productiveSites = try c.decodeIfPresent([String].self, forKey: .productiveSites) ?? []
+            unproductiveSites = try c.decodeIfPresent([String].self, forKey: .unproductiveSites) ?? []
         }
     }
 }
