@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ComponentType, SVGProps } from 'react';
-import { IconClock, IconTeam, IconReports, IconApprovals, IconAdmin } from './icons';
+import { IconClock, IconTeam, IconProjects, IconReports, IconApprovals, IconAdmin } from './icons';
 
 type Item = {
   href: string;
@@ -12,10 +12,9 @@ type Item = {
   exact?: boolean;
 };
 
-// Only routes that exist today. (The design also shows "Projects"; there's no projects
-// index page yet, so it's intentionally omitted until that route lands.)
 const PRIMARY: Item[] = [
   { href: '/', label: 'Team', Icon: IconTeam, exact: true },
+  { href: '/projects', label: 'Projects', Icon: IconProjects },
   { href: '/reports', label: 'Reports', Icon: IconReports },
   { href: '/approvals', label: 'Approvals', Icon: IconApprovals },
   { href: '/admin/settings', label: 'Admin', Icon: IconAdmin },
