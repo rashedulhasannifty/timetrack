@@ -173,6 +173,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor private func presentLogin() {
+        // Idempotent: reuse the window that's already up instead of stacking a second one (the
+        // signed-out dropdown's Sign In and the sign-out flow both route here).
+        if loginWindow?.bringToFrontIfShowing() == true { return }
         let controller = LoginWindowController(session: session) { [weak self] in
             Task { await self?.proceedToPolicy() }
         }
