@@ -20,30 +20,45 @@ final class StatusItemController: NSObject {
     /// Reverts the brief `.capturing` flash back to whatever state preceded it.
     private var captureRevert: Timer?
     private var stateBeforeCapture: State = .idle
+    /// Dismisses the dropdown when the user clicks outside it (another app / the desktop). We do
+    /// this ourselves instead of `.transient`, whose mouse-down auto-close races the button's
+    /// mouse-up action and makes a click on the icon reopen the popover instead of closing it.
+    private var outsideClickMonitor: Any?
 
     /// Installs the indicator and attaches the SwiftUI dropdown as the popover content.
     func install<Content: View>(content: Content) {
         item.button?.target = self
         item.button?.action = #selector(togglePopover)
         item.button?.imagePosition = .imageLeading
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.contentViewController = NSHostingController(rootView: content)
         refresh()
     }
 
-    /// Dismiss the dropdown — e.g. when a Sign In / policy window is presented over it, so the
-    /// popover doesn't linger behind the new window.
+    /// Dismiss the dropdown — on a second click of the icon, an outside click, or when a Sign In /
+    /// policy window is presented over it.
     func closePopover() {
+        if let monitor = outsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            outsideClickMonitor = nil
+        }
         if popover.isShown { popover.performClose(nil) }
     }
 
     @objc private func togglePopover() {
-        guard let button = item.button else { return }
         if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            NSApp.activate(ignoringOtherApps: true)
+            closePopover()
+            return
+        }
+        guard let button = item.button else { return }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        NSApp.activate(ignoringOtherApps: true)
+        // Global monitor fires only for events in OTHER apps, so a click on the icon or inside the
+        // dropdown won't trip it — only a genuine click-away dismisses.
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            self?.closePopover()
         }
     }
 
