@@ -43,7 +43,13 @@ model User {
   email           String    @unique
   name            String
   role            Role      @default(EMPLOYEE)
-  passwordHash    String
+  /// PRD §6.8 — null for SSO-only users (no password). Password login rejects a null hash.
+  passwordHash    String?
+  /// PRD §6.8 (slice 4.4) — the OIDC provider + subject an SSO user is linked to. Both null
+  /// for password-only users. The composite is unique; Postgres treats any-NULL rows as
+  /// distinct, so every password user coexists at (null, null).
+  ssoProvider     String?
+  ssoSubject      String?
   /// PRD §4.1 — null means monitoring MUST NOT run. There is no admin override.
   monitoringAckAt DateTime?
   teamId          String
@@ -54,6 +60,7 @@ model User {
   refreshTokens   RefreshToken[]
   timesheetApprovals TimesheetApproval[]
 
+  @@unique([ssoProvider, ssoSubject])
   @@index([teamId, deactivatedAt])
   @@map("users")
 }

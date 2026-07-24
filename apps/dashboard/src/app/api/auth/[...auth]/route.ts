@@ -9,6 +9,13 @@ import {
   sessionCookieAttributes,
   type SessionPayload,
 } from '../../../../lib/session-cookie';
+import {
+  OIDC_COOKIE,
+  OIDC_MAX_AGE_SECONDS,
+  decryptOidcState,
+  encryptOidcState,
+  oidcCookieAttributes,
+} from '../../../../lib/oidc-cookie';
 
 /**
  * PRD §7.6 — this route manages the session COOKIE only; it never proxies data reads.
@@ -43,6 +50,17 @@ function setSession(res: NextResponse, payload: SessionPayload): void {
 
 function clearSession(res: NextResponse): void {
   res.cookies.set(SESSION_COOKIE, '', sessionCookieAttributes(0));
+}
+
+function clearOidc(res: NextResponse): void {
+  res.cookies.set(OIDC_COOKIE, '', oidcCookieAttributes(0));
+}
+
+/** Abandon the SSO handshake: drop the transient cookie and bounce to the login error. */
+function ssoFailure(req: NextRequest): NextResponse {
+  const res = redirect(req, '/login?error=sso');
+  clearOidc(res);
+  return res;
 }
 
 async function segment(ctx: { params: Promise<{ auth: string[] }> }): Promise<string> {
@@ -86,6 +104,48 @@ export async function GET(
   ctx: { params: Promise<{ auth: string[] }> },
 ): Promise<NextResponse> {
   const action = await segment(ctx);
+
+  // SSO (OIDC) step 1: ask the API to mint the flow, stash the per-request secrets in the
+  // short tt_oidc cookie, and hand the browser off to the IdP.
+  if (action === 'start') {
+    const authorize = await api.oidcAuthorize();
+    if (!authorize) return ssoFailure(req); // SSO disabled (404) or the IdP is unavailable
+    const res = NextResponse.redirect(authorize.authorizationUrl, 303);
+    res.cookies.set(
+      OIDC_COOKIE,
+      encryptOidcState({
+        state: authorize.state,
+        nonce: authorize.nonce,
+        codeVerifier: authorize.codeVerifier,
+      }),
+      oidcCookieAttributes(OIDC_MAX_AGE_SECONDS),
+    );
+    return res;
+  }
+
+  // SSO (OIDC) step 2: the IdP redirected back with ?code&state. Re-bind to the cookie the
+  // browser is carrying, exchange server-to-server, and establish the normal session.
+  if (action === 'callback') {
+    const handshake = decryptOidcState(req.cookies.get(OIDC_COOKIE)?.value);
+    const code = req.nextUrl.searchParams.get('code');
+    const state = req.nextUrl.searchParams.get('state');
+    // No cookie / no code / state mismatch → CSRF or an expired handshake. Fail closed.
+    if (!handshake || !code || !state || state !== handshake.state) {
+      return ssoFailure(req);
+    }
+    const tokens = await api.oidcCallback({
+      code,
+      state,
+      nonce: handshake.nonce,
+      codeVerifier: handshake.codeVerifier,
+    });
+    // Loop-breaker (mirrors refresh): a token we can't decode would bounce forever.
+    if (!tokens || !decodeClaims(tokens.accessToken)) return ssoFailure(req);
+    const res = redirect(req, '/');
+    setSession(res, payloadFrom(tokens));
+    clearOidc(res);
+    return res;
+  }
 
   if (action === 'refresh') {
     const current = decryptSession(req.cookies.get(SESSION_COOKIE)?.value);

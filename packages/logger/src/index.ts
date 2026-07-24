@@ -21,6 +21,8 @@ export const REDACT_PATHS = [
   'inviteToken',
   '*.SEED_ADMIN_PASSWORD',
   'SEED_ADMIN_PASSWORD',
+  '*.OIDC_CLIENT_SECRET',
+  'OIDC_CLIENT_SECRET',
 ];
 
 export function pinoConfig(env: { NODE_ENV: string; LOG_LEVEL: string }): LoggerOptions {
