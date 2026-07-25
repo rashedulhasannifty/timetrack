@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ComponentType, SVGProps } from 'react';
+import type { ComponentType, ReactNode, SVGProps } from 'react';
 import { IconClock, IconTeam, IconProjects, IconReports, IconApprovals, IconAdmin } from './icons';
 
 type Item = {
@@ -12,8 +12,15 @@ type Item = {
   exact?: boolean;
 };
 
+type SidebarProps = {
+  narrow: boolean;
+  open: boolean;
+  onNavigate: () => void;
+  footer?: ReactNode;
+};
+
 const PRIMARY: Item[] = [
-  { href: '/', label: 'Team', Icon: IconTeam, exact: true },
+  { href: '/', label: 'Overview', Icon: IconTeam, exact: true },
   { href: '/projects', label: 'Projects', Icon: IconProjects },
   { href: '/reports', label: 'Reports', Icon: IconReports },
   { href: '/approvals', label: 'Approvals', Icon: IconApprovals },
@@ -29,12 +36,21 @@ function isActive(pathname: string, item: Item): boolean {
   return pathname === base || pathname.startsWith(base + '/');
 }
 
-function NavLink({ item, active }: { item: Item; active: boolean }) {
+function NavLink({
+  item,
+  active,
+  onNavigate,
+}: {
+  item: Item;
+  active: boolean;
+  onNavigate: () => void;
+}) {
   const { Icon } = item;
   return (
     <Link
       href={item.href}
       aria-current={active ? 'page' : undefined}
+      onClick={onNavigate}
       className={`flex items-center gap-3 rounded-md px-3 py-2 text-label transition-colors ${
         active
           ? 'bg-surface text-text font-medium'
@@ -47,10 +63,18 @@ function NavLink({ item, active }: { item: Item; active: boolean }) {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ narrow, open, onNavigate, footer }: SidebarProps) {
   const pathname = usePathname();
+  const positionClass = narrow
+    ? 'fixed inset-y-0 left-0 z-[70] shadow-e2 transition-transform duration-200'
+    : 'sticky top-0 h-screen';
+  const transform = narrow ? { transform: `translateX(${open ? '0' : '-105%'})` } : undefined;
   return (
-    <aside className="bg-surface-raised border-separator flex w-60 shrink-0 flex-col border-r px-4 py-5">
+    <aside
+      className={`bg-surface-raised border-separator flex w-60 shrink-0 flex-col border-r px-4 py-5 ${positionClass}`}
+      style={transform}
+      aria-label="Primary"
+    >
       <div className="mb-7 flex items-center gap-2.5 px-2">
         <span className="bg-accent grid h-8 w-8 place-items-center rounded-[10px] text-white">
           <IconClock width={18} height={18} />
@@ -62,7 +86,12 @@ export function Sidebar() {
 
       <nav className="flex flex-col gap-1">
         {PRIMARY.map((item) => (
-          <NavLink key={item.href} item={item} active={isActive(pathname, item)} />
+          <NavLink
+            key={item.href}
+            item={item}
+            active={isActive(pathname, item)}
+            onNavigate={onNavigate}
+          />
         ))}
       </nav>
 
@@ -70,9 +99,16 @@ export function Sidebar() {
 
       <nav className="flex flex-col gap-1">
         {SECONDARY.map((item) => (
-          <NavLink key={item.href} item={item} active={isActive(pathname, item)} />
+          <NavLink
+            key={item.href}
+            item={item}
+            active={isActive(pathname, item)}
+            onNavigate={onNavigate}
+          />
         ))}
       </nav>
+
+      {footer ? <div className="mt-auto px-2 pt-4">{footer}</div> : null}
     </aside>
   );
 }
