@@ -28,7 +28,7 @@ test.describe('projects index', () => {
   test.skip('an employee sees the not-permitted state', async ({ page }) => {
     // With an EMPLOYEE session, /reports/projects 403s → the not-permitted copy renders.
     await page.goto('/projects');
-    await expect(page.getByText("You're not permitted to view projects.")).toBeVisible();
+    await expect(page.getByText("You’re not permitted to view projects.")).toBeVisible();
   });
 });
 
@@ -48,7 +48,7 @@ test.describe('project detail', () => {
 
   test.skip('an employee sees the not-permitted state', async ({ page }) => {
     await page.goto('/projects/some-project-id');
-    await expect(page.getByText("You're not permitted to view this project.")).toBeVisible();
+    await expect(page.getByText("You’re not permitted to view this project.")).toBeVisible();
   });
 });
 
@@ -64,6 +64,8 @@ test.describe('project management', () => {
   test.skip('archive a project from the index', async ({ page }) => {
     await page.goto('/projects');
     await page.getByRole('button', { name: 'Archive' }).first().click();
+    // The index hides archived rows by default; reveal them to see the badge.
+    await page.getByRole('link', { name: 'Show archived' }).click();
     await expect(page.getByText('Archived').first()).toBeVisible();
   });
 
