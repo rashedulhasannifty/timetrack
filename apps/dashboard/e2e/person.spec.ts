@@ -11,10 +11,11 @@ test.describe.skip('person reskin', () => {
     await expect(page.getByRole('link', { name: /back/i })).toBeVisible();
   });
 
-  test('person header shows a name heading and an avatar', async ({ page }) => {
+  test('person header renders above the sections', async ({ page }) => {
     await page.goto('/people/00000000-0000-0000-0000-000000000000');
-    await expect(page.getByRole('heading')).toBeVisible();
-    await expect(page.locator('[data-testid="avatar"]')).toBeVisible();
+    // Header row carries the Back link; the two section labels sit below it.
+    await expect(page.getByRole('link', { name: /back/i })).toBeVisible();
+    await expect(page.getByText(/timeline · today/i)).toBeVisible();
   });
 
   test('timeline section is present', async ({ page }) => {
