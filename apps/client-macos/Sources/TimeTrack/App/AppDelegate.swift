@@ -52,6 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activitySync: ActivityBatchSyncEngine?
     private var heartbeatTimer: Timer?
     private var hasAttemptedRecovery = false
+    /// Rate-limits the menu-open project re-fetch so opening the dropdown repeatedly doesn't
+    /// hammer GET /v1/projects. First open always refreshes.
+    private let projectRefreshThrottle = RefreshThrottle(minInterval: 60)
 
     private var notifier: LocalNotifying?
     private var dailyTotal: DailyTotalAccumulator?
@@ -151,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.statusItem.setState(isTracking ? .tracking : .idle, startedAt: startedAt)
         }
         statusItem.install(content: MenuBarView(viewModel: menuViewModel))
+        statusItem.onOpen = { [weak self] in self?.refreshProjectsOnMenuOpen() }
         startHeartbeat()
         Task { await start() }
     }
@@ -224,12 +228,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         await MainActor.run { self.installNudgeInfra() }
         await MainActor.run { menuViewModel.projects = projectCache.load() } // instant, offline-safe
-        if let fresh = try? await projectClient.list() {
-            projectCache.save(fresh)
-            await MainActor.run { menuViewModel.projects = fresh }
-        }
+        await refreshProjects()
         await MainActor.run { startSyncIfNeeded() }
         await MainActor.run { recoverLiveSpanIfNeeded(currentUserId: currentUserId) }
+    }
+
+    /// Re-fetch the team's projects (network → cache), replacing the picker list. Failures are
+    /// swallowed — the last cached list stays. Called at ready and, throttled, on menu open so a
+    /// project added in the dashboard appears without restarting the client.
+    private func refreshProjects() async {
+        guard let fresh = try? await projectClient.list() else { return }
+        projectCache.save(fresh)
+        await MainActor.run { menuViewModel.projects = fresh }
+    }
+
+    /// Menu-open hook: refresh the project list, but only when signed in and not more than once
+    /// per throttle window.
+    @MainActor private func refreshProjectsOnMenuOpen() {
+        guard menuViewModel.isReady, projectRefreshThrottle.shouldRefresh() else { return }
+        Task { await refreshProjects() }
     }
 
     /// Local-notification infra (not a capture path — safe on both ready paths). Idempotent.

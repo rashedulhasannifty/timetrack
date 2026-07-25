@@ -25,6 +25,10 @@ final class StatusItemController: NSObject {
     /// mouse-up action and makes a click on the icon reopen the popover instead of closing it.
     private var outsideClickMonitor: Any?
 
+    /// Called each time the dropdown is opened (not on close). Used to refresh on-demand data —
+    /// e.g. re-fetch the project list so a project added in the dashboard shows without a restart.
+    var onOpen: (() -> Void)?
+
     /// Installs the indicator and attaches the SwiftUI dropdown as the popover content.
     func install<Content: View>(content: Content) {
         item.button?.target = self
@@ -51,6 +55,7 @@ final class StatusItemController: NSObject {
             return
         }
         guard let button = item.button, let buttonWindow = button.window else { return }
+        onOpen?()   // refresh on-demand data (e.g. the project list) as the dropdown opens
         // Activate BEFORE showing so the popover doesn't drift when the app comes forward.
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
