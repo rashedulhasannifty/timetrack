@@ -5,13 +5,15 @@ import { ProjectHoursChart } from '../../../../components/charts/ProjectHoursCha
 import { ProjectHoursTrendChart } from '../../../../components/charts/ProjectHoursTrendChart';
 import { ProjectRecolor } from '../../../../components/projects/ProjectRecolor';
 import { ProjectArchiveToggle } from '../../../../components/projects/ProjectArchiveToggle';
+import { NewTaskForm } from '../../../../components/projects/NewTaskForm';
+import { TaskArchiveToggle } from '../../../../components/projects/TaskArchiveToggle';
 import { getSession } from '../../../../lib/session';
 import { api, ApiError } from '../../../../lib/api-client';
 import { defaultReportRange } from '../../../../lib/reports-view';
 import { toTrendBars, toMemberBars, toTaskBars } from '../../../../lib/project-detail-view';
 import { projectColor } from '../../../../lib/project-color';
 import { formatDuration } from '../../../../lib/format';
-import type { ProjectDetail } from '@timetrack/contracts';
+import type { ProjectDetail, Task } from '@timetrack/contracts';
 
 // Next 16 — params and searchParams are async. Detail hours come from /projects/:id/detail
 // (MANAGER/ADMIN, own-team); 404 → not-found, 403 → not-permitted, mirroring the reports pages.
@@ -44,6 +46,17 @@ export default async function ProjectDetailPage({
     if (e instanceof ApiError && e.status === 404) state = 'notfound';
     else if (e instanceof ApiError && e.status === 403) state = 'forbidden';
     else state = 'error';
+  }
+
+  // Editable task list for the management section. Degradeable: a task-fetch hiccup shows an
+  // empty Tasks section rather than blanking the analytics.
+  let tasks: Task[] = [];
+  if (detail) {
+    try {
+      tasks = await api.listProjectTasks(session.accessToken, projectId);
+    } catch {
+      tasks = [];
+    }
   }
 
   return (
@@ -106,6 +119,38 @@ export default async function ProjectDetailPage({
             <section>
               <h2 className="text-text text-h2 mb-3 font-semibold">By task</h2>
               <ProjectHoursChart data={toTaskBars(detail.tasks)} />
+            </section>
+            <section>
+              <div className="mb-3 flex items-center justify-between gap-4">
+                <h2 className="text-text text-h2 font-semibold">Tasks</h2>
+                <NewTaskForm projectId={detail.projectId} />
+              </div>
+              {tasks.length === 0 ? (
+                <p className="text-text-secondary text-body">No tasks yet.</p>
+              ) : (
+                <ul className="bg-surface-raised border-separator divide-separator divide-y rounded-lg border shadow-e1">
+                  {tasks.map((task) => (
+                    <li
+                      key={task.id}
+                      className="flex items-center justify-between gap-4 px-4 py-2.5"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="text-text truncate">{task.name}</span>
+                        {task.archived && (
+                          <span className="text-text-secondary border-separator text-caption rounded-full border px-2 py-0.5">
+                            Archived
+                          </span>
+                        )}
+                      </span>
+                      <TaskArchiveToggle
+                        id={task.id}
+                        projectId={detail.projectId}
+                        archived={task.archived}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
           </div>
         </>
