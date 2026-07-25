@@ -12,7 +12,7 @@ function make(overrides: Partial<ProjectsService> = {}) {
     list: vi.fn().mockResolvedValue([]),
     createProject: vi.fn(),
     createTask: vi.fn(),
-    archive: vi.fn(),
+    update: vi.fn(),
     ...overrides,
   } as unknown as ProjectsService;
   return { ctrl: new ProjectsController(service), service };
@@ -21,7 +21,7 @@ function make(overrides: Partial<ProjectsService> = {}) {
 beforeEach(() => vi.clearAllMocks());
 
 describe('ProjectsController role-gating', () => {
-  it.each(['createProject', 'createTask', 'archive'] as const)(
+  it.each(['createProject', 'createTask', 'update'] as const)(
     'gates %s to MANAGER/ADMIN',
     (handler) => {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -44,9 +44,9 @@ describe('ProjectsController delegation', () => {
     expect(service.list).toHaveBeenCalledWith(actor, true);
   });
 
-  it('archive passes id, dto, and actor to the service', async () => {
+  it('update passes id, dto, and actor to the service', async () => {
     const { ctrl, service } = make();
-    await ctrl.archive('p1', { archived: true }, actor);
-    expect(service.archive).toHaveBeenCalledWith('p1', { archived: true }, actor);
+    await ctrl.update('p1', { archived: true }, actor);
+    expect(service.update).toHaveBeenCalledWith('p1', { archived: true }, actor);
   });
 });

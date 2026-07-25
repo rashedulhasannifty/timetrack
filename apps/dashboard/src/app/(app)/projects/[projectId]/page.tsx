@@ -3,6 +3,8 @@ import { PageHeader } from '../../../../components/ui/PageHeader';
 import { ReportRangePicker } from '../../../../components/reports/ReportRangePicker';
 import { ProjectHoursChart } from '../../../../components/charts/ProjectHoursChart';
 import { ProjectHoursTrendChart } from '../../../../components/charts/ProjectHoursTrendChart';
+import { ProjectRecolor } from '../../../../components/projects/ProjectRecolor';
+import { ProjectArchiveToggle } from '../../../../components/projects/ProjectArchiveToggle';
 import { getSession } from '../../../../lib/session';
 import { api, ApiError } from '../../../../lib/api-client';
 import { defaultReportRange } from '../../../../lib/reports-view';
@@ -68,7 +70,7 @@ export default async function ProjectDetailPage({
           <div className="mb-6 flex items-center gap-3">
             <span
               className="inline-block h-3 w-3 shrink-0 rounded-full"
-              style={{ backgroundColor: projectColor(detail.projectId) }}
+              style={{ backgroundColor: detail.color ?? projectColor(detail.projectId) }}
               aria-hidden="true"
             />
             <h1 className="text-text text-h1 font-display font-semibold">{detail.name}</h1>
@@ -81,6 +83,11 @@ export default async function ProjectDetailPage({
               {formatDuration(detail.totalSeconds)} tracked · {from.slice(0, 10)} –{' '}
               {to.slice(0, 10)}
             </span>
+          </div>
+
+          <div className="border-separator mb-6 flex flex-wrap items-center gap-4 border-b pb-4">
+            <ProjectRecolor id={detail.projectId} color={detail.color} />
+            <ProjectArchiveToggle id={detail.projectId} archived={detail.archived} />
           </div>
 
           <div className="mb-6">

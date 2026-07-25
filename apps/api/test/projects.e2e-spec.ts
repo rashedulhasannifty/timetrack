@@ -101,9 +101,37 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       id: project.id,
       teamId: team.id,
       name: 'Website',
+      color: null,
       archived: false,
     });
     expect(await repo().findForActor('019797a0-0000-7000-8000-0000000000ff')).toBeNull();
+  });
+
+  it('createProject persists a color and records it in the audit diff', async () => {
+    const team = await seedTeam();
+    const project = await repo().createProject(team.id, 'Website', 'actor1', '#5e5ce6');
+    expect(project.color).toBe('#5e5ce6');
+    const audit = await db.prisma.auditLog.findFirst({
+      where: { targetType: 'project', targetId: project.id, action: 'project.create' },
+    });
+    expect((audit?.diff as { color?: string } | null)?.color).toBe('#5e5ce6');
+  });
+
+  it('createProject defaults color to null when omitted', async () => {
+    const team = await seedTeam();
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    expect(project.color).toBeNull();
+  });
+
+  it('setColor updates the color and writes a project.recolor audit row', async () => {
+    const team = await seedTeam();
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    const recolored = await repo().setColor(project.id, '#ff2d55', 'actor1');
+    expect(recolored.color).toBe('#ff2d55');
+    const audit = await db.prisma.auditLog.findFirst({
+      where: { targetType: 'project', targetId: project.id, action: 'project.recolor' },
+    });
+    expect((audit?.diff as { color?: string } | null)?.color).toBe('#ff2d55');
   });
 
   async function seedUser(teamId: string, name: string, email: string) {

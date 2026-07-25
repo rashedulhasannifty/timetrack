@@ -1,5 +1,21 @@
 import { z } from 'zod';
 
+// Single source of the project palette (dashboard imports this). `as const` → z.enum infers the union.
+export const PROJECT_PALETTE = [
+  '#007aff',
+  '#5e5ce6',
+  '#30b0c7',
+  '#34c759',
+  '#ff9500',
+  '#ff2d55',
+  '#af52de',
+  '#ffcc00',
+] as const;
+
+// WRITE constraint (create/recolor). Reads stay permissive strings (DB column is TEXT).
+export const ProjectColorSchema = z.enum(PROJECT_PALETTE);
+export type ProjectColor = z.infer<typeof ProjectColorSchema>;
+
 export const TaskSchema = z.object({
   id: z.uuid(),
   projectId: z.uuid(),
@@ -10,6 +26,7 @@ export const ProjectSchema = z.object({
   id: z.uuid(),
   teamId: z.uuid(),
   name: z.string(),
+  color: z.string().nullable(),
   archived: z.boolean(),
   tasks: z.array(TaskSchema).optional(),
 });
@@ -17,6 +34,7 @@ export const ProjectSchema = z.object({
 export const CreateProjectSchema = z.object({
   teamId: z.uuid(),
   name: z.string().min(1).max(200),
+  color: ProjectColorSchema,
 });
 
 export const CreateTaskSchema = z.object({
@@ -25,7 +43,8 @@ export const CreateTaskSchema = z.object({
 });
 
 export const UpdateProjectSchema = z.object({
-  archived: z.boolean(),
+  archived: z.boolean().optional(),
+  color: ProjectColorSchema.optional(),
 });
 
 // Query for GET /projects. z.stringbool() parses "true"/"false" correctly;
@@ -57,6 +76,7 @@ export const ProjectDetailSchema = z.object({
   to: z.iso.datetime(),
   projectId: z.uuid(),
   name: z.string(),
+  color: z.string().nullable(),
   archived: z.boolean(),
   totalSeconds: z.number().int().nonnegative(),
   trend: z.array(ProjectHoursTrendRowSchema),

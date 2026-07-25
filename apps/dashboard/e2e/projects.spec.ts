@@ -51,3 +51,28 @@ test.describe('project detail', () => {
     await expect(page.getByText("You’re not permitted to view this project.")).toBeVisible();
   });
 });
+
+test.describe('project management', () => {
+  test.skip('create a project with a name and color', async ({ page }) => {
+    await page.goto('/projects');
+    await page.getByPlaceholder('New project').fill('Launch');
+    await page.getByRole('radio', { name: '#5e5ce6' }).click();
+    await page.getByRole('button', { name: 'New project' }).click();
+    await expect(page.getByText('Launch')).toBeVisible();
+  });
+
+  test.skip('archive a project from the index', async ({ page }) => {
+    await page.goto('/projects');
+    await page.getByRole('button', { name: 'Archive' }).first().click();
+    // The index hides archived rows by default; reveal them to see the badge.
+    await page.getByRole('link', { name: 'Show archived' }).click();
+    await expect(page.getByText('Archived').first()).toBeVisible();
+  });
+
+  test.skip('recolor a project from the detail page', async ({ page }) => {
+    await page.goto('/projects/some-project-id');
+    await page.getByRole('radio', { name: '#ff2d55' }).click();
+    await page.getByRole('button', { name: 'Save color' }).click();
+    await expect(page.getByRole('button', { name: 'Save color' })).toBeVisible();
+  });
+});
