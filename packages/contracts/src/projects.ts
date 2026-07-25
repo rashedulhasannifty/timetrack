@@ -35,9 +35,48 @@ export const ListProjectsQuerySchema = z.object({
   includeArchived: z.stringbool().default(false),
 });
 
+export const ProjectHoursTrendRowSchema = z.object({
+  day: z.iso.date(), // 'YYYY-MM-DD' — UTC start-day bucket
+  trackedSeconds: z.number().int().nonnegative(),
+});
+
+export const ProjectMemberRowSchema = z.object({
+  userId: z.uuid(),
+  name: z.string(),
+  trackedSeconds: z.number().int().nonnegative(),
+});
+
+export const ProjectTaskRowSchema = z.object({
+  taskId: z.uuid().nullable(), // null → the "No task" bucket
+  name: z.string(),
+  trackedSeconds: z.number().int().nonnegative(),
+});
+
+export const ProjectDetailSchema = z.object({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  projectId: z.uuid(),
+  name: z.string(),
+  archived: z.boolean(),
+  totalSeconds: z.number().int().nonnegative(),
+  trend: z.array(ProjectHoursTrendRowSchema),
+  members: z.array(ProjectMemberRowSchema),
+  tasks: z.array(ProjectTaskRowSchema),
+});
+
+export const ProjectDetailQuerySchema = z.object({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+});
+
 export type Task = z.infer<typeof TaskSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
 export type CreateProject = z.infer<typeof CreateProjectSchema>;
 export type CreateTask = z.infer<typeof CreateTaskSchema>;
 export type UpdateProject = z.infer<typeof UpdateProjectSchema>;
 export type ListProjectsQuery = z.infer<typeof ListProjectsQuerySchema>;
+export type ProjectHoursTrendRow = z.infer<typeof ProjectHoursTrendRowSchema>;
+export type ProjectMemberRow = z.infer<typeof ProjectMemberRowSchema>;
+export type ProjectTaskRow = z.infer<typeof ProjectTaskRowSchema>;
+export type ProjectDetail = z.infer<typeof ProjectDetailSchema>;
+export type ProjectDetailQuery = z.infer<typeof ProjectDetailQuerySchema>;

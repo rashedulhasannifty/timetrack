@@ -94,15 +94,97 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     ]);
   });
 
-  it('findForActor returns id/teamId/archived, or null when missing', async () => {
+  it('findForActor returns id/teamId/name/archived, or null when missing', async () => {
     const team = await seedTeam();
     const project = await repo().createProject(team.id, 'Website', 'actor1');
     expect(await repo().findForActor(project.id)).toEqual({
       id: project.id,
       teamId: team.id,
+      name: 'Website',
       archived: false,
     });
     expect(await repo().findForActor('019797a0-0000-7000-8000-0000000000ff')).toBeNull();
+  });
+
+  async function seedUser(teamId: string, name: string, email: string) {
+    return db.prisma.user.create({
+      data: { email, name, passwordHash: 'x', teamId },
+      select: { id: true },
+    });
+  }
+  async function seedEntry(
+    userId: string,
+    projectId: string,
+    taskId: string | null,
+    startIso: string,
+    endIso: string,
+  ) {
+    await db.prisma.timeEntry.create({
+      data: {
+        id: crypto.randomUUID(),
+        userId,
+        projectId,
+        taskId,
+        startTime: new Date(startIso),
+        endTime: new Date(endIso),
+        source: 'MANUAL',
+      },
+    });
+  }
+
+  const FROM = new Date('2026-07-13T00:00:00.000Z');
+  const TO = new Date('2026-07-20T00:00:00.000Z');
+
+  it('membersForProject sums per user, descending, with names', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const john = await seedUser(team.id, 'John', 'john@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    await seedEntry(jane.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T11:00:00Z'); // 2h
+    await seedEntry(john.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T10:00:00Z'); // 1h
+    const rows = await repo().membersForProject(project.id, FROM, TO);
+    expect(rows).toEqual([
+      { userId: jane.id, name: 'Jane', trackedSeconds: 7200 },
+      { userId: john.id, name: 'John', trackedSeconds: 3600 },
+    ]);
+  });
+
+  it('tasksForProject buckets by task and rolls null taskId into "No task"', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    const task = await repo().createTask(project.id, 'Homepage', 'actor1');
+    await seedEntry(jane.id, project.id, task.id, '2026-07-14T09:00:00Z', '2026-07-14T11:00:00Z'); // 2h Homepage
+    await seedEntry(jane.id, project.id, null, '2026-07-14T13:00:00Z', '2026-07-14T13:30:00Z'); // 30m No task
+    const rows = await repo().tasksForProject(project.id, FROM, TO);
+    expect(rows).toEqual([
+      { taskId: task.id, name: 'Homepage', trackedSeconds: 7200 },
+      { taskId: null, name: 'No task', trackedSeconds: 1800 },
+    ]);
+  });
+
+  it('hoursByDay buckets by UTC start-day and clamps to the window', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    await seedEntry(jane.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T10:00:00Z'); // 1h on 14th
+    await seedEntry(jane.id, project.id, null, '2026-07-15T09:00:00Z', '2026-07-15T11:00:00Z'); // 2h on 15th
+    // An entry starting before the window: clamped to FROM, bucketed on the window's first day.
+    await seedEntry(jane.id, project.id, null, '2026-07-12T23:00:00Z', '2026-07-13T01:00:00Z'); // 1h inside window
+    const rows = await repo().hoursByDay(project.id, FROM, TO);
+    expect(rows).toEqual([
+      { day: '2026-07-13', trackedSeconds: 3600 },
+      { day: '2026-07-14', trackedSeconds: 3600 },
+      { day: '2026-07-15', trackedSeconds: 7200 },
+    ]);
+  });
+
+  it('aggregations return empty for a project with no entries in range', async () => {
+    const team = await seedTeam();
+    const project = await repo().createProject(team.id, 'Empty', 'actor1');
+    expect(await repo().membersForProject(project.id, FROM, TO)).toEqual([]);
+    expect(await repo().tasksForProject(project.id, FROM, TO)).toEqual([]);
+    expect(await repo().hoursByDay(project.id, FROM, TO)).toEqual([]);
   });
 });
 

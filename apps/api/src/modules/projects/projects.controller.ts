@@ -3,11 +3,14 @@ import {
   CreateProjectSchema,
   CreateTaskSchema,
   ListProjectsQuerySchema,
+  ProjectDetailQuerySchema,
   UpdateProjectSchema,
   type CreateProject,
   type CreateTask,
   type ListProjectsQuery,
   type Project,
+  type ProjectDetail,
+  type ProjectDetailQuery,
   type Task,
   type UpdateProject,
 } from '@timetrack/contracts';
@@ -47,6 +50,16 @@ export class ProjectsController {
     @CurrentUser() actor: SessionUser,
   ): Promise<Task> {
     return this.service.createTask(dto, actor);
+  }
+
+  @Get(':id/detail')
+  @Roles('MANAGER', 'ADMIN')
+  detail(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(ProjectDetailQuerySchema)) query: ProjectDetailQuery,
+    @CurrentUser() user: SessionUser,
+  ): Promise<ProjectDetail> {
+    return this.service.detail(id, query, user);
   }
 
   @Patch(':id')

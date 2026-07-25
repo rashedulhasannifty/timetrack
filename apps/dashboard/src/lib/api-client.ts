@@ -30,6 +30,8 @@ import {
   type RedactScreenshot,
   ProjectSummarySchema,
   type ProjectSummary,
+  ProjectDetailSchema,
+  type ProjectDetail,
   TimesheetApprovalSchema,
   type TimesheetApproval,
   type Decision,
@@ -198,6 +200,8 @@ export const api = {
     get(`/reports/team-summary?${params}`, TeamSummarySchema, token),
   projectSummary: (token: string, params: URLSearchParams): Promise<ProjectSummary> =>
     get(`/reports/projects?${params}`, ProjectSummarySchema, token),
+  getProjectDetail: (token: string, id: string, params: URLSearchParams): Promise<ProjectDetail> =>
+    get(`/projects/${id}/detail?${params}`, ProjectDetailSchema, token),
   exportReportCsv: (token: string, params: URLSearchParams): Promise<Response> =>
     getRaw(`/reports/export.csv?${params}`, token),
 

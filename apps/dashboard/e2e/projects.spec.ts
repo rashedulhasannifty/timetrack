@@ -28,6 +28,26 @@ test.describe('projects index', () => {
   test.skip('an employee sees the not-permitted state', async ({ page }) => {
     // With an EMPLOYEE session, /reports/projects 403s → the not-permitted copy renders.
     await page.goto('/projects');
-    await expect(page.getByText("You're not permitted to view projects.")).toBeVisible();
+    await expect(page.getByText("You’re not permitted to view projects.")).toBeVisible();
+  });
+});
+
+test.describe('project detail', () => {
+  test.skip('renders header, three sections, and a back link', async ({ page }) => {
+    await page.goto('/projects/some-project-id');
+    await expect(page.getByRole('heading', { name: 'Hours over time' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'By member' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'By task' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '← Projects' })).toBeVisible();
+  });
+
+  test.skip('shows not-found copy for a missing project', async ({ page }) => {
+    await page.goto('/projects/00000000-0000-0000-0000-000000000000');
+    await expect(page.getByText('Project not found.')).toBeVisible();
+  });
+
+  test.skip('an employee sees the not-permitted state', async ({ page }) => {
+    await page.goto('/projects/some-project-id');
+    await expect(page.getByText("You’re not permitted to view this project.")).toBeVisible();
   });
 });
