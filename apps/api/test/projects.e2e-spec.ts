@@ -260,6 +260,100 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     expect(await repo().tasksForProject(project.id, FROM, TO)).toEqual([]);
     expect(await repo().hoursByDay(project.id, FROM, TO)).toEqual([]);
   });
+
+  async function seedSample(
+    userId: string,
+    appName: string,
+    timestampIso: string,
+    activityPct = 50,
+  ) {
+    await db.prisma.activitySample.create({
+      data: {
+        id: crypto.randomUUID(),
+        userId,
+        timestamp: new Date(timestampIso),
+        appName,
+        windowTitle: null,
+        activityPct,
+        category: 'NEUTRAL',
+      },
+    });
+  }
+
+  it('topAppsForProject: MANUAL entry with no samples is a real, measurable gap', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+
+    // AUTO entry, 09:00-09:10 (10 min), with a matching sample every minute in 2 apps.
+    await db.prisma.timeEntry.create({
+      data: {
+        id: crypto.randomUUID(),
+        userId: jane.id,
+        projectId: project.id,
+        taskId: null,
+        startTime: new Date('2026-07-14T09:00:00Z'),
+        endTime: new Date('2026-07-14T09:10:00Z'),
+        source: 'AUTO',
+      },
+    });
+    for (let m = 0; m < 6; m++) {
+      await seedSample(jane.id, 'Chrome', `2026-07-14T09:0${m}:00Z`);
+    }
+    for (let m = 6; m < 10; m++) {
+      await seedSample(jane.id, 'VS Code', `2026-07-14T09:0${m}:00Z`);
+    }
+
+    // MANUAL entry, 30 min, no samples at all — a real gap (e.g. offline/manually logged work).
+    await seedEntry(jane.id, project.id, null, '2026-07-14T13:00:00Z', '2026-07-14T13:30:00Z');
+
+    const result = await repo().topAppsForProject(project.id, FROM, TO);
+
+    expect(result.apps).toEqual([
+      { appName: 'Chrome', trackedSeconds: 360 },
+      { appName: 'VS Code', trackedSeconds: 240 },
+    ]);
+    expect(result.totalSeconds).toBe(10 * 60 + 30 * 60); // AUTO 10min + MANUAL 30min
+
+    const coveredSeconds = result.apps.reduce((sum, a) => sum + a.trackedSeconds, 0);
+    expect(coveredSeconds).toBeLessThan(result.totalSeconds); // the MANUAL gap is real
+  });
+
+  it('topAppsForProject: overlapping same-project entries count each sample once', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+
+    // Two overlapping entries for the same user+project both spanning 09:00-09:10.
+    // Nothing forbids overlap (only one-running-per-user is enforced) — e.g. a retroactive
+    // MANUAL correction laid on top of an AUTO span.
+    await db.prisma.timeEntry.create({
+      data: {
+        id: crypto.randomUUID(),
+        userId: jane.id,
+        projectId: project.id,
+        taskId: null,
+        startTime: new Date('2026-07-14T09:00:00Z'),
+        endTime: new Date('2026-07-14T09:10:00Z'),
+        source: 'AUTO',
+      },
+    });
+    await seedEntry(jane.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T09:10:00Z');
+
+    // Samples land in the overlap: a plain JOIN would double them (once per entry).
+    for (let m = 0; m < 10; m++) {
+      await seedSample(jane.id, 'Chrome', `2026-07-14T09:0${m}:00Z`);
+    }
+
+    const result = await repo().topAppsForProject(project.id, FROM, TO);
+
+    // Each of the 10 samples counted exactly once, not twice.
+    expect(result.apps).toEqual([{ appName: 'Chrome', trackedSeconds: 600 }]);
+    expect(result.totalSeconds).toBe(20 * 60); // two 10-min entries, summed independently
+
+    const coveredSeconds = result.apps.reduce((sum, a) => sum + a.trackedSeconds, 0);
+    expect(coveredSeconds).toBeLessThanOrEqual(result.totalSeconds);
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.

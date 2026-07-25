@@ -202,6 +202,57 @@ export class ProjectsRepository {
     }));
   }
 
+  /**
+   * Per-app breakdown of activity_samples covered by this project's time entries, plus the
+   * project's total tracked seconds in the same window. Uses an EXISTS semi-join (not a plain
+   * JOIN): a plain JOIN would count a sample once per containing entry, so two overlapping
+   * same-project entries for one user (nothing forbids overlap; only one-running-per-user is
+   * enforced) would double-count that sample's minute — inflating coveredSeconds past
+   * totalSeconds and coveragePct past 100%. EXISTS counts each sample at most once and keeps
+   * a."timestamp" on the outer scan so partition pruning still applies.
+   */
+  async topAppsForProject(
+    projectId: string,
+    from: Date,
+    to: Date,
+  ): Promise<{ apps: { appName: string; trackedSeconds: number }[]; totalSeconds: number }> {
+    const appRows = await this.prisma.$queryRaw<
+      Array<{ appName: string; trackedSeconds: number | bigint }>
+    >`
+      SELECT a."appName" AS "appName", COUNT(*) * 60 AS "trackedSeconds"
+      FROM activity_samples a
+      WHERE a."timestamp" >= ${from}::timestamptz
+        AND a."timestamp" <  ${to}::timestamptz
+        AND EXISTS (
+          SELECT 1 FROM time_entries te
+          WHERE te."projectId" = ${projectId}
+            AND te."userId" = a."userId"
+            AND a."timestamp" >= te."startTime"
+            AND a."timestamp" <  COALESCE(te."endTime", now())
+        )
+      GROUP BY a."appName"
+      ORDER BY "trackedSeconds" DESC, a."appName" ASC
+    `;
+
+    const totalRows = await this.prisma.$queryRaw<
+      Array<{ trackedSeconds: number | bigint | null }>
+    >`
+      SELECT FLOOR(SUM(GREATEST(EXTRACT(EPOCH FROM (
+               LEAST(COALESCE(te."endTime", now()), ${to}::timestamptz)
+               - GREATEST(te."startTime", ${from}::timestamptz)
+             )), 0)))::int AS "trackedSeconds"
+      FROM time_entries te
+      WHERE te."projectId" = ${projectId}
+        AND te."startTime" < ${to}::timestamptz
+        AND COALESCE(te."endTime", now()) > ${from}::timestamptz
+    `;
+
+    return {
+      apps: appRows.map((r) => ({ appName: r.appName, trackedSeconds: Number(r.trackedSeconds) })),
+      totalSeconds: Number(totalRows[0]?.trackedSeconds ?? 0),
+    };
+  }
+
   async setArchived(id: string, archived: boolean, actorId: string): Promise<Project> {
     return this.prisma.$transaction(async (tx) => {
       const project = await tx.project.update({
