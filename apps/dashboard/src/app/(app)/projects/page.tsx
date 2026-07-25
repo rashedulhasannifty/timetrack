@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { PageHeader } from '../../../components/ui/PageHeader';
 import { ReportRangePicker } from '../../../components/reports/ReportRangePicker';
+import { NewProjectForm } from '../../../components/projects/NewProjectForm';
+import { ProjectArchiveToggle } from '../../../components/projects/ProjectArchiveToggle';
 import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
 import { defaultReportRange } from '../../../lib/reports-view';
@@ -60,6 +62,7 @@ export default async function ProjectsPage({
         </p>
       ) : (
         <div className="flex flex-col gap-6">
+          <NewProjectForm />
           <div className="flex items-center justify-between gap-4">
             <ReportRangePicker from={from} to={to} basePath="/projects" />
             <Link
@@ -75,28 +78,32 @@ export default async function ProjectsPage({
           ) : (
             <ul className="bg-surface-raised border-separator divide-separator divide-y rounded-lg border shadow-e1">
               {view.rows.map((row) => (
-                <li key={row.projectId}>
+                <li
+                  key={row.projectId}
+                  className="flex items-center justify-between gap-4 px-4 py-3"
+                >
                   <Link
                     href={`/projects/${row.projectId}`}
-                    className="hover:bg-surface flex items-center justify-between gap-4 px-4 py-3 transition-colors"
+                    className="hover:text-accent flex min-w-0 flex-1 items-center gap-3 transition-colors"
                   >
-                    <span className="flex min-w-0 items-center gap-3">
-                      <span
-                        className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: row.color }}
-                        aria-hidden="true"
-                      />
-                      <span className="text-text truncate font-medium">{row.name}</span>
-                      {row.archived && (
-                        <span className="text-text-secondary border-separator text-caption rounded-full border px-2 py-0.5">
-                          Archived
-                        </span>
-                      )}
-                    </span>
-                    <span className="tt-numeric text-text-secondary text-label shrink-0">
+                    <span
+                      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: row.color }}
+                      aria-hidden="true"
+                    />
+                    <span className="text-text truncate font-medium">{row.name}</span>
+                    {row.archived && (
+                      <span className="text-text-secondary border-separator text-caption rounded-full border px-2 py-0.5">
+                        Archived
+                      </span>
+                    )}
+                  </Link>
+                  <span className="flex shrink-0 items-center gap-3">
+                    <span className="tt-numeric text-text-secondary text-label">
                       {formatDuration(row.trackedSeconds)}
                     </span>
-                  </Link>
+                    <ProjectArchiveToggle id={row.projectId} archived={row.archived} />
+                  </span>
                 </li>
               ))}
               {view.noProjectSeconds > 0 && (
