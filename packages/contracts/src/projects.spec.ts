@@ -10,6 +10,8 @@ import {
   TaskSchema,
   UpdateTaskSchema,
   PROJECT_PALETTE,
+  ProjectTopAppsSchema,
+  ProjectTopAppRowSchema,
 } from './projects.js';
 
 describe('ProjectDetailSchema', () => {
@@ -109,5 +111,57 @@ describe('Task archived + UpdateTaskSchema', () => {
     expect(UpdateTaskSchema.parse({ archived: true })).toEqual({ archived: true });
     expect(() => UpdateTaskSchema.parse({})).toThrow();
     expect(() => UpdateTaskSchema.parse({ archived: 'yes' })).toThrow();
+  });
+});
+
+describe('ProjectTopAppsSchema', () => {
+  it('parses a valid top-apps payload', () => {
+    const value = {
+      from: '2026-07-13T00:00:00.000Z',
+      to: '2026-07-19T23:59:59.999Z',
+      projectId: '018f9c1e-0000-7000-8000-000000000001',
+      apps: [
+        { appName: 'Chrome', trackedSeconds: 7200 },
+        { appName: 'VS Code', trackedSeconds: 3600 },
+      ],
+      coveredSeconds: 10800,
+      totalSeconds: 12600,
+      coveragePct: 85,
+    };
+    expect(ProjectTopAppsSchema.parse(value)).toEqual(value);
+  });
+
+  it('rejects coveragePct > 100', () => {
+    expect(() =>
+      ProjectTopAppsSchema.parse({
+        from: '2026-07-13T00:00:00.000Z',
+        to: '2026-07-19T23:59:59.999Z',
+        projectId: '018f9c1e-0000-7000-8000-000000000001',
+        apps: [],
+        coveredSeconds: 0,
+        totalSeconds: 3600,
+        coveragePct: 101,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects coveragePct < 0', () => {
+    expect(() =>
+      ProjectTopAppsSchema.parse({
+        from: '2026-07-13T00:00:00.000Z',
+        to: '2026-07-19T23:59:59.999Z',
+        projectId: '018f9c1e-0000-7000-8000-000000000001',
+        apps: [],
+        coveredSeconds: 0,
+        totalSeconds: 3600,
+        coveragePct: -1,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects negative trackedSeconds in an app row', () => {
+    expect(() =>
+      ProjectTopAppRowSchema.parse({ appName: 'Chrome', trackedSeconds: -100 }),
+    ).toThrow();
   });
 });
