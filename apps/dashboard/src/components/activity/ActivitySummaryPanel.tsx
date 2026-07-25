@@ -1,26 +1,14 @@
 import type { ActivityDailySummary } from '@timetrack/contracts';
 import { ActivityDailyChart } from '../charts/ActivityDailyChart';
+import { BarMeter } from '../charts/BarMeter';
+import { CategoryMixBar } from '../charts/CategoryMixBar';
+import { Card } from '../ui/Card';
 import {
   aggregateApps,
   aggregateCategories,
   toDailyActivityPoints,
   totalActiveMinutes,
-  type CategorySlice,
 } from '../../lib/activity-summary-view';
-
-// Design palette (indigo / gray / orange), routed through the shared tokens so the hue and the
-// dark-mode shift come from one source (matches the macOS client's category colors).
-const CATEGORY_COLOR: Record<CategorySlice['category'], string> = {
-  PRODUCTIVE: 'var(--color-category-productive)',
-  NEUTRAL: 'var(--color-category-neutral)',
-  UNPRODUCTIVE: 'var(--color-category-unproductive)',
-};
-
-const CATEGORY_LABEL: Record<CategorySlice['category'], string> = {
-  PRODUCTIVE: 'Productive',
-  NEUTRAL: 'Neutral',
-  UNPRODUCTIVE: 'Unproductive',
-};
 
 function formatMinutes(total: number): string {
   const h = Math.floor(total / 60);
@@ -52,54 +40,44 @@ export function ActivitySummaryPanel({
   const categories = aggregateCategories(summaries);
   const active = totalActiveMinutes(summaries);
 
+  const pctByCategory = Object.fromEntries(categories.map((c) => [c.category, c.pct]));
+
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <span className="tt-numeric text-h2 font-light">{formatMinutes(active)}</span>
-        <span className="text-text-secondary text-body ml-2">active · last 7 days (UTC)</span>
-      </div>
-
-      <ActivityDailyChart data={points} />
-
-      <div>
-        <h3 className="text-text text-label mb-3 font-medium">Apps &amp; sites</h3>
-        <ul className="flex flex-col gap-2">
-          {apps.map((a) => (
-            <li key={a.name} className="flex items-center gap-3">
-              <span className="text-body w-40 shrink-0 truncate">{a.name}</span>
-              <span className="bg-separator h-2 flex-1 overflow-hidden rounded">
-                <span className="bg-accent block h-full rounded" style={{ width: `${a.pct}%` }} />
-              </span>
-              <span className="tt-numeric text-text-secondary text-body w-16 shrink-0 text-right">
-                {formatMinutes(a.minutes)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div>
-        <h3 className="text-text text-label mb-3 font-medium">Category mix</h3>
-        <span className="flex h-3 overflow-hidden rounded">
-          {categories.map((c) => (
-            <span
-              key={c.category}
-              style={{ width: `${c.pct}%`, background: CATEGORY_COLOR[c.category] }}
-            />
-          ))}
-        </span>
-        <div className="text-text-secondary text-caption mt-2 flex flex-wrap gap-4">
-          {categories.map((c) => (
-            <span key={c.category} className="flex items-center gap-1.5">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{ background: CATEGORY_COLOR[c.category] }}
-              />
-              {CATEGORY_LABEL[c.category]} {c.pct}%
-            </span>
-          ))}
+    <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
+      <Card padding="md">
+        <div className="flex flex-col gap-3.5">
+          <div className="text-[48px] font-semibold leading-[1.1] tracking-[-0.02em] tt-numeric">
+            {active}
+          </div>
+          <div className="text-caption text-text-secondary">active minutes · last 7 days (UTC)</div>
+          <ActivityDailyChart data={points} />
         </div>
-      </div>
+      </Card>
+
+      <Card padding="md">
+        <div className="flex flex-col gap-3.5">
+          <h3 className="text-text text-label font-semibold">My top apps &amp; sites</h3>
+          <div className="flex flex-col gap-3">
+            {apps.map((a) => (
+              <BarMeter
+                key={a.name}
+                label={a.name}
+                value={formatMinutes(a.minutes)}
+                fills={[{ pct: a.pct, color: 'var(--tt-accent)' }]}
+              />
+            ))}
+          </div>
+
+          <div className="border-separator flex flex-col gap-2 border-t pt-3.5">
+            <h3 className="text-text text-label font-semibold">Category mix</h3>
+            <CategoryMixBar
+              productive={pctByCategory.PRODUCTIVE ?? 0}
+              neutral={pctByCategory.NEUTRAL ?? 0}
+              unproductive={pctByCategory.UNPRODUCTIVE ?? 0}
+            />
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
