@@ -1,5 +1,9 @@
-import { PageHeader } from '../../../../components/ui/PageHeader';
 import { Forbidden } from '../../../../components/ui/Forbidden';
+import { Card } from '../../../../components/ui/Card';
+import { Avatar } from '../../../../components/ui/Avatar';
+import { Badge } from '../../../../components/ui/Badge';
+import { AdminTabs } from '../../../../components/ui/AdminTabs';
+import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
 import { formatDate } from '../../../../lib/format';
@@ -18,66 +22,90 @@ export default async function AdminUsersPage() {
   if (session.role !== 'ADMIN') return <Forbidden />;
 
   const users = await api.listUsers(session.accessToken);
+  const activeCount = users.filter((u) => u.deactivatedAt === null).length;
 
   return (
     <>
-      <PageHeader
-        title="Users & teams"
-        subtitle="Invite, deactivate, and assign roles (PRD §6.6)."
-      />
-      <InviteForm />
+      <SetPageTitle title="Admin" />
+      <AdminTabs />
 
-      {users.length === 0 ? (
-        <p className="text-text-secondary text-body">
-          No users yet. Invite your first teammate above.
-        </p>
-      ) : (
-        <div className="bg-surface-raised border-separator overflow-x-auto rounded-lg border shadow-e1">
-          <table className="w-full text-body">
-            <thead>
-              <tr className="border-separator text-text-secondary border-b text-left">
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="px-4 py-2 font-medium">Email</th>
-                <th className="px-4 py-2 font-medium">Role</th>
-                <th className="px-4 py-2 font-medium">Monitoring</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 text-right font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => {
-                const deactivated = u.deactivatedAt !== null;
-                return (
-                  <tr key={u.id} className="border-separator border-b last:border-0">
-                    <td className="text-text px-4 py-2 font-medium">{u.name}</td>
-                    <td className="text-text-secondary px-4 py-2">{u.email}</td>
-                    <td className="text-text-secondary px-4 py-2">
-                      <RoleSelect userId={u.id} role={u.role} />
-                    </td>
-                    <td className="text-text-secondary px-4 py-2">
-                      {u.monitoringAckAt ? (
-                        `Acknowledged ${formatDate(u.monitoringAckAt)}`
-                      ) : (
-                        <span className="text-text-secondary">Not acknowledged</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2">
-                      {deactivated ? (
-                        <span className="text-text-secondary">Deactivated</span>
-                      ) : (
-                        <span className="text-recording">Active</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2">
-                      <UserRowActions userId={u.id} name={u.name} deactivated={deactivated} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <span className="text-label text-text-secondary tt-numeric flex-1">
+            {users.length} users · {activeCount} active
+          </span>
         </div>
-      )}
+        <InviteForm />
+
+        {users.length === 0 ? (
+          <p className="text-text-secondary text-body">
+            No users yet. Invite your first teammate above.
+          </p>
+        ) : (
+          <Card padding="none" className="overflow-hidden">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr>
+                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
+                    Name
+                  </th>
+                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
+                    Email
+                  </th>
+                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
+                    Role
+                  </th>
+                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
+                    Monitoring
+                  </th>
+                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
+                    Status
+                  </th>
+                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-right font-semibold border-b">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u) => {
+                  const deactivated = u.deactivatedAt !== null;
+                  return (
+                    <tr key={u.id}>
+                      <td className="border-separator px-[18px] py-[11px] border-b">
+                        <span className="inline-flex items-center gap-2">
+                          <Avatar name={u.name} size={26} />
+                          {u.name}
+                        </span>
+                      </td>
+                      <td className="text-text-secondary border-separator px-[18px] py-[11px] border-b">
+                        {u.email}
+                      </td>
+                      <td className="border-separator px-[18px] py-[11px] border-b">
+                        <RoleSelect userId={u.id} role={u.role} />
+                      </td>
+                      <td className="text-text-secondary border-separator px-[18px] py-[11px] border-b">
+                        {u.monitoringAckAt ? (
+                          `Acknowledged ${formatDate(u.monitoringAckAt)}`
+                        ) : (
+                          <span className="text-text-secondary">Not acknowledged</span>
+                        )}
+                      </td>
+                      <td className="border-separator px-[18px] py-[11px] border-b">
+                        <Badge tone={deactivated ? 'neutral' : 'good'}>
+                          {deactivated ? 'Deactivated' : 'Active'}
+                        </Badge>
+                      </td>
+                      <td className="border-separator px-[18px] py-[11px] text-right border-b">
+                        <UserRowActions userId={u.id} name={u.name} deactivated={deactivated} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Card>
+        )}
+      </div>
     </>
   );
 }

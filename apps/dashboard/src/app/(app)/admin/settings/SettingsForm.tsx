@@ -2,6 +2,7 @@
 
 import { useActionState } from 'react';
 import type { TeamSettings } from '@timetrack/contracts';
+import { Card } from '../../../../components/ui/Card';
 import { updateSettingsAction, type SettingsState } from './actions';
 
 const INITIAL: SettingsState = { ok: false };
@@ -22,8 +23,8 @@ function NumberField({
   max: number;
 }) {
   return (
-    <label className="flex flex-col gap-1 text-sm">
-      <span className="font-medium">{label}</span>
+    <label className="flex flex-col gap-1">
+      <span className="text-[13px] font-medium">{label}</span>
       <input
         name={name}
         type="number"
@@ -31,7 +32,7 @@ function NumberField({
         min={min}
         max={max}
         required
-        className="tt-numeric bg-surface border-separator text-text focus:border-accent w-32 rounded-md border px-3 py-2 outline-none transition-colors"
+        className="tt-numeric bg-surface border-separator text-text focus:border-accent w-32 rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
       />
       <span className="text-text-secondary text-caption">{hint}</span>
     </label>
@@ -50,10 +51,10 @@ function Toggle({
   checked: boolean;
 }) {
   return (
-    <label className="flex items-start gap-3 text-sm">
-      <input name={name} type="checkbox" defaultChecked={checked} className="mt-1" />
+    <label className="flex items-start gap-3">
+      <input name={name} type="checkbox" defaultChecked={checked} className="accent-accent mt-1" />
       <span>
-        <span className="block font-medium">{label}</span>
+        <span className="block text-[13px] font-medium">{label}</span>
         <span className="text-text-secondary text-caption">{hint}</span>
       </span>
     </label>
@@ -69,9 +70,14 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
   const [state, formAction, pending] = useActionState(updateSettingsAction, INITIAL);
 
   return (
-    <form action={formAction} className="flex max-w-2xl flex-col gap-6">
-      <section className="bg-surface-raised border-separator flex flex-col gap-4 rounded-lg border p-4 shadow-e1">
-        <h2 className="text-text text-label font-semibold">Screenshots</h2>
+    <form action={formAction} className="flex flex-col gap-4">
+      <Card padding="md" className="flex flex-col gap-4">
+        <div>
+          <h2 className="text-text text-[15px] font-semibold">Screenshots</h2>
+          <p className="text-text-secondary text-caption">
+            Applies org-wide to every macOS client.
+          </p>
+        </div>
         <Toggle
           name="screenshotsEnabled"
           label="Capture screenshots"
@@ -87,12 +93,12 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
             min={5}
             max={60}
           />
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium">Blur</span>
+          <label className="flex flex-col gap-1">
+            <span className="text-[13px] font-medium">Blur</span>
             <select
               name="screenshotBlur"
               defaultValue={settings.screenshotBlur}
-              className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 outline-none transition-colors"
+              className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
             >
               <option value="NONE">No blur</option>
               <option value="BLUR">Blur</option>
@@ -109,10 +115,15 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
             max={180}
           />
         </div>
-      </section>
+      </Card>
 
-      <section className="bg-surface-raised border-separator flex flex-col gap-4 rounded-lg border p-4 shadow-e1">
-        <h2 className="text-text text-label font-semibold">Activity & idle</h2>
+      <Card padding="md" className="flex flex-col gap-4">
+        <div>
+          <h2 className="text-text text-[15px] font-semibold">Activity &amp; idle</h2>
+          <p className="text-text-secondary text-caption">
+            How idle time and window titles are tracked.
+          </p>
+        </div>
         <div className="flex flex-wrap gap-6">
           <NumberField
             name="activityRetentionDays"
@@ -149,77 +160,84 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
           hint="Local-only nudges on unproductive apps; nothing is sent to managers."
           checked={settings.distractionAlertsEnabled}
         />
-      </section>
+      </Card>
 
-      <section className="bg-surface-raised border-separator flex flex-col gap-4 rounded-lg border p-4 shadow-e1">
-        <h2 className="text-text text-label font-semibold">App categories</h2>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium">Productive apps</span>
+      <Card padding="md" className="flex flex-col gap-4">
+        <div>
+          <h2 className="text-text text-[15px] font-semibold">App categories</h2>
+          <p className="text-text-secondary text-caption">
+            Classify apps as productive or unproductive for reporting.
+          </p>
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-[13px] font-medium">Productive apps</span>
           <textarea
             name="productiveApps"
             defaultValue={settings.productiveApps.join('\n')}
             rows={3}
             placeholder="One app per line"
-            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 outline-none transition-colors"
+            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
           />
           <span className="text-text-secondary text-caption">
             One app name per line (or comma-separated).
           </span>
         </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium">Unproductive apps</span>
+        <label className="flex flex-col gap-1">
+          <span className="text-[13px] font-medium">Unproductive apps</span>
           <textarea
             name="unproductiveApps"
             defaultValue={settings.unproductiveApps.join('\n')}
             rows={3}
             placeholder="One app per line"
-            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 outline-none transition-colors"
+            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
           />
           <span className="text-text-secondary text-caption">
             A category label, not a judgement.
           </span>
         </label>
-      </section>
+      </Card>
 
-      <section className="bg-surface-raised border-separator flex flex-col gap-4 rounded-lg border p-4 shadow-e1">
-        <h2 className="text-text text-label font-semibold">Site categories</h2>
-        <p className="text-text-secondary text-caption">
-          Matched against the browser&rsquo;s current site host (e.g. <code>youtube.com</code>),
-          separately from apps. A host matches its subdomains.
-        </p>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium">Productive sites</span>
+      <Card padding="md" className="flex flex-col gap-4">
+        <div>
+          <h2 className="text-text text-[15px] font-semibold">Site categories</h2>
+          <p className="text-text-secondary text-caption">
+            Matched against the browser&rsquo;s current site host (e.g. <code>youtube.com</code>),
+            separately from apps. A host matches its subdomains.
+          </p>
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-[13px] font-medium">Productive sites</span>
           <textarea
             name="productiveSites"
             defaultValue={settings.productiveSites.join('\n')}
             rows={3}
             placeholder="One site host per line, e.g. docs.google.com"
-            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 outline-none transition-colors"
+            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
           />
           <span className="text-text-secondary text-caption">
             One host per line (or comma-separated).
           </span>
         </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium">Unproductive sites</span>
+        <label className="flex flex-col gap-1">
+          <span className="text-[13px] font-medium">Unproductive sites</span>
           <textarea
             name="unproductiveSites"
             defaultValue={settings.unproductiveSites.join('\n')}
             rows={3}
             placeholder="One site host per line, e.g. youtube.com"
-            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 outline-none transition-colors"
+            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
           />
           <span className="text-text-secondary text-caption">
             A category label, not a judgement.
           </span>
         </label>
-      </section>
+      </Card>
 
       <div className="flex items-center gap-3">
         <button
           type="submit"
           disabled={pending}
-          className="bg-accent hover:bg-accent-hover text-body rounded-md px-4 py-2 font-medium text-white transition-colors disabled:opacity-50"
+          className="bg-accent hover:bg-accent-hover text-label rounded-md px-4 py-2 font-medium text-white transition-colors disabled:opacity-50"
         >
           {pending ? 'Saving…' : 'Save settings'}
         </button>
