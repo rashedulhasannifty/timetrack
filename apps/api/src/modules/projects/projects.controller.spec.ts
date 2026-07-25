@@ -15,6 +15,7 @@ function make(overrides: Partial<ProjectsService> = {}) {
     update: vi.fn(),
     listTasks: vi.fn().mockResolvedValue([]),
     setTaskArchived: vi.fn(),
+    topApps: vi.fn(),
     ...overrides,
   } as unknown as ProjectsService;
   return { ctrl: new ProjectsController(service), service };
@@ -23,14 +24,18 @@ function make(overrides: Partial<ProjectsService> = {}) {
 beforeEach(() => vi.clearAllMocks());
 
 describe('ProjectsController role-gating', () => {
-  it.each(['createProject', 'createTask', 'update', 'setTaskArchived', 'listTasks'] as const)(
-    'gates %s to MANAGER/ADMIN',
-    (handler) => {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const meta = Reflect.getMetadata(ROLES, ProjectsController.prototype[handler]);
-      expect(meta).toEqual(['MANAGER', 'ADMIN']);
-    },
-  );
+  it.each([
+    'createProject',
+    'createTask',
+    'update',
+    'setTaskArchived',
+    'listTasks',
+    'topApps',
+  ] as const)('gates %s to MANAGER/ADMIN', (handler) => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const meta = Reflect.getMetadata(ROLES, ProjectsController.prototype[handler]);
+    expect(meta).toEqual(['MANAGER', 'ADMIN']);
+  });
 
   it('does not role-gate list (any authenticated team member)', () => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -62,5 +67,12 @@ describe('ProjectsController delegation', () => {
     const { ctrl, service } = make();
     await ctrl.listTasks('p1', actor);
     expect(service.listTasks).toHaveBeenCalledWith('p1', actor);
+  });
+
+  it('topApps passes id, query, and user to the service', async () => {
+    const { ctrl, service } = make();
+    const query = { from: '2026-07-13T00:00:00.000Z', to: '2026-07-19T23:59:59.999Z' };
+    await ctrl.topApps('p1', query, actor);
+    expect(service.topApps).toHaveBeenCalledWith('p1', query, actor);
   });
 });

@@ -17,6 +17,7 @@ function makeService(overrides: Partial<ProjectsRepository> = {}) {
     hoursByDay: vi.fn(),
     membersForProject: vi.fn(),
     tasksForProject: vi.fn(),
+    topAppsForProject: vi.fn(),
     listTasksForProject: vi.fn(),
     findTaskForActor: vi.fn(),
     setTaskArchived: vi.fn(),
@@ -205,6 +206,75 @@ describe('ProjectsService.listTasks', () => {
     });
     await expect(svc.listTasks('p1', manager)).resolves.toEqual(tasks);
     expect(repo.listTasksForProject).toHaveBeenCalledWith('p1');
+  });
+});
+
+describe('ProjectsService.topApps', () => {
+  const query = { from: '2026-07-13T00:00:00.000Z', to: '2026-07-19T23:59:59.999Z' };
+
+  it('404 when the project does not exist', async () => {
+    const { svc } = makeService({ findForActor: vi.fn().mockResolvedValue(null) });
+    await expect(svc.topApps('p9', query, manager)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("403 for another team's project", async () => {
+    const { svc, repo } = makeService({
+      findForActor: vi
+        .fn()
+        .mockResolvedValue({ id: 'p1', teamId: 't2', name: 'X', color: null, archived: false }),
+    });
+    await expect(svc.topApps('p1', query, manager)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(repo.topAppsForProject).not.toHaveBeenCalled();
+  });
+
+  it('computes coveredSeconds and coveragePct from the repo apps/totalSeconds', async () => {
+    const projectId = '11111111-1111-4111-8111-111111111111';
+    const apps = [
+      { appName: 'Xcode', trackedSeconds: 2400 },
+      { appName: 'Terminal', trackedSeconds: 1200 },
+    ];
+    const { svc, repo } = makeService({
+      findForActor: vi.fn().mockResolvedValue({
+        id: projectId,
+        teamId: 't1',
+        name: 'Website',
+        color: '#34c759',
+        archived: false,
+      }),
+      topAppsForProject: vi.fn().mockResolvedValue({ apps, totalSeconds: 7200 }),
+    });
+    const result = await svc.topApps(projectId, query, manager);
+    expect(repo.topAppsForProject).toHaveBeenCalledWith(
+      projectId,
+      new Date(query.from),
+      new Date(query.to),
+    );
+    expect(result).toEqual({
+      from: query.from,
+      to: query.to,
+      projectId,
+      apps,
+      coveredSeconds: 3600,
+      totalSeconds: 7200,
+      coveragePct: 50,
+    });
+  });
+
+  it('coveragePct is 0 when totalSeconds is 0', async () => {
+    const projectId = '11111111-1111-4111-8111-111111111111';
+    const { svc } = makeService({
+      findForActor: vi.fn().mockResolvedValue({
+        id: projectId,
+        teamId: 't1',
+        name: 'Website',
+        color: null,
+        archived: false,
+      }),
+      topAppsForProject: vi.fn().mockResolvedValue({ apps: [], totalSeconds: 0 }),
+    });
+    const result = await svc.topApps(projectId, query, manager);
+    expect(result.coveragePct).toBe(0);
+    expect(result.coveredSeconds).toBe(0);
   });
 });
 
