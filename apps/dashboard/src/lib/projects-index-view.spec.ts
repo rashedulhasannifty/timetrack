@@ -3,10 +3,11 @@ import { toProjectIndexRows } from './projects-index-view';
 import { projectColor } from './project-color';
 import type { Project, ProjectSummaryRow } from '@timetrack/contracts';
 
-const P = (id: string, name: string, archived = false): Project => ({
+const P = (id: string, name: string, archived = false, color: string | null = null): Project => ({
   id,
   teamId: '018f9c1e-0000-7000-8000-0000000000aa',
   name,
+  color,
   archived,
 });
 
@@ -71,5 +72,12 @@ describe('toProjectIndexRows', () => {
 
   it('returns empty rows and zero bucket for empty inputs', () => {
     expect(toProjectIndexRows([], [])).toEqual({ rows: [], noProjectSeconds: 0 });
+  });
+
+  it('uses the stored color when present, else the derived fallback', () => {
+    const { rows } = toProjectIndexRows([P('p1', 'Alpha', false, '#ff2d55')], []);
+    expect(rows[0]?.color).toBe('#ff2d55');
+    const { rows: derived } = toProjectIndexRows([P('p2', 'Beta')], []);
+    expect(derived[0]?.color).toBe(projectColor('p2'));
   });
 });

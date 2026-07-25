@@ -38,7 +38,7 @@ export function toProjectIndexRows(
     name: p.name,
     archived: p.archived,
     trackedSeconds: secondsById.get(p.id) ?? 0,
-    color: projectColor(p.id),
+    color: p.color ?? projectColor(p.id),
   }));
 
   rows.sort((a, b) => b.trackedSeconds - a.trackedSeconds || a.name.localeCompare(b.name));

@@ -1,19 +1,11 @@
 /**
- * Deterministic project → dot color. Projects have no stored color yet (Slice 3 adds the
- * Project.color column + picker); this maps a project id to a stable hue so the same project
- * always renders the same dot. When the column lands it becomes the fallback for a null color.
- * Values are Apple-system hues chosen to read on both the light (#fff) and dark (#2c2c2e) card.
+ * Deterministic project → dot color fallback. The palette is the single source in
+ * @timetrack/contracts (also the write-enum for the picker). A project with a stored `color`
+ * uses it; a null color falls back to this derivation. Presentational; dashboard-only.
  */
-export const PROJECT_PALETTE = [
-  '#007aff', // blue
-  '#5e5ce6', // indigo
-  '#30b0c7', // teal
-  '#34c759', // green
-  '#ff9500', // orange
-  '#ff2d55', // pink
-  '#af52de', // purple
-  '#ffcc00', // yellow
-] as const;
+import { PROJECT_PALETTE } from '@timetrack/contracts';
+
+export { PROJECT_PALETTE };
 
 function hashString(s: string): number {
   let h = 0;

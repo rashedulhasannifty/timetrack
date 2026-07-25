@@ -11,6 +11,8 @@ import {
   type TimeEntry,
   ProjectSchema,
   type Project,
+  type CreateProject,
+  type ProjectColor,
   UserSchema,
   type User,
   TeamSchema,
@@ -202,6 +204,12 @@ export const api = {
     get(`/reports/projects?${params}`, ProjectSummarySchema, token),
   getProjectDetail: (token: string, id: string, params: URLSearchParams): Promise<ProjectDetail> =>
     get(`/projects/${id}/detail?${params}`, ProjectDetailSchema, token),
+  createProject: (token: string, dto: CreateProject): Promise<Project> =>
+    send('POST', '/projects', dto, ProjectSchema, token),
+  archiveProject: (token: string, id: string, archived: boolean): Promise<Project> =>
+    send('PATCH', `/projects/${id}`, { archived }, ProjectSchema, token),
+  recolorProject: (token: string, id: string, color: ProjectColor): Promise<Project> =>
+    send('PATCH', `/projects/${id}`, { color }, ProjectSchema, token),
   exportReportCsv: (token: string, params: URLSearchParams): Promise<Response> =>
     getRaw(`/reports/export.csv?${params}`, token),
 
