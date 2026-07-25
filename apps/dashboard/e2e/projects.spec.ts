@@ -28,7 +28,7 @@ test.describe('projects index', () => {
   test.skip('an employee sees the not-permitted state', async ({ page }) => {
     // With an EMPLOYEE session, /reports/projects 403s → the not-permitted copy renders.
     await page.goto('/projects');
-    await expect(page.getByText("You’re not permitted to view projects.")).toBeVisible();
+    await expect(page.getByText("You're not permitted to view projects.")).toBeVisible();
   });
 });
 
@@ -48,6 +48,29 @@ test.describe('project detail', () => {
 
   test.skip('an employee sees the not-permitted state', async ({ page }) => {
     await page.goto('/projects/some-project-id');
-    await expect(page.getByText("You’re not permitted to view this project.")).toBeVisible();
+    await expect(page.getByText("You're not permitted to view this project.")).toBeVisible();
+  });
+});
+
+test.describe('project management', () => {
+  test.skip('create a project with a name and color', async ({ page }) => {
+    await page.goto('/projects');
+    await page.getByPlaceholder('New project').fill('Launch');
+    await page.getByRole('radio', { name: '#5e5ce6' }).click();
+    await page.getByRole('button', { name: 'New project' }).click();
+    await expect(page.getByText('Launch')).toBeVisible();
+  });
+
+  test.skip('archive a project from the index', async ({ page }) => {
+    await page.goto('/projects');
+    await page.getByRole('button', { name: 'Archive' }).first().click();
+    await expect(page.getByText('Archived').first()).toBeVisible();
+  });
+
+  test.skip('recolor a project from the detail page', async ({ page }) => {
+    await page.goto('/projects/some-project-id');
+    await page.getByRole('radio', { name: '#ff2d55' }).click();
+    await page.getByRole('button', { name: 'Save color' }).click();
+    await expect(page.getByRole('button', { name: 'Save color' })).toBeVisible();
   });
 });
