@@ -9,7 +9,7 @@ test.describe.skip('approvals reskin', () => {
   test('table renders rows with status badges', async ({ page }) => {
     await page.goto('/approvals');
     await expect(page.getByRole('table')).toBeVisible();
-    await expect(page.locator('[data-testid="status-badge"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="status-badge"]').first()).toBeVisible();
   });
 
   test('clicking Decide opens a popover with Approve + Flag for payroll', async ({ page }) => {
@@ -21,6 +21,8 @@ test.describe.skip('approvals reskin', () => {
 
   test('the intro line is present', async ({ page }) => {
     await page.goto('/approvals');
-    await expect(page.getByText(/team\'s time entries awaiting your review/i)).toBeVisible();
+    await expect(
+      page.getByText(/weekly timesheets awaiting a manager decision/i),
+    ).toBeVisible();
   });
 });
