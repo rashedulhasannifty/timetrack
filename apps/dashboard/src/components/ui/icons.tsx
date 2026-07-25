@@ -63,6 +63,14 @@ export const IconAdmin = (p: SVGProps<SVGSVGElement>) => (
   </Base>
 );
 
+export const IconProjects = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M12 3.5 20 7.5 12 11.5 4 7.5Z" />
+    <path d="M4 12l8 4 8-4" />
+    <path d="M4 16.5l8 4 8-4" />
+  </Base>
+);
+
 export const IconMoon = (p: SVGProps<SVGSVGElement>) => (
   <Base {...p}>
     <path d="M20 13.5A8 8 0 1 1 10.5 4a6.2 6.2 0 0 0 9.5 9.5Z" />

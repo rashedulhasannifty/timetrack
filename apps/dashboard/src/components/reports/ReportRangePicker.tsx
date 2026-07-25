@@ -4,7 +4,15 @@ import { useRouter, useSearchParams } from 'next/navigation';
 
 /** Writes the selected range to the URL so the Server Component refetches. Date-only inputs
  *  are widened to full-day UTC bounds to match the API's datetime range. */
-export function ReportRangePicker({ from, to }: { from: string; to: string }) {
+export function ReportRangePicker({
+  from,
+  to,
+  basePath = '/reports',
+}: {
+  from: string;
+  to: string;
+  basePath?: string;
+}) {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -12,7 +20,7 @@ export function ReportRangePicker({ from, to }: { from: string; to: string }) {
     const iso = key === 'from' ? `${dateOnly}T00:00:00.000Z` : `${dateOnly}T23:59:59.999Z`;
     const next = new URLSearchParams(params.toString());
     next.set(key, iso);
-    router.push(`/reports?${next.toString()}`);
+    router.push(`${basePath}?${next.toString()}`);
   }
 
   return (
