@@ -13,9 +13,12 @@ against the current dashboard (see the audit in this session).
 The whole dashboard is being reskinned to the `TimeTrack.dc.html` mockup at **pixel-perfect**
 fidelity, screen by screen. Every screen is built from the same shared card/badge/stat/avatar kit
 and hangs off one app shell (sidebar + sticky header). This slice builds **that shared foundation**
-so the per-screen slices that follow are pure composition. Tokens and dark mode already match the
-mockup exactly (`globals.css` `--tt-*` light+dark, `.dark` class + pre-paint seed + `ThemeToggle`)
-— **nothing to do there**.
+so the per-screen slices that follow are pure composition. Dark mode and almost all tokens already
+match the mockup (`globals.css` `--tt-*` light+dark, `.dark` class + pre-paint seed + `ThemeToggle`).
+**Two tokens the mockup uses are missing** and this slice adds them: `--tt-good` (#34c759 light /
+#30d158 dark) and `--tt-manual` (#ffcc00 light / #ffd60a dark), plus their `@theme` mappings
+(`--color-good`, `--color-manual`) so `bg-good`/`text-good`/`bg-manual` utilities exist. Everything
+else in `globals.css` is untouched.
 
 This slice ships **no visual change to any screen's body**; it lands the primitives + the shell
 chrome. Screens keep rendering as they do today until their own slice reskins them.
