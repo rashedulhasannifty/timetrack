@@ -20,3 +20,16 @@ export function toProjectBars(rows: ProjectSummaryRow[]): { name: string; hours:
 export function hasReportData(team: TeamSummaryRow[], projects: ProjectSummaryRow[]): boolean {
   return team.length > 0 || projects.length > 0;
 }
+
+/** Pure, stable sort of team rows by column; does not mutate `rows`. */
+export function sortTeamRows(
+  rows: TeamSummaryRow[],
+  key: 'name' | 'trackedSeconds' | 'activityPct',
+  dir: 'asc' | 'desc',
+): TeamSummaryRow[] {
+  const sorted = [...rows].sort((a, b) => {
+    const cmp = key === 'name' ? a.name.localeCompare(b.name) : a[key] - b[key];
+    return dir === 'asc' ? cmp : -cmp;
+  });
+  return sorted;
+}
