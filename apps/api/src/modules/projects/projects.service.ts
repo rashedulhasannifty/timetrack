@@ -7,6 +7,7 @@ import type {
   ProjectDetailQuery,
   Task,
   UpdateProject,
+  UpdateTask,
 } from '@timetrack/contracts';
 import { ProjectDetailSchema } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
@@ -35,6 +36,20 @@ export class ProjectsService {
     if (!project) throw this.notFound();
     if (project.teamId !== actor.teamId) throw this.forbidden();
     return this.repo.createTask(dto.projectId, dto.name, actor.id);
+  }
+
+  async listTasks(id: string, actor: SessionUser): Promise<Task[]> {
+    const project = await this.repo.findForActor(id);
+    if (!project) throw this.notFound();
+    if (project.teamId !== actor.teamId) throw this.forbidden();
+    return this.repo.listTasksForProject(id);
+  }
+
+  async setTaskArchived(taskId: string, dto: UpdateTask, actor: SessionUser): Promise<Task> {
+    const task = await this.repo.findTaskForActor(taskId);
+    if (!task) throw this.notFound();
+    if (task.teamId !== actor.teamId) throw this.forbidden();
+    return this.repo.setTaskArchived(taskId, dto.archived, actor.id);
   }
 
   async update(id: string, dto: UpdateProject, actor: SessionUser): Promise<Project> {

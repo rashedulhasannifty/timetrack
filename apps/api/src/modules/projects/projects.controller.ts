@@ -5,6 +5,7 @@ import {
   ListProjectsQuerySchema,
   ProjectDetailQuerySchema,
   UpdateProjectSchema,
+  UpdateTaskSchema,
   type CreateProject,
   type CreateTask,
   type ListProjectsQuery,
@@ -13,6 +14,7 @@ import {
   type ProjectDetailQuery,
   type Task,
   type UpdateProject,
+  type UpdateTask,
 } from '@timetrack/contracts';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
@@ -50,6 +52,22 @@ export class ProjectsController {
     @CurrentUser() actor: SessionUser,
   ): Promise<Task> {
     return this.service.createTask(dto, actor);
+  }
+
+  @Get(':id/tasks')
+  @Roles('MANAGER', 'ADMIN')
+  listTasks(@Param('id') id: string, @CurrentUser() user: SessionUser): Promise<Task[]> {
+    return this.service.listTasks(id, user);
+  }
+
+  @Patch('tasks/:id')
+  @Roles('MANAGER', 'ADMIN')
+  setTaskArchived(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateTaskSchema)) dto: UpdateTask,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<Task> {
+    return this.service.setTaskArchived(id, dto, actor);
   }
 
   @Get(':id/detail')

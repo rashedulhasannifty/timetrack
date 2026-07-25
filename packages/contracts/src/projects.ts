@@ -20,6 +20,7 @@ export const TaskSchema = z.object({
   id: z.uuid(),
   projectId: z.uuid(),
   name: z.string(),
+  archived: z.boolean(),
 });
 
 export const ProjectSchema = z.object({
@@ -40,6 +41,10 @@ export const CreateProjectSchema = z.object({
 export const CreateTaskSchema = z.object({
   projectId: z.uuid(),
   name: z.string().min(1).max(200),
+});
+
+export const UpdateTaskSchema = z.object({
+  archived: z.boolean(),
 });
 
 export const UpdateProjectSchema = z.object({
@@ -93,6 +98,7 @@ export type Task = z.infer<typeof TaskSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
 export type CreateProject = z.infer<typeof CreateProjectSchema>;
 export type CreateTask = z.infer<typeof CreateTaskSchema>;
+export type UpdateTask = z.infer<typeof UpdateTaskSchema>;
 export type UpdateProject = z.infer<typeof UpdateProjectSchema>;
 export type ListProjectsQuery = z.infer<typeof ListProjectsQuerySchema>;
 export type ProjectHoursTrendRow = z.infer<typeof ProjectHoursTrendRowSchema>;

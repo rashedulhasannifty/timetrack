@@ -1,7 +1,12 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { CreateProjectSchema, UpdateProjectSchema } from '@timetrack/contracts';
+import {
+  CreateProjectSchema,
+  UpdateProjectSchema,
+  CreateTaskSchema,
+  UpdateTaskSchema,
+} from '@timetrack/contracts';
 import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
 
@@ -88,5 +93,50 @@ export async function recolorProjectAction(
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Recolor failed.' };
+  }
+}
+
+export async function createTaskAction(
+  _prev: ProjectActionState,
+  formData: FormData,
+): Promise<ProjectActionState> {
+  const session = await getSession();
+  if (!session || !canManage(session.role)) return { ok: false, message: 'Not authorized.' };
+
+  const rawProjectId = formData.get('projectId');
+  const projectId = typeof rawProjectId === 'string' ? rawProjectId : '';
+  const parsed = CreateTaskSchema.safeParse({ projectId, name: formData.get('name') });
+  if (!parsed.success) return { ok: false, message: 'Enter a task name.' };
+
+  try {
+    await api.createTask(session.accessToken, parsed.data);
+    revalidatePath(`/projects/${projectId}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof ApiError ? e.message : 'Could not add the task.' };
+  }
+}
+
+export async function archiveTaskAction(
+  _prev: ProjectActionState,
+  formData: FormData,
+): Promise<ProjectActionState> {
+  const session = await getSession();
+  if (!session || !canManage(session.role)) return { ok: false, message: 'Not authorized.' };
+
+  const rawId = formData.get('id');
+  const id = typeof rawId === 'string' ? rawId : '';
+  const rawProjectId = formData.get('projectId');
+  const projectId = typeof rawProjectId === 'string' ? rawProjectId : '';
+  const archived = formData.get('archived') === 'true';
+  const parsed = UpdateTaskSchema.safeParse({ archived });
+  if (!id || !parsed.success) return { ok: false, message: 'Invalid request.' };
+
+  try {
+    await api.archiveTask(session.accessToken, id, archived);
+    if (projectId) revalidatePath(`/projects/${projectId}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
   }
 }

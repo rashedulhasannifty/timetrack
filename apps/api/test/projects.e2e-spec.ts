@@ -49,6 +49,52 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     expect(audit?.action).toBe('task.create');
   });
 
+  it('setTaskArchived toggles archived and audits archive vs unarchive', async () => {
+    const team = await seedTeam();
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    const task = await repo().createTask(project.id, 'Homepage', 'actor1');
+
+    const archived = await repo().setTaskArchived(task.id, true, 'actor1');
+    expect(archived.archived).toBe(true);
+    const unarchived = await repo().setTaskArchived(task.id, false, 'actor1');
+    expect(unarchived.archived).toBe(false);
+
+    const actions = await db.prisma.auditLog.findMany({
+      where: { targetType: 'task', targetId: task.id },
+      orderBy: { timestamp: 'asc' },
+      select: { action: true },
+    });
+    expect(actions.map((a) => a.action)).toEqual(['task.create', 'task.archive', 'task.unarchive']);
+  });
+
+  it('listByTeam nested tasks exclude archived; listTasksForProject includes them', async () => {
+    const team = await seedTeam();
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    const active = await repo().createTask(project.id, 'Active', 'actor1');
+    const gone = await repo().createTask(project.id, 'Old', 'actor1');
+    await repo().setTaskArchived(gone.id, true, 'actor1');
+
+    const listed = await repo().listByTeam(team.id, true);
+    const nestedTaskIds = (listed[0]?.tasks ?? []).map((t) => t.id);
+    expect(nestedTaskIds).toEqual([active.id]); // archived filtered from assignment list
+
+    const all = await repo().listTasksForProject(project.id);
+    expect(all.map((t) => t.id).sort()).toEqual([active.id, gone.id].sort());
+    // active-first ordering: the non-archived task precedes the archived one
+    expect(all[0]?.id).toBe(active.id);
+  });
+
+  it('findTaskForActor returns {projectId, teamId}, or null when missing', async () => {
+    const team = await seedTeam();
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    const task = await repo().createTask(project.id, 'Homepage', 'actor1');
+    expect(await repo().findTaskForActor(task.id)).toEqual({
+      projectId: project.id,
+      teamId: team.id,
+    });
+    expect(await repo().findTaskForActor('019797a0-0000-7000-8000-0000000000ff')).toBeNull();
+  });
+
   it('listByTeam excludes archived by default and includes them when asked', async () => {
     const team = await seedTeam();
     const active = await repo().createProject(team.id, 'Active', 'actor1');

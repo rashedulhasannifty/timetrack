@@ -22,7 +22,10 @@ export class ProjectsRepository {
       orderBy: { name: 'asc' },
       select: {
         ...PROJECT_SELECT,
-        tasks: { select: { id: true, projectId: true, name: true } },
+        tasks: {
+          where: { archived: false },
+          select: { id: true, projectId: true, name: true, archived: true },
+        },
       },
     });
     return rows;
@@ -56,7 +59,7 @@ export class ProjectsRepository {
     return this.prisma.$transaction(async (tx) => {
       const task = await tx.task.create({
         data: { projectId, name },
-        select: { id: true, projectId: true, name: true },
+        select: { id: true, projectId: true, name: true, archived: true },
       });
       await tx.auditLog.create({
         data: {
@@ -65,6 +68,42 @@ export class ProjectsRepository {
           targetType: 'task',
           targetId: task.id,
           diff: { projectId, name },
+        },
+      });
+      return task;
+    });
+  }
+
+  listTasksForProject(projectId: string): Promise<Task[]> {
+    return this.prisma.task.findMany({
+      where: { projectId },
+      orderBy: [{ archived: 'asc' }, { name: 'asc' }],
+      select: { id: true, projectId: true, name: true, archived: true },
+    });
+  }
+
+  async findTaskForActor(taskId: string): Promise<{ projectId: string; teamId: string } | null> {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { projectId: true, project: { select: { teamId: true } } },
+    });
+    return task ? { projectId: task.projectId, teamId: task.project.teamId } : null;
+  }
+
+  async setTaskArchived(id: string, archived: boolean, actorId: string): Promise<Task> {
+    return this.prisma.$transaction(async (tx) => {
+      const task = await tx.task.update({
+        where: { id },
+        data: { archived },
+        select: { id: true, projectId: true, name: true, archived: true },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: archived ? 'task.archive' : 'task.unarchive',
+          targetType: 'task',
+          targetId: id,
+          diff: { archived },
         },
       });
       return task;

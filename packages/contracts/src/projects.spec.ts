@@ -7,6 +7,8 @@ import {
   UpdateProjectSchema,
   ProjectSchema,
   ProjectColorSchema,
+  TaskSchema,
+  UpdateTaskSchema,
   PROJECT_PALETTE,
 } from './projects.js';
 
@@ -89,5 +91,23 @@ describe('ProjectColor + color fields', () => {
     };
     expect(ProjectSchema.parse({ ...base, color: null }).color).toBeNull();
     expect(ProjectSchema.parse({ ...base, color: '#legacy' }).color).toBe('#legacy');
+  });
+});
+
+describe('Task archived + UpdateTaskSchema', () => {
+  it('TaskSchema requires archived', () => {
+    const base = {
+      id: '018f9c1e-0000-7000-8000-000000000001',
+      projectId: '018f9c1e-0000-7000-8000-000000000002',
+      name: 'Homepage',
+    };
+    expect(() => TaskSchema.parse(base)).toThrow(); // missing archived
+    expect(TaskSchema.parse({ ...base, archived: false }).archived).toBe(false);
+  });
+
+  it('UpdateTaskSchema parses a boolean and rejects empty / non-boolean', () => {
+    expect(UpdateTaskSchema.parse({ archived: true })).toEqual({ archived: true });
+    expect(() => UpdateTaskSchema.parse({})).toThrow();
+    expect(() => UpdateTaskSchema.parse({ archived: 'yes' })).toThrow();
   });
 });
