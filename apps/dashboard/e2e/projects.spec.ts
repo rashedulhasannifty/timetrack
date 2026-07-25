@@ -76,3 +76,18 @@ test.describe('project management', () => {
     await expect(page.getByRole('button', { name: 'Save color' })).toBeVisible();
   });
 });
+
+test.describe('task management', () => {
+  test.skip('add a task on the detail page', async ({ page }) => {
+    await page.goto('/projects/some-project-id');
+    await page.getByPlaceholder('New task').fill('Homepage');
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await expect(page.getByText('Homepage')).toBeVisible();
+  });
+
+  test.skip('archive a task from the detail page', async ({ page }) => {
+    await page.goto('/projects/some-project-id');
+    await page.getByRole('button', { name: 'Archive' }).last().click();
+    await expect(page.getByText('Archived').last()).toBeVisible();
+  });
+});
