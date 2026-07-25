@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { defaultReportRange, toProjectBars, hasReportData } from './reports-view';
+import { defaultReportRange, toProjectBars, hasReportData, sortTeamRows } from './reports-view';
+import type { TeamSummaryRow } from '@timetrack/contracts';
 
 describe('defaultReportRange', () => {
   it('spans the last 7 UTC days inclusive of today', () => {
@@ -23,5 +24,72 @@ describe('hasReportData', () => {
     expect(hasReportData([{ userId: 'u', name: 'A', trackedSeconds: 1, activityPct: 0 }], [])).toBe(
       true,
     );
+  });
+});
+
+describe('sortTeamRows', () => {
+  const rows: TeamSummaryRow[] = [
+    { userId: '1', name: 'Charlie', trackedSeconds: 300, activityPct: 50 },
+    { userId: '2', name: 'Alice', trackedSeconds: 100, activityPct: 90 },
+    { userId: '3', name: 'Bob', trackedSeconds: 200, activityPct: 10 },
+  ];
+
+  it('sorts by name asc', () => {
+    expect(sortTeamRows(rows, 'name', 'asc').map((r) => r.name)).toEqual([
+      'Alice',
+      'Bob',
+      'Charlie',
+    ]);
+  });
+
+  it('sorts by name desc', () => {
+    expect(sortTeamRows(rows, 'name', 'desc').map((r) => r.name)).toEqual([
+      'Charlie',
+      'Bob',
+      'Alice',
+    ]);
+  });
+
+  it('sorts by trackedSeconds asc', () => {
+    expect(sortTeamRows(rows, 'trackedSeconds', 'asc').map((r) => r.trackedSeconds)).toEqual([
+      100, 200, 300,
+    ]);
+  });
+
+  it('sorts by trackedSeconds desc', () => {
+    expect(sortTeamRows(rows, 'trackedSeconds', 'desc').map((r) => r.trackedSeconds)).toEqual([
+      300, 200, 100,
+    ]);
+  });
+
+  it('sorts by activityPct asc', () => {
+    expect(sortTeamRows(rows, 'activityPct', 'asc').map((r) => r.activityPct)).toEqual([
+      10, 50, 90,
+    ]);
+  });
+
+  it('sorts by activityPct desc', () => {
+    expect(sortTeamRows(rows, 'activityPct', 'desc').map((r) => r.activityPct)).toEqual([
+      90, 50, 10,
+    ]);
+  });
+
+  it('preserves original relative order for ties (stability)', () => {
+    const tied: TeamSummaryRow[] = [
+      { userId: '1', name: 'Same', trackedSeconds: 100, activityPct: 50 },
+      { userId: '2', name: 'Same', trackedSeconds: 100, activityPct: 50 },
+      { userId: '3', name: 'Same', trackedSeconds: 100, activityPct: 50 },
+    ];
+    expect(sortTeamRows(tied, 'trackedSeconds', 'asc').map((r) => r.userId)).toEqual([
+      '1',
+      '2',
+      '3',
+    ]);
+  });
+
+  it('does not mutate the input array', () => {
+    const snapshot = [...rows];
+    sortTeamRows(rows, 'name', 'asc');
+    expect(rows).toEqual(snapshot);
   });
 });
