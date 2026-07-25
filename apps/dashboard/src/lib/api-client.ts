@@ -37,6 +37,8 @@ import {
   type ProjectSummary,
   ProjectDetailSchema,
   type ProjectDetail,
+  ProjectTopAppsSchema,
+  type ProjectTopApps,
   TimesheetApprovalSchema,
   type TimesheetApproval,
   type Decision,
@@ -208,6 +210,12 @@ export const api = {
     get(`/reports/projects?${params}`, ProjectSummarySchema, token),
   getProjectDetail: (token: string, id: string, params: URLSearchParams): Promise<ProjectDetail> =>
     get(`/projects/${id}/detail?${params}`, ProjectDetailSchema, token),
+  getProjectTopApps: (
+    token: string,
+    id: string,
+    params: URLSearchParams,
+  ): Promise<ProjectTopApps> =>
+    get(`/projects/${id}/top-apps?${params}`, ProjectTopAppsSchema, token),
   createProject: (token: string, dto: CreateProject): Promise<Project> =>
     send('POST', '/projects', dto, ProjectSchema, token),
   archiveProject: (token: string, id: string, archived: boolean): Promise<Project> =>
