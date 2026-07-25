@@ -13,6 +13,9 @@ import {
   type Project,
   type CreateProject,
   type ProjectColor,
+  TaskSchema,
+  type Task,
+  type CreateTask,
   UserSchema,
   type User,
   TeamSchema,
@@ -210,6 +213,12 @@ export const api = {
     send('PATCH', `/projects/${id}`, { archived }, ProjectSchema, token),
   recolorProject: (token: string, id: string, color: ProjectColor): Promise<Project> =>
     send('PATCH', `/projects/${id}`, { color }, ProjectSchema, token),
+  createTask: (token: string, dto: CreateTask): Promise<Task> =>
+    send('POST', '/projects/tasks', dto, TaskSchema, token),
+  listProjectTasks: (token: string, id: string): Promise<Task[]> =>
+    get(`/projects/${id}/tasks`, z.array(TaskSchema), token),
+  archiveTask: (token: string, id: string, archived: boolean): Promise<Task> =>
+    send('PATCH', `/projects/tasks/${id}`, { archived }, TaskSchema, token),
   exportReportCsv: (token: string, params: URLSearchParams): Promise<Response> =>
     getRaw(`/reports/export.csv?${params}`, token),
 
