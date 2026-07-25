@@ -133,21 +133,24 @@ describe('ProjectsService.detail', () => {
       findForActor: vi
         .fn()
         .mockResolvedValue({ id: projectId, teamId: 't1', name: 'Website', archived: false }),
-      hoursByDay: vi.fn().mockResolvedValue([{ day: '2026-07-14', trackedSeconds: 10800 }]),
+      hoursByDay: vi.fn().mockResolvedValue([
+        { day: '2026-07-14', trackedSeconds: 5000 },
+        { day: '2026-07-15', trackedSeconds: 1234 },
+      ]),
       membersForProject: vi.fn().mockResolvedValue([
         { userId: '22222222-2222-4222-8222-222222222222', name: 'Jane', trackedSeconds: 7200 },
-        { userId: '33333333-3333-4333-8333-333333333333', name: 'John', trackedSeconds: 3600 },
+        { userId: '33333333-3333-4333-8333-333333333333', name: 'John', trackedSeconds: 1800 },
       ]),
       tasksForProject: vi
         .fn()
-        .mockResolvedValue([{ taskId: null, name: 'No task', trackedSeconds: 10800 }]),
+        .mockResolvedValue([{ taskId: null, name: 'No task', trackedSeconds: 4321 }]),
     });
     const result = await svc.detail(projectId, query, manager);
     expect(result.projectId).toBe(projectId);
     expect(result.name).toBe('Website');
-    expect(result.totalSeconds).toBe(10800);
+    expect(result.totalSeconds).toBe(9000);
     expect(result.members).toHaveLength(2);
-    expect(result.tasks[0]).toEqual({ taskId: null, name: 'No task', trackedSeconds: 10800 });
+    expect(result.tasks[0]).toEqual({ taskId: null, name: 'No task', trackedSeconds: 4321 });
     expect(result.from).toBe(query.from);
   });
 });
