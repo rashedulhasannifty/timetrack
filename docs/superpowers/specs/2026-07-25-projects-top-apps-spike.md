@@ -11,9 +11,14 @@ Slice 3 (project management) is complete. The Time Doctor reference screens show
 two risks to resolve first: the **MANUAL/AUTO time-entry mix** (is the number meaningful?) and the
 **range-join cost** over the monthly-partitioned `activity_samples` (is it affordable?).
 
-## Decision: **CUT** (human, 2026-07-25)
+## Decision: ~~CUT~~ → **BUILD with disclosed coverage** (human, revised 2026-07-26)
 
-Per-project top-apps will not be built. The recommendation below stands as the rationale.
+Originally cut (below). **Reversed 2026-07-26:** the human chose to build per-project top-apps
+**on the mandatory condition** that the UI discloses coverage — a visible "app data covers N% of
+this project's tracked time" figure — so the MANUAL-blindness (Finding 1) is surfaced, never hidden.
+The range-join cost is a non-issue (Finding 2: ~9 ms with a `time_entries(projectId)` index).
+Implementation plan: `docs/superpowers/plans/2026-07-26-projects-top-apps-build.md`. The coverage
+disclosure is not optional — it is the whole reason the reversal is acceptable.
 
 ## Recommendation: **CUT** (or defer behind an explicit coverage caveat)
 
