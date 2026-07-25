@@ -7,6 +7,7 @@ const actor: SessionUser = { id: 'a1', role: 'ADMIN', teamId: 't1' };
 
 function make() {
   const service = {
+    me: vi.fn().mockResolvedValue({ id: 'a1' }),
     list: vi.fn().mockResolvedValue([{ id: 'u1' }]),
     update: vi.fn().mockResolvedValue({ id: 'u1' }),
     invite: vi.fn().mockResolvedValue({ id: 'u2', inviteToken: 'tok' }),
@@ -16,6 +17,12 @@ function make() {
 }
 
 describe('UsersController', () => {
+  it('me delegates with the current user', async () => {
+    const { ctrl, service } = make();
+    await ctrl.me(actor);
+    expect(service.me).toHaveBeenCalledWith(actor);
+  });
+
   it('list delegates with the current user', async () => {
     const { ctrl, service } = make();
     await ctrl.list(actor);

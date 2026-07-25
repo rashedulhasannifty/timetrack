@@ -183,6 +183,27 @@ describe('UsersService.update — role guards', () => {
   });
 });
 
+describe('UsersService.me', () => {
+  it('returns the caller’s own user', async () => {
+    const user = {
+      id: 'u1',
+      email: 'a@b.co',
+      name: 'Ann Lee',
+      role: 'EMPLOYEE',
+    } as unknown as User;
+    const { svc, repo } = makeSetActiveService({ findUser: vi.fn().mockResolvedValue(user) });
+    await expect(svc.me({ id: 'u1', role: 'EMPLOYEE', teamId: 't1' })).resolves.toBe(user);
+    expect(repo.findUser).toHaveBeenCalledWith('u1');
+  });
+
+  it('throws NotFound when the record is missing', async () => {
+    const { svc } = makeSetActiveService({ findUser: vi.fn().mockResolvedValue(null) });
+    await expect(svc.me({ id: 'x', role: 'EMPLOYEE', teamId: 't1' })).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+});
+
 describe('UsersService.ackMonitoring', () => {
   it('403 when acknowledging for another user (no admin override)', async () => {
     const { svc } = makeSetActiveService({});

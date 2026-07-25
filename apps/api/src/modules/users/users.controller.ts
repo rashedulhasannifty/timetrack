@@ -18,6 +18,11 @@ import { UsersService } from './users.service.js';
 export class UsersController {
   constructor(private readonly service: UsersService) {}
 
+  @Get('me')
+  me(@CurrentUser() user: SessionUser): Promise<User> {
+    return this.service.me(user);
+  }
+
   @Get()
   @Roles('MANAGER', 'ADMIN')
   list(@CurrentUser() user: SessionUser): Promise<User[]> {
