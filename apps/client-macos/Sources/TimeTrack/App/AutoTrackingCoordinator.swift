@@ -99,22 +99,6 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
     }
 
     private func enqueueIdleEvent(from: Date, to: Date, action: ResolvedAction) {
-        let id = idGen(from)
-        let event = IdleEventPayload(
-            id: id,
-            startTime: Self.iso.string(from: from),
-            endTime: Self.iso.string(from: to),
-            resolvedAction: action
-        )
-        if let data = try? JSONEncoder().encode(event) {
-            buffer.enqueue(id: id, kind: .idleEvent, payload: data)
-        }
+        IdleEventEnqueuer.enqueue(into: buffer, id: idGen(from), from: from, to: to, action: action)
     }
-
-    /// Matches `TimeTracker`'s ISO config (`[.withInternetDateTime]`).
-    private static let iso: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
 }
