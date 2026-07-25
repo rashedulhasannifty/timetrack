@@ -25,15 +25,21 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     throw err;
   }
 
+  // Only managers/admins have visibility into the team's live tracking state — an EMPLOYEE's
+  // own overview row would otherwise render a misleading "N clients tracking now" footer.
+  const canSeeTracking = me.role === 'MANAGER' || me.role === 'ADMIN';
+
   return (
     <AppShell
       role={me.role}
       name={me.name}
       email={me.email}
       footer={
-        <Suspense fallback={null}>
-          <TrackingFooter token={session.accessToken} />
-        </Suspense>
+        canSeeTracking ? (
+          <Suspense fallback={null}>
+            <TrackingFooter token={session.accessToken} />
+          </Suspense>
+        ) : undefined
       }
     >
       {children}

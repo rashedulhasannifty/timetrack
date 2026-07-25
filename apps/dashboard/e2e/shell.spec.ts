@@ -41,10 +41,11 @@ test.describe.skip('app shell', () => {
   test('on narrow viewport (<900px) hamburger toggles sidebar overlay', async ({ page }) => {
     await page.setViewportSize({ width: 800, height: 600 });
     await page.goto('/');
-    await page.getByRole('button', { name: /hamburger|menu/i }).click();
-    await expect(page.locator('[role="navigation"]')).toBeVisible();
-    await page.getByRole('button', { name: /hamburger|menu/i }).click();
-    await expect(page.locator('[role="navigation"]')).not.toBeVisible();
+    const toggle = page.getByRole('button', { name: /toggle navigation/i });
+    await toggle.click();
+    await expect(page.getByRole('link', { name: 'Overview' })).toBeVisible();
+    await toggle.click();
+    await expect(page.getByRole('link', { name: 'Overview' })).not.toBeVisible();
   });
 
   test('header shows the page title', async ({ page }) => {
