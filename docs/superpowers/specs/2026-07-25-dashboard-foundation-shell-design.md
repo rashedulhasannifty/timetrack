@@ -52,9 +52,10 @@ chrome. Screens keep rendering as they do today until their own slice reskins th
   self endpoint **`GET /v1/users/me`** — the layout fetches the current user server-side and passes
   name/email/role into the shell. See "Backend" below.
 - **"N clients tracking now"** sidebar footer: real count of team members with an open time entry,
-  derived from `api.teamOverview`. Fetched **server-side in the layout** and passed to the Sidebar.
-  If the caller is not permitted (`ApiError` 403 for a plain EMPLOYEE) or the call fails, the footer
-  is **omitted** (no error surfaced).
+  derived from `api.teamOverview`. To keep this team-wide aggregation **off the first-paint path**,
+  it runs in an async **server component (`TrackingFooter`) wrapped in `<Suspense fallback={null}>`**,
+  passed into the shell as a footer slot. If the caller is not permitted (`ApiError` 403 for a plain
+  EMPLOYEE) or the call fails, `TrackingFooter` returns `null` — the footer is simply absent.
 
 ## Exact shell values (from the mockup)
 
@@ -105,11 +106,12 @@ border-separator rounded-lg border shadow-e1`). Add an optional `padding` prop (
    optional ⓘ, big value (`text-[28px]/600/-0.02em tt-numeric`), and when `bar` present a
    `min-height:118px` tile with a 5px track + fill (`width:{pct}%`, `background:{color}`), the
    `"{pct}% of tracked time"` caption, and an optional "View details" link. Presentational only.
-3. **`Badge.tsx`** (new) — status pill. Props: `tone: 'neutral'|'accent'|'good'|'warning'|
-'destructive'`, `children`. One `TONE` map (bg/border/text via tokens). Replaces the two
-   duplicated `BADGE_TONE` literals (in `approvals/page.tsx` and `me/ApprovalsPanel.tsx`) — **this
-   slice adds the component and migrates those two call sites** (they render the same pills, so it's
-   a safe like-for-like swap with existing behavior preserved).
+3. **`Badge.tsx`** (new, additive) — status pill. Props: `tone: 'neutral'|'accent'|'good'|'warning'|
+'destructive'`, `children`. One `TONE` map (bg/border/text via tokens). **Added only** — the two
+   existing pill call sites (`approvals/page.tsx`, `me/ApprovalsPanel.tsx`) are **not** migrated in
+   this slice: swapping them is a visible screen-body change that node-env tests can't verify, so it
+   is deferred to the Approvals / My-Time reskin slices (which get eyes-on review). Keeps Slice 1
+   additive + chrome-only.
 4. **`SectionHeader.tsx`** (new) — the section label row (mockup L150–158): an uppercase 12px/600/
    `letter-spacing:.06em` label, a `flex:1` hairline rule, and an optional `action?: ReactNode`
    slot on the right. Props: `label: string`, `action?: ReactNode`.
@@ -126,8 +128,9 @@ border-separator rounded-lg border shadow-e1`). Add an optional `padding` prop (
    page can render to set it (used by later slices, not wired to pages here).
 7. **`Sidebar.tsx`** (modify) — data-drive the nav from the reconciled list above (Team→Overview,
    keep Projects); make it responsive per the values above (accept `narrow`/`open`/`onNavigate`
-   from a shell controller); render the **"N clients tracking now"** footer when a `trackingCount`
-   prop is provided (omit when undefined). Keep brand lockup + icons.
+   from a shell controller); render a **`footer?: ReactNode` slot** at the bottom (the layout passes
+   the Suspense-wrapped `TrackingFooter`; omit the wrapper when no footer). Keep brand lockup + icons.
+   A new `TrackingFooter.tsx` (async server component) holds the count fetch + footer markup.
 8. **`TopBar.tsx`** (modify) — render the hamburger (narrow only), the page title (`usePageTitle()`,
    falling back to a route→label map so it's never blank), the theme toggle (unchanged), the role
    badge pill (unchanged label map), and the new **`AccountMenu`**.
@@ -146,11 +149,11 @@ email={…} trackingCount={…}>{children}</AppShell>`. `<main>` keeps `p-8` (un
 
 ```
 (app)/layout.tsx  (server): getSession() → null ? redirect /api/auth/refresh
-                            me = await api.getCurrentUser(token)   → name/email/role
-                            trackingCount = try api.teamOverview → count rows where r.tracking
-                                            catch ApiError/any → undefined (footer hidden)
+                            me = await api.getCurrentUser(token)  (ApiError 401 → redirect refresh)
                             render <AppShell role={me.role} name={me.name} email={me.email}
-                                             trackingCount>{children}</AppShell>
+                                     footer={<Suspense fallback={null}><TrackingFooter token/></Suspense>}>
+                                     {children}</AppShell>
+TrackingFooter (async server): api.teamOverview → count rows where r.tracking; 403/any error → null
 AppShell (client): narrow = innerWidth < 900 (resize-tracked); sidebarOpen state
                    <TitleProvider><Sidebar …/><TopBar …/><main class=p-8>{children}</main></TitleProvider>
 ```
@@ -182,10 +185,11 @@ AppShell (client): narrow = innerWidth < 900 (resize-tracked); sidebarOpen state
 - **Name/email source:** the JWT carries only `sub`/`role`/`teamId`, so `AccountMenu` gets real
   name/email from the new `GET /users/me` (fetched once in the layout). This is the single API
   addition in the slice; keep it self-scoped and reuse `UserSchema`.
-- **Layout adds a blocking fetch:** the layout now awaits `getCurrentUser` before render. It's a
-  cheap self lookup, but if it throws the app shell can't render — unlike `trackingCount`, do **not**
-  swallow it (a failed self-fetch means the session is unusable; let it surface / redirect like a
-  null session). Only `trackingCount` is the guarded/optional fetch.
+- **Layout fetches:** the layout awaits `getCurrentUser` (a cheap self lookup) for the header
+  name/email/role. On `ApiError` 401 it `redirect`s to `/api/auth/refresh` (matching the
+  null-session path); any other error surfaces (don't blank the shell silently). The team-wide
+  `teamOverview` is **not** in this blocking path — it lives in the Suspense-wrapped `TrackingFooter`
+  so navigation between routes under the layout never waits on it for a decorative count.
 - **No screen body changes** — if a screen looks different after this slice, that's a bug.
 - **CLAUDE.md:** dashboard scope; types from `@timetrack/contracts`; no hand-written response
   types; Server Components by default, `'use client'` only where there's interaction (AppShell,

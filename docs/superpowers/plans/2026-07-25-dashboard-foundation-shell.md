@@ -20,9 +20,12 @@ Tailwind v4, Vitest (node-env for dashboard; unit + Testcontainers e2e for api),
 - **Scope:** `dashboard` + one `api` self endpoint (`GET /users/me`). **No** `contracts`/`db`/`worker`
   schema change (endpoint reuses `UserSchema` + existing `UsersRepository.findUser`). **No** new
   dependency.
-- **No screen-body visual change.** Only chrome (sidebar/header) changes visually, plus a
-  like-for-like `Badge` swap at two pill call sites. If any screen's content renders differently,
-  it's a bug.
+- **No screen-body visual change.** Only chrome (sidebar/header) changes visually. Every new kit
+  component (Badge included) is **additive** — added to the tree, wired to zero existing pages this
+  slice. If any screen's content renders differently, it's a bug.
+- **Pixel-perfect is verified, not assumed.** The chrome must be screenshot-compared to the mockup's
+  shell (see "Visual verification" at the end). `typecheck/lint/build` proves compilation, not
+  appearance — it is necessary but not sufficient for done.
 - **Pixel-perfect to the mockup** for the chrome + kit: match the exact px/radii/weights quoted per
   task. Radii map to token utilities: 14px = `rounded-lg`, 10px = `rounded-md`, 6px = `rounded-sm`.
 - **Tokens:** use the utility classes (`bg-surface-raised`, `border-separator`, `text-text`,
@@ -459,17 +462,21 @@ export function SectionHeader({ label, action }: { label: string; action?: React
 
 ---
 
-### Task 6: `Badge` + migrate the two pill call sites
+### Task 6: `Badge` (additive only)
 
 **Files:**
 
 - Create: `apps/dashboard/src/components/ui/Badge.tsx`
-- Modify: `apps/dashboard/src/app/(app)/approvals/page.tsx`
-- Modify: `apps/dashboard/src/app/(app)/me/ApprovalsPanel.tsx`
 
 **Interfaces:**
 
 - Produces: `<Badge tone children />`, `tone: 'neutral'|'accent'|'good'|'warning'|'destructive'`.
+
+**Note:** This task **only adds the component** — it is wired to zero pages this slice. The two
+existing pill call sites (`approvals/page.tsx`, `me/ApprovalsPanel.tsx`) are **not** migrated here:
+swapping them is a visible change to screen bodies that node-env tests cannot verify, so it is
+deferred to the Approvals and My-Time reskin slices (where those pages get eyes-on visual review
+anyway). This keeps Slice 1 additive + chrome-only.
 
 - [ ] **Step 1: Create `Badge.tsx`:**
 
@@ -498,20 +505,10 @@ export function Badge({ tone, children }: { tone: BadgeTone; children: ReactNode
 }
 ```
 
-- [ ] **Step 2: Read both current call sites** and map each existing status→classes entry in their
-      local `BADGE_TONE` maps to the nearest `Badge` tone so the rendered pill is visually equivalent
-      (PENDING→`neutral`, APPROVED→`good`, FLAGGED/REJECTED→`warning` or `destructive` per current
-      color). Replace each inline pill `<span>` with `<Badge tone={…}>{label}</Badge>` and delete the
-      now-unused local `BADGE_TONE` literal. Do not change the status→label text or the surrounding
-      layout.
+- [ ] **Step 2: Typecheck + lint + build** — `pnpm --filter dashboard typecheck && lint && build`
+      → clean. (No page imports `Badge` yet — it is additive.)
 
-- [ ] **Step 3: Typecheck + lint + build** — `pnpm --filter dashboard typecheck && lint && build`
-      → clean.
-
-- [ ] **Step 4: Verify equivalence** — read the diff: the only change at each call site is the pill
-      markup swap; statuses, labels, and layout are unchanged.
-
-- [ ] **Step 5: Commit** — `refactor(dashboard): extract Badge and adopt at pill call sites`
+- [ ] **Step 3: Commit** — `feat(dashboard): add Badge status-pill component`
 
 ---
 
@@ -636,7 +633,7 @@ the role badge lives in `TopBar`. Keep it in the signature so `TopBar` passes a 
 
 ---
 
-### Task 9: `Sidebar` — nav reconcile + responsive + tracking footer
+### Task 9: `Sidebar` — nav reconcile + responsive + footer slot
 
 **Files:**
 
@@ -645,17 +642,20 @@ the role badge lives in `TopBar`. Keep it in the signature so `TopBar` passes a 
 **Interfaces:**
 
 - Consumes: nothing new. Props (new): `{ narrow: boolean; open: boolean; onNavigate: () => void;
-trackingCount?: number }`.
-- Produces: the responsive sidebar consumed by `AppShell` (Task 11).
+footer?: ReactNode }`.
+- Produces: the responsive sidebar consumed by `AppShell` (Task 11). The **footer is a slot** (a
+  `ReactNode`), not a count — the layout passes a Suspense-wrapped async server component so the
+  heavy `teamOverview` fetch stays off the first-paint path (Task 11).
 
 - [ ] **Step 1: Rename the first primary item** `{ href: '/', label: 'Team', … }` → `label:
 'Overview'` (keep `Icon: IconTeam`, `exact: true`). Keep Projects/Reports/Approvals/Admin and the
       `SECONDARY` "My time" item unchanged.
 
 - [ ] **Step 2: Accept props and drive responsive positioning.** Change the signature to
-      `export function Sidebar({ narrow, open, onNavigate, trackingCount }: SidebarProps)`. The `<aside>`
-      keeps `bg-surface-raised border-separator flex w-60 shrink-0 flex-col border-r px-4 py-5` and adds,
-      when `narrow`, the fixed-overlay classes + slide transform; when wide, sticky full-height:
+      `export function Sidebar({ narrow, open, onNavigate, footer }: SidebarProps)` (import
+      `type ReactNode`). The `<aside>` keeps `bg-surface-raised border-separator flex w-60 shrink-0
+    flex-col border-r px-4 py-5` and adds, when `narrow`, the fixed-overlay classes + slide
+      transform; when wide, sticky full-height:
 
 ```tsx
 const positionClass = narrow
@@ -668,29 +668,22 @@ const transform = narrow ? { transform: `translateX(${open ? '0' : '-105%'})` } 
 Call `onNavigate()` from each `NavLink`'s `onClick` (so clicking a link closes the overlay on
 narrow). Add `onClick={onNavigate}` to the `Link` in `NavLink` (harmless when wide).
 
-- [ ] **Step 3: Add the tracking footer** at the bottom of the `<aside>` (mockup L88–91), rendered
-      only when `trackingCount !== undefined`:
+- [ ] **Step 3: Render the footer slot** at the bottom of the `<aside>` (mockup L88–91). The
+      `<div>` wrapper (with `mt-auto` so it sits at the bottom) renders only when `footer` is
+      provided; the footer's actual markup (recording dot + "N clients tracking now") lives in the
+      `TrackingFooter` server component (Task 11):
 
 ```tsx
 {
-  trackingCount !== undefined ? (
-    <div className="text-caption text-text-secondary mt-auto flex items-center gap-2 px-2 pt-4">
-      <span className="bg-recording h-[7px] w-[7px] flex-none rounded-full" />
-      <span>
-        {trackingCount} {trackingCount === 1 ? 'client' : 'clients'} tracking now
-      </span>
-    </div>
-  ) : null;
+  footer ? <div className="mt-auto px-2 pt-4">{footer}</div> : null;
 }
 ```
-
-(Use `mt-auto` so it sits at the bottom; the nav groups stay at the top.)
 
 - [ ] **Step 4: Typecheck + lint + build** — clean. (Sidebar now requires props; the only current
       caller is the layout, updated in Task 11 — expect a transient type error in the layout until then;
       note it, don't "fix" the layout here.)
 
-- [ ] **Step 5: Commit** — `feat(dashboard): responsive sidebar + tracking footer`
+- [ ] **Step 5: Commit** — `feat(dashboard): responsive sidebar + footer slot`
 
 ---
 
@@ -800,14 +793,18 @@ export function TopBar({
 **Files:**
 
 - Create: `apps/dashboard/src/components/ui/AppShell.tsx`
+- Create: `apps/dashboard/src/components/ui/TrackingFooter.tsx`
 - Modify: `apps/dashboard/src/app/(app)/layout.tsx`
 
 **Interfaces:**
 
 - Consumes: `Sidebar` (Task 9), `TopBar` (Task 10), `TitleProvider` (Task 7), `api.getCurrentUser`
-  (Task 2), `api.teamOverview` (existing).
+  (Task 2), `api.teamOverview` + `ApiError` (existing).
 - Produces: the composed authenticated shell. This task resolves all transient type errors from
   Tasks 9–10.
+- **Footer is a Suspense slot, not a blocking count** (per review): the heavy `teamOverview` fetch
+  lives in an async server component (`TrackingFooter`) wrapped in `<Suspense fallback={null}>`, so
+  first paint never waits on it and a failure/403 renders nothing.
 
 - [ ] **Step 1: Create `AppShell.tsx`** (client — owns responsive + sidebar-open state):
 
@@ -823,13 +820,13 @@ export function AppShell({
   role,
   name,
   email,
-  trackingCount,
+  footer,
   children,
 }: {
   role: string;
   name: string;
   email: string;
-  trackingCount?: number;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   const [narrow, setNarrow] = useState(false);
@@ -849,12 +846,7 @@ export function AppShell({
   return (
     <TitleProvider>
       <div className="flex min-h-screen">
-        <Sidebar
-          narrow={narrow}
-          open={open}
-          onNavigate={() => setOpen(false)}
-          trackingCount={trackingCount}
-        />
+        <Sidebar narrow={narrow} open={open} onNavigate={() => setOpen(false)} footer={footer} />
         {narrow && open ? (
           <div
             className="fixed inset-0 z-[60] bg-black/30"
@@ -878,48 +870,87 @@ export function AppShell({
 }
 ```
 
-- [ ] **Step 2: Rewrite `(app)/layout.tsx`** to resolve the session, fetch the current user
-      (blocking — a failure means the session is unusable), fetch a guarded tracking count, and render
-      `AppShell`:
+- [ ] **Step 2: Create `TrackingFooter.tsx`** — an async **server** component that runs the heavy
+      `teamOverview` fetch off the first-paint path and renders the footer markup (mockup L88–91), or
+      `null` on 403/any failure:
 
 ```tsx
-import type { ReactNode } from 'react';
+import { api } from '../../lib/api-client';
+
+/** Async server slot: live-tracking count. Rendered inside <Suspense fallback={null}>. */
+export async function TrackingFooter({ token }: { token: string }) {
+  let count: number;
+  try {
+    const overview = await api.teamOverview(token);
+    count = overview.rows.filter((r) => r.tracking).length;
+  } catch {
+    return null; // employees (403) or any failure → no footer
+  }
+  return (
+    <div className="text-caption text-text-secondary flex items-center gap-2">
+      <span className="bg-recording h-[7px] w-[7px] flex-none rounded-full" />
+      <span>
+        {count} {count === 1 ? 'client' : 'clients'} tracking now
+      </span>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: Rewrite `(app)/layout.tsx`.** Resolve the session; fetch the current user for the
+      header (name/email/role); on an `ApiError` 401 redirect to refresh (matching the null-session
+      path) rather than throwing the whole shell; pass the footer as a Suspense-wrapped
+      `TrackingFooter` so the shell never blocks on the team query:
+
+```tsx
+import { Suspense, type ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import { getSession } from '../../lib/session';
-import { api } from '../../lib/api-client';
+import { api, ApiError } from '../../lib/api-client';
 import { AppShell } from '../../components/ui/AppShell';
+import { TrackingFooter } from '../../components/ui/TrackingFooter';
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const session = await getSession();
   if (!session) redirect('/api/auth/refresh');
 
-  const me = await api.getCurrentUser(session.accessToken);
-
-  let trackingCount: number | undefined;
+  let me;
   try {
-    const overview = await api.teamOverview(session.accessToken);
-    trackingCount = overview.rows.filter((r) => r.tracking).length;
-  } catch {
-    trackingCount = undefined; // employees (403) / any failure → footer hidden
+    me = await api.getCurrentUser(session.accessToken);
+  } catch (err) {
+    // An expired/invalid token surfaces as 401 → reissue like a null session. Anything
+    // else is a genuine server error and should surface (not silently blank the shell).
+    if (err instanceof ApiError && err.status === 401) redirect('/api/auth/refresh');
+    throw err;
   }
 
   return (
-    <AppShell role={me.role} name={me.name} email={me.email} trackingCount={trackingCount}>
+    <AppShell
+      role={me.role}
+      name={me.name}
+      email={me.email}
+      footer={
+        <Suspense fallback={null}>
+          <TrackingFooter token={session.accessToken} />
+        </Suspense>
+      }
+    >
       {children}
     </AppShell>
   );
 }
 ```
 
-(Drop the old server-side `date` computation — the header no longer shows it.)
+(Drop the old server-side `date` computation — the header no longer shows it. Note `redirect()`
+throws internally, so it must be outside the `try`/`catch` that rethrows — it is.)
 
-- [ ] **Step 3: Full gate** — `pnpm --filter dashboard typecheck && lint && build` → all clean
+- [ ] **Step 4: Full gate** — `pnpm --filter dashboard typecheck && lint && build` → all clean
       (Sidebar/TopBar prop errors from Tasks 9–10 are now resolved).
 
-- [ ] **Step 4: Manual smoke (read-only reasoning):** confirm every existing route still renders its
+- [ ] **Step 5: Manual smoke (read-only reasoning):** confirm every existing route still renders its
       body unchanged (only chrome differs) and the header title falls back correctly per route.
 
-- [ ] **Step 5: Commit** — `feat(dashboard): compose responsive AppShell in the app layout`
+- [ ] **Step 6: Commit** — `feat(dashboard): compose responsive AppShell in the app layout`
 
 ---
 
@@ -953,4 +984,26 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 RUN_E2E=1 pnpm --filter @timetrack/api test:e2e -- test/users.e2e-spec.ts   # Docker up
 ```
 
-All green. Then run the final whole-branch review, then superpowers:finishing-a-development-branch.
+### Visual verification (pixel-perfect — REQUIRED, the user's explicit constraint)
+
+`typecheck/lint/build` prove the chrome compiles, not that it matches the mockup. Before declaring
+the slice done, the controller (not a node-env subagent) runs an eyes-on comparison of the **shell**
+against `TimeTrack.dc.html`:
+
+1. Start the stack (`docker compose … up -d`, then `pnpm dev`) and sign in to the dashboard.
+2. Using the Chrome MCP browser tools, capture the chrome in each state and compare to the mockup:
+   - **wide (≥900px)** — sidebar (brand, nav order Overview·Projects·Reports·Approvals·Admin·My
+     time, footer) + header (title, theme toggle, role pill, account avatar);
+   - **account dropdown open** (name·email·Sign out);
+   - **narrow (<900px)** — hamburger visible, sidebar collapsed → overlay on toggle;
+   - **dark mode** — toggle flips every `--tt-*` and the chrome still matches the mockup's `.dark`.
+3. For each: note any px/spacing/weight/color drift from the mockup and file it as a fix before
+   merge. A screen **body** looking different from _today_ (not the mockup) is a regression — also a
+   fix. Record the screenshots/observations in the ledger.
+
+This is a controller step in the final review, not a per-task gate (per-task screenshotting needs an
+authed running session and isn't practical). If the dev server or auth can't be brought up in this
+environment, say so explicitly in the ledger rather than marking visual verification passed.
+
+All green + visual check clean. Then run the final whole-branch review, then
+superpowers:finishing-a-development-branch.
