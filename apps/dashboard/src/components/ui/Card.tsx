@@ -2,12 +2,23 @@ import type { ReactNode } from 'react';
 
 /**
  * The raised surface of the design system: rounded-lg (14px), hairline separator border,
- * elevation-1 shadow, surface-raised background. The building block for every panel and
- * stat card. Pass `className` to add padding/layout per use.
+ * elevation-1 shadow, surface-raised background. `padding='md'` applies the standard 18px panel
+ * padding; `padding='none'` (default) preserves the existing behavior where callers pass their own.
  */
-export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
+export function Card({
+  children,
+  className = '',
+  padding = 'none',
+}: {
+  children: ReactNode;
+  className?: string;
+  padding?: 'none' | 'md';
+}) {
+  const pad = padding === 'md' ? 'p-[18px]' : '';
   return (
-    <div className={`bg-surface-raised border-separator rounded-lg border shadow-e1 ${className}`}>
+    <div
+      className={`bg-surface-raised border-separator rounded-lg border shadow-e1 ${pad} ${className}`}
+    >
       {children}
     </div>
   );

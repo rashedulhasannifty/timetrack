@@ -1,6 +1,8 @@
 import './test-env.js'; // must run before anything that calls loadEnv()
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { UsersRepository } from '../src/modules/users/users.repository.js';
+import { UsersService } from '../src/modules/users/users.service.js';
+import type { InvitesService } from '../src/modules/invites/invites.service.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
 
@@ -144,6 +146,20 @@ describe.runIf(RUN_E2E)('users management — real Postgres', () => {
     expect(result.status).toBe('OK');
     const row = await db.prisma.user.findUnique({ where: { id: a1.id }, select: { role: true } });
     expect(row?.role).toBe('MANAGER');
+  });
+
+  // me() never touches invites; stub it like auth-refresh.e2e-spec.ts stubs unused deps.
+  function service(): UsersService {
+    return new UsersService(repo(), {} as InvitesService);
+  }
+
+  it('me returns the caller’s own record from real Postgres', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
+    const user = await seedUser(team.id, 'ann@ex.co');
+
+    const result = await service().me({ id: user.id, role: 'EMPLOYEE', teamId: team.id });
+    expect(result.id).toBe(user.id);
+    expect(result.email).toBe('ann@ex.co');
   });
 
   it('ackMonitoring sets monitoringAckAt and audits the policy version', async () => {

@@ -198,6 +198,7 @@ export const api = {
       token,
     ),
   listUsers: (token: string): Promise<User[]> => get('/users', z.array(UserSchema), token),
+  getCurrentUser: (token: string): Promise<User> => get('/users/me', UserSchema, token),
   getCurrentTeam: (token: string): Promise<Team> => get('/teams/current', TeamSchema, token),
   teamOverview: (token: string, date?: string): Promise<TeamOverview> =>
     get(`/reports/overview${date ? `?date=${date}` : ''}`, TeamOverviewSchema, token),

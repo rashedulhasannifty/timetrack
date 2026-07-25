@@ -90,3 +90,16 @@ export const IconPower = (p: SVGProps<SVGSVGElement>) => (
     <path d="M6.4 6.8a8 8 0 1 0 11.2 0" />
   </Base>
 );
+
+export const IconInfo = (p: SVGProps<SVGSVGElement>) => (
+  <Base strokeWidth={1.8} {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5.5M12 7.6v.6" />
+  </Base>
+);
+
+export const IconMenu = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </Base>
+);

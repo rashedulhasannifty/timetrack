@@ -29,6 +29,19 @@ export class UsersService {
     return this.repo.listByTeam(user.teamId);
   }
 
+  /** Self-read: any authenticated user fetches their own record. */
+  async me(user: SessionUser): Promise<User> {
+    const found = await this.repo.findUser(user.id);
+    if (!found) {
+      throw new NotFoundException({
+        type: 'https://timetrack.internal/errors/not-found',
+        title: 'User not found',
+        status: 404,
+      });
+    }
+    return found;
+  }
+
   /**
    * ADMIN-gated user mutation: change role and/or active state. Same-team is enforced once
    * here; the last-active-admin guard is authoritative inside each repo transaction (a locked
