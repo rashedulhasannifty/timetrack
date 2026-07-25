@@ -1,17 +1,19 @@
-import { PageHeader } from '../../../components/ui/PageHeader';
+import { SetPageTitle } from '../../../components/ui/PageTitleContext';
+import { Card } from '../../../components/ui/Card';
+import { Avatar } from '../../../components/ui/Avatar';
+import { Badge, type BadgeTone } from '../../../components/ui/Badge';
 import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
 import { weekLabel, formatHours, statusBadge } from '../../../lib/approvals-view';
 import { DecideForm } from './DecideForm';
 import type { TimesheetApproval, ApprovalStatus } from '@timetrack/contracts';
 
-// Restricted palette (no success/warning token): fill-weight carries the semantic — solid-ish
-// accent = approved, orange = flagged, subtle = pending. Kept in sync with me/ApprovalsPanel.
-const BADGE_TONE: Record<'neutral' | 'positive' | 'warning', string> = {
-  neutral: 'bg-surface text-text-secondary',
-  positive: 'bg-accent/10 text-accent',
-  warning: 'bg-category-unproductive/10 text-category-unproductive',
-};
+// Maps statusBadge's tone vocabulary onto the shared Badge component's tone vocabulary.
+const TONE: Record<'neutral' | 'positive' | 'warning', BadgeTone> = {
+  neutral: 'neutral',
+  positive: 'good',
+  warning: 'warning',
+} as const;
 
 // Next 16 — searchParams is async.
 export default async function ApprovalsPage({
@@ -41,7 +43,7 @@ export default async function ApprovalsPage({
 
   return (
     <>
-      <PageHeader title="Approvals" subtitle="Approve or flag timesheets for payroll (PRD §6.5)." />
+      <SetPageTitle title="Approvals" />
       {forbidden ? (
         <p className="text-text-secondary text-body">You’re not permitted to view approvals.</p>
       ) : rows === null ? (
@@ -51,41 +53,62 @@ export default async function ApprovalsPage({
       ) : rows.length === 0 ? (
         <p className="text-text-secondary text-body">No timesheets in this filter.</p>
       ) : (
-        <table className="w-full text-body">
-          <thead>
-            <tr className="border-separator text-text-secondary border-b text-left">
-              <th className="py-2 font-medium">User</th>
-              <th className="py-2 font-medium">Week</th>
-              <th className="py-2 font-medium">Hours</th>
-              <th className="py-2 font-medium">Status</th>
-              <th className="py-2 font-medium">Decide</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const badge = statusBadge(row.status);
-              return (
-                <tr key={row.id} className="border-separator border-b">
-                  <td className="py-2">{row.userName}</td>
-                  <td className="py-2">{weekLabel(row.periodStart)}</td>
-                  <td className="tt-numeric py-2">
-                    {formatHours(row.totalSeconds ?? row.trackedSeconds)}
-                  </td>
-                  <td className="py-2">
-                    <span
-                      className={`text-caption rounded-full px-2 py-0.5 font-medium ${BADGE_TONE[badge.tone]}`}
-                    >
-                      {badge.label}
-                    </span>
-                  </td>
-                  <td className="py-2">
-                    <DecideForm approvalId={row.id} />
-                  </td>
+        <div className="flex flex-col gap-4">
+          <p className="text-label text-text-secondary">
+            Weekly timesheets awaiting a manager decision. Flagged weeks are held back from payroll
+            export.
+          </p>
+          <Card padding="none" className="overflow-hidden">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr>
+                  <th className="text-caption text-text-secondary border-separator border-b px-[18px] py-3 text-left font-semibold">
+                    User
+                  </th>
+                  <th className="text-caption text-text-secondary border-separator border-b px-[18px] py-3 text-left font-semibold">
+                    Week
+                  </th>
+                  <th className="text-caption text-text-secondary border-separator border-b px-[18px] py-3 text-right font-semibold">
+                    Hours
+                  </th>
+                  <th className="text-caption text-text-secondary border-separator border-b px-[18px] py-3 text-left font-semibold">
+                    Status
+                  </th>
+                  <th className="text-caption text-text-secondary border-separator border-b px-[18px] py-3 text-right font-semibold">
+                    Action
+                  </th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const badge = statusBadge(row.status);
+                  return (
+                    <tr key={row.id}>
+                      <td className="border-separator border-b px-[18px] py-[11px]">
+                        <span className="inline-flex items-center gap-2">
+                          <Avatar name={row.userName} size={26} />
+                          {row.userName}
+                        </span>
+                      </td>
+                      <td className="tt-numeric text-text-secondary border-separator border-b px-[18px] py-[11px]">
+                        {weekLabel(row.periodStart)}
+                      </td>
+                      <td className="tt-numeric border-separator border-b px-[18px] py-[11px] text-right">
+                        {formatHours(row.totalSeconds ?? row.trackedSeconds)}
+                      </td>
+                      <td className="border-separator border-b px-[18px] py-[11px]">
+                        <Badge tone={TONE[badge.tone]}>{badge.label}</Badge>
+                      </td>
+                      <td className="border-separator border-b px-[18px] py-[11px] text-right">
+                        <DecideForm approvalId={row.id} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Card>
+        </div>
       )}
     </>
   );
