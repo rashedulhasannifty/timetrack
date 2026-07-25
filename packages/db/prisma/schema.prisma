@@ -152,6 +152,7 @@ model TimeEntry {
   user       User        @relation(fields: [userId], references: [id])
 
   @@index([userId, startTime])
+  @@index([projectId])
   @@map("time_entries")
 }
 
