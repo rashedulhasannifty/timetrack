@@ -56,7 +56,7 @@ export function ActivitySummaryPanel({
 
       <Card padding="md">
         <div className="flex flex-col gap-3.5">
-          <h3 className="text-text text-label font-semibold">My top apps &amp; sites</h3>
+          <h3 className="text-text text-label font-semibold">Top apps &amp; sites</h3>
           <div className="flex flex-col gap-3">
             {apps.map((a) => (
               <BarMeter
