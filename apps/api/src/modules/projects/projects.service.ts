@@ -5,6 +5,7 @@ import type {
   Project,
   ProjectDetail,
   ProjectDetailQuery,
+  ProjectTopApps,
   Task,
   UpdateProject,
   UpdateTask,
@@ -92,6 +93,33 @@ export class ProjectsService {
       members,
       tasks,
     });
+  }
+
+  async topApps(id: string, dto: ProjectDetailQuery, actor: SessionUser): Promise<ProjectTopApps> {
+    const project = await this.repo.findForActor(id);
+    if (!project) throw this.notFound();
+    if (project.teamId !== actor.teamId) throw this.forbidden();
+
+    const { apps, totalSeconds } = await this.repo.topAppsForProject(
+      id,
+      new Date(dto.from),
+      new Date(dto.to),
+    );
+    const coveredSeconds = apps.reduce((sum, a) => sum + a.trackedSeconds, 0);
+    const coveragePct =
+      totalSeconds > 0
+        ? Math.min(100, Math.max(0, Math.round((coveredSeconds / totalSeconds) * 100)))
+        : 0;
+
+    return {
+      from: dto.from,
+      to: dto.to,
+      projectId: id,
+      apps,
+      coveredSeconds,
+      totalSeconds,
+      coveragePct,
+    };
   }
 
   private forbidden(): ForbiddenException {

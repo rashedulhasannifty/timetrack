@@ -12,6 +12,7 @@ import {
   type Project,
   type ProjectDetail,
   type ProjectDetailQuery,
+  type ProjectTopApps,
   type Task,
   type UpdateProject,
   type UpdateTask,
@@ -78,6 +79,16 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
   ): Promise<ProjectDetail> {
     return this.service.detail(id, query, user);
+  }
+
+  @Get(':id/top-apps')
+  @Roles('MANAGER', 'ADMIN')
+  topApps(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(ProjectDetailQuerySchema)) query: ProjectDetailQuery,
+    @CurrentUser() user: SessionUser,
+  ): Promise<ProjectTopApps> {
+    return this.service.topApps(id, query, user);
   }
 
   @Patch(':id')

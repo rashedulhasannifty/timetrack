@@ -94,6 +94,21 @@ export const ProjectDetailQuerySchema = z.object({
   to: z.iso.datetime(),
 });
 
+export const ProjectTopAppRowSchema = z.object({
+  appName: z.string(),
+  trackedSeconds: z.number().int().nonnegative(),
+});
+
+export const ProjectTopAppsSchema = z.object({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  projectId: z.uuid(),
+  apps: z.array(ProjectTopAppRowSchema),
+  coveredSeconds: z.number().int().nonnegative(),
+  totalSeconds: z.number().int().nonnegative(),
+  coveragePct: z.number().int().min(0).max(100),
+});
+
 export type Task = z.infer<typeof TaskSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
 export type CreateProject = z.infer<typeof CreateProjectSchema>;
@@ -106,3 +121,5 @@ export type ProjectMemberRow = z.infer<typeof ProjectMemberRowSchema>;
 export type ProjectTaskRow = z.infer<typeof ProjectTaskRowSchema>;
 export type ProjectDetail = z.infer<typeof ProjectDetailSchema>;
 export type ProjectDetailQuery = z.infer<typeof ProjectDetailQuerySchema>;
+export type ProjectTopAppRow = z.infer<typeof ProjectTopAppRowSchema>;
+export type ProjectTopApps = z.infer<typeof ProjectTopAppsSchema>;

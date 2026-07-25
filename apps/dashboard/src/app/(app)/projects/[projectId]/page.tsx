@@ -1,8 +1,11 @@
 import Link from 'next/link';
 import { PageHeader } from '../../../../components/ui/PageHeader';
+import { SectionHeader } from '../../../../components/ui/SectionHeader';
+import { Card } from '../../../../components/ui/Card';
 import { ReportRangePicker } from '../../../../components/reports/ReportRangePicker';
 import { ProjectHoursChart } from '../../../../components/charts/ProjectHoursChart';
 import { ProjectHoursTrendChart } from '../../../../components/charts/ProjectHoursTrendChart';
+import { BarMeter } from '../../../../components/charts/BarMeter';
 import { ProjectRecolor } from '../../../../components/projects/ProjectRecolor';
 import { ProjectArchiveToggle } from '../../../../components/projects/ProjectArchiveToggle';
 import { NewTaskForm } from '../../../../components/projects/NewTaskForm';
@@ -13,7 +16,7 @@ import { defaultReportRange } from '../../../../lib/reports-view';
 import { toTrendBars, toMemberBars, toTaskBars } from '../../../../lib/project-detail-view';
 import { projectColor } from '../../../../lib/project-color';
 import { formatDuration } from '../../../../lib/format';
-import type { ProjectDetail, Task } from '@timetrack/contracts';
+import type { ProjectDetail, Task, ProjectTopApps } from '@timetrack/contracts';
 
 // Next 16 — params and searchParams are async. Detail hours come from /projects/:id/detail
 // (MANAGER/ADMIN, own-team); 404 → not-found, 403 → not-permitted, mirroring the reports pages.
@@ -58,6 +61,21 @@ export default async function ProjectDetailPage({
       tasks = [];
     }
   }
+
+  // Degradeable: a top-apps fetch hiccup skips the section rather than blanking the page.
+  let topApps: ProjectTopApps | null = null;
+  if (detail) {
+    try {
+      topApps = await api.getProjectTopApps(
+        session.accessToken,
+        projectId,
+        new URLSearchParams({ from, to }),
+      );
+    } catch {
+      topApps = null;
+    }
+  }
+  const topAppsMax = topApps ? Math.max(1, ...topApps.apps.map((a) => a.trackedSeconds)) : 0;
 
   return (
     <>
@@ -120,6 +138,37 @@ export default async function ProjectDetailPage({
               <h2 className="text-text text-h2 mb-3 font-semibold">By task</h2>
               <ProjectHoursChart data={toTaskBars(detail.tasks)} />
             </section>
+            {topApps && (
+              <section className="flex flex-col gap-3">
+                <SectionHeader label="Top apps" />
+                <Card padding="md">
+                  <p className="text-caption text-text-secondary">
+                    App data covers {topApps.coveragePct}% of this project’s tracked time.
+                  </p>
+                  {topApps.apps.length === 0 ? (
+                    <p className="text-text-secondary text-body">
+                      No app activity recorded for this project’s tracked time.
+                    </p>
+                  ) : (
+                    <div className="mt-3 flex flex-col gap-3.5">
+                      {topApps.apps.map((a) => (
+                        <BarMeter
+                          key={a.appName}
+                          label={a.appName}
+                          value={formatDuration(a.trackedSeconds)}
+                          fills={[
+                            {
+                              pct: topAppsMax > 0 ? (a.trackedSeconds / topAppsMax) * 100 : 0,
+                              color: 'var(--tt-accent)',
+                            },
+                          ]}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              </section>
+            )}
             <section>
               <div className="mb-3 flex items-center justify-between gap-4">
                 <h2 className="text-text text-h2 font-semibold">Tasks</h2>
