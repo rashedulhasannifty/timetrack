@@ -1,10 +1,13 @@
-import { PageHeader } from '../../../components/ui/PageHeader';
-import { TeamSummaryTable } from '../../../components/reports/TeamSummaryTable';
-import { ProjectHoursChart } from '../../../components/charts/ProjectHoursChart';
+import { SetPageTitle } from '../../../components/ui/PageTitleContext';
+import { SectionHeader } from '../../../components/ui/SectionHeader';
+import { Card } from '../../../components/ui/Card';
+import { BarMeter } from '../../../components/charts/BarMeter';
+import { ReportsByPersonTable } from '../../../components/reports/ReportsByPersonTable';
 import { ReportRangePicker } from '../../../components/reports/ReportRangePicker';
 import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
-import { defaultReportRange, toProjectBars, hasReportData } from '../../../lib/reports-view';
+import { defaultReportRange, hasReportData } from '../../../lib/reports-view';
+import { formatDuration, formatDate } from '../../../lib/format';
 import type { ProjectSummary, TeamSummary } from '@timetrack/contracts';
 
 // Next 16 — searchParams is async.
@@ -39,9 +42,11 @@ export default async function ReportsPage({
     projects = null;
   }
 
+  const projectsMax = projects ? Math.max(1, ...projects.rows.map((r) => r.trackedSeconds)) : 1;
+
   return (
     <>
-      <PageHeader title="Reports" subtitle="Per-user and per-project rollups (PRD §6.5)." />
+      <SetPageTitle title="Reports" />
       {forbidden ? (
         <p className="text-text-secondary text-body">You’re not permitted to view reports.</p>
       ) : team === null || projects === null ? (
@@ -49,26 +54,47 @@ export default async function ReportsPage({
           Something went wrong loading reports. Please try again.
         </p>
       ) : (
-        <div className="flex flex-col gap-8">
-          <div className="flex items-center justify-between gap-4">
-            <ReportRangePicker from={from} to={to} />
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-label text-text-secondary tt-numeric">
+              Range {formatDate(from)} – {formatDate(to)} · {team.rows.length} users ·{' '}
+              {projects.rows.length} projects
+            </span>
+            <div className="flex-1" />
             <a
               href={`/reports/export?${params.toString()}`}
-              className="border-separator text-text hover:bg-surface inline-flex items-center rounded-md border px-3 py-1.5 text-label font-medium transition-colors"
+              className="bg-surface-raised border-separator text-text hover:bg-surface inline-flex items-center rounded-md border px-3 py-1.5 text-label font-medium transition-colors"
               download
             >
               Export CSV
             </a>
           </div>
+          <ReportRangePicker from={from} to={to} />
           {hasReportData(team.rows, projects.rows) ? (
             <>
-              <section>
-                <h2 className="text-text text-h2 mb-3 font-semibold">By person</h2>
-                <TeamSummaryTable rows={team.rows} />
+              <section className="flex flex-col gap-3">
+                <SectionHeader label="By person" />
+                <ReportsByPersonTable rows={team.rows} />
               </section>
-              <section>
-                <h2 className="text-text text-h2 mb-3 font-semibold">By project</h2>
-                <ProjectHoursChart data={toProjectBars(projects.rows)} />
+              <section className="flex flex-col gap-3">
+                <SectionHeader label="By project" />
+                <Card padding="md">
+                  <div className="flex flex-col gap-3.5">
+                    {projects.rows.map((p) => (
+                      <BarMeter
+                        key={p.projectId ?? 'none'}
+                        label={p.name}
+                        value={formatDuration(p.trackedSeconds)}
+                        fills={[
+                          {
+                            pct: (p.trackedSeconds / projectsMax) * 100,
+                            color: 'var(--tt-accent)',
+                          },
+                        ]}
+                      />
+                    ))}
+                  </div>
+                </Card>
               </section>
             </>
           ) : (
