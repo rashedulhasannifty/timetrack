@@ -114,6 +114,7 @@ model Project {
   id       String  @id @default(uuid(7))
   teamId   String
   name     String
+  color    String?
   archived Boolean @default(false)
   team     Team    @relation(fields: [teamId], references: [id])
   tasks    Task[]
