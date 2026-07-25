@@ -27,7 +27,7 @@ export class ProjectsService {
 
   async createProject(dto: CreateProject, actor: SessionUser): Promise<Project> {
     if (dto.teamId !== actor.teamId) throw this.forbidden();
-    return this.repo.createProject(dto.teamId, dto.name, actor.id);
+    return this.repo.createProject(dto.teamId, dto.name, actor.id, dto.color);
   }
 
   async createTask(dto: CreateTask, actor: SessionUser): Promise<Task> {
@@ -37,11 +37,17 @@ export class ProjectsService {
     return this.repo.createTask(dto.projectId, dto.name, actor.id);
   }
 
-  async archive(id: string, dto: UpdateProject, actor: SessionUser): Promise<Project> {
+  async update(id: string, dto: UpdateProject, actor: SessionUser): Promise<Project> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
     if (project.teamId !== actor.teamId) throw this.forbidden();
-    return this.repo.setArchived(id, dto.archived, actor.id);
+
+    // Form submits one field per action; an empty body is a harmless no-op.
+    let result: Project = project;
+    if (dto.archived !== undefined)
+      result = await this.repo.setArchived(id, dto.archived, actor.id);
+    if (dto.color !== undefined) result = await this.repo.setColor(id, dto.color, actor.id);
+    return result;
   }
 
   async detail(id: string, query: ProjectDetailQuery, actor: SessionUser): Promise<ProjectDetail> {
@@ -64,6 +70,7 @@ export class ProjectsService {
       to: query.to,
       projectId: id,
       name: project.name,
+      color: project.color,
       archived: project.archived,
       totalSeconds,
       trend,

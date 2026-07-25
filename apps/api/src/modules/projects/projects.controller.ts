@@ -64,11 +64,11 @@ export class ProjectsController {
 
   @Patch(':id')
   @Roles('MANAGER', 'ADMIN')
-  archive(
+  update(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(UpdateProjectSchema)) dto: UpdateProject,
     @CurrentUser() actor: SessionUser,
   ): Promise<Project> {
-    return this.service.archive(id, dto, actor);
+    return this.service.update(id, dto, actor);
   }
 }
