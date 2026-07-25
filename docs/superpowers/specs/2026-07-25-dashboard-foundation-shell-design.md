@@ -2,7 +2,9 @@
 
 Date: 2026-07-25
 Branch: `feat/ds-4-foundation-shell`
-Scope: `dashboard` only. No `api`/`contracts`/`db`/`worker` changes, no new dependency, no new backend.
+Scope: `dashboard` + one small `api` addition (`GET /users/me`). No `contracts`/`db`/`worker`
+schema changes (the endpoint reuses `UserSchema` and the existing `UsersRepository.findUser`), no
+new dependency.
 Source of truth: the Claude Design mockup `TimeTrack.dc.html` (project `45314fad-…`), reconciled
 against the current dashboard (see the audit in this session).
 
@@ -23,7 +25,7 @@ chrome. Screens keep rendering as they do today until their own slice reskins th
 - Any per-screen reskin (Overview/Reports/Approvals/Admin/My Time/Person) — later slices.
 - Chart components (donut/line/gauge) — the next slice (Chart kit).
 - A global range picker — decided **per-page**; the header shows the page title only.
-- Any API/contract/schema change.
+- Any DB/contract/schema change, or any API change beyond the single self endpoint `GET /users/me`.
 
 ## Decisions (from brainstorming)
 
@@ -43,6 +45,9 @@ chrome. Screens keep rendering as they do today until their own slice reskins th
 - **Account dropdown** replaces the current static role-badge + separate logout button: a click
   target (initials avatar) opens a menu with name · email · Sign out. The **role badge pill stays**
   next to it (mockup keeps both). Sign out keeps its current behavior (POST `/api/auth/logout`).
+  Name/email are not in the JWT (claims = `sub`/`role`/`teamId`), so this slice adds a small
+  self endpoint **`GET /v1/users/me`** — the layout fetches the current user server-side and passes
+  name/email/role into the shell. See "Backend" below.
 - **"N clients tracking now"** sidebar footer: real count of team members with an open time entry,
   derived from `api.teamOverview`. Fetched **server-side in the layout** and passed to the Sidebar.
   If the caller is not permitted (`ApiError` 403 for a plain EMPLOYEE) or the call fails, the footer
@@ -63,6 +68,26 @@ gap:16px`. Left→right: hamburger (narrow only) · page title `<h1>` (22px/600/
   · flex spacer · theme toggle (existing) · role-badge pill · account avatar+dropdown.
 
 ## Design — files
+
+### Backend — `GET /v1/users/me` (`apps/api/src/modules/users/`)
+
+- **Controller** (`users.controller.ts`): add `@Get('me')` → `service.me(user)` using
+  `@CurrentUser()`. No `@Roles` (any authenticated user reads their own record); no `@ResourceScope`
+  (inherently self — there is no id param, so no cross-user access and no 403 case to test). Safe
+  route ordering: there is **no** `@Get(':id')`, so `@Get('me')` collides with nothing.
+- **Service** (`users.service.ts`): `me(user: SessionUser): Promise<User>` → `this.repo.findUser(
+user.id)`; if null (should never happen for a valid session) throw the standard NotFound problem.
+- **Repository:** **no change** — reuse the existing `findUser(id)` (selects `USER_SELECT`, no
+  sensitive fields).
+- **Contracts:** **no change** — the response is the existing `UserSchema`.
+- **Tests:** unit — add `me` to the controller-spec delegation and a `UsersService.me` spec
+  (returns `repo.findUser` result; NotFound when null). E2E (`users.e2e-spec.ts`, real PG): an
+  authenticated user GETs `/v1/users/me` and receives their own record (id === caller); unauth → 401.
+
+### Dashboard API client (`apps/dashboard/src/lib/api-client.ts`)
+
+- Add `getCurrentUser: (token: string): Promise<User> => get('/users/me', UserSchema, token)`
+  (import `UserSchema`, `type User` if not already imported).
 
 ### Shared kit (`apps/dashboard/src/components/ui/`)
 
@@ -105,8 +130,8 @@ border-separator rounded-lg border shadow-e1`). Add an optional `padding` prop (
    badge pill (unchanged label map), and the new **`AccountMenu`**.
 9. **`AccountMenu.tsx`** (new, client) — initials `Avatar` button that toggles a dropdown with the
    user's name · email · a Sign out button (POST `/api/auth/logout`, as today). Closes on outside
-   click / Escape. Name/email/role come from props (resolved server-side in the layout; the layout
-   already has `session`; email is on the session claims — if not, fall back to name only).
+   click / Escape. `name`/`email`/`role` come from props (the layout fetches `api.getCurrentUser`
+   server-side and passes them through `AppShell`).
 10. **`AppShell.tsx`** (new, client) — owns the responsive state (`narrow` via a resize listener at
     the 900px breakpoint, `sidebarOpen`) and composes `TitleProvider` → `Sidebar` + a column of
     `TopBar` over `<main>`. The server `(app)/layout.tsx` becomes: resolve `session` (unchanged
@@ -118,9 +143,11 @@ email={…} trackingCount={…}>{children}</AppShell>`. `<main>` keeps `p-8` (un
 
 ```
 (app)/layout.tsx  (server): getSession() → null ? redirect /api/auth/refresh
-                            trackingCount = try api.teamOverview → count live-tracking members
+                            me = await api.getCurrentUser(token)   → name/email/role
+                            trackingCount = try api.teamOverview → count rows where r.tracking
                                             catch ApiError/any → undefined (footer hidden)
-                            render <AppShell role name email trackingCount>{children}</AppShell>
+                            render <AppShell role={me.role} name={me.name} email={me.email}
+                                             trackingCount>{children}</AppShell>
 AppShell (client): narrow = innerWidth < 900 (resize-tracked); sidebarOpen state
                    <TitleProvider><Sidebar …/><TopBar …/><main class=p-8>{children}</main></TitleProvider>
 ```
@@ -149,8 +176,13 @@ AppShell (client): narrow = innerWidth < 900 (resize-tracked); sidebarOpen state
   touching every page. Confirm the fallback map covers all current routes so no header is blank.
 - **`teamOverview` scope:** it is MANAGER/ADMIN-scoped. For a plain EMPLOYEE it 403s → the footer is
   simply hidden. Verify the layout swallows that (no error page).
-- **Session email:** if `email` isn't in the session claims, `AccountMenu` shows name + role only —
-  do not add an API call just for email this slice.
+- **Name/email source:** the JWT carries only `sub`/`role`/`teamId`, so `AccountMenu` gets real
+  name/email from the new `GET /users/me` (fetched once in the layout). This is the single API
+  addition in the slice; keep it self-scoped and reuse `UserSchema`.
+- **Layout adds a blocking fetch:** the layout now awaits `getCurrentUser` before render. It's a
+  cheap self lookup, but if it throws the app shell can't render — unlike `trackingCount`, do **not**
+  swallow it (a failed self-fetch means the session is unusable; let it surface / redirect like a
+  null session). Only `trackingCount` is the guarded/optional fetch.
 - **No screen body changes** — if a screen looks different after this slice, that's a bug.
 - **CLAUDE.md:** dashboard scope; types from `@timetrack/contracts`; no hand-written response
   types; Server Components by default, `'use client'` only where there's interaction (AppShell,
@@ -159,6 +191,8 @@ AppShell (client): narrow = innerWidth < 900 (resize-tracked); sidebarOpen state
 
 ## Definition of done
 
+- `GET /v1/users/me` live (self, reuses `UserSchema`/`findUser`; unit + e2e); `api.getCurrentUser`
+  added to the dashboard client.
 - `Card` extended (non-breaking); `StatCard`, `Badge`, `SectionHeader`, `Avatar` +
   `lib/avatar.ts` added with tests; `Badge` adopted at the two existing pill call sites.
 - App shell: responsive sidebar (overlay < 900px), header with page title + hamburger + account
