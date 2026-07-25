@@ -28,7 +28,7 @@ test.describe('projects index', () => {
   test.skip('an employee sees the not-permitted state', async ({ page }) => {
     // With an EMPLOYEE session, /reports/projects 403s → the not-permitted copy renders.
     await page.goto('/projects');
-    await expect(page.getByText("You're not permitted to view projects.")).toBeVisible();
+    await expect(page.getByText("You’re not permitted to view projects.")).toBeVisible();
   });
 });
 
@@ -48,6 +48,6 @@ test.describe('project detail', () => {
 
   test.skip('an employee sees the not-permitted state', async ({ page }) => {
     await page.goto('/projects/some-project-id');
-    await expect(page.getByText("You're not permitted to view this project.")).toBeVisible();
+    await expect(page.getByText("You’re not permitted to view this project.")).toBeVisible();
   });
 });
