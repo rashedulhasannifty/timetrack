@@ -11,6 +11,10 @@ Slice 3 (project management) is complete. The Time Doctor reference screens show
 two risks to resolve first: the **MANUAL/AUTO time-entry mix** (is the number meaningful?) and the
 **range-join cost** over the monthly-partitioned `activity_samples` (is it affordable?).
 
+## Decision: **CUT** (human, 2026-07-25)
+
+Per-project top-apps will not be built. The recommendation below stands as the rationale.
+
 ## Recommendation: **CUT** (or defer behind an explicit coverage caveat)
 
 The recommendation rests on **semantics and product scope, not cost.** The risky axis — query cost —
