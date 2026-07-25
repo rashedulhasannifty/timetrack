@@ -1,14 +1,108 @@
+import Link from 'next/link';
 import { PageHeader } from '../../../../components/ui/PageHeader';
+import { ReportRangePicker } from '../../../../components/reports/ReportRangePicker';
+import { ProjectHoursChart } from '../../../../components/charts/ProjectHoursChart';
+import { ProjectHoursTrendChart } from '../../../../components/charts/ProjectHoursTrendChart';
+import { getSession } from '../../../../lib/session';
+import { api, ApiError } from '../../../../lib/api-client';
+import { defaultReportRange } from '../../../../lib/reports-view';
+import { toTrendBars, toMemberBars, toTaskBars } from '../../../../lib/project-detail-view';
+import { projectColor } from '../../../../lib/project-color';
+import { formatDuration } from '../../../../lib/format';
+import type { ProjectDetail } from '@timetrack/contracts';
 
-export default async function ProjectPage({ params }: { params: Promise<{ projectId: string }> }) {
+// Next 16 — params and searchParams are async. Detail hours come from /projects/:id/detail
+// (MANAGER/ADMIN, own-team); 404 → not-found, 403 → not-permitted, mirroring the reports pages.
+export default async function ProjectDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ projectId: string }>;
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
+  const session = await getSession();
+  if (!session) return null;
+
   const { projectId } = await params;
+  const sp = await searchParams;
+  const fallback = defaultReportRange(new Date());
+  const from = sp.from ?? fallback.from;
+  const to = sp.to ?? fallback.to;
+
+  let detail: ProjectDetail | null = null;
+  let state: 'ok' | 'notfound' | 'forbidden' | 'error' = 'ok';
+  try {
+    detail = await api.getProjectDetail(
+      session.accessToken,
+      projectId,
+      new URLSearchParams({ from, to }),
+    );
+  } catch (e) {
+    detail = null;
+    if (e instanceof ApiError && e.status === 404) state = 'notfound';
+    else if (e instanceof ApiError && e.status === 403) state = 'forbidden';
+    else state = 'error';
+  }
+
   return (
     <>
-      <PageHeader title="Project" subtitle="Hours per project across the team (PRD §6.5)." />
-      <p className="text-text-secondary text-body">
-        Scaffold for project{' '}
-        <code className="bg-surface text-text rounded px-1 py-0.5 font-mono">{projectId}</code>.
-      </p>
+      <div className="mb-2">
+        <Link href="/projects" className="text-text-secondary hover:text-text text-label">
+          ← Projects
+        </Link>
+      </div>
+
+      {detail === null ? (
+        <>
+          <PageHeader title="Project" />
+          <p className="text-text-secondary text-body">
+            {state === 'notfound'
+              ? 'Project not found.'
+              : state === 'forbidden'
+                ? 'You’re not permitted to view this project.'
+                : 'Something went wrong loading this project. Please try again.'}
+          </p>
+        </>
+      ) : (
+        <>
+          <div className="mb-6 flex items-center gap-3">
+            <span
+              className="inline-block h-3 w-3 shrink-0 rounded-full"
+              style={{ backgroundColor: projectColor(detail.projectId) }}
+              aria-hidden="true"
+            />
+            <h1 className="text-text text-h1 font-display font-semibold">{detail.name}</h1>
+            {detail.archived && (
+              <span className="text-text-secondary border-separator text-caption rounded-full border px-2 py-0.5">
+                Archived
+              </span>
+            )}
+            <span className="tt-numeric text-text-secondary text-label ml-auto">
+              {formatDuration(detail.totalSeconds)} tracked · {from.slice(0, 10)} –{' '}
+              {to.slice(0, 10)}
+            </span>
+          </div>
+
+          <div className="mb-6">
+            <ReportRangePicker from={from} to={to} basePath={`/projects/${detail.projectId}`} />
+          </div>
+
+          <div className="flex flex-col gap-8">
+            <section>
+              <h2 className="text-text text-h2 mb-3 font-semibold">Hours over time</h2>
+              <ProjectHoursTrendChart data={toTrendBars(detail.trend)} />
+            </section>
+            <section>
+              <h2 className="text-text text-h2 mb-3 font-semibold">By member</h2>
+              <ProjectHoursChart data={toMemberBars(detail.members)} />
+            </section>
+            <section>
+              <h2 className="text-text text-h2 mb-3 font-semibold">By task</h2>
+              <ProjectHoursChart data={toTaskBars(detail.tasks)} />
+            </section>
+          </div>
+        </>
+      )}
     </>
   );
 }
