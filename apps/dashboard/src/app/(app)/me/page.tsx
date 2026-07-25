@@ -1,4 +1,5 @@
-import { PageHeader } from '../../../components/ui/PageHeader';
+import { SetPageTitle } from '../../../components/ui/PageTitleContext';
+import { Card } from '../../../components/ui/Card';
 import { Timeline } from '../../../components/timeline/Timeline';
 import { ActivitySummaryPanel } from '../../../components/activity/ActivitySummaryPanel';
 import { getSession } from '../../../lib/session';
@@ -55,44 +56,58 @@ export default async function MyDataPage() {
 
   const myApprovals = selfApprovals(approvals, session.userId);
 
+  const todayLabel = new Date(`${today}T00:00:00.000Z`).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+
   return (
     <>
-      <PageHeader
-        title="My data"
-        subtitle={`Everything recorded about you · today (${today}, UTC)`}
-      />
-      <section className="flex flex-col gap-2">
-        <h2 className="text-text text-label font-semibold">Timesheet status</h2>
+      <SetPageTitle title="My time" />
+      <div className="flex flex-col gap-4">
         <ApprovalsPanel rows={myApprovals} />
-      </section>
-      <MeTabs
-        panels={{
-          Timeline: <Timeline entries={entries} />,
-          Activity: <ActivitySummaryPanel summaries={summaries} from={from} to={to} />,
-          Screenshots: (
-            <ScreenshotsPanel
-              shots={shots.map(toScreenshotView)}
-              onRedact={redactScreenshotAction}
-            />
-          ),
-          Idle:
-            idle.length === 0 ? (
-              <p className="text-text-secondary text-body">No idle periods today.</p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {idle.map((e) => (
-                  <li
-                    key={e.id}
-                    className="bg-surface-raised border-separator text-body rounded-md border px-3 py-2"
-                  >
-                    <span className="font-medium">{formatTimeRange(e.startTime, e.endTime)}</span>
-                    <span className="text-text-secondary ml-2">{e.resolvedAction}</span>
-                  </li>
-                ))}
-              </ul>
+        <MeTabs
+          panels={{
+            Timeline: (
+              <Card padding="md">
+                <div className="mb-3 text-[15px] font-semibold">Today · {todayLabel}</div>
+                <Timeline entries={entries} />
+              </Card>
             ),
-        }}
-      />
+            Activity: <ActivitySummaryPanel summaries={summaries} from={from} to={to} />,
+            Screenshots: (
+              <ScreenshotsPanel
+                shots={shots.map(toScreenshotView)}
+                onRedact={redactScreenshotAction}
+              />
+            ),
+            Idle: (
+              <Card padding="md">
+                <div className="mb-3 text-[15px] font-semibold">Idle periods</div>
+                {idle.length === 0 ? (
+                  <p className="text-text-secondary text-body">No idle periods today.</p>
+                ) : (
+                  <ul className="flex flex-col">
+                    {idle.map((e) => (
+                      <li
+                        key={e.id}
+                        className="border-separator flex items-center gap-3 border-b py-3 last:border-b-0"
+                      >
+                        <span className="tt-numeric w-[132px] flex-none text-[13px] text-text-secondary">
+                          {formatTimeRange(e.startTime, e.endTime)}
+                        </span>
+                        <span className="text-[13px] text-text-secondary">{e.resolvedAction}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Card>
+            ),
+          }}
+        />
+      </div>
     </>
   );
 }
