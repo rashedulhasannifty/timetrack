@@ -24,6 +24,14 @@ describe('donutSegments', () => {
       expect(seg.offset).toBe('0');
     }
   });
+
+  it('floors the dash length at 0 instead of going negative for a very thin segment', () => {
+    const segs = donutSegments([{ value: 1 }, { value: 999 }]);
+    expect(segs).toHaveLength(2);
+    const [dashLen] = segs[0]!.dash.split(' ').map(Number);
+    expect(dashLen).toBeGreaterThanOrEqual(0);
+    expect(segs[0]!.dash.startsWith('-')).toBe(false);
+  });
 });
 
 describe('linePoints', () => {
@@ -43,6 +51,15 @@ describe('linePoints', () => {
     ]);
     expect(points).toBe('0,8 300,87 600,166');
   });
+
+  it('sits all nodes at the baseline (no NaN) when max is 0', () => {
+    const { points, nodes } = linePoints([0, 0, 0], 0);
+    expect(nodes).toHaveLength(3);
+    for (const node of nodes) {
+      expect(node.y).toBe(166);
+    }
+    expect(points).not.toContain('NaN');
+  });
 });
 
 describe('lineGrid', () => {
@@ -53,6 +70,11 @@ describe('lineGrid', () => {
     expect(grid[3]).toEqual({ y: 166, label: 'Thu' });
     expect(grid[1]!.y).toBe(60.7);
     expect(grid[2]!.y).toBe(113.3);
+  });
+
+  it('does not divide by zero for a single-label axis', () => {
+    const grid = lineGrid(['OnlyDay']);
+    expect(grid).toEqual([{ y: 8, label: 'OnlyDay' }]);
   });
 });
 

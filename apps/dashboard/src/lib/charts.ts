@@ -47,7 +47,7 @@ export function donutSegments(
   return items.map((item) => {
     const frac = item.value / total;
     const len = frac * circumference;
-    const dashLen = len - gap;
+    const dashLen = Math.max(0, len - gap);
     const restLen = circumference - dashLen;
     const offset = -acc;
     acc += len;
@@ -82,10 +82,11 @@ export function linePoints(
 ): LinePoints {
   const n = vals.length;
   const step = n > 1 ? w / (n - 1) : w;
+  const m = max > 0 ? max : 1;
 
   const nodes: LineNode[] = vals.map((v, i) => ({
     x: r1(i * step),
-    y: r1(h - (v / max) * (h - 12) - 4),
+    y: r1(h - (v / m) * (h - 12) - 4),
     v,
   }));
 
@@ -102,8 +103,9 @@ export interface LineGridLine {
 /** Horizontal grid lines evenly spaced between y=8 (top) and y=h-4 (bottom). */
 export function lineGrid(axis: string[], h: number = LINE_H_DEFAULT): LineGridLine[] {
   const n = axis.length;
+  const denom = n > 1 ? n - 1 : 1;
   return axis.map((label, i) => ({
-    y: r1(8 + i * ((h - 12) / (n - 1))),
+    y: r1(8 + i * ((h - 12) / denom)),
     label,
   }));
 }
