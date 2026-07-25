@@ -14,7 +14,7 @@ test.describe.skip('project top-apps', () => {
   test('the coverage disclosure line is present', async ({ page }) => {
     await page.goto('/projects/00000000-0000-0000-0000-000000000000');
     await expect(
-      page.getByText(/covers .* of this project's tracked time/i)
+      page.getByText(/covers .* of this project.s tracked time/i)
     ).toBeVisible();
   });
 
