@@ -65,28 +65,35 @@ totalSeconds: z.number().int().nonnegative(), coveragePct: z.number().int().min(
 **Files:** `apps/api/src/modules/projects/projects.repository.ts`; `apps/api/test/projects.e2e-spec.ts`.
 
 - [ ] Add `topAppsForProject(projectId, from, to): Promise<{ apps: {appName;trackedSeconds}[]; totalSeconds: number }>`.
-      App aggregation (raw SQL, mirror the existing repo's `::timestamptz` + `COALESCE(endTime, now())`
-      half-open windowing):
+      App aggregation — **use an `EXISTS` SEMI-JOIN, NOT a plain JOIN.** A plain JOIN counts a sample
+      once per containing entry, so overlapping same-project entries for one user (a retroactive
+      MANUAL entry overlapping an AUTO span — nothing forbids overlap; only ONE-RUNNING-per-user is
+      enforced) DOUBLE-count → `coveredSeconds` inflates past `totalSeconds` → `coveragePct` clamps to
+      100% exactly when the data is messiest, overstating the ethically load-bearing number. `EXISTS`
+      counts each sample at most once and keeps the `a.timestamp` range on the outer scan (partition
+      pruning intact). Mirror the existing repo's `::timestamptz` + `COALESCE(endTime, now())` windowing:
   ```sql
   SELECT a."appName" AS "appName", COUNT(*) * 60 AS "trackedSeconds"
-  FROM time_entries te
-  JOIN activity_samples a
-    ON a."userId" = te."userId"
-   AND a."timestamp" >= te."startTime"
-   AND a."timestamp" <  COALESCE(te."endTime", now())
-  WHERE te."projectId" = ${projectId}
-    AND te."startTime" < ${to}::timestamptz
-    AND COALESCE(te."endTime", now()) > ${from}::timestamptz
-    AND a."timestamp" >= ${from}::timestamptz
+  FROM activity_samples a
+  WHERE a."timestamp" >= ${from}::timestamptz
     AND a."timestamp" <  ${to}::timestamptz
+    AND EXISTS (
+      SELECT 1 FROM time_entries te
+      WHERE te."projectId" = ${projectId}
+        AND te."userId" = a."userId"
+        AND a."timestamp" >= te."startTime"
+        AND a."timestamp" <  COALESCE(te."endTime", now())
+    )
   GROUP BY a."appName"
   ORDER BY "trackedSeconds" DESC, a."appName" ASC
   ```
   `totalSeconds` = reuse the project's windowed tracked-seconds sum (same clause as `hoursByDay`
-  without the day bucket — one scalar). Return both; map bigint→Number. E2E (real PG): seed a
-  project with AUTO entries + matching samples AND a MANUAL entry with NO samples → assert apps
-  aggregate correctly AND `coveredSeconds (Σapps) < totalSeconds` (proves the MANUAL gap is real and
-  measurable). Commit `feat(api): project top-apps range-join repository`.
+  without the day bucket — one scalar). Return both; map bigint→Number. E2E (real PG), TWO cases:
+  (a) AUTO entries + matching samples AND a MANUAL entry with NO samples → apps aggregate correctly
+  AND `coveredSeconds (Σapps) < totalSeconds` (the MANUAL gap is real/measurable); (b) **overlap
+  case** — one user with TWO overlapping same-project entries covering the same sample minutes →
+  assert each sample counts ONCE and `coveredSeconds ≤ totalSeconds` (distinguishes the correct
+  EXISTS query from the plausible-but-wrong JOIN). Commit `feat(api): project top-apps semi-join repository`.
 
 ### Task 4: API service + controller + unit
 
