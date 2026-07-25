@@ -208,7 +208,9 @@ describe('users / projects / reports', () => {
   });
 
   it('validates a project create and a team summary', () => {
-    expect(CreateProjectSchema.safeParse({ teamId: UUID, name: 'Website' }).success).toBe(true);
+    expect(
+      CreateProjectSchema.safeParse({ teamId: UUID, name: 'Website', color: '#007aff' }).success,
+    ).toBe(true);
     expect(TeamSummarySchema.safeParse({ from: ISO, to: ISO, rows: [] }).success).toBe(true);
   });
 });
@@ -254,9 +256,9 @@ describe('problem+json', () => {
 });
 
 describe('projects — UpdateProjectSchema + ListProjectsQuerySchema', () => {
-  it('UpdateProjectSchema requires a boolean archived', () => {
+  it('UpdateProjectSchema accepts optional archived and color fields', () => {
     expect(UpdateProjectSchema.parse({ archived: true })).toEqual({ archived: true });
-    expect(() => UpdateProjectSchema.parse({})).toThrow();
+    expect(UpdateProjectSchema.parse({})).toEqual({});
     expect(() => UpdateProjectSchema.parse({ archived: 'yes' })).toThrow();
   });
 
