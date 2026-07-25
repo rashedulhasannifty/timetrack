@@ -107,6 +107,47 @@ final class ManualIdleCoordinatorTests: XCTestCase {
         XCTAssertNil(resolver(), "no keep/discard prompt is presented for the abandoned window")
     }
 
+    func testPauseDuringAwayAbandonsNoTrim() {
+        let (c, tracker, spy, clock, resolver, dismissals) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0
+        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0
+        tracker.pause()                                       // user pauses the manual timer mid-away
+        clock.advance(60); c.tick(idleSeconds: 360)           // next signal reconciles
+
+        let events = idleEvents(spy)
+        XCTAssertEqual(events.last?["resolvedAction"] as? String, "UNRESOLVED")
+        XCTAssertEqual(dismissals(), 1, "a showing prompt would be dismissed on abandon")
+        XCTAssertNil(resolver(), "no keep/discard prompt is presented for the abandoned window")
+    }
+
+    func testSignalWhileSwappedEntryAwaitingReconciles() {
+        let (c, tracker, spy, clock, resolver, dismissals) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0
+        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0 (entry A)
+        clock.advance(120); c.tick(idleSeconds: 5)            // resume at t0+420 → awaiting, prompt presented
+        XCTAssertNotNil(resolver(), "prompt is presented before the entry swap")
+        let staleResolver = resolver()
+
+        // Before resolving, the user stops A and starts a different entry B.
+        tracker.stop()
+        tracker.start(projectId: "p2", taskId: nil)           // entry B
+        let bEntriesBefore = spy.entries.filter { $0.kind == .timeEntry }.count
+
+        // A fresh signal arrives while still .awaiting on entry A — must reconcile before any resolve.
+        clock.advance(5); c.tick(idleSeconds: 5)
+
+        XCTAssertTrue(tracker.isRunning, "entry B keeps running, untrimmed")
+        XCTAssertEqual(spy.entries.filter { $0.kind == .timeEntry }.count, bEntriesBefore,
+                       "no extra trim/close of entry B")
+        XCTAssertEqual(idleEvents(spy).last?["resolvedAction"] as? String, "UNRESOLVED",
+                       "entry A's abandoned away window is recorded UNRESOLVED")
+        XCTAssertEqual(dismissals(), 1, "the stale prompt for entry A is dismissed on reconcile")
+
+        // The stale resolver captured before the swap is now a harmless no-op.
+        staleResolver?(.keep)
+        XCTAssertEqual(idleEvents(spy).count, 1, "resolving the stale prompt after reconcile records nothing new")
+    }
+
     func testDiscardAfterEntryChangedRecordsUnresolvedNoTrim() {
         let (c, tracker, spy, clock, resolver, _) = make(threshold: 300)
         tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0
