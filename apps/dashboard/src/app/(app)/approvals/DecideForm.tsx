@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import { decideAction, type DecideState } from './actions';
 
 const INITIAL: DecideState = { ok: false };
@@ -13,38 +13,70 @@ const INITIAL: DecideState = { ok: false };
  */
 export function DecideForm({ approvalId }: { approvalId: string }) {
   const [state, formAction, pending] = useActionState(decideAction, INITIAL);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
 
   return (
-    <form action={formAction} className="flex flex-wrap items-center gap-2">
-      <input type="hidden" name="id" value={approvalId} />
-      <input
-        type="text"
-        name="note"
-        placeholder="Note (optional)"
-        maxLength={2000}
-        className="bg-surface-raised border-separator text-text focus:border-accent w-40 rounded-md border px-2 py-1 text-caption outline-none transition-colors"
-      />
+    <div ref={ref} className="relative">
       <button
-        type="submit"
-        name="status"
-        value="APPROVED"
-        disabled={pending}
-        className="border-accent/30 text-accent hover:bg-accent/10 rounded-md border px-2.5 py-1 text-caption font-medium transition-colors disabled:opacity-50"
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="bg-surface border-separator text-accent cursor-pointer rounded-md border px-3 py-1 text-caption"
       >
-        Approve
+        Decide
       </button>
-      <button
-        type="submit"
-        name="status"
-        value="FLAGGED"
-        disabled={pending}
-        className="border-category-unproductive/30 text-category-unproductive hover:bg-category-unproductive/10 rounded-md border px-2.5 py-1 text-caption font-medium transition-colors disabled:opacity-50"
-      >
-        Flag
-      </button>
-      {state.message ? (
-        <span className="text-destructive text-caption">{state.message}</span>
+      {open ? (
+        <form
+          action={formAction}
+          className="bg-surface-raised border-separator shadow-e2 absolute right-0 z-40 mt-2 flex w-[220px] flex-col gap-2 rounded-[10px] border p-2"
+        >
+          <input type="hidden" name="id" value={approvalId} />
+          <input
+            type="text"
+            name="note"
+            placeholder="Note (optional)"
+            maxLength={2000}
+            className="bg-surface border-separator text-text focus:border-accent w-full rounded-md border px-2 py-1 text-caption outline-none"
+          />
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              name="status"
+              value="APPROVED"
+              disabled={pending}
+              className="bg-good rounded-md px-3 py-1.5 text-caption font-medium text-white disabled:opacity-50"
+            >
+              Approve
+            </button>
+            <button
+              type="submit"
+              name="status"
+              value="FLAGGED"
+              disabled={pending}
+              className="bg-surface border-separator text-category-unproductive rounded-md border px-3 py-1.5 text-caption font-medium disabled:opacity-50"
+            >
+              Flag for payroll
+            </button>
+          </div>
+          {state.message ? (
+            <span className="text-destructive text-caption">{state.message}</span>
+          ) : null}
+        </form>
       ) : null}
-    </form>
+    </div>
   );
 }
