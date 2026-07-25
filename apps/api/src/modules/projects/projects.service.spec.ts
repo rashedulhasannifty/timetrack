@@ -13,6 +13,9 @@ function makeService(overrides: Partial<ProjectsRepository> = {}) {
     createTask: vi.fn(),
     findForActor: vi.fn(),
     setArchived: vi.fn(),
+    hoursByDay: vi.fn(),
+    membersForProject: vi.fn(),
+    tasksForProject: vi.fn(),
     ...overrides,
   } as unknown as ProjectsRepository;
   return { svc: new ProjectsService(repo), repo };
@@ -103,5 +106,48 @@ describe('ProjectsService.list', () => {
     const { svc, repo } = makeService({ listByTeam: vi.fn().mockResolvedValue([]) });
     await svc.list(manager, true);
     expect(repo.listByTeam).toHaveBeenCalledWith('t1', true);
+  });
+});
+
+describe('ProjectsService.detail', () => {
+  const query = { from: '2026-07-13T00:00:00.000Z', to: '2026-07-19T23:59:59.999Z' };
+
+  it('404 when the project does not exist', async () => {
+    const { svc } = makeService({ findForActor: vi.fn().mockResolvedValue(null) });
+    await expect(svc.detail('p9', query, manager)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("403 for another team's project", async () => {
+    const { svc, repo } = makeService({
+      findForActor: vi
+        .fn()
+        .mockResolvedValue({ id: 'p1', teamId: 't2', name: 'X', archived: false }),
+    });
+    await expect(svc.detail('p1', query, manager)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(repo.membersForProject).not.toHaveBeenCalled();
+  });
+
+  it('assembles detail with totalSeconds = sum of members', async () => {
+    const projectId = '11111111-1111-4111-8111-111111111111';
+    const { svc } = makeService({
+      findForActor: vi
+        .fn()
+        .mockResolvedValue({ id: projectId, teamId: 't1', name: 'Website', archived: false }),
+      hoursByDay: vi.fn().mockResolvedValue([{ day: '2026-07-14', trackedSeconds: 10800 }]),
+      membersForProject: vi.fn().mockResolvedValue([
+        { userId: '22222222-2222-4222-8222-222222222222', name: 'Jane', trackedSeconds: 7200 },
+        { userId: '33333333-3333-4333-8333-333333333333', name: 'John', trackedSeconds: 3600 },
+      ]),
+      tasksForProject: vi
+        .fn()
+        .mockResolvedValue([{ taskId: null, name: 'No task', trackedSeconds: 10800 }]),
+    });
+    const result = await svc.detail(projectId, query, manager);
+    expect(result.projectId).toBe(projectId);
+    expect(result.name).toBe('Website');
+    expect(result.totalSeconds).toBe(10800);
+    expect(result.members).toHaveLength(2);
+    expect(result.tasks[0]).toEqual({ taskId: null, name: 'No task', trackedSeconds: 10800 });
+    expect(result.from).toBe(query.from);
   });
 });
