@@ -6,6 +6,7 @@ const PROJECT_SELECT = {
   id: true,
   teamId: true,
   name: true,
+  color: true,
   archived: true,
 } as const;
 
@@ -27,10 +28,15 @@ export class ProjectsRepository {
     return rows;
   }
 
-  async createProject(teamId: string, name: string, actorId: string): Promise<Project> {
+  async createProject(
+    teamId: string,
+    name: string,
+    actorId: string,
+    color: string | null = null,
+  ): Promise<Project> {
     return this.prisma.$transaction(async (tx) => {
       const project = await tx.project.create({
-        data: { teamId, name },
+        data: { teamId, name, color },
         select: PROJECT_SELECT,
       });
       await tx.auditLog.create({
@@ -39,7 +45,7 @@ export class ProjectsRepository {
           action: 'project.create',
           targetType: 'project',
           targetId: project.id,
-          diff: { teamId, name },
+          diff: { teamId, name, color },
         },
       });
       return project;
@@ -65,12 +71,16 @@ export class ProjectsRepository {
     });
   }
 
-  findForActor(
-    id: string,
-  ): Promise<{ id: string; teamId: string; name: string; archived: boolean } | null> {
+  findForActor(id: string): Promise<{
+    id: string;
+    teamId: string;
+    name: string;
+    color: string | null;
+    archived: boolean;
+  } | null> {
     return this.prisma.project.findUnique({
       where: { id },
-      select: { id: true, teamId: true, name: true, archived: true },
+      select: { id: true, teamId: true, name: true, color: true, archived: true },
     });
   }
 
@@ -167,6 +177,26 @@ export class ProjectsRepository {
           targetType: 'project',
           targetId: id,
           diff: { archived },
+        },
+      });
+      return project;
+    });
+  }
+
+  async setColor(id: string, color: string, actorId: string): Promise<Project> {
+    return this.prisma.$transaction(async (tx) => {
+      const project = await tx.project.update({
+        where: { id },
+        data: { color },
+        select: PROJECT_SELECT,
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: 'project.recolor',
+          targetType: 'project',
+          targetId: id,
+          diff: { color },
         },
       });
       return project;
