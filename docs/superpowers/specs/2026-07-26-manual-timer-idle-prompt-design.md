@@ -239,10 +239,28 @@ Unit (Swift, no host UI needed for the pure monitor):
   - **discard after entry changed**: away on entry A, user stops A and starts B, then resolve
     discard → no trim of B; `IdleEvent(unresolved)`.
 - `FanOutSignalReceiverTests` — forwards `tick`/`markAway`/`resume` to every receiver in order.
-- Sign-out dismissal test extended to cover the manual away-prompt (guard reset + window
-  dismissed) — in the manual-mode teardown path.
+- ~~Sign-out dismissal test extended to cover the manual away-prompt~~ — **waived, see note below.**
 
 Existing `AutoTrackingCoordinatorTests` must stay green unchanged (the auto path is not modified).
+
+### 6.1 Waiver: AppDelegate sign-out teardown is not unit-tested
+
+The original plan for a sign-out dismissal test covering the manual away-prompt is **waived**.
+`AppDelegate.stopAutoTracking()` — where `manualIdleCoordinator?.deactivate()` is ordered before
+`AwayResolutionWindowController.dismissIfShowing()` — lives on `AppDelegate`, which has **no unit
+test harness** in this package (heavy `init`, private `@MainActor` methods, AppKit singletons). The
+pre-existing auto away-prompt and recovery-prompt sign-out dismissals share exactly this untested
+status, so this is not a new coverage gap.
+
+What _is_ covered / enforced instead:
+
+- The unresolved-on-teardown behavior is unit-tested at the unit level: `ManualIdleMonitor`
+  `deactivate()` → `didAbandon…` and `ManualIdleCoordinator` `deactivate()` → `IdleEvent(unresolved)`.
+- The deactivate-before-dismiss ordering is enforced in code and documented by comment at the
+  teardown site (mirroring the existing auto path).
+
+Accepted after the whole-branch review (2026-07-26). If `AppDelegate` gains a test harness later,
+add the ordering test for all three prompts (auto, recovery, manual) together.
 
 ## 7. Server behavior (verified, no change)
 
