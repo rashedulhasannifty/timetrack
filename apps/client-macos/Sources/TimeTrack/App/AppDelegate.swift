@@ -45,6 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var ackWindow: AckWindowController?
     private var autoCoordinator: AutoTrackingCoordinator?
     private var workspaceObserver: WorkspaceObserver?
+    private var manualIdleCoordinator: ManualIdleCoordinator?
+    private var signalFanOut: FanOutSignalReceiver?
     private var syncEngine: SyncEngine?
     private var screenshotScheduler: ScreenshotScheduler?
     private var screenshotSync: ScreenshotSyncEngine?
@@ -353,6 +355,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         manualNudgeMonitor = monitor
         monitor.start()
+
+        let manual = ManualIdleCoordinator(
+            tracker: timeTracker,
+            buffer: BufferStore.shared,
+            thresholdSeconds: thresholdMinutes * 60,
+            presentAwayPrompt: { minutes, resolve in
+                AwayResolutionWindowController.present(minutes: minutes, resolve: resolve)
+            }
+        )
+        let observer = WorkspaceObserver(receiver: manual)
+        self.manualIdleCoordinator = manual
+        self.workspaceObserver = observer
+        observer.start()
     }
 
     /// Screenshot capture is a CAPTURE path (CLAUDE.md §1) — installed ONLY on the live-policy
@@ -526,21 +541,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                        body: "Idle for \(minutes) min — still working?")
             }
         )
-        let observer = WorkspaceObserver(receiver: coordinator)
+        let manual = ManualIdleCoordinator(
+            tracker: timeTracker,
+            buffer: BufferStore.shared,
+            thresholdSeconds: thresholdMinutes * 60,
+            presentAwayPrompt: { minutes, resolve in
+                AwayResolutionWindowController.present(minutes: minutes, resolve: resolve)
+            }
+        )
+        let fanOut = FanOutSignalReceiver([coordinator, manual])
+        let observer = WorkspaceObserver(receiver: fanOut)
         self.autoCoordinator = coordinator
+        self.manualIdleCoordinator = manual
+        self.signalFanOut = fanOut
         self.workspaceObserver = observer
         observer.start()
-        coordinator.activate()
+        coordinator.activate()      // manual coordinator self-arms on first manual signal
     }
 
     @MainActor private func stopAutoTracking() {
         workspaceObserver?.stop()
         autoCoordinator?.deactivate()
-        // Deactivate first (records any pending away as UNRESOLVED and makes the monitor
+        manualIdleCoordinator?.deactivate()
+        // Deactivate first (records any pending away as UNRESOLVED and makes the monitors
         // inactive), THEN close a still-open away prompt so its resolve() is a no-op.
         AwayResolutionWindowController.dismissIfShowing()
         workspaceObserver = nil
         autoCoordinator = nil
+        manualIdleCoordinator = nil
+        signalFanOut = nil
         // Cross-user integrity (CLAUDE.md §1): this runs on sign-out. A still-open recovery
         // prompt belongs to the user who's signing out, so tear it down here too (its discard
         // path clears the live-span file — nothing gets enqueued) rather than leaving it on
