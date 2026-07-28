@@ -42,6 +42,13 @@ final class MenuViewModel: ObservableObject {
     private let onSignOut: () -> Void
     private let onQuit: () -> Void
 
+    /// A display-only clock anchor that overrides the live entry's real start. Set when manual idle
+    /// Discard shifts the clock forward by the idle gap so it keeps reading accumulated *worked*
+    /// time (the fresh entry's real start would read 0). Display-only: the entry sent to the server
+    /// keeps its true start. Cleared by any explicit start/stop/pause/resume/reset, so a new user
+    /// session reads its real elapsed again.
+    private var displayStartOverride: Date?
+
     init(
         tracker: TimeTracker,
         dashboardURL: URL,
@@ -100,15 +107,28 @@ final class MenuViewModel: ObservableObject {
 
     func start() {
         guard isReady else { return }
+        displayStartOverride = nil
         tracker.start(projectId: selectedChoice?.projectId, taskId: selectedChoice?.taskId)
         sync()
     }
 
-    func stop() { tracker.stop(); sync() }
-    func pause() { tracker.pause(); sync() }
+    func stop() { displayStartOverride = nil; tracker.stop(); sync() }
+    func pause() { displayStartOverride = nil; tracker.pause(); sync() }
+
+    /// Manual idle Discard has replaced the live entry (trim + fresh start). Shift the clock anchor
+    /// forward by the discarded idle gap so it keeps reading accumulated *worked* time and climbs,
+    /// rather than resetting to the fresh entry's 0. The selection (project/task) is preserved —
+    /// the fresh entry inherits it and the picker is untouched. Then re-sync the UI + status icon.
+    func continueClockAfterDiscard(idleSeconds: TimeInterval) {
+        if let anchor = startedAt {
+            displayStartOverride = anchor.addingTimeInterval(idleSeconds)
+        }
+        sync()
+    }
 
     func resume() {
         guard isReady else { return }
+        displayStartOverride = nil
         tracker.resume()
         sync()
     }
@@ -146,9 +166,12 @@ final class MenuViewModel: ObservableObject {
         case .idle:
             phase = .idle
             startedAt = nil
-        case let .tracking(_, startedAt, _, _):
+            displayStartOverride = nil
+        case let .tracking(_, entryStart, _, _):
             phase = .tracking
-            self.startedAt = startedAt
+            // Prefer the Discard clock anchor (worked-time continuation) over the entry's real
+            // start; the override is display-only and never leaves this type.
+            startedAt = displayStartOverride ?? entryStart
         case .paused:
             phase = .paused
             startedAt = nil

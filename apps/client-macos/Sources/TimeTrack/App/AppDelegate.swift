@@ -362,7 +362,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             thresholdSeconds: thresholdMinutes * 60,
             presentAwayPrompt: { minutes, resolve in
                 AwayResolutionWindowController.present(minutes: minutes, resolve: resolve)
-            }
+            },
+            onEntryReplaced: { [weak self] idle in self?.menuViewModel.continueClockAfterDiscard(idleSeconds: idle) }
         )
         let observer = WorkspaceObserver(receiver: manual)
         self.manualIdleCoordinator = manual
@@ -547,7 +548,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             thresholdSeconds: thresholdMinutes * 60,
             presentAwayPrompt: { minutes, resolve in
                 AwayResolutionWindowController.present(minutes: minutes, resolve: resolve)
-            }
+            },
+            onEntryReplaced: { [weak self] idle in self?.menuViewModel.continueClockAfterDiscard(idleSeconds: idle) }
         )
         let fanOut = FanOutSignalReceiver([coordinator, manual])
         let observer = WorkspaceObserver(receiver: fanOut)

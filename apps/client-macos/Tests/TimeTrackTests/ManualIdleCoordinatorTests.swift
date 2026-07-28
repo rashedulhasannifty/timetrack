@@ -76,6 +76,60 @@ final class ManualIdleCoordinatorTests: XCTestCase {
         XCTAssertEqual(events.last?["resolvedAction"] as? String, "DISCARDED")
     }
 
+    // The Discard branch replaces the live entry directly on TimeTracker (trim + fresh start),
+    // which the menu-bar clock can't observe on its own. `onEntryReplaced` is the signal the owner
+    // uses to shift the clock forward by the discarded idle gap. It MUST fire on Discard with the
+    // idle-gap seconds, and MUST NOT fire on Keep/unresolved.
+    private func makeWithReplaceCapture(threshold: Int = 300)
+        -> (ManualIdleCoordinator, TimeTracker, MutableClock, () -> ((AwayResolution) -> Void)?, () -> [TimeInterval]) {
+        let clock = MutableClock(t0)
+        let spy = BufferSpy()
+        let tracker = TimeTracker(buffer: spy, clock: clock.read, idGen: sequentialIdGen())
+        var pendingResolve: ((AwayResolution) -> Void)?
+        var replacedWith: [TimeInterval] = []
+        let coordinator = ManualIdleCoordinator(
+            tracker: tracker,
+            buffer: spy,
+            thresholdSeconds: threshold,
+            presentAwayPrompt: { _, resolve in pendingResolve = resolve },
+            clock: clock.read,
+            idGen: sequentialIdGen(),
+            onEntryReplaced: { replacedWith.append($0) },
+            dismissPrompt: {}
+        )
+        return (coordinator, tracker, clock, { pendingResolve }, { replacedWith })
+    }
+
+    func testDiscardFiresOnEntryReplacedWithIdleGap() {
+        let (c, tracker, clock, resolver, replaced) = makeWithReplaceCapture(threshold: 300)
+        tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0 (away-start)
+        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0
+        clock.advance(120); c.tick(idleSeconds: 5)            // resume at t0+420 → prompt
+        resolver()?(.discard)
+        XCTAssertEqual(replaced(), [420],
+                       "Discard fires once, carrying the idle gap (away-start t0 → resume t0+420 = 420s)")
+    }
+
+    func testKeepDoesNotFireOnEntryReplaced() {
+        let (c, tracker, clock, resolver, replaced) = makeWithReplaceCapture(threshold: 300)
+        tracker.start(projectId: "p1", taskId: "k1")
+        clock.advance(300); c.tick(idleSeconds: 300)
+        clock.advance(120); c.tick(idleSeconds: 5)
+        resolver()?(.keep)
+        XCTAssertTrue(replaced().isEmpty, "Keep leaves the entry untouched → no clock shift")
+    }
+
+    func testDiscardAfterEntryChangedDoesNotFireOnEntryReplaced() {
+        let (c, tracker, clock, resolver, replaced) = makeWithReplaceCapture(threshold: 300)
+        tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0
+        clock.advance(300); c.tick(idleSeconds: 300)          // away
+        clock.advance(120); c.tick(idleSeconds: 5)            // resume → prompt
+        tracker.stop()                                        // user replaces the entry themselves
+        tracker.start(projectId: "p2", taskId: nil)           // entry B
+        resolver()?(.discard)                                 // → unresolved branch, no trim
+        XCTAssertTrue(replaced().isEmpty, "unresolved Discard doesn't touch the live entry → no clock shift")
+    }
+
     func testSignalsAreNoOpWhenNotInManualSession() {
         let (c, tracker, spy, clock, _, _) = make(threshold: 300)
         // tracker is idle (no manual session)

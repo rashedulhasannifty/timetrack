@@ -12,6 +12,12 @@ final class ManualIdleCoordinator: ManualIdleMonitorDelegate, AutoTrackingSignal
     private let presentAwayPrompt: (_ minutes: Int, _ resolve: @escaping (AwayResolution) -> Void) -> Void
     private let idGen: (Date) -> String
     private let dismissPrompt: () -> Void
+    /// Fired after Discard has replaced the live entry directly on `TimeTracker` (trim + fresh
+    /// start), carrying the discarded idle gap in seconds. The owner shifts the display clock
+    /// forward by this gap so it keeps reading accumulated *worked* time (the fresh entry's real
+    /// start would read 0) — UI that only observes `TimeTracker` through `MenuViewModel` can't see
+    /// the swap on its own. Only Discard fires this; Keep/unresolved leave the live entry untouched.
+    private let onEntryReplaced: (_ idleSeconds: TimeInterval) -> Void
 
     /// The entry the current away window belongs to. Guards Discard/reconciliation against a
     /// session that ended or was replaced while away.
@@ -24,6 +30,7 @@ final class ManualIdleCoordinator: ManualIdleMonitorDelegate, AutoTrackingSignal
         presentAwayPrompt: @escaping (_ minutes: Int, _ resolve: @escaping (AwayResolution) -> Void) -> Void,
         clock: @escaping () -> Date = Date.init,
         idGen: @escaping (Date) -> String = { UUIDv7.generate(now: $0) },
+        onEntryReplaced: @escaping (_ idleSeconds: TimeInterval) -> Void = { _ in },
         dismissPrompt: @escaping () -> Void = { AwayResolutionWindowController.dismissIfShowing() }
     ) {
         self.tracker = tracker
@@ -31,6 +38,7 @@ final class ManualIdleCoordinator: ManualIdleMonitorDelegate, AutoTrackingSignal
         self.monitor = ManualIdleMonitor(thresholdSeconds: thresholdSeconds, clock: clock)
         self.presentAwayPrompt = presentAwayPrompt
         self.idGen = idGen
+        self.onEntryReplaced = onEntryReplaced
         self.dismissPrompt = dismissPrompt
         self.monitor.delegate = self
     }
@@ -102,6 +110,8 @@ final class ManualIdleCoordinator: ManualIdleMonitorDelegate, AutoTrackingSignal
             tracker.stop(at: awayStart)
             tracker.start(projectId: selection.projectId, taskId: selection.taskId, source: .manual)
             enqueueIdle(from: awayStart, to: resume, action: .discarded)
+            // Shift the clock forward by the discarded idle gap so it keeps reading worked time.
+            onEntryReplaced(resume.timeIntervalSince(awayStart))
         } else {
             enqueueIdle(from: awayStart, to: resume, action: .unresolved)
         }
