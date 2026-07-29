@@ -81,6 +81,22 @@ function ceilToHourUTC(ms: number): number {
   return floored === ms ? floored : floored + HOUR_MS;
 }
 
+/** Dominant category among samples: most samples wins; tie-break UNPRODUCTIVE > NEUTRAL > PRODUCTIVE; none -> NEUTRAL. */
+function dominantCategory(categorySamples: ActivitySample[]): DayCategory {
+  if (categorySamples.length === 0) return 'NEUTRAL';
+  const counts: Record<DayCategory, number> = { PRODUCTIVE: 0, NEUTRAL: 0, UNPRODUCTIVE: 0 };
+  for (const s of categorySamples) {
+    const cat = s.category;
+    counts[cat] = (counts[cat] ?? 0) + 1;
+  }
+  const tieOrder: DayCategory[] = ['UNPRODUCTIVE', 'NEUTRAL', 'PRODUCTIVE'];
+  let best: DayCategory = tieOrder[0] as DayCategory;
+  for (const cat of tieOrder) {
+    if (counts[cat] > counts[best]) best = cat;
+  }
+  return best;
+}
+
 export function personDayView(input: PersonDayInput): PersonDayViewModel {
   const { date, now, isSelf, subjectName, entries, samples } = input;
 
@@ -128,6 +144,13 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
     }
   }
 
+  // pct(ms) = clamp(((ms - window.startMs) / (window.endMs - window.startMs)) * 100, 0, 100)
+  const windowSpanMs = windowEndMs - windowStartMs;
+  const pct = (ms: number): number => {
+    const raw = ((ms - windowStartMs) / windowSpanMs) * 100;
+    return Math.min(100, Math.max(0, raw));
+  };
+
   // Stats
   let trackedSeconds = 0;
   for (const p of parsed) {
@@ -161,6 +184,79 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
     })
     .sort((a, b) => a.startMs - b.startMs);
 
+  // Tracked blocks
+  const trackedBlocks: RibbonBlock[] = parsed
+    .map((p) => {
+      const startPct = pct(p.startMs);
+      const widthPct = Math.max(0, pct(p.effectiveEnd) - startPct);
+      const categorySamples = samples.filter((s) => {
+        const t = Date.parse(s.timestamp);
+        return t >= p.startMs && t < p.effectiveEnd;
+      });
+      return {
+        id: p.entry.id,
+        startPct,
+        widthPct,
+        category: dominantCategory(categorySamples),
+        label: p.entry.note ?? 'Untitled entry',
+        startMs: p.startMs,
+        endMs: p.endMs,
+        running: p.open && isToday,
+      };
+    })
+    .sort((a, b) => a.startPct - b.startPct);
+
+  // Untracked gaps: walk sorted [startPct, endPct] intervals across [0, 100].
+  const GAP_THRESHOLD_PCT = 0.5;
+  const intervals = trackedBlocks
+    .map((b) => ({ start: b.startPct, end: b.startPct + b.widthPct }))
+    .sort((a, b) => a.start - b.start);
+  const untrackedGaps: RibbonGap[] = [];
+  let cursor = 0;
+  for (const iv of intervals) {
+    if (iv.start > cursor) {
+      const widthPct = iv.start - cursor;
+      if (widthPct >= GAP_THRESHOLD_PCT) {
+        untrackedGaps.push({ startPct: cursor, widthPct });
+      }
+    }
+    cursor = Math.max(cursor, iv.end);
+  }
+  if (100 - cursor >= GAP_THRESHOLD_PCT) {
+    untrackedGaps.push({ startPct: cursor, widthPct: 100 - cursor });
+  }
+
+  // Capture marks
+  const captures: CaptureMark[] = input.screenshots.map((shot) => ({
+    atPct: pct(Date.parse(shot.timestamp)),
+    screenshotId: shot.id,
+  }));
+
+  // Hour ticks: one per UTC hour boundary within [windowStartMs, windowEndMs].
+  const hourTicks: HourTick[] = [];
+  const activityBuckets: ActivityBucket[] = [];
+  for (let hourMs = ceilToHourUTC(windowStartMs); hourMs <= windowEndMs; hourMs += HOUR_MS) {
+    const label = String(new Date(hourMs).getUTCHours()).padStart(2, '0');
+    hourTicks.push({ atPct: pct(hourMs), label });
+
+    if (hourMs < windowEndMs) {
+      const bucketEndMs = hourMs + HOUR_MS;
+      const bucketSamples = samples.filter((s) => {
+        const t = Date.parse(s.timestamp);
+        return t >= hourMs && t < bucketEndMs;
+      });
+      const activityPct =
+        bucketSamples.length === 0
+          ? null
+          : Math.round(
+              bucketSamples.reduce((sum, s) => sum + s.activityPct, 0) / bucketSamples.length,
+            );
+      const category: DayCategory | 'UNTRACKED' =
+        bucketSamples.length === 0 ? 'UNTRACKED' : dominantCategory(bucketSamples);
+      activityBuckets.push({ label, activityPct, category });
+    }
+  }
+
   return {
     date,
     subjectName,
@@ -169,8 +265,8 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
     recordingNow,
     window: { startMs: windowStartMs, endMs: windowEndMs },
     stats: { trackedSeconds, untrackedSeconds, activePct },
-    ribbon: { tracked: [], untracked: [], captures: [], hourTicks: [] },
-    activityBuckets: [],
+    ribbon: { tracked: trackedBlocks, untracked: untrackedGaps, captures, hourTicks },
+    activityBuckets,
     entries: entryRows,
   };
 }

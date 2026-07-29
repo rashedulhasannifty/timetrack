@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { personDayView } from './person-day-view';
-import type { TimeEntry } from '@timetrack/contracts';
+import type { TimeEntry, ActivitySample, Screenshot } from '@timetrack/contracts';
 
 const D = '2026-07-13';
 const iso = (h: number, m = 0) =>
@@ -55,5 +55,81 @@ describe('personDayView — core', () => {
   it('activePct is null with no samples', () => {
     const vm = personDayView({ ...base, now: new Date(iso(20)), entries: [entry('a', 9, 10)] });
     expect(vm.stats.activePct).toBeNull();
+  });
+});
+
+const sample = (h: number, m: number, cat: string, pct: number): ActivitySample =>
+  ({
+    id: `s${h}${m}`,
+    userId: 'u1',
+    timestamp: iso(h, m),
+    appName: 'x',
+    windowTitle: null,
+    activityPct: pct,
+    category: cat,
+  }) as ActivitySample;
+
+describe('personDayView — ribbon', () => {
+  it('positions a tracked block as a % of the window and colors by dominant category', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(20)),
+      entries: [entry('a', 9, 13)], // fills the 4h min window exactly
+      samples: [
+        sample(9, 0, 'PRODUCTIVE', 80),
+        sample(9, 30, 'PRODUCTIVE', 60),
+        sample(10, 0, 'UNPRODUCTIVE', 10),
+      ],
+    });
+    const b = vm.ribbon.tracked[0]!;
+    expect(b.startPct).toBe(0);
+    expect(Math.round(b.widthPct)).toBe(100);
+    expect(b.category).toBe('PRODUCTIVE'); // 2 productive vs 1 unproductive
+  });
+
+  it('emits an untracked gap between two blocks', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(20)),
+      entries: [entry('a', 9, 12), entry('b', 13, 17)],
+    });
+    expect(vm.ribbon.untracked.length).toBe(1); // the 12:00–13:00 gap
+  });
+
+  it('derives hour ticks and per-hour activity buckets', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(20)),
+      entries: [entry('a', 9, 13)],
+      samples: [sample(9, 0, 'NEUTRAL', 50)],
+    });
+    expect(vm.ribbon.hourTicks.map((t) => t.label)).toEqual(['09', '10', '11', '12', '13']);
+    expect(vm.activityBuckets[0]).toMatchObject({
+      label: '09',
+      activityPct: 50,
+      category: 'NEUTRAL',
+    });
+    expect(vm.activityBuckets[1]!.category).toBe('UNTRACKED'); // 10:00 hour has no samples
+  });
+
+  it('places a capture mark at the screenshot time', () => {
+    const shot = {
+      id: 'sh1',
+      userId: 'u1',
+      timestamp: iso(11),
+      storageKey: 'k',
+      thumbnailKey: null,
+      blurred: false,
+      status: 'READY',
+      redactedReason: null,
+    } as Screenshot;
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(20)),
+      entries: [entry('a', 9, 13)],
+      screenshots: [shot],
+    });
+    expect(vm.ribbon.captures).toHaveLength(1);
+    expect(Math.round(vm.ribbon.captures[0]!.atPct)).toBe(50); // 11:00 is midpoint of 09–13
   });
 });
