@@ -1,51 +1,48 @@
 import { SetPageTitle } from '../../../components/ui/PageTitleContext';
-import { Card } from '../../../components/ui/Card';
-import { Timeline } from '../../../components/timeline/Timeline';
-import { ActivitySummaryPanel } from '../../../components/activity/ActivitySummaryPanel';
 import { getSession } from '../../../lib/session';
 import { api } from '../../../lib/api-client';
-import { activitySummaryWindow } from '../../../lib/activity-summary-view';
-import { formatTimeRange } from '../../../lib/format';
-import { MeTabs } from './MeTabs';
+import { personDayView } from '../../../lib/person-day-view';
+import { PersonDayView } from '../../../components/day/PersonDayView';
 import { ScreenshotsPanel } from './ScreenshotsPanel';
 import { toScreenshotView } from './screenshot-view';
 import { redactScreenshotAction } from './actions';
 import { ApprovalsPanel } from './ApprovalsPanel';
 import { selfApprovals } from '../../../lib/approvals-view';
 import type {
-  ActivityDailySummary,
-  IdleEvent,
+  ActivitySample,
   Screenshot,
   TimeEntry,
   TimesheetApproval,
 } from '@timetrack/contracts';
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * PRD §4.3 / §11 — the employee self-view. Same API as the manager view, scoped to self.
- * Timeline/Screenshots/Idle are today (UTC); Activity is the last-7-days rollup (rollups
- * never cover today), fetched over its own window.
+ * Date-aware: `?date=YYYY-MM-DD` selects the day rendered by PersonDayView; invalid/missing
+ * falls back to today (UTC).
  */
-export default async function MyDataPage() {
+export default async function MyDataPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>;
+}) {
   const session = await getSession();
   if (!session) return null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const { date: rawDate } = await searchParams;
+  const date = rawDate && DATE_RE.test(rawDate) ? rawDate : new Date().toISOString().slice(0, 10);
+
   const todayParams = new URLSearchParams({
     userId: session.userId,
-    from: `${today}T00:00:00.000Z`,
-    to: `${today}T23:59:59.999Z`,
+    from: `${date}T00:00:00.000Z`,
+    to: `${date}T23:59:59.999Z`,
   });
 
-  const { from, to } = activitySummaryWindow(new Date());
-  const summaryParams = new URLSearchParams({ userId: session.userId, from, to });
-
   // Self-scoped; each read is independent — a failure in one degrades to an empty panel.
-  const [entries, summaries, idle, shots, approvals] = await Promise.all([
+  const [entries, samples, screenshots, approvals] = await Promise.all([
     api.listTimeEntries(session.accessToken, todayParams).catch((): TimeEntry[] => []),
-    api
-      .listActivitySummaries(session.accessToken, summaryParams)
-      .catch((): ActivityDailySummary[] => []),
-    api.listIdleEvents(session.accessToken, todayParams).catch((): IdleEvent[] => []),
+    api.listActivitySamples(session.accessToken, todayParams).catch((): ActivitySample[] => []),
     api.listScreenshots(session.accessToken, todayParams).catch((): Screenshot[] => []),
     // The API self-scopes only an EMPLOYEE; a MANAGER/ADMIN gets team/all rows, so we
     // filter to self below (selfApprovals) — this is the employee self-view.
@@ -56,11 +53,14 @@ export default async function MyDataPage() {
 
   const myApprovals = selfApprovals(approvals, session.userId);
 
-  const todayLabel = new Date(`${today}T00:00:00.000Z`).toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
+  const model = personDayView({
+    date,
+    now: new Date(),
+    isSelf: true,
+    subjectName: 'You',
+    entries,
+    samples,
+    screenshots,
   });
 
   return (
@@ -68,44 +68,14 @@ export default async function MyDataPage() {
       <SetPageTitle title="My time" />
       <div className="flex flex-col gap-4">
         <ApprovalsPanel rows={myApprovals} />
-        <MeTabs
-          panels={{
-            Timeline: (
-              <Card padding="md">
-                <div className="mb-3 text-[15px] font-semibold">Today · {todayLabel}</div>
-                <Timeline entries={entries} />
-              </Card>
-            ),
-            Activity: <ActivitySummaryPanel summaries={summaries} from={from} to={to} />,
-            Screenshots: (
-              <ScreenshotsPanel
-                shots={shots.map(toScreenshotView)}
-                onRedact={redactScreenshotAction}
-              />
-            ),
-            Idle: (
-              <Card padding="md">
-                <div className="mb-3 text-[15px] font-semibold">Idle periods</div>
-                {idle.length === 0 ? (
-                  <p className="text-text-secondary text-body">No idle periods today.</p>
-                ) : (
-                  <ul className="flex flex-col">
-                    {idle.map((e) => (
-                      <li
-                        key={e.id}
-                        className="border-separator flex items-center gap-3 border-b py-3 last:border-b-0"
-                      >
-                        <span className="tt-numeric w-[132px] flex-none text-[13px] text-text-secondary">
-                          {formatTimeRange(e.startTime, e.endTime)}
-                        </span>
-                        <span className="text-[13px] text-text-secondary">{e.resolvedAction}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Card>
-            ),
-          }}
+        <PersonDayView
+          model={model}
+          screenshots={
+            <ScreenshotsPanel
+              shots={screenshots.map(toScreenshotView)}
+              onRedact={redactScreenshotAction}
+            />
+          }
         />
       </div>
     </>
