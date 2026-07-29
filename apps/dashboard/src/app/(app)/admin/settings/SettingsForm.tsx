@@ -160,6 +160,14 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
           hint="Local-only nudges on unproductive apps; nothing is sent to managers."
           checked={settings.distractionAlertsEnabled}
         />
+        <NumberField
+          name="distractionRepeatMinutes"
+          label="Distraction re-nudge"
+          hint="Minutes of continued distraction between reminders (1–60)."
+          value={settings.distractionRepeatMinutes}
+          min={1}
+          max={60}
+        />
       </Card>
 
       <Card padding="md" className="flex flex-col gap-4">

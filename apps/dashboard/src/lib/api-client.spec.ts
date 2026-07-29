@@ -129,6 +129,7 @@ describe('api.updateTeamSettings', () => {
       captureWindowTitles: true,
       autoStartOnLogin: false,
       distractionAlertsEnabled: false,
+      distractionRepeatMinutes: 5,
       unproductiveApps: [],
       productiveApps: [],
       unproductiveSites: [],

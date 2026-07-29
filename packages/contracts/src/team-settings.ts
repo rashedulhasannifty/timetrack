@@ -17,6 +17,9 @@ const teamSettingsFields = {
   captureWindowTitles: z.boolean(),
   autoStartOnLogin: z.boolean(),
   distractionAlertsEnabled: z.boolean(),
+  // Minutes of continued distraction between re-nudges while a streak keeps going (client
+  // DistractionMonitor). Lower = more frequent reminders.
+  distractionRepeatMinutes: z.number().int().min(1).max(60),
   // App-name lists — matched against the frontmost app name (client Categorizer).
   unproductiveApps: z.array(z.string()),
   productiveApps: z.array(z.string()),
@@ -44,6 +47,7 @@ export const TeamSettingsSchema = z.object({
   captureWindowTitles: teamSettingsFields.captureWindowTitles.default(true),
   autoStartOnLogin: teamSettingsFields.autoStartOnLogin.default(false),
   distractionAlertsEnabled: teamSettingsFields.distractionAlertsEnabled.default(false),
+  distractionRepeatMinutes: teamSettingsFields.distractionRepeatMinutes.default(5),
   unproductiveApps: teamSettingsFields.unproductiveApps.default([]),
   productiveApps: teamSettingsFields.productiveApps.default([]),
   unproductiveSites: teamSettingsFields.unproductiveSites.default([]),

@@ -55,6 +55,10 @@ export default async function AdminSettingsPage() {
               value={`${settings.screenshotRetentionDays} days`}
             />
             <PolicyRow label="Idle threshold" value={`${settings.idleThresholdMinutes} min`} />
+            <PolicyRow
+              label="Distraction re-nudge"
+              value={`${settings.distractionRepeatMinutes} min`}
+            />
           </div>
           <p className="text-text-secondary text-caption">
             Changes take effect on each client’s next heartbeat (≤60s).

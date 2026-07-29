@@ -197,6 +197,7 @@ describe('admin — UpdateSettingsSchema is a default-free partial', () => {
     expect(full.screenshotsEnabled).toBe(true);
     expect(full.screenshotRetentionDays).toBe(30);
     expect(full.captureWindowTitles).toBe(true);
+    expect(full.distractionRepeatMinutes).toBe(5);
   });
 });
 
