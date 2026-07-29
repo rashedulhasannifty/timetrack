@@ -17,6 +17,7 @@ struct EffectivePolicy: Decodable {
         let screenshotsEnabled: Bool
         let screenshotIntervalMinutes: Int
         let captureWindowTitles: Bool
+        let distractionRepeatMinutes: Int
         let productiveApps: [String]
         let unproductiveApps: [String]
         let productiveSites: [String]
@@ -29,6 +30,7 @@ struct EffectivePolicy: Decodable {
         /// edit `FakePolicyProvider`.
         init(idleThresholdMinutes: Int, autoStartOnLogin: Bool, screenshotsEnabled: Bool,
              screenshotIntervalMinutes: Int, captureWindowTitles: Bool = true,
+             distractionRepeatMinutes: Int = 5,
              productiveApps: [String] = [], unproductiveApps: [String] = [],
              productiveSites: [String] = [], unproductiveSites: [String] = []) {
             self.idleThresholdMinutes = idleThresholdMinutes
@@ -36,6 +38,7 @@ struct EffectivePolicy: Decodable {
             self.screenshotsEnabled = screenshotsEnabled
             self.screenshotIntervalMinutes = screenshotIntervalMinutes
             self.captureWindowTitles = captureWindowTitles
+            self.distractionRepeatMinutes = distractionRepeatMinutes
             self.productiveApps = productiveApps
             self.unproductiveApps = unproductiveApps
             self.productiveSites = productiveSites
@@ -44,7 +47,7 @@ struct EffectivePolicy: Decodable {
 
         enum CodingKeys: String, CodingKey {
             case idleThresholdMinutes, autoStartOnLogin, screenshotsEnabled, screenshotIntervalMinutes
-            case captureWindowTitles, productiveApps, unproductiveApps
+            case captureWindowTitles, distractionRepeatMinutes, productiveApps, unproductiveApps
             case productiveSites, unproductiveSites
         }
 
@@ -55,6 +58,7 @@ struct EffectivePolicy: Decodable {
             screenshotsEnabled = try c.decode(Bool.self, forKey: .screenshotsEnabled)
             screenshotIntervalMinutes = try c.decode(Int.self, forKey: .screenshotIntervalMinutes)
             captureWindowTitles = try c.decodeIfPresent(Bool.self, forKey: .captureWindowTitles) ?? true
+            distractionRepeatMinutes = try c.decodeIfPresent(Int.self, forKey: .distractionRepeatMinutes) ?? 5
             productiveApps = try c.decodeIfPresent([String].self, forKey: .productiveApps) ?? []
             unproductiveApps = try c.decodeIfPresent([String].self, forKey: .unproductiveApps) ?? []
             productiveSites = try c.decodeIfPresent([String].self, forKey: .productiveSites) ?? []

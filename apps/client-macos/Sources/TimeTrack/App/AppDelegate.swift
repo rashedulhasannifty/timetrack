@@ -1,4 +1,5 @@
 import AppKit
+import UserNotifications
 
 /// A callback holder for `onSignOut`'s forward reference to `presentLogin()` (see
 /// `AppDelegate.init`): `self` isn't usable yet when the closure capturing it is built.
@@ -67,6 +68,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let endOfDayHour = 18
     private let forgotToStartMinutes = 10
     // 60s sampler window ⇒ threshold in minutes == consecutive-sample count (see ActivitySampler).
+    // First distraction nudge after this many consecutive unproductive samples (== minutes at the
+    // 60s sampler cadence). The re-nudge cadence after that comes from the team policy
+    // (`settings.distractionRepeatMinutes`, admin-editable) — threaded into installNudgeInfra.
     private let distractionThresholdMinutes = 10
 
     override init() {
@@ -200,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let userId = await session.userId() {
                     ackMarker.record(userId: userId, policyVersion: policy.policyVersion)
                 }
-                await becomeReady()
+                await becomeReady(distractionRepeatMinutes: policy.settings.distractionRepeatMinutes)
                 await startAutoTrackingIfEnabled(policy)   // online, !ackRequired: capture is allowed
                 await startScreenshotCaptureIfEnabled(policy)
                 await startActivityCaptureIfEnabled(policy)
@@ -217,8 +221,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Enable manual tracking and load projects (network → cache fallback).
-    private func becomeReady() async {
+    /// Enable manual tracking and load projects (network → cache fallback). `distractionRepeatMinutes`
+    /// comes from the team policy on the online path; the offline path (no policy) uses the default.
+    private func becomeReady(distractionRepeatMinutes: Int = 5) async {
         // Resolve the userId once (an `await`, since `AuthSession` is an actor) and stamp
         // `userIdBox` on the main thread BEFORE `markReady()` flips `isReady` — that flip is
         // the only thing that lets `TimeTracker.start()` run, so the box is always populated
@@ -228,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             userIdBox.value = currentUserId
             menuViewModel.markReady()
         }
-        await MainActor.run { self.installNudgeInfra() }
+        await MainActor.run { self.installNudgeInfra(distractionRepeatMinutes: distractionRepeatMinutes) }
         await MainActor.run { menuViewModel.projects = projectCache.load() } // instant, offline-safe
         await refreshProjects()
         await MainActor.run { startSyncIfNeeded() }
@@ -252,7 +257,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Local-notification infra (not a capture path — safe on both ready paths). Idempotent.
-    @MainActor private func installNudgeInfra() {
+    /// `distractionRepeatMinutes` (from the team policy) sets how often an unbroken distraction
+    /// streak re-nudges.
+    @MainActor private func installNudgeInfra(distractionRepeatMinutes: Int = 5) {
         guard notifier == nil else { return }
         let notifier = UNUserNotifier()
         notifier.requestAuthorization()
@@ -269,8 +276,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // changes, revisit `sampleSeconds` here and `distractionThresholdMinutes` together.
         let distraction = DailyDistractionAccumulator()
         self.dailyDistraction = distraction
+        // The distraction nudge alone falls back to a visible in-app window when macOS has not
+        // authorized notifications (e.g. an un-notarized dev build), so it is never silently
+        // dropped. Other nudges keep the plain notifier.
+        let distractionNotifier = FallbackDistractionNotifier(
+            primary: notifier,
+            isAuthorized: { completion in
+                UNUserNotificationCenter.current().getNotificationSettings { s in
+                    let ok = s.authorizationStatus == .authorized || s.authorizationStatus == .provisional
+                    completion(ok)
+                }
+            },
+            presentWindow: { title, body in
+                DispatchQueue.main.async {
+                    DistractionNudgeWindowController.present(title: title, message: body)
+                }
+            })
         self.distractionMonitor = DistractionMonitor(
-            notifier: notifier, threshold: distractionThresholdMinutes)
+            notifier: distractionNotifier, threshold: distractionThresholdMinutes,
+            repeatEvery: distractionRepeatMinutes)   // from team policy (admin-editable)
 
         let scheduler = EndOfDayScheduler(
             hour: endOfDayHour, notifier: notifier,
@@ -595,9 +619,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dailyTotal?.reset()
         dailyTotal = nil
         // Slice 3.4 — same cross-user integrity guard: clear the distraction streak + today's tally
-        // so a prior user's nudge state never bleeds into the next user's session.
+        // so a prior user's nudge state never bleeds into the next user's session. Dismiss any
+        // fallback nudge window still on screen for the same reason (the away-prompt leak class).
         distractionMonitor?.stop()
         distractionMonitor = nil
+        DistractionNudgeWindowController.dismissIfShowing()
         dailyDistraction?.reset()
         dailyDistraction = nil
         timeTracker.onSpanClosed = nil

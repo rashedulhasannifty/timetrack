@@ -52,6 +52,30 @@ final class DistractionMonitorTests: XCTestCase {
         XCTAssertEqual(spy.posted.count, 2)
     }
 
+    func testRepeatsEveryIntervalWhileStreakContinues() {
+        let spy = SpyNotifier()
+        let monitor = DistractionMonitor(notifier: spy, threshold: 10, repeatEvery: 5)
+        run(monitor, Array(repeating: .unproductive, count: 20))
+        // First nudge at 10, then every 5 while unbroken: 10, 15, 20 → three nudges.
+        XCTAssertEqual(spy.posted.count, 3)
+    }
+
+    func testRepeatCounterResetsAfterStreakBreaks() {
+        let spy = SpyNotifier()
+        let monitor = DistractionMonitor(notifier: spy, threshold: 10, repeatEvery: 5)
+        run(monitor, Array(repeating: .unproductive, count: 15))  // nudges at 10, 15 → 2
+        monitor.tick(category: .neutral, now: t0)                 // break + re-arm
+        run(monitor, Array(repeating: .unproductive, count: 10))  // nudge at 10 → 1
+        XCTAssertEqual(spy.posted.count, 3)                       // repeat cadence restarts after the break
+    }
+
+    func testRepeatZeroKeepsSingleNudgePerStreak() {
+        let spy = SpyNotifier()
+        let monitor = DistractionMonitor(notifier: spy, threshold: 10, repeatEvery: 0)
+        run(monitor, Array(repeating: .unproductive, count: 40))
+        XCTAssertEqual(spy.posted.count, 1, "repeatEvery 0 preserves the original once-per-streak behavior")
+    }
+
     func testStopResetsState() {
         let spy = SpyNotifier()
         let monitor = DistractionMonitor(notifier: spy, threshold: 10)

@@ -1,14 +1,15 @@
 import Foundation
 import UserNotifications
+import AppKit
 
 /// PRD §6.4 — the single local-notification seam. Every nudge (idle, forgot-to-start,
 /// end-of-day) posts through this; nothing here touches the network (nudges are local, per the
-/// Phase-2 exit criterion) and nothing here logs. Employee-facing strings only — this is
-/// transparency, not surveillance (CLAUDE.md §1): no hidden mode, no kill switch.
+/// Phase-2 exit criterion). Employee-facing strings only — this is transparency, not
+/// surveillance (CLAUDE.md §1): no hidden mode, no kill switch.
 ///
 /// Authorization is requested once at ready. If the employee denies it, `notify` silently
-/// no-ops (the center drops unauthorized requests) — a known, accepted shell state; there is no
-/// fallback path.
+/// no-ops (the center drops unauthorized requests). The distraction nudge additionally falls back
+/// to a visible in-app card in that case (see `FallbackDistractionNotifier`) so it is never lost.
 protocol LocalNotifying: AnyObject {
     func requestAuthorization()
     func notify(id: String, title: String, body: String)
@@ -25,7 +26,17 @@ final class UNUserNotifier: LocalNotifying {
     private lazy var center = UNUserNotificationCenter.current()
 
     func requestAuthorization() {
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        // The system permission dialog only appears while status is `.notDetermined`. For an
+        // LSUIElement accessory app the prompt can fail to surface unless the app is the active
+        // app, so activate briefly before asking on first run; already-decided statuses are left
+        // untouched (a denied app can only be re-enabled from System Settings).
+        center.getNotificationSettings { [weak self] settings in
+            guard let self else { return }
+            if settings.authorizationStatus == .notDetermined {
+                DispatchQueue.main.async { NSApplication.shared.activate(ignoringOtherApps: true) }
+            }
+            self.center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
     }
 
     func notify(id: String, title: String, body: String) {
