@@ -82,21 +82,50 @@ const sample = (h: number, m: number, cat: string, pct: number): ActivitySample 
   }) as ActivitySample;
 
 describe('personDayView — ribbon', () => {
-  it('positions a tracked block as a % of the window and colors by dominant category', () => {
+  it('tiles a tracked entry into contiguous same-category segments positioned by % of window', () => {
     const vm = personDayView({
       ...base,
       now: new Date(iso(20)),
-      entries: [entry('a', 9, 13)], // fills the 4h min window exactly
+      entries: [entry('a', 9, 13)], // fills the 4h min window exactly (09–13)
       samples: [
         sample(9, 0, 'PRODUCTIVE', 80),
         sample(9, 30, 'PRODUCTIVE', 60),
         sample(10, 0, 'UNPRODUCTIVE', 10),
       ],
     });
-    const b = vm.ribbon.tracked[0]!;
-    expect(b.startPct).toBe(0);
-    expect(Math.round(b.widthPct)).toBe(100);
-    expect(b.category).toBe('PRODUCTIVE'); // 2 productive vs 1 unproductive
+    // productive 09:00–10:00, then unproductive 10:00–13:00 → two segments.
+    expect(vm.ribbon.tracked).toHaveLength(2);
+    expect(vm.ribbon.tracked[0]).toMatchObject({ category: 'PRODUCTIVE', startPct: 0 });
+    expect(Math.round(vm.ribbon.tracked[0]!.widthPct)).toBe(25); // 1h of 4h
+    expect(vm.ribbon.tracked[1]!.category).toBe('UNPRODUCTIVE');
+    expect(Math.round(vm.ribbon.tracked[1]!.startPct)).toBe(25);
+    expect(Math.round(vm.ribbon.tracked[1]!.widthPct)).toBe(75); // 3h of 4h
+  });
+
+  it('surfaces a brief unproductive stretch inside a neutral entry as its own segment', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(20)),
+      entries: [entry('a', 9, 13)],
+      samples: [
+        sample(9, 0, 'NEUTRAL', 50),
+        sample(11, 0, 'UNPRODUCTIVE', 20),
+        sample(11, 30, 'NEUTRAL', 40),
+      ],
+    });
+    // neutral 09–11, unproductive 11:00–11:30, neutral 11:30–13 → 3 segments.
+    expect(vm.ribbon.tracked.map((b) => b.category)).toEqual([
+      'NEUTRAL',
+      'UNPRODUCTIVE',
+      'NEUTRAL',
+    ]);
+  });
+
+  it('renders an entry with no samples as one neutral segment spanning the entry', () => {
+    const vm = personDayView({ ...base, now: new Date(iso(20)), entries: [entry('a', 9, 13)] });
+    expect(vm.ribbon.tracked).toHaveLength(1);
+    expect(vm.ribbon.tracked[0]).toMatchObject({ category: 'NEUTRAL', startPct: 0 });
+    expect(Math.round(vm.ribbon.tracked[0]!.widthPct)).toBe(100);
   });
 
   it('emits an untracked gap between two blocks', () => {

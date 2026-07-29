@@ -132,6 +132,47 @@ function dominantCategory(categorySamples: ActivitySample[]): DayCategory {
   return best;
 }
 
+/**
+ * Split a tracked entry's span into contiguous same-category segments, driven by its activity
+ * samples: each sample's category owns the interval from its time until the next sample (the first
+ * sample extends back to the entry start, the last forward to the entry end). An entry with no
+ * samples is a single NEUTRAL segment. Segments tile `[startMs, endMs)` with no gaps, so a brief
+ * unproductive stretch inside an otherwise-neutral entry surfaces as its own colored slice instead
+ * of being hidden by a single dominant color.
+ */
+function categorySegments(
+  startMs: number,
+  endMs: number,
+  entrySamples: { t: number; category: DayCategory }[],
+): { startMs: number; endMs: number; category: DayCategory }[] {
+  if (endMs <= startMs) return [];
+  const sorted = [...entrySamples].sort((a, b) => a.t - b.t);
+  if (sorted.length === 0) return [{ startMs, endMs, category: 'NEUTRAL' }];
+
+  const raw: { startMs: number; endMs: number; category: DayCategory }[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const from = i === 0 ? startMs : (sorted[i] as { t: number }).t;
+    const to = i === sorted.length - 1 ? endMs : (sorted[i + 1] as { t: number }).t;
+    if (to > from)
+      raw.push({
+        startMs: from,
+        endMs: to,
+        category: (sorted[i] as { category: DayCategory }).category,
+      });
+  }
+
+  const merged: { startMs: number; endMs: number; category: DayCategory }[] = [];
+  for (const seg of raw) {
+    const last = merged[merged.length - 1];
+    if (last && last.category === seg.category && seg.startMs <= last.endMs) {
+      last.endMs = seg.endMs;
+    } else {
+      merged.push({ ...seg });
+    }
+  }
+  return merged;
+}
+
 export function personDayView(input: PersonDayInput): PersonDayViewModel {
   const { date, now, isSelf, subjectName, entries, samples } = input;
 
@@ -221,25 +262,33 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
     })
     .sort((a, b) => a.startMs - b.startMs);
 
-  // Tracked blocks
+  // Tracked blocks — each entry is tiled into contiguous same-category segments (from its samples)
+  // so intra-entry category variation shows, instead of one dominant color per entry.
   const trackedBlocks: RibbonBlock[] = parsed
-    .map((p) => {
-      const startPct = pct(p.startMs);
-      const widthPct = Math.max(0, pct(p.effectiveEnd) - startPct);
-      const categorySamples = samples.filter((s) => {
-        const t = Date.parse(s.timestamp);
-        return t >= p.startMs && t < p.effectiveEnd;
+    .flatMap((p) => {
+      const entrySamples = samples
+        .filter((s) => {
+          const t = Date.parse(s.timestamp);
+          return t >= p.startMs && t < p.effectiveEnd;
+        })
+        .map((s) => ({ t: Date.parse(s.timestamp), category: s.category }));
+      const segments = categorySegments(p.startMs, p.effectiveEnd, entrySamples);
+      return segments.map((seg, i) => {
+        const startPct = pct(seg.startMs);
+        const widthPct = Math.max(0, pct(seg.endMs) - startPct);
+        const isLast = i === segments.length - 1;
+        const running = p.open && isToday && isLast;
+        return {
+          id: `${p.entry.id}#${i}`,
+          startPct,
+          widthPct,
+          category: seg.category,
+          label: p.entry.note ?? 'Untitled entry',
+          startMs: seg.startMs,
+          endMs: running ? null : seg.endMs,
+          running,
+        };
       });
-      return {
-        id: p.entry.id,
-        startPct,
-        widthPct,
-        category: dominantCategory(categorySamples),
-        label: p.entry.note ?? 'Untitled entry',
-        startMs: p.startMs,
-        endMs: p.endMs,
-        running: p.open && isToday,
-      };
     })
     .sort((a, b) => a.startPct - b.startPct);
 

@@ -1,9 +1,13 @@
 import type { ActivityBucket } from '../../lib/person-day-view';
 import { CATEGORY_BG_CLASS } from './TimeRibbon';
 
-const BAR_AREA_HEIGHT_PX = 56;
+const BAR_AREA_HEIGHT_PX = 104;
 const UNTRACKED_BG_CLASS = 'bg-category-neutral/25';
 const LABEL_EVERY = 3;
+// Legibility floors (as % of the band): a tracked-but-low-activity hour stays clearly visible and
+// distinct from an untracked hour, so a quiet day never reads as an empty chart.
+const MIN_ACTIVE_PCT = 14;
+const UNTRACKED_MARK_PCT = 5;
 
 /**
  * One bar per hour bucket; height is proportional to `activityPct` (a flat, minimal
@@ -21,7 +25,9 @@ export function ActivityBars({ buckets }: { buckets: ActivityBucket[] }) {
       >
         {buckets.map((bucket, i) => {
           const isUntracked = bucket.category === 'UNTRACKED' || bucket.activityPct === null;
-          const heightPct = isUntracked ? 4 : Math.max(4, bucket.activityPct as number);
+          const heightPct = isUntracked
+            ? UNTRACKED_MARK_PCT
+            : Math.max(MIN_ACTIVE_PCT, bucket.activityPct as number);
           const fillClass = isUntracked
             ? UNTRACKED_BG_CLASS
             : CATEGORY_BG_CLASS[
