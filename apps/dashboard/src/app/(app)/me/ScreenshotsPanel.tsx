@@ -11,7 +11,8 @@ export function ScreenshotsPanel({
   onRedact,
 }: {
   shots: ScreenshotView[];
-  onRedact: RedactFn;
+  /** Omit for a read-only surface (e.g. the manager per-person view) — redaction is self-only. */
+  onRedact?: RedactFn;
 }) {
   if (shots.length === 0) {
     return <p className="text-text-secondary text-body">No screenshots recorded today.</p>;
@@ -27,7 +28,7 @@ export function ScreenshotsPanel({
   );
 }
 
-function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact: RedactFn }) {
+function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact?: RedactFn | undefined }) {
   const mode = tileMode(shot);
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -64,6 +65,7 @@ function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact: RedactFn }) 
   }
 
   function submit() {
+    if (!onRedact) return;
     setError(null);
     startTransition(async () => {
       const res = await onRedact(shot.id, reason);
@@ -85,7 +87,7 @@ function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact: RedactFn }) 
           alt={`Screenshot ${shot.timestamp}`}
           className="h-full w-full object-cover"
         />
-        {!open ? (
+        {!open && onRedact ? (
           <button
             type="button"
             onClick={() => setOpen(true)}

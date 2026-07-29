@@ -1,41 +1,51 @@
 import Link from 'next/link';
-import { Card } from '../../../../components/ui/Card';
-import { SectionHeader } from '../../../../components/ui/SectionHeader';
 import { Avatar } from '../../../../components/ui/Avatar';
 import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
-import { Timeline } from '../../../../components/timeline/Timeline';
-import { ActivitySummaryPanel } from '../../../../components/activity/ActivitySummaryPanel';
+import { PersonDayView } from '../../../../components/day/PersonDayView';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
-import { activitySummaryWindow } from '../../../../lib/activity-summary-view';
-import type { ActivityDailySummary, TimeEntry } from '@timetrack/contracts';
+import { personDayView } from '../../../../lib/person-day-view';
+import { ScreenshotsPanel } from '../../me/ScreenshotsPanel';
+import { toScreenshotView } from '../../me/screenshot-view';
+import type { ActivitySample, Screenshot, TimeEntry } from '@timetrack/contracts';
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Next 16 — route params are async.
-export default async function PersonPage({ params }: { params: Promise<{ userId: string }> }) {
+export default async function PersonPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ userId: string }>;
+  searchParams: Promise<{ date?: string }>;
+}) {
   const { userId } = await params;
   const session = await getSession();
   if (!session) return null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const { date: rawDate } = await searchParams;
+  const date = rawDate && DATE_RE.test(rawDate) ? rawDate : new Date().toISOString().slice(0, 10);
+
   const search = new URLSearchParams({
     userId,
-    from: `${today}T00:00:00.000Z`,
-    to: `${today}T23:59:59.999Z`,
+    from: `${date}T00:00:00.000Z`,
+    to: `${date}T23:59:59.999Z`,
   });
-  const { from, to } = activitySummaryWindow(new Date());
-  const summaryParams = new URLSearchParams({ userId, from, to });
 
   let entries: TimeEntry[] | null = null;
-  let summaries: ActivityDailySummary[] = [];
   try {
-    // The API enforces manager-owns-team; a 403 on either read becomes the not-authorized state.
-    [entries, summaries] = await Promise.all([
-      api.listTimeEntries(session.accessToken, search),
-      api.listActivitySummaries(session.accessToken, summaryParams),
-    ]);
+    // The API enforces manager-owns-team; a 403 on this read becomes the not-authorized state.
+    entries = await api.listTimeEntries(session.accessToken, search);
   } catch {
     entries = null;
   }
+
+  // Same manager-owns-team authz applies to these reads, but a failure here shouldn't wall off
+  // the whole page — it degrades the relevant panel to empty instead.
+  const [samples, screenshots] = await Promise.all([
+    api.listActivitySamples(session.accessToken, search).catch((): ActivitySample[] => []),
+    api.listScreenshots(session.accessToken, search).catch((): Screenshot[] => []),
+  ]);
 
   // Decorative header data only — never let a lookup failure crash the page.
   let person = { name: 'Team member', tracking: false };
@@ -47,10 +57,23 @@ export default async function PersonPage({ params }: { params: Promise<{ userId:
     /* decorative — never crash the header */
   }
 
+  const model =
+    entries === null
+      ? null
+      : personDayView({
+          date,
+          now: new Date(),
+          isSelf: false,
+          subjectName: person.name,
+          entries,
+          samples,
+          screenshots,
+        });
+
   return (
     <>
       <SetPageTitle title={entries === null ? 'Person' : person.name} />
-      {entries === null ? (
+      {model === null ? (
         <p className="text-text-secondary text-body">You’re not permitted to view this person.</p>
       ) : (
         <div className="flex flex-col gap-5">
@@ -73,17 +96,10 @@ export default async function PersonPage({ params }: { params: Promise<{ userId:
             </div>
           </div>
 
-          <section className="flex flex-col gap-3">
-            <SectionHeader label="Timeline · today" />
-            <Card padding="md">
-              <Timeline entries={entries} />
-            </Card>
-          </section>
-
-          <section className="flex flex-col gap-3">
-            <SectionHeader label="Activity · last 7 days (UTC)" />
-            <ActivitySummaryPanel summaries={summaries} from={from} to={to} />
-          </section>
+          <PersonDayView
+            model={model}
+            screenshots={<ScreenshotsPanel shots={screenshots.map(toScreenshotView)} />}
+          />
         </div>
       )}
     </>
