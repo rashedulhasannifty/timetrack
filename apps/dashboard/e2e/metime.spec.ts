@@ -3,9 +3,11 @@ import { test, expect } from '@playwright/test';
 /**
  * SCAFFOLD: skipped so `test:e2e` passes without a browser install or a running app.
  * Remove `.skip` once seeded data + auth are wired, then run against a live dashboard.
- * Covers Slice 6: My Time reskin — timeline, activity, screenshots, idle tabs; week header; status badge.
+ * Covers the My Time day view (`PersonDayView`): hero stats, the "Your day" ribbon,
+ * activity breakdown, time entries, and screenshots — the tabbed layout (Timeline /
+ * Activity / Screenshots / Idle tabs) was removed in favor of one scrollable day view.
  */
-test.describe.skip('my time reskin', () => {
+test.describe.skip('my time day view', () => {
   test('header shows the timesheet card with the page title', async ({ page }) => {
     await page.goto('/me');
     await expect(page.getByRole('heading', { name: 'My time' })).toBeVisible();
@@ -13,43 +15,30 @@ test.describe.skip('my time reskin', () => {
     await expect(page.getByText(/this week.s timesheet/i)).toBeVisible();
   });
 
-  test('tabs switch between Timeline, Activity, Screenshots, and Idle', async ({ page }) => {
+  test('hero stats show Tracked, Active, and Untracked', async ({ page }) => {
     await page.goto('/me');
-    await expect(page.getByRole('tab', { name: 'Timeline' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
-    for (const name of ['Activity', 'Screenshots', 'Idle']) {
-      await page.getByRole('tab', { name }).click();
-      await expect(page.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true');
-    }
+    await expect(page.getByText('Tracked')).toBeVisible();
+    await expect(page.getByText('Active')).toBeVisible();
+    await expect(page.getByText('Untracked')).toBeVisible();
   });
 
-  test('activity tab shows active minutes and category mix', async ({ page }) => {
+  test('"Your day" ribbon section renders', async ({ page }) => {
     await page.goto('/me');
-    await page.getByRole('tab', { name: 'Activity' }).click();
-    await expect(page.getByText(/active minutes/i)).toBeVisible();
-    await expect(page.getByText(/category mix/i)).toBeVisible();
+    await expect(page.getByText('Your day')).toBeVisible();
   });
 
-  test('screenshots tab renders its panel', async ({ page }) => {
+  test('activity section renders', async ({ page }) => {
     await page.goto('/me');
-    await page.getByRole('tab', { name: 'Screenshots' }).click();
-    await expect(page.getByRole('tabpanel')).toBeVisible();
+    await expect(page.getByText('Activity')).toBeVisible();
   });
 
-  test('timeline tab renders its panel', async ({ page }) => {
+  test('screenshots section renders', async ({ page }) => {
     await page.goto('/me');
-    await expect(page.getByRole('tab', { name: 'Timeline' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
-    await expect(page.getByRole('tabpanel')).toBeVisible();
+    await expect(page.getByText('Screenshots')).toBeVisible();
   });
 
-  test('idle tab renders its panel', async ({ page }) => {
+  test('time entries section renders', async ({ page }) => {
     await page.goto('/me');
-    await page.getByRole('tab', { name: 'Idle' }).click();
-    await expect(page.getByRole('tabpanel')).toBeVisible();
+    await expect(page.getByText('Time entries')).toBeVisible();
   });
 });

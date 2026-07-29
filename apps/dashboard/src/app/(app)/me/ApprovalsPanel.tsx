@@ -11,8 +11,7 @@ const TONE: Record<'neutral' | 'positive' | 'warning', BadgeTone> = {
 
 /**
  * PRD §6.5 — employee self-view of their own timesheet approval status. Server-rendered
- * (fed rows by the page, not a MeTabs panel) so it always lands in the DOM, unlike the
- * client tab-switcher which only mounts the active tab.
+ * (fed rows by the page) so it always lands in the DOM alongside the day view.
  */
 export function ApprovalsPanel({ rows }: { rows: TimesheetApproval[] | null }) {
   if (rows === null) {
