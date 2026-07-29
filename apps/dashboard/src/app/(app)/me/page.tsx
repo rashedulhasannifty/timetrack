@@ -1,7 +1,7 @@
 import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { getSession } from '../../../lib/session';
 import { api } from '../../../lib/api-client';
-import { personDayView } from '../../../lib/person-day-view';
+import { personDayView, resolveDayDate } from '../../../lib/person-day-view';
 import { PersonDayView } from '../../../components/day/PersonDayView';
 import { ScreenshotsPanel } from './ScreenshotsPanel';
 import { toScreenshotView } from './screenshot-view';
@@ -14,8 +14,6 @@ import type {
   TimeEntry,
   TimesheetApproval,
 } from '@timetrack/contracts';
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * PRD §4.3 / §11 — the employee self-view. Same API as the manager view, scoped to self.
@@ -31,7 +29,7 @@ export default async function MyDataPage({
   if (!session) return null;
 
   const { date: rawDate } = await searchParams;
-  const date = rawDate && DATE_RE.test(rawDate) ? rawDate : new Date().toISOString().slice(0, 10);
+  const date = resolveDayDate(rawDate, new Date());
 
   const todayParams = new URLSearchParams({
     userId: session.userId,

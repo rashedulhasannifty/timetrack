@@ -4,12 +4,10 @@ import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { PersonDayView } from '../../../../components/day/PersonDayView';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
-import { personDayView } from '../../../../lib/person-day-view';
+import { personDayView, resolveDayDate } from '../../../../lib/person-day-view';
 import { ScreenshotsPanel } from '../../me/ScreenshotsPanel';
 import { toScreenshotView } from '../../me/screenshot-view';
 import type { ActivitySample, Screenshot, TimeEntry } from '@timetrack/contracts';
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Next 16 — route params are async.
 export default async function PersonPage({
@@ -24,7 +22,7 @@ export default async function PersonPage({
   if (!session) return null;
 
   const { date: rawDate } = await searchParams;
-  const date = rawDate && DATE_RE.test(rawDate) ? rawDate : new Date().toISOString().slice(0, 10);
+  const date = resolveDayDate(rawDate, new Date());
 
   const search = new URLSearchParams({
     userId,

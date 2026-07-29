@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { personDayView } from './person-day-view';
+import { personDayView, resolveDayDate } from './person-day-view';
 import type { TimeEntry, ActivitySample, Screenshot } from '@timetrack/contracts';
 
 const D = '2026-07-13';
@@ -55,6 +55,18 @@ describe('personDayView — core', () => {
   it('activePct is null with no samples', () => {
     const vm = personDayView({ ...base, now: new Date(iso(20)), entries: [entry('a', 9, 10)] });
     expect(vm.stats.activePct).toBeNull();
+  });
+
+  it('merges overlapping entries so trackedSeconds is not double-counted', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(20)),
+      // 09:00–13:00 and 11:00–15:00 overlap 11:00–13:00; merged span is 09:00–15:00 = 6h.
+      entries: [entry('a', 9, 13), entry('b', 11, 15)],
+    });
+    expect(vm.stats.trackedSeconds).toBe(6 * 3600); // merged, not the naive 4h+4h=8h
+    // window is exactly the merged tracked span (09:00–15:00), so there's no gap.
+    expect(vm.stats.untrackedSeconds).toBe(0);
   });
 });
 
@@ -131,5 +143,25 @@ describe('personDayView — ribbon', () => {
     });
     expect(vm.ribbon.captures).toHaveLength(1);
     expect(Math.round(vm.ribbon.captures[0]!.atPct)).toBe(50); // 11:00 is midpoint of 09–13
+  });
+});
+
+describe('resolveDayDate', () => {
+  const now = new Date('2026-07-13T20:00:00.000Z');
+
+  it('keeps a valid date', () => {
+    expect(resolveDayDate('2026-07-01', now)).toBe('2026-07-01');
+  });
+
+  it('falls back to today when raw is undefined', () => {
+    expect(resolveDayDate(undefined, now)).toBe('2026-07-13');
+  });
+
+  it.each(['2026-7-1', 'garbage'])('falls back to today on bad format %s', (raw) => {
+    expect(resolveDayDate(raw, now)).toBe('2026-07-13');
+  });
+
+  it.each(['2026-13-45', '2026-02-30'])('falls back to today on impossible date %s', (raw) => {
+    expect(resolveDayDate(raw, now)).toBe('2026-07-13');
   });
 });

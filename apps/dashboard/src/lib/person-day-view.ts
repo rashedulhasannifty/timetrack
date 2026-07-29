@@ -69,6 +69,24 @@ export interface PersonDayViewModel {
 const HOUR_MS = 3_600_000;
 const MIN_WINDOW_MS = 4 * HOUR_MS;
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Resolve a `?date=` query param to a safe 'YYYY-MM-DD'. `raw` is kept only if it matches the
+ * date-only format AND round-trips through `Date` (rejects both unparseable strings and
+ * JS's silent day/month overflow normalization, e.g. '2026-13-45' -> '2027-01-14'). Otherwise
+ * falls back to `now`'s UTC date.
+ */
+export function resolveDayDate(raw: string | undefined, now: Date): string {
+  if (raw && DATE_RE.test(raw)) {
+    const parsed = new Date(`${raw}T00:00:00.000Z`);
+    if (!Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === raw) {
+      return raw;
+    }
+  }
+  return now.toISOString().slice(0, 10);
+}
+
 /** Floor an epoch-ms timestamp down to the start of its UTC hour. */
 function floorToHourUTC(ms: number): number {
   const d = new Date(ms);
@@ -79,6 +97,23 @@ function floorToHourUTC(ms: number): number {
 function ceilToHourUTC(ms: number): number {
   const floored = floorToHourUTC(ms);
   return floored === ms ? floored : floored + HOUR_MS;
+}
+
+/** Sort by start and coalesce overlapping/touching [start, end] intervals into a minimal covering set. */
+function mergeIntervals(
+  intervals: { start: number; end: number }[],
+): { start: number; end: number }[] {
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  const merged: { start: number; end: number }[] = [];
+  for (const iv of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && iv.start <= last.end) {
+      last.end = Math.max(last.end, iv.end);
+    } else {
+      merged.push({ start: iv.start, end: iv.end });
+    }
+  }
+  return merged;
 }
 
 /** Dominant category among samples: most samples wins; tie-break UNPRODUCTIVE > NEUTRAL > PRODUCTIVE; none -> NEUTRAL. */
@@ -151,12 +186,14 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
     return Math.min(100, Math.max(0, raw));
   };
 
-  // Stats
-  let trackedSeconds = 0;
-  for (const p of parsed) {
-    const durationSeconds = (p.effectiveEnd - p.startMs) / 1000;
-    if (durationSeconds > 0) trackedSeconds += durationSeconds;
-  }
+  // Stats — trackedSeconds is the sum of MERGED tracked intervals so overlapping entries
+  // aren't double-counted against the window they're drawn in.
+  const mergedTrackedMs = mergeIntervals(
+    parsed
+      .map((p) => ({ start: p.startMs, end: p.effectiveEnd }))
+      .filter((iv) => iv.end > iv.start),
+  );
+  const trackedSeconds = mergedTrackedMs.reduce((sum, iv) => sum + (iv.end - iv.start) / 1000, 0);
 
   const untrackedSeconds = Math.max(
     0,
@@ -206,14 +243,14 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
     })
     .sort((a, b) => a.startPct - b.startPct);
 
-  // Untracked gaps: walk sorted [startPct, endPct] intervals across [0, 100].
+  // Untracked gaps: walk merged [startPct, endPct] intervals across [0, 100].
   const GAP_THRESHOLD_PCT = 0.5;
-  const intervals = trackedBlocks
-    .map((b) => ({ start: b.startPct, end: b.startPct + b.widthPct }))
-    .sort((a, b) => a.start - b.start);
+  const mergedPctIntervals = mergeIntervals(
+    trackedBlocks.map((b) => ({ start: b.startPct, end: b.startPct + b.widthPct })),
+  );
   const untrackedGaps: RibbonGap[] = [];
   let cursor = 0;
-  for (const iv of intervals) {
+  for (const iv of mergedPctIntervals) {
     if (iv.start > cursor) {
       const widthPct = iv.start - cursor;
       if (widthPct >= GAP_THRESHOLD_PCT) {
