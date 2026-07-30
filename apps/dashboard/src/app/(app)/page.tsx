@@ -190,7 +190,7 @@ export default async function OverviewPage({
               <SectionHeader label="Trends" />
               <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
                 <Widget id="trend-hours">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Hours tracked
                     </h3>
@@ -206,7 +206,7 @@ export default async function OverviewPage({
                   </Card>
                 </Widget>
                 <Widget id="trend-productivity">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Productivity % per day
                     </h3>
@@ -220,7 +220,7 @@ export default async function OverviewPage({
               <SectionHeader label="Latest data" />
               <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
                 <Widget id="projects">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Top projects
                     </h3>
@@ -238,7 +238,7 @@ export default async function OverviewPage({
                   </Card>
                 </Widget>
                 <Widget id="havent">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Haven’t tracked
                     </h3>
@@ -268,7 +268,7 @@ export default async function OverviewPage({
               <SectionHeader label="Top users" />
               <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
                 <Widget id="top-hours">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Tracked most hours
                     </h3>
@@ -294,7 +294,7 @@ export default async function OverviewPage({
                   </Card>
                 </Widget>
                 <Widget id="top-activity">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Highest activity %
                     </h3>
@@ -316,7 +316,7 @@ export default async function OverviewPage({
                   </Card>
                 </Widget>
                 <Widget id="top-productive">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Highest productive %
                     </h3>
@@ -338,7 +338,7 @@ export default async function OverviewPage({
                   </Card>
                 </Widget>
                 <Widget id="top-unproductive">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Highest unproductive %
                     </h3>
@@ -360,7 +360,7 @@ export default async function OverviewPage({
                   </Card>
                 </Widget>
                 <Widget id="top-idle">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Highest idle %
                     </h3>
@@ -392,7 +392,7 @@ export default async function OverviewPage({
               <SectionHeader label="Websites & applications" />
               <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
                 <Widget id="apps-used">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Top used
                     </h3>
@@ -400,7 +400,7 @@ export default async function OverviewPage({
                   </Card>
                 </Widget>
                 <Widget id="apps-unproductive">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Top unproductive
                     </h3>
@@ -408,7 +408,7 @@ export default async function OverviewPage({
                   </Card>
                 </Widget>
                 <Widget id="apps-unrated">
-                  <Card padding="md">
+                  <Card padding="md" className="h-full">
                     <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
                       Top unrated
                     </h3>

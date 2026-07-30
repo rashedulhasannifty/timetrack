@@ -7,7 +7,7 @@ import { useWidgetVisibility } from './WidgetVisibilityProvider';
 export function Widget({ id, children }: { id: string; children: ReactNode }) {
   const { isOn } = useWidgetVisibility();
   return (
-    <div hidden={!isOn(id)} data-widget={id}>
+    <div className="h-full" hidden={!isOn(id)} data-widget={id}>
       {children}
     </div>
   );
