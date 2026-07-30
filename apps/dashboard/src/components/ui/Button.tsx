@@ -1,0 +1,63 @@
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'react';
+
+export type ButtonVariant = 'primary' | 'secondary' | 'destructive';
+export type ButtonSize = 'sm' | 'md';
+
+const BASE =
+  'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-50 disabled:pointer-events-none';
+
+const VARIANTS: Record<ButtonVariant, string> = {
+  primary: 'bg-accent text-white hover:bg-accent-hover',
+  secondary: 'bg-surface border-separator text-text hover:border-text-secondary border',
+  destructive: 'bg-destructive text-white hover:opacity-90',
+};
+
+const SIZES: Record<ButtonSize, string> = {
+  sm: 'text-label px-3 py-1.5',
+  md: 'text-body px-4 py-2',
+};
+
+type CommonProps = {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  className?: string;
+  children: ReactNode;
+};
+
+type ButtonAsButton = CommonProps &
+  Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'children'> & {
+    href?: undefined;
+  };
+
+type ButtonAsLink = CommonProps &
+  Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'className' | 'children'> & {
+    href: string;
+  };
+
+/**
+ * The one button primitive: renders `<a>` when `href` is set (links, downloads), else `<button>`
+ * (form submits). Presentational and function-prop-free by design so it can be dropped into both
+ * Server pages and `'use client'` action forms. Interactive toggles that need `onClick` keep their
+ * own raw markup — this component does not take `onClick`.
+ */
+export function Button({
+  variant = 'secondary',
+  size = 'md',
+  className = '',
+  children,
+  ...rest
+}: ButtonAsButton | ButtonAsLink) {
+  const cls = `${BASE} ${VARIANTS[variant]} ${SIZES[size]} ${className}`.trim();
+  if ('href' in rest && rest.href !== undefined) {
+    return (
+      <a className={cls} {...rest}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <button className={cls} {...rest}>
+      {children}
+    </button>
+  );
+}
