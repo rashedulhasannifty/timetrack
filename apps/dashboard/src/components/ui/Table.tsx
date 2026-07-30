@@ -67,8 +67,18 @@ export function Th({
   }
   const caret = sortDirection === 'asc' ? '↑' : sortDirection === 'desc' ? '↓' : '⇅';
   return (
-    <th scope="col" className={base}>
-      <button type="button" onClick={onSortClick} className="inline-flex items-center gap-1">
+    <th
+      scope="col"
+      className={base}
+      aria-sort={
+        sortDirection === 'asc' ? 'ascending' : sortDirection === 'desc' ? 'descending' : 'none'
+      }
+    >
+      <button
+        type="button"
+        onClick={onSortClick}
+        className="inline-flex items-center gap-1 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+      >
         {children} <span aria-hidden="true">{caret}</span>
       </button>
     </th>

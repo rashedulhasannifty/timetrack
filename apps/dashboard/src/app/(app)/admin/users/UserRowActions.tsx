@@ -31,12 +31,7 @@ export function UserRowActions({
         <form action={formAction} className="flex items-center gap-2">
           <input type="hidden" name="userId" value={userId} />
           <input type="hidden" name="deactivated" value={deactivated ? 'false' : 'true'} />
-          <Button
-            type="submit"
-            variant={deactivated ? 'secondary' : 'destructive'}
-            size="sm"
-            disabled={pending}
-          >
+          <Button type="submit" variant="secondary" size="sm" disabled={pending}>
             {deactivated ? 'Reactivate' : 'Deactivate'}
           </Button>
         </form>
@@ -47,7 +42,7 @@ export function UserRowActions({
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="border-destructive/30 text-destructive hover:bg-destructive/10 rounded-md border px-2.5 py-1 text-caption font-medium transition-colors"
+            className="border-destructive/30 text-destructive hover:bg-destructive/10 rounded-md border px-3 py-1.5 text-label font-medium transition-colors"
           >
             Erase…
           </button>
@@ -92,7 +87,7 @@ export function UserRowActions({
                 setOpen(false);
                 setReason('');
               }}
-              className="border-separator text-text hover:bg-surface rounded border px-2 py-1 text-caption transition-colors disabled:opacity-50"
+              className="border-separator text-text hover:bg-surface rounded-md border px-3 py-1.5 text-label transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
