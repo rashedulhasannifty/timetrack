@@ -210,12 +210,14 @@ export class ReportsRepository {
    * (`(d.day::timestamp) AT TIME ZONE 'UTC'`) so the result doesn't depend on session tz.
    *
    * Range semantics differ from `teamSummary`/`projects`: here `to` is treated as an
-   * INCLUSIVE calendar day (the `days` spine runs through `to`'s date), and each day's
+   * INCLUSIVE calendar day (the `days` spine runs through `date(to)`), and each day's
    * tracked seconds are bucketed to UTC `[day, day+1)`, not clamped to the instant `to`.
-   * So `Σ trends.days[].trackedSeconds` will NOT reconcile exactly with the instant-clamped
-   * `teamSummary.trackedSeconds` total for a non-midnight-aligned `to` — trends also emits
-   * one extra trailing calendar day in that case. This is intended for the midnight-aligned
-   * ranges the dashboard sends.
+   * Two consequences, both intended for the midnight-aligned ranges the dashboard sends:
+   *   - the spine always includes `date(to)`, so a midnight-aligned `to` (e.g. `Aug 1 00:00`
+   *     for "all of July") emits a trailing `date(to)` row whose in-range time is zero;
+   *   - for a non-midnight-aligned `to`, the `date(to)` bucket counts the whole day past the
+   *     instant `to`, so `Σ trends.days[].trackedSeconds` will NOT reconcile exactly with the
+   *     instant-clamped `teamSummary.trackedSeconds` total.
    */
   async trends(scope: ReportScope, from: Date, to: Date): Promise<TeamTrendDay[]> {
     const rows = await this.prisma.$queryRaw<
