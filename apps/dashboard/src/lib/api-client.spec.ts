@@ -462,3 +462,28 @@ describe('api.decideApproval', () => {
     ).rejects.toBeInstanceOf(ApiError);
   });
 });
+
+describe('api.trends', () => {
+  it('parses TeamTrends on 200', async () => {
+    const payload = {
+      from: '2026-07-11T00:00:00.000Z',
+      to: '2026-07-13T00:00:00.000Z',
+      days: [
+        {
+          day: '2026-07-12',
+          trackedSeconds: 3600,
+          productiveSeconds: 1800,
+          neutralSeconds: 0,
+          unproductiveSeconds: 0,
+        },
+      ],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response(JSON.stringify(payload), { status: 200 })),
+    );
+    expect(
+      await api.trends('tok', new URLSearchParams({ from: payload.from, to: payload.to })),
+    ).toEqual(payload);
+  });
+});

@@ -49,6 +49,12 @@ import {
   type OidcAuthorizeResult,
   type OidcCallback,
   type Role,
+  TeamTrendsSchema,
+  type TeamTrends,
+  TeamActivitySchema,
+  type TeamActivity,
+  TeamAppUsageSchema,
+  type TeamAppUsage,
 } from '@timetrack/contracts';
 import { z } from 'zod';
 
@@ -208,6 +214,12 @@ export const api = {
     get(`/reports/team-summary?${params}`, TeamSummarySchema, token),
   projectSummary: (token: string, params: URLSearchParams): Promise<ProjectSummary> =>
     get(`/reports/projects?${params}`, ProjectSummarySchema, token),
+  trends: (token: string, params: URLSearchParams): Promise<TeamTrends> =>
+    get(`/reports/trends?${params}`, TeamTrendsSchema, token),
+  teamActivity: (token: string, params: URLSearchParams): Promise<TeamActivity> =>
+    get(`/reports/team-activity?${params}`, TeamActivitySchema, token),
+  appUsage: (token: string, params: URLSearchParams): Promise<TeamAppUsage> =>
+    get(`/reports/app-usage?${params}`, TeamAppUsageSchema, token),
   getProjectDetail: (token: string, id: string, params: URLSearchParams): Promise<ProjectDetail> =>
     get(`/projects/${id}/detail?${params}`, ProjectDetailSchema, token),
   getProjectTopApps: (
