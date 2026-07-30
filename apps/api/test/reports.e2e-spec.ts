@@ -282,6 +282,66 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       expect(rows).toEqual([]);
     });
   });
+
+  describe('app-usage', () => {
+    let sampleSeq = 0;
+    async function seedSample(
+      userId: string,
+      appName: string,
+      category: 'PRODUCTIVE' | 'NEUTRAL' | 'UNPRODUCTIVE',
+      ts: string,
+    ) {
+      await db.prisma.activitySample.create({
+        data: {
+          id: `019797a0-0000-7000-8000-0000000004${String(sampleSeq++).padStart(2, '0')}`,
+          userId,
+          timestamp: new Date(ts),
+          appName,
+          windowTitle: null,
+          activityPct: 50,
+          category,
+        },
+      });
+    }
+
+    it('ranks apps by total seconds and picks the dominant category', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      // Code: 3 samples (2 PRODUCTIVE, 1 UNPRODUCTIVE) -> 180s, dominant PRODUCTIVE
+      await seedSample(user.id, 'Code', 'PRODUCTIVE', '2026-07-12T09:00:00.000Z');
+      await seedSample(user.id, 'Code', 'PRODUCTIVE', '2026-07-12T09:01:00.000Z');
+      await seedSample(user.id, 'Code', 'UNPRODUCTIVE', '2026-07-12T09:02:00.000Z');
+      // Slack: 1 sample NEUTRAL -> 60s
+      await seedSample(user.id, 'Slack', 'NEUTRAL', '2026-07-12T09:03:00.000Z');
+
+      const rows = await repo().appUsage(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-07-12T00:00:00.000Z'),
+        new Date('2026-07-13T00:00:00.000Z'),
+        10,
+      );
+
+      expect(rows).toEqual([
+        { appName: 'Code', seconds: 180, category: 'PRODUCTIVE' },
+        { appName: 'Slack', seconds: 60, category: 'NEUTRAL' },
+      ]);
+    });
+
+    it('honors the limit', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      await seedSample(user.id, 'Code', 'PRODUCTIVE', '2026-07-12T09:00:00.000Z');
+      await seedSample(user.id, 'Code', 'PRODUCTIVE', '2026-07-12T09:01:00.000Z');
+      await seedSample(user.id, 'Slack', 'NEUTRAL', '2026-07-12T09:02:00.000Z');
+      const rows = await repo().appUsage(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-07-12T00:00:00.000Z'),
+        new Date('2026-07-13T00:00:00.000Z'),
+        1,
+      );
+      expect(rows).toEqual([{ appName: 'Code', seconds: 120, category: 'PRODUCTIVE' }]);
+    });
+  });
 });
 
 describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', () => {

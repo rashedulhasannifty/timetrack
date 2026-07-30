@@ -27,6 +27,7 @@ function makeReports() {
     projects: vi.fn().mockResolvedValue([]),
     trends: vi.fn().mockResolvedValue([]),
     teamActivity: vi.fn().mockResolvedValue([]),
+    appUsage: vi.fn().mockResolvedValue([]),
     streamEntries: vi.fn(),
   } as unknown as ReportsRepository;
   const access = {
@@ -199,6 +200,28 @@ describe('ReportsService.teamActivity', () => {
       { kind: 'all' },
       expect.any(Date),
       expect.any(Date),
+    );
+  });
+});
+
+describe('ReportsService.appUsage', () => {
+  const appRange = { ...range, limit: 5 };
+
+  it('scopes a MANAGER to their own team and forwards the limit', async () => {
+    const { svc, repo } = makeReports();
+    await svc.appUsage(appRange, manager);
+    expect(repo.appUsage).toHaveBeenCalledWith(
+      { kind: 'team', teamId: 't1' },
+      new Date(range.from),
+      new Date(range.to),
+      5,
+    );
+  });
+
+  it('throws 403 when a MANAGER targets another team', async () => {
+    const { svc } = makeReports();
+    await expect(svc.appUsage({ ...appRange, teamId: 'other' }, manager)).rejects.toBeInstanceOf(
+      ForbiddenException,
     );
   });
 });

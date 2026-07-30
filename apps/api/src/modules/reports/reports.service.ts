@@ -2,12 +2,15 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import {
   ProjectSummarySchema,
   TeamActivitySchema,
+  TeamAppUsageSchema,
   TeamOverviewSchema,
   TeamSummarySchema,
   TeamTrendsSchema,
+  type AppUsageQuery,
   type ProjectSummary,
   type ReportRangeQuery,
   type TeamActivity,
+  type TeamAppUsage,
   type TeamOverview,
   type TeamOverviewQuery,
   type TeamSummary,
@@ -89,6 +92,17 @@ export class ReportsService {
     const scope = await this.resolveScope(query, user);
     const rows = await this.repo.teamActivity(scope, new Date(query.from), new Date(query.to));
     return TeamActivitySchema.parse({ from: query.from, to: query.to, rows });
+  }
+
+  async appUsage(query: AppUsageQuery, user: SessionUser): Promise<TeamAppUsage> {
+    const scope = await this.resolveScope(query, user);
+    const rows = await this.repo.appUsage(
+      scope,
+      new Date(query.from),
+      new Date(query.to),
+      query.limit,
+    );
+    return TeamAppUsageSchema.parse({ from: query.from, to: query.to, rows });
   }
 
   /**

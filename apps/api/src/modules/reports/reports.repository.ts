@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
-import type { TeamTrendDay, TeamActivityRow } from '@timetrack/contracts';
+import type { TeamTrendDay, TeamActivityRow, TeamAppUsageRow } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { CsvEntryRow } from './csv-writer.js';
 
@@ -342,6 +342,55 @@ export class ReportsRepository {
       unproductivePct: Number(r.unproductivePct),
       idleMinutes: Number(r.idleMinutes),
       idlePct: Number(r.idlePct),
+    }));
+  }
+
+  /**
+   * Team-wide app/website breakdown from `activity_samples` (monthly-partitioned). Each
+   * sample represents one polling tick (`ACTIVITY_SAMPLE_INTERVAL_SECONDS` = 60), so
+   * `COUNT(*) * 60` converts sample counts to seconds — same convention as
+   * `topAppsForProject` in projects.repository.ts. `per` pre-aggregates seconds per
+   * (app, category); `totals` sums those into one row per app; `dominant` picks the
+   * category with the most seconds per app via `DISTINCT ON`, tie-broken
+   * `UNPRODUCTIVE > NEUTRAL > PRODUCTIVE` so a dead-even split doesn't read as falsely
+   * productive.
+   */
+  async appUsage(
+    scope: ReportScope,
+    from: Date,
+    to: Date,
+    limit: number,
+  ): Promise<TeamAppUsageRow[]> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{ appName: string; seconds: number | bigint; category: string }>
+    >`
+      WITH per AS (
+        SELECT a."appName" AS app, a.category::text AS cat, COUNT(*) * 60 AS secs
+        FROM activity_samples a
+        WHERE a."timestamp" >= ${from}::timestamptz
+          AND a."timestamp" <  ${to}::timestamptz
+          AND (${this.scopeSql(scope, Prisma.sql`a."userId"`)})
+        GROUP BY a."appName", a.category
+      ),
+      totals AS (
+        SELECT app, SUM(secs)::int AS total FROM per GROUP BY app
+      ),
+      dominant AS (
+        SELECT DISTINCT ON (app) app, cat
+        FROM per
+        ORDER BY app, secs DESC,
+          CASE cat WHEN 'UNPRODUCTIVE' THEN 3 WHEN 'NEUTRAL' THEN 2 ELSE 1 END DESC
+      )
+      SELECT t.app AS "appName", t.total AS "seconds", d.cat AS "category"
+      FROM totals t
+      JOIN dominant d ON d.app = t.app
+      ORDER BY t.total DESC, t.app ASC
+      LIMIT ${limit}
+    `;
+    return rows.map((r) => ({
+      appName: r.appName,
+      seconds: Number(r.seconds),
+      category: r.category as TeamAppUsageRow['category'],
     }));
   }
 

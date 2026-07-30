@@ -1,10 +1,13 @@
 import { Controller, Get, Query, StreamableFile } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import {
+  AppUsageQuerySchema,
   ReportRangeQuerySchema,
   TeamOverviewQuerySchema,
+  type AppUsageQuery,
   type ReportRangeQuery,
   type TeamActivity,
+  type TeamAppUsage,
   type TeamOverview,
   type TeamOverviewQuery,
   type TeamSummary,
@@ -60,6 +63,14 @@ export class ReportsController {
     @CurrentUser() user: SessionUser,
   ): Promise<TeamActivity> {
     return this.service.teamActivity(query, user);
+  }
+
+  @Get('app-usage')
+  appUsage(
+    @Query(new ZodValidationPipe(AppUsageQuerySchema)) query: AppUsageQuery,
+    @CurrentUser() user: SessionUser,
+  ): Promise<TeamAppUsage> {
+    return this.service.appUsage(query, user);
   }
 
   @Get('export.csv')

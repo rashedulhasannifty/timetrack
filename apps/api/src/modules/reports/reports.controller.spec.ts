@@ -14,6 +14,7 @@ function make() {
     projects: vi.fn().mockResolvedValue({ from: 'x', to: 'y', rows: [] }),
     trends: vi.fn().mockResolvedValue({ from: 'x', to: 'y', days: [] }),
     teamActivity: vi.fn().mockResolvedValue({ from: 'x', to: 'y', rows: [] }),
+    appUsage: vi.fn().mockResolvedValue({ from: 'x', to: 'y', rows: [] }),
   } as unknown as ReportsService;
   return { service, ctrl: new ReportsController(service) };
 }
@@ -59,6 +60,13 @@ describe('ReportsController', () => {
     const query = { from: '2026-07-01T00:00:00.000Z', to: '2026-07-14T00:00:00.000Z' };
     await ctrl.teamActivity(query, user);
     expect(service.teamActivity).toHaveBeenCalledWith(query, user);
+  });
+
+  it('appUsage delegates query + user', async () => {
+    const { ctrl, service } = make();
+    const query = { from: '2026-07-01T00:00:00.000Z', to: '2026-07-14T00:00:00.000Z', limit: 10 };
+    await ctrl.appUsage(query, user);
+    expect(service.appUsage).toHaveBeenCalledWith(query, user);
   });
 
   it('exportCsv returns a text/csv StreamableFile draining the service iterable', async () => {
