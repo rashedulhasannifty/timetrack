@@ -96,18 +96,28 @@ export default async function OverviewPage({
   let trends: TeamTrends | null = null;
   let activity: TeamActivity | null = null;
   let apps: TeamAppUsage | null = null;
-  let forbidden = false;
-  try {
-    [team, projects, trends, activity, apps] = await Promise.all([
-      api.teamSummary(session.accessToken, params),
-      api.projectSummary(session.accessToken, params),
-      api.trends(session.accessToken, params),
-      api.teamActivity(session.accessToken, params),
-      api.appUsage(session.accessToken, params),
-    ]);
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 403) forbidden = true;
-  }
+
+  // Fetch every widget's source independently: one endpoint failing (a 500 or
+  // a timeout) degrades only its own card to an empty state instead of blanking
+  // the whole dashboard. The team-scoped calls share one authorization gate, so
+  // a 403 on the canonical team summary means the viewer can't see the overview
+  // at all.
+  const [teamR, projectsR, trendsR, activityR, appsR] = await Promise.allSettled([
+    api.teamSummary(session.accessToken, params),
+    api.projectSummary(session.accessToken, params),
+    api.trends(session.accessToken, params),
+    api.teamActivity(session.accessToken, params),
+    api.appUsage(session.accessToken, params),
+  ]);
+
+  const forbidden =
+    teamR.status === 'rejected' && teamR.reason instanceof ApiError && teamR.reason.status === 403;
+
+  if (teamR.status === 'fulfilled') team = teamR.value;
+  if (projectsR.status === 'fulfilled') projects = projectsR.value;
+  if (trendsR.status === 'fulfilled') trends = trendsR.value;
+  if (activityR.status === 'fulfilled') activity = activityR.value;
+  if (appsR.status === 'fulfilled') apps = appsR.value;
 
   let overviewRows: TeamOverviewRow[] = [];
   try {
