@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Avatar } from '../../../../components/ui/Avatar';
+import { buttonClasses } from '../../../../components/ui/Button';
 import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { PersonDayView } from '../../../../components/day/PersonDayView';
 import { getSession } from '../../../../lib/session';
@@ -46,11 +47,11 @@ export default async function PersonPage({
   ]);
 
   // Decorative header data only — never let a lookup failure crash the page.
-  let person = { name: 'Team member', tracking: false };
+  let person = { name: 'Team member' };
   try {
     const ov = await api.teamOverview(session.accessToken);
     const row = ov.rows.find((r) => r.userId === userId);
-    if (row) person = { name: row.name, tracking: row.tracking };
+    if (row) person = { name: row.name };
   } catch {
     /* decorative — never crash the header */
   }
@@ -75,27 +76,15 @@ export default async function PersonPage({
         <p className="text-text-secondary text-body">You’re not permitted to view this person.</p>
       ) : (
         <div className="flex flex-col gap-5">
-          <div className="flex flex-wrap items-center gap-3.5">
-            <Link
-              href="/"
-              className="border-separator text-text-secondary rounded-md border px-2.5 py-1.5 text-label"
-            >
+          <div>
+            <Link href="/" className={buttonClasses('secondary', 'sm')}>
               ← Back
             </Link>
-            <Avatar name={person.name} size={40} />
-            <div>
-              <div className="text-[22px] font-semibold tracking-[-0.02em]">{person.name}</div>
-              {person.tracking ? (
-                <div className="text-caption text-text-secondary flex items-center gap-1.5">
-                  <span className="bg-recording h-[7px] w-[7px] rounded-full" />
-                  Currently tracking
-                </div>
-              ) : null}
-            </div>
           </div>
 
           <PersonDayView
             model={model}
+            avatar={<Avatar name={person.name} size={40} />}
             screenshots={<ScreenshotsPanel shots={screenshots.map(toScreenshotView)} />}
           />
         </div>

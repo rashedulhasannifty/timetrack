@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { Card } from '../ui/Card';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -30,12 +31,14 @@ export function DayHeader({
   isSelf,
   isToday,
   recordingNow,
+  avatar,
 }: {
   date: string;
   subjectName: string;
   isSelf: boolean;
   isToday: boolean;
   recordingNow: boolean;
+  avatar?: ReactNode;
 }) {
   const prevDate = shiftDateUTC(date, -1);
   const nextDate = shiftDateUTC(date, 1);
@@ -44,9 +47,12 @@ export function DayHeader({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-h1 font-display font-semibold">{subjectName}</h1>
-          <p className="text-text-secondary text-label mt-0.5">{formatDayLabel(date)}</p>
+        <div className="flex items-center gap-3.5">
+          {avatar}
+          <div>
+            <h1 className="text-h1 font-display font-semibold">{subjectName}</h1>
+            <p className="text-text-secondary text-label mt-0.5">{formatDayLabel(date)}</p>
+          </div>
         </div>
         <div className="flex flex-none items-center gap-3">
           {recordingNow ? (

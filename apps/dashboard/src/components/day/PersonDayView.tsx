@@ -16,9 +16,11 @@ import type { PersonDayViewModel } from '../../lib/person-day-view';
  */
 export function PersonDayView({
   model,
+  avatar,
   screenshots,
 }: {
   model: PersonDayViewModel;
+  avatar?: ReactNode;
   screenshots: ReactNode;
 }) {
   return (
@@ -29,6 +31,7 @@ export function PersonDayView({
         isSelf={model.isSelf}
         isToday={model.isToday}
         recordingNow={model.recordingNow}
+        avatar={avatar}
       />
 
       <DayStats stats={model.stats} />

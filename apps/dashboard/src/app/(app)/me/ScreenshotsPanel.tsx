@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { tileMode, type ScreenshotView } from './screenshot-view';
 import type { RedactResult } from './actions';
+import { buttonClasses } from '../../../components/ui/Button';
 
 type RedactFn = (id: string, reason: string) => Promise<RedactResult>;
 
@@ -91,7 +92,7 @@ function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact?: RedactFn | 
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="bg-surface-raised border-separator text-text hover:bg-surface text-caption absolute right-1.5 bottom-1.5 rounded-full border px-2.5 py-0.5 transition-colors"
+            className={`${buttonClasses('secondary', 'xs')} absolute right-1.5 bottom-1.5`}
           >
             Redact
           </button>
@@ -119,7 +120,7 @@ function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact?: RedactFn | 
               type="button"
               disabled={pending || reason.trim().length === 0}
               onClick={submit}
-              className="bg-accent hover:bg-accent-hover text-caption rounded px-2 py-1 text-white transition-colors disabled:opacity-50"
+              className={buttonClasses('primary', 'xs')}
             >
               {pending ? 'Redacting…' : 'Confirm'}
             </button>
@@ -131,7 +132,7 @@ function Tile({ shot, onRedact }: { shot: ScreenshotView; onRedact?: RedactFn | 
                 setReason('');
                 setError(null);
               }}
-              className="border-separator text-text hover:bg-surface text-caption rounded border px-2 py-1 transition-colors"
+              className={buttonClasses('secondary', 'xs')}
             >
               Cancel
             </button>

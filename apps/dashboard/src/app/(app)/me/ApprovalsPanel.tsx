@@ -2,6 +2,7 @@ import { weekLabel, formatHours, statusBadge } from '../../../lib/approvals-view
 import type { TimesheetApproval } from '@timetrack/contracts';
 import { Card } from '../../../components/ui/Card';
 import { Badge, type BadgeTone } from '../../../components/ui/Badge';
+import { SectionHeader } from '../../../components/ui/SectionHeader';
 
 const TONE: Record<'neutral' | 'positive' | 'warning', BadgeTone> = {
   neutral: 'neutral',
@@ -47,26 +48,29 @@ export function ApprovalsPanel({ rows }: { rows: TimesheetApproval[] | null }) {
       </Card>
 
       {rest.length > 0 && (
-        <div className="flex flex-col gap-2">
-          {rest.map((row) => {
-            const badge = statusBadge(row.status);
-            return (
-              <div
-                key={row.id}
-                className="border-separator flex flex-wrap items-center gap-4 border-b py-2 text-body last:border-b-0"
-              >
-                <span className="min-w-[160px] flex-1">{weekLabel(row.periodStart)}</span>
-                <span className="tt-numeric text-text-secondary">
-                  {formatHours(row.trackedSeconds)}
-                </span>
-                <Badge tone={TONE[badge.tone]}>{badge.label}</Badge>
-                <span className="tt-numeric text-text-secondary">
-                  {row.totalSeconds != null ? formatHours(row.totalSeconds) : '—'}
-                </span>
-                <span className="text-text-secondary">{row.note ?? '—'}</span>
-              </div>
-            );
-          })}
+        <div className="flex flex-col gap-3">
+          <SectionHeader label="Earlier weeks" />
+          <div className="flex flex-col gap-2">
+            {rest.map((row) => {
+              const badge = statusBadge(row.status);
+              return (
+                <div
+                  key={row.id}
+                  className="border-separator flex flex-wrap items-center gap-4 border-b py-2 text-body last:border-b-0"
+                >
+                  <span className="min-w-[160px] flex-1">{weekLabel(row.periodStart)}</span>
+                  <span className="tt-numeric text-text-secondary">
+                    {formatHours(row.trackedSeconds)}
+                  </span>
+                  <Badge tone={TONE[badge.tone]}>{badge.label}</Badge>
+                  <span className="tt-numeric text-text-secondary">
+                    {row.totalSeconds != null ? formatHours(row.totalSeconds) : '—'}
+                  </span>
+                  <span className="text-text-secondary">{row.note ?? '—'}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
