@@ -25,12 +25,18 @@ type CommonProps = {
 };
 
 type ButtonAsButton = CommonProps &
-  Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'children'> & {
+  Omit<
+    ButtonHTMLAttributes<HTMLButtonElement>,
+    'className' | 'children' | 'onClick' | 'onClickCapture'
+  > & {
     href?: undefined;
   };
 
 type ButtonAsLink = CommonProps &
-  Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'className' | 'children'> & {
+  Omit<
+    AnchorHTMLAttributes<HTMLAnchorElement>,
+    'className' | 'children' | 'onClick' | 'onClickCapture'
+  > & {
     href: string;
   };
 
