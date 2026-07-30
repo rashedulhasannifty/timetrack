@@ -4,6 +4,7 @@ import {
   ReportRangeQuerySchema,
   TeamOverviewQuerySchema,
   type ReportRangeQuery,
+  type TeamActivity,
   type TeamOverview,
   type TeamOverviewQuery,
   type TeamSummary,
@@ -51,6 +52,14 @@ export class ReportsController {
     @CurrentUser() user: SessionUser,
   ): Promise<TeamTrends> {
     return this.service.trends(query, user);
+  }
+
+  @Get('team-activity')
+  teamActivity(
+    @Query(new ZodValidationPipe(ReportRangeQuerySchema)) query: ReportRangeQuery,
+    @CurrentUser() user: SessionUser,
+  ): Promise<TeamActivity> {
+    return this.service.teamActivity(query, user);
   }
 
   @Get('export.csv')

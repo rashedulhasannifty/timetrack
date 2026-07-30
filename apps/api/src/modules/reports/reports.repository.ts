@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
-import type { TeamTrendDay } from '@timetrack/contracts';
+import type { TeamTrendDay, TeamActivityRow } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { CsvEntryRow } from './csv-writer.js';
 
@@ -267,6 +267,81 @@ export class ReportsRepository {
       productiveSeconds: Number(r.productiveSeconds),
       neutralSeconds: Number(r.neutralSeconds),
       unproductiveSeconds: Number(r.unproductiveSeconds),
+    }));
+  }
+
+  /**
+   * Per-person category + idle rollup. `cat` (activity_daily_summaries, keyed by day) and
+   * `idle` (idle_events, an interval table) are each pre-aggregated to one row per userId
+   * before joining onto the scoped user set — the same fan-out-safety reason as
+   * `teamSummary`. Percentages divide by NULLIF(..., 0) so an all-zero denominator yields
+   * NULL -> COALESCEd to 0 rather than dividing by zero. Idle duration is window-clamped
+   * exactly like the time-entry clamps elsewhere in this file. The day-range filter is
+   * built the same UTC-pinned way as `trends` (`AT TIME ZONE 'UTC'`, not a bare
+   * `::timestamptz)::date` cast) so it doesn't depend on the session timezone; the idle
+   * CTE's instant comparisons are already absolute and don't need that treatment.
+   */
+  async teamActivity(scope: ReportScope, from: Date, to: Date): Promise<TeamActivityRow[]> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        userId: string;
+        name: string;
+        activeMinutes: number | bigint;
+        productivePct: number | bigint;
+        neutralPct: number | bigint;
+        unproductivePct: number | bigint;
+        idleMinutes: number | bigint;
+        idlePct: number | bigint;
+      }>
+    >`
+      WITH cat AS (
+        SELECT ads."userId" AS uid,
+               SUM(ads."activeMinutes") AS active_min,
+               SUM(COALESCE((ads."byCategory"->>'PRODUCTIVE')::int, 0))   AS prod,
+               SUM(COALESCE((ads."byCategory"->>'NEUTRAL')::int, 0))      AS neut,
+               SUM(COALESCE((ads."byCategory"->>'UNPRODUCTIVE')::int, 0)) AS unprod
+        FROM activity_daily_summaries ads
+        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'UTC')::date AND (${to} AT TIME ZONE 'UTC')::date
+          AND (${this.scopeSql(scope, Prisma.sql`ads."userId"`)})
+        GROUP BY ads."userId"
+      ),
+      idle AS (
+        SELECT ie."userId" AS uid,
+               FLOOR(SUM(GREATEST(EXTRACT(EPOCH FROM (
+                 LEAST(ie."endTime", ${to}::timestamptz) - GREATEST(ie."startTime", ${from}::timestamptz)
+               )), 0)) / 60)::int AS idle_min
+        FROM idle_events ie
+        WHERE ie."startTime" < ${to}::timestamptz
+          AND ie."endTime" > ${from}::timestamptz
+          AND (${this.scopeSql(scope, Prisma.sql`ie."userId"`)})
+        GROUP BY ie."userId"
+      ),
+      scoped AS (
+        SELECT u.id, u.name FROM users u
+        WHERE (${this.scopeSql(scope, Prisma.sql`u.id`)})
+          AND (EXISTS (SELECT 1 FROM cat WHERE uid = u.id) OR EXISTS (SELECT 1 FROM idle WHERE uid = u.id))
+      )
+      SELECT s.id AS "userId", s.name AS "name",
+             COALESCE(c.active_min, 0)::int AS "activeMinutes",
+             COALESCE(ROUND(c.prod::numeric   * 100 / NULLIF(c.prod + c.neut + c.unprod, 0)), 0)::int AS "productivePct",
+             COALESCE(ROUND(c.neut::numeric   * 100 / NULLIF(c.prod + c.neut + c.unprod, 0)), 0)::int AS "neutralPct",
+             COALESCE(ROUND(c.unprod::numeric * 100 / NULLIF(c.prod + c.neut + c.unprod, 0)), 0)::int AS "unproductivePct",
+             COALESCE(i.idle_min, 0)::int AS "idleMinutes",
+             COALESCE(ROUND(COALESCE(i.idle_min, 0)::numeric * 100 / NULLIF(COALESCE(c.active_min, 0) + COALESCE(i.idle_min, 0), 0)), 0)::int AS "idlePct"
+      FROM scoped s
+      LEFT JOIN cat  c ON c.uid = s.id
+      LEFT JOIN idle i ON i.uid = s.id
+      ORDER BY s.name ASC
+    `;
+    return rows.map((r) => ({
+      userId: r.userId,
+      name: r.name,
+      activeMinutes: Number(r.activeMinutes),
+      productivePct: Number(r.productivePct),
+      neutralPct: Number(r.neutralPct),
+      unproductivePct: Number(r.unproductivePct),
+      idleMinutes: Number(r.idleMinutes),
+      idlePct: Number(r.idlePct),
     }));
   }
 

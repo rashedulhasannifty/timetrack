@@ -216,6 +216,72 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       expect(days.find((d) => d.day === '2026-07-13')!.trackedSeconds).toBe(3600);
     });
   });
+
+  describe('team-activity', () => {
+    async function seedIdle(userId: string, id: string, start: string, end: string) {
+      await db.prisma.idleEvent.create({
+        data: {
+          id,
+          userId,
+          startTime: new Date(start),
+          endTime: new Date(end),
+          resolvedAction: 'KEEP',
+        },
+      });
+    }
+
+    it('computes category % of categorized minutes and idle % of idle+active', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      // 60 categorized min: 45 productive, 15 neutral; 90 active min total.
+      await db.prisma.activityDailySummary.create({
+        data: {
+          userId: user.id,
+          day: new Date('2026-07-12T00:00:00.000Z'),
+          avgActivityPct: 70,
+          activeMinutes: 90,
+          byApp: {},
+          byCategory: { PRODUCTIVE: 45, NEUTRAL: 15 },
+        },
+      });
+      await seedIdle(
+        user.id,
+        '019797a0-0000-7000-8000-000000000301',
+        '2026-07-12T12:00:00.000Z',
+        '2026-07-12T12:10:00.000Z',
+      ); // 10 min
+
+      const rows = await repo().teamActivity(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-07-01T00:00:00.000Z'),
+        new Date('2026-07-31T00:00:00.000Z'),
+      );
+
+      expect(rows).toEqual([
+        {
+          userId: user.id,
+          name: 'Ada',
+          activeMinutes: 90,
+          productivePct: 75,
+          neutralPct: 25,
+          unproductivePct: 0, // 45/60, 15/60
+          idleMinutes: 10,
+          idlePct: 10, // 10/(90+10)
+        },
+      ]);
+    });
+
+    it('omits a user with no activity or idle in range', async () => {
+      const team = await seedTeam();
+      await seedUser(team.id, 'Ghost', 'ghost@example.com');
+      const rows = await repo().teamActivity(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-07-01T00:00:00.000Z'),
+        new Date('2026-07-31T00:00:00.000Z'),
+      );
+      expect(rows).toEqual([]);
+    });
+  });
 });
 
 describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', () => {
