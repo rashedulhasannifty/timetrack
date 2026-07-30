@@ -208,6 +208,14 @@ export class ReportsRepository {
    * in their own CTE keyed by day before joining onto the `days` spine, for the same
    * fan-out-safety reason as `teamSummary`. Day boundaries are built as explicit UTC
    * (`(d.day::timestamp) AT TIME ZONE 'UTC'`) so the result doesn't depend on session tz.
+   *
+   * Range semantics differ from `teamSummary`/`projects`: here `to` is treated as an
+   * INCLUSIVE calendar day (the `days` spine runs through `to`'s date), and each day's
+   * tracked seconds are bucketed to UTC `[day, day+1)`, not clamped to the instant `to`.
+   * So `Σ trends.days[].trackedSeconds` will NOT reconcile exactly with the instant-clamped
+   * `teamSummary.trackedSeconds` total for a non-midnight-aligned `to` — trends also emits
+   * one extra trailing calendar day in that case. This is intended for the midnight-aligned
+   * ranges the dashboard sends.
    */
   async trends(scope: ReportScope, from: Date, to: Date): Promise<TeamTrendDay[]> {
     const rows = await this.prisma.$queryRaw<
@@ -280,6 +288,10 @@ export class ReportsRepository {
    * built the same UTC-pinned way as `trends` (`AT TIME ZONE 'UTC'`, not a bare
    * `::timestamptz)::date` cast) so it doesn't depend on the session timezone; the idle
    * CTE's instant comparisons are already absolute and don't need that treatment.
+   *
+   * Mixed range semantics (same day-vs-instant nuance as `trends`, harmless for
+   * midnight-aligned ranges): the `cat` CTE filters by an INCLUSIVE calendar day
+   * (`ads."day" BETWEEN ...`), while the `idle` CTE filters by the instant `[from, to)`.
    */
   async teamActivity(scope: ReportScope, from: Date, to: Date): Promise<TeamActivityRow[]> {
     const rows = await this.prisma.$queryRaw<
