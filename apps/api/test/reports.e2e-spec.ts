@@ -215,6 +215,41 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       expect(days.find((d) => d.day === '2026-07-12')!.trackedSeconds).toBe(3600);
       expect(days.find((d) => d.day === '2026-07-13')!.trackedSeconds).toBe(3600);
     });
+
+    it('isolates teams: scoping to team A excludes team B tracked and category seconds', async () => {
+      const teamA = await seedTeam();
+      const teamB = await seedTeam();
+      const userA = await seedUser(teamA.id, 'Ada', 'ada@example.com');
+      const userB = await seedUser(teamB.id, 'Zoe', 'zoe@example.com');
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '019797a0-0000-7000-8000-000000000210',
+          userId: userA.id,
+          source: 'MANUAL',
+          startTime: new Date('2026-07-12T09:00:00.000Z'),
+          endTime: new Date('2026-07-12T10:00:00.000Z'), // 3600s, team A
+        },
+      });
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '019797a0-0000-7000-8000-000000000211',
+          userId: userB.id,
+          source: 'MANUAL',
+          startTime: new Date('2026-07-12T09:00:00.000Z'),
+          endTime: new Date('2026-07-12T11:00:00.000Z'), // 2h, team B — would leak in if unscoped
+        },
+      });
+      await seedSummary(userB.id, '2026-07-12', { PRODUCTIVE: 30 }, 30);
+
+      const days = await repo().trends(
+        { kind: 'team', teamId: teamA.id },
+        new Date('2026-07-12T00:00:00.000Z'),
+        new Date('2026-07-12T00:00:00.000Z'),
+      );
+      const d12 = days.find((d) => d.day === '2026-07-12')!;
+      expect(d12.trackedSeconds).toBe(3600); // only team A's hour
+      expect(d12.productiveSeconds).toBe(0); // team B's category summary excluded
+    });
   });
 
   describe('team-activity', () => {
@@ -281,6 +316,48 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       );
       expect(rows).toEqual([]);
     });
+
+    it('isolates teams: scoping to team A excludes team B users entirely', async () => {
+      const teamA = await seedTeam();
+      const teamB = await seedTeam();
+      const userA = await seedUser(teamA.id, 'Ada', 'ada@example.com');
+      const userB = await seedUser(teamB.id, 'Zoe', 'zoe@example.com');
+      await db.prisma.activityDailySummary.create({
+        data: {
+          userId: userA.id,
+          day: new Date('2026-07-12T00:00:00.000Z'),
+          avgActivityPct: 70,
+          activeMinutes: 60,
+          byApp: {},
+          byCategory: { PRODUCTIVE: 60 },
+        },
+      });
+      await db.prisma.activityDailySummary.create({
+        data: {
+          userId: userB.id,
+          day: new Date('2026-07-12T00:00:00.000Z'),
+          avgActivityPct: 70,
+          activeMinutes: 60,
+          byApp: {},
+          byCategory: { PRODUCTIVE: 60 },
+        },
+      });
+      await seedIdle(
+        userB.id,
+        '019797a0-0000-7000-8000-000000000302',
+        '2026-07-12T12:00:00.000Z',
+        '2026-07-12T12:10:00.000Z',
+      );
+
+      const rows = await repo().teamActivity(
+        { kind: 'team', teamId: teamA.id },
+        new Date('2026-07-01T00:00:00.000Z'),
+        new Date('2026-07-31T00:00:00.000Z'),
+      );
+
+      expect(rows.map((r) => r.userId)).toEqual([userA.id]);
+      expect(rows.map((r) => r.name)).toEqual(['Ada']);
+    });
   });
 
   describe('app-usage', () => {
@@ -339,6 +416,60 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
         new Date('2026-07-13T00:00:00.000Z'),
         1,
       );
+      expect(rows).toEqual([{ appName: 'Code', seconds: 120, category: 'PRODUCTIVE' }]);
+    });
+
+    it('isolates teams: scoping to team A excludes team B app samples', async () => {
+      const teamA = await seedTeam();
+      const teamB = await seedTeam();
+      const userA = await seedUser(teamA.id, 'Ada', 'ada@example.com');
+      const userB = await seedUser(teamB.id, 'Zoe', 'zoe@example.com');
+      await seedSample(userA.id, 'Code', 'PRODUCTIVE', '2026-07-12T09:00:00.000Z');
+      await seedSample(userB.id, 'Slack', 'NEUTRAL', '2026-07-12T09:00:00.000Z');
+
+      const rows = await repo().appUsage(
+        { kind: 'team', teamId: teamA.id },
+        new Date('2026-07-12T00:00:00.000Z'),
+        new Date('2026-07-13T00:00:00.000Z'),
+        10,
+      );
+
+      expect(rows).toEqual([{ appName: 'Code', seconds: 60, category: 'PRODUCTIVE' }]);
+    });
+
+    it('breaks a dominant-category tie by UNPRODUCTIVE > NEUTRAL > PRODUCTIVE', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      // Equal 60s in each of the three categories on the same app — the tie-break must
+      // pick UNPRODUCTIVE over NEUTRAL over PRODUCTIVE, not just "the last one grouped."
+      await seedSample(user.id, 'Browser', 'PRODUCTIVE', '2026-07-12T09:00:00.000Z');
+      await seedSample(user.id, 'Browser', 'NEUTRAL', '2026-07-12T09:01:00.000Z');
+      await seedSample(user.id, 'Browser', 'UNPRODUCTIVE', '2026-07-12T09:02:00.000Z');
+
+      const rows = await repo().appUsage(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-07-12T00:00:00.000Z'),
+        new Date('2026-07-13T00:00:00.000Z'),
+        10,
+      );
+
+      expect(rows).toEqual([{ appName: 'Browser', seconds: 180, category: 'UNPRODUCTIVE' }]);
+    });
+
+    it('aggregates two users of the same team into one app total', async () => {
+      const team = await seedTeam();
+      const ada = await seedUser(team.id, 'Ada', 'ada@example.com');
+      const bea = await seedUser(team.id, 'Bea', 'bea@example.com');
+      await seedSample(ada.id, 'Code', 'PRODUCTIVE', '2026-07-12T09:00:00.000Z');
+      await seedSample(bea.id, 'Code', 'PRODUCTIVE', '2026-07-12T09:00:00.000Z');
+
+      const rows = await repo().appUsage(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-07-12T00:00:00.000Z'),
+        new Date('2026-07-13T00:00:00.000Z'),
+        10,
+      );
+
       expect(rows).toEqual([{ appName: 'Code', seconds: 120, category: 'PRODUCTIVE' }]);
     });
   });
