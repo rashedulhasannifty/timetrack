@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Category } from './enums.js';
 
 export const ReportRangeQuerySchema = z.object({
   from: z.iso.datetime(),
@@ -59,3 +60,55 @@ export const ProjectSummarySchema = z.object({
 
 export type ProjectSummaryRow = z.infer<typeof ProjectSummaryRowSchema>;
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
+
+export const TeamTrendDaySchema = z.object({
+  day: z.iso.date(),
+  trackedSeconds: z.number().int().nonnegative(),
+  productiveSeconds: z.number().int().nonnegative(),
+  neutralSeconds: z.number().int().nonnegative(),
+  unproductiveSeconds: z.number().int().nonnegative(),
+});
+export const TeamTrendsSchema = z.object({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  days: z.array(TeamTrendDaySchema),
+});
+export type TeamTrendDay = z.infer<typeof TeamTrendDaySchema>;
+export type TeamTrends = z.infer<typeof TeamTrendsSchema>;
+
+export const TeamActivityRowSchema = z.object({
+  userId: z.uuid(),
+  name: z.string(),
+  activeMinutes: z.number().int().nonnegative(),
+  productivePct: z.number().int().min(0).max(100),
+  neutralPct: z.number().int().min(0).max(100),
+  unproductivePct: z.number().int().min(0).max(100),
+  idleMinutes: z.number().int().nonnegative(),
+  idlePct: z.number().int().min(0).max(100),
+});
+export const TeamActivitySchema = z.object({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  rows: z.array(TeamActivityRowSchema),
+});
+export type TeamActivityRow = z.infer<typeof TeamActivityRowSchema>;
+export type TeamActivity = z.infer<typeof TeamActivitySchema>;
+
+export const TeamAppUsageRowSchema = z.object({
+  appName: z.string(),
+  seconds: z.number().int().nonnegative(),
+  category: Category,
+});
+export const TeamAppUsageSchema = z.object({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  rows: z.array(TeamAppUsageRowSchema),
+});
+export type TeamAppUsageRow = z.infer<typeof TeamAppUsageRowSchema>;
+export type TeamAppUsage = z.infer<typeof TeamAppUsageSchema>;
+
+// app-usage takes an extra ?limit; query params arrive as strings, so coerce.
+export const AppUsageQuerySchema = ReportRangeQuerySchema.extend({
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+});
+export type AppUsageQuery = z.infer<typeof AppUsageQuerySchema>;
