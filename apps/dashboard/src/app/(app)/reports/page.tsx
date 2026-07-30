@@ -1,6 +1,7 @@
 import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { SectionHeader } from '../../../components/ui/SectionHeader';
 import { Card } from '../../../components/ui/Card';
+import { Button } from '../../../components/ui/Button';
 import { BarMeter } from '../../../components/charts/BarMeter';
 import { ReportsByPersonTable } from '../../../components/reports/ReportsByPersonTable';
 import { ReportRangePicker } from '../../../components/reports/ReportRangePicker';
@@ -55,21 +56,23 @@ export default async function ReportsPage({
         </p>
       ) : (
         <div className="flex flex-col gap-6">
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-label text-text-secondary tt-numeric">
               Range {formatDate(from)} – {formatDate(to)} · {team.rows.length} users ·{' '}
               {projects.rows.length} projects
             </span>
-            <div className="flex-1" />
-            <a
-              href={`/reports/export?${params.toString()}`}
-              className="bg-surface-raised border-separator text-text hover:bg-surface inline-flex items-center rounded-md border px-3 py-1.5 text-label font-medium transition-colors"
-              download
-            >
-              Export CSV
-            </a>
+            <div className="flex items-center gap-3">
+              <ReportRangePicker from={from} to={to} />
+              <Button
+                variant="secondary"
+                size="sm"
+                href={`/reports/export?${params.toString()}`}
+                download
+              >
+                Export CSV
+              </Button>
+            </div>
           </div>
-          <ReportRangePicker from={from} to={to} />
           {hasReportData(team.rows, projects.rows) ? (
             <>
               <section className="flex flex-col gap-3">
