@@ -136,6 +136,86 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       { userId: active.id, name: 'Ada', tracking: false, trackedSecondsToday: 0 },
     ]);
   });
+
+  describe('trends', () => {
+    async function seedSummary(
+      userId: string,
+      day: string,
+      byCategory: Record<string, number>,
+      activeMinutes: number,
+    ) {
+      await db.prisma.activityDailySummary.create({
+        data: {
+          userId,
+          day: new Date(`${day}T00:00:00.000Z`),
+          avgActivityPct: 50,
+          activeMinutes,
+          byApp: {},
+          byCategory,
+        },
+      });
+    }
+
+    it('emits one zero-filled row per day and converts category minutes to seconds', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '019797a0-0000-7000-8000-000000000201',
+          userId: user.id,
+          source: 'MANUAL',
+          startTime: new Date('2026-07-12T09:00:00.000Z'),
+          endTime: new Date('2026-07-12T10:00:00.000Z'), // 3600s on the 12th
+        },
+      });
+      await seedSummary(user.id, '2026-07-12', { PRODUCTIVE: 30, UNPRODUCTIVE: 10 }, 40); // minutes
+
+      const days = await repo().trends(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-07-11T00:00:00.000Z'),
+        new Date('2026-07-13T00:00:00.000Z'),
+      );
+
+      expect(days.map((d) => d.day)).toEqual(['2026-07-11', '2026-07-12', '2026-07-13']);
+      const d12 = days.find((d) => d.day === '2026-07-12')!;
+      expect(d12).toEqual({
+        day: '2026-07-12',
+        trackedSeconds: 3600,
+        productiveSeconds: 30 * 60,
+        neutralSeconds: 0,
+        unproductiveSeconds: 10 * 60,
+      });
+      const d11 = days.find((d) => d.day === '2026-07-11')!;
+      expect(d11).toEqual({
+        day: '2026-07-11',
+        trackedSeconds: 0,
+        productiveSeconds: 0,
+        neutralSeconds: 0,
+        unproductiveSeconds: 0,
+      });
+    });
+
+    it('clamps a midnight-spanning entry into each day', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '019797a0-0000-7000-8000-000000000202',
+          userId: user.id,
+          source: 'MANUAL',
+          startTime: new Date('2026-07-12T23:00:00.000Z'), // 1h on the 12th
+          endTime: new Date('2026-07-13T01:00:00.000Z'), // 1h on the 13th
+        },
+      });
+      const days = await repo().trends(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-07-12T00:00:00.000Z'),
+        new Date('2026-07-13T00:00:00.000Z'),
+      );
+      expect(days.find((d) => d.day === '2026-07-12')!.trackedSeconds).toBe(3600);
+      expect(days.find((d) => d.day === '2026-07-13')!.trackedSeconds).toBe(3600);
+    });
+  });
 });
 
 describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', () => {

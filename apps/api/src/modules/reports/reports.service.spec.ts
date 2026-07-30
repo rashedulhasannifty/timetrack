@@ -25,6 +25,7 @@ function makeReports() {
     overviewForSelf: vi.fn().mockResolvedValue([]),
     teamSummary: vi.fn().mockResolvedValue([]),
     projects: vi.fn().mockResolvedValue([]),
+    trends: vi.fn().mockResolvedValue([]),
     streamEntries: vi.fn(),
   } as unknown as ReportsRepository;
   const access = {
@@ -143,6 +144,31 @@ describe('ReportsService.teamSummary scope resolution', () => {
       undefined,
     );
     expect(result).toEqual({ from: range.from, to: range.to, rows: [] });
+  });
+});
+
+describe('ReportsService.trends', () => {
+  it('scopes a MANAGER with no params to their own team', async () => {
+    const { svc, repo } = makeReports();
+    await svc.trends(range, manager);
+    expect(repo.trends).toHaveBeenCalledWith(
+      { kind: 'team', teamId: 't1' },
+      new Date(range.from),
+      new Date(range.to),
+    );
+  });
+
+  it('throws 403 when a MANAGER targets another team', async () => {
+    const { svc } = makeReports();
+    await expect(svc.trends({ ...range, teamId: 'other' }, manager)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('gives an ADMIN the all-teams scope', async () => {
+    const { svc, repo } = makeReports();
+    await svc.trends(range, admin);
+    expect(repo.trends).toHaveBeenCalledWith({ kind: 'all' }, expect.any(Date), expect.any(Date));
   });
 });
 

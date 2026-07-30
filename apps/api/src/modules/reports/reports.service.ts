@@ -3,11 +3,13 @@ import {
   ProjectSummarySchema,
   TeamOverviewSchema,
   TeamSummarySchema,
+  TeamTrendsSchema,
   type ProjectSummary,
   type ReportRangeQuery,
   type TeamOverview,
   type TeamOverviewQuery,
   type TeamSummary,
+  type TeamTrends,
 } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { ResourceAccessService } from '../../common/authz/resource-access.service.js';
@@ -73,6 +75,12 @@ export class ReportsService {
       query.projectId,
     );
     return ProjectSummarySchema.parse({ from: query.from, to: query.to, rows });
+  }
+
+  async trends(query: ReportRangeQuery, user: SessionUser): Promise<TeamTrends> {
+    const scope = await this.resolveScope(query, user);
+    const days = await this.repo.trends(scope, new Date(query.from), new Date(query.to));
+    return TeamTrendsSchema.parse({ from: query.from, to: query.to, days });
   }
 
   /**

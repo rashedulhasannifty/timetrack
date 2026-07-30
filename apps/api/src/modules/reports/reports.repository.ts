@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
+import type { TeamTrendDay } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { CsvEntryRow } from './csv-writer.js';
 
@@ -197,6 +198,75 @@ export class ReportsRepository {
       projectId: r.projectId,
       name: r.name,
       trackedSeconds: Number(r.trackedSeconds),
+    }));
+  }
+
+  /**
+   * Daily trend series: one zero-filled row per calendar day in [from, to], with tracked
+   * time (clamped/summed per day from time_entries) and category time (converted from
+   * activity_daily_summaries' byCategory minutes to seconds). Both sources are aggregated
+   * in their own CTE keyed by day before joining onto the `days` spine, for the same
+   * fan-out-safety reason as `teamSummary`. Day boundaries are built as explicit UTC
+   * (`(d.day::timestamp) AT TIME ZONE 'UTC'`) so the result doesn't depend on session tz.
+   */
+  async trends(scope: ReportScope, from: Date, to: Date): Promise<TeamTrendDay[]> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        day: string;
+        trackedSeconds: number | bigint;
+        productiveSeconds: number | bigint;
+        neutralSeconds: number | bigint;
+        unproductiveSeconds: number | bigint;
+      }>
+    >`
+      WITH days AS (
+        SELECT generate_series(
+          (${from}::timestamptz)::date,
+          (${to}::timestamptz)::date,
+          interval '1 day'
+        )::date AS day
+      ),
+      cat AS (
+        SELECT ads."day" AS day,
+               SUM(COALESCE((ads."byCategory"->>'PRODUCTIVE')::int, 0))   * 60 AS "productiveSeconds",
+               SUM(COALESCE((ads."byCategory"->>'NEUTRAL')::int, 0))      * 60 AS "neutralSeconds",
+               SUM(COALESCE((ads."byCategory"->>'UNPRODUCTIVE')::int, 0)) * 60 AS "unproductiveSeconds"
+        FROM activity_daily_summaries ads
+        WHERE ads."day" BETWEEN (${from}::timestamptz)::date AND (${to}::timestamptz)::date
+          AND (${this.scopeSql(scope, Prisma.sql`ads."userId"`)})
+        GROUP BY ads."day"
+      ),
+      tracked AS (
+        SELECT d.day,
+               FLOOR(SUM(GREATEST(
+                 EXTRACT(EPOCH FROM (
+                   LEAST(COALESCE(te."endTime", now()), ((d.day + 1)::timestamp) AT TIME ZONE 'UTC')
+                   - GREATEST(te."startTime", (d.day::timestamp) AT TIME ZONE 'UTC')
+                 )), 0
+               )))::int AS "trackedSeconds"
+        FROM days d
+        JOIN time_entries te
+          ON te."startTime" < ((d.day + 1)::timestamp) AT TIME ZONE 'UTC'
+         AND COALESCE(te."endTime", now()) > (d.day::timestamp) AT TIME ZONE 'UTC'
+         AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
+        GROUP BY d.day
+      )
+      SELECT to_char(d.day, 'YYYY-MM-DD') AS "day",
+             COALESCE(t."trackedSeconds", 0)       AS "trackedSeconds",
+             COALESCE(c."productiveSeconds", 0)    AS "productiveSeconds",
+             COALESCE(c."neutralSeconds", 0)       AS "neutralSeconds",
+             COALESCE(c."unproductiveSeconds", 0)  AS "unproductiveSeconds"
+      FROM days d
+      LEFT JOIN cat     c ON c.day = d.day
+      LEFT JOIN tracked t ON t.day = d.day
+      ORDER BY d.day ASC
+    `;
+    return rows.map((r) => ({
+      day: r.day,
+      trackedSeconds: Number(r.trackedSeconds),
+      productiveSeconds: Number(r.productiveSeconds),
+      neutralSeconds: Number(r.neutralSeconds),
+      unproductiveSeconds: Number(r.unproductiveSeconds),
     }));
   }
 
