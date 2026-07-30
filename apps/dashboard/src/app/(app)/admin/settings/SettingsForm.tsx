@@ -3,6 +3,7 @@
 import { useActionState } from 'react';
 import type { TeamSettings } from '@timetrack/contracts';
 import { Card } from '../../../../components/ui/Card';
+import { Button } from '../../../../components/ui/Button';
 import { updateSettingsAction, type SettingsState } from './actions';
 
 const INITIAL: SettingsState = { ok: false };
@@ -242,13 +243,9 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
       </Card>
 
       <div className="flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="bg-accent hover:bg-accent-hover text-label rounded-md px-4 py-2 font-medium text-white transition-colors disabled:opacity-50"
-        >
+        <Button type="submit" variant="primary" disabled={pending}>
           {pending ? 'Saving…' : 'Save settings'}
-        </button>
+        </Button>
         {state.message ? (
           <p className={`text-body ${state.ok ? 'text-accent' : 'text-destructive'}`} role="status">
             {state.message}

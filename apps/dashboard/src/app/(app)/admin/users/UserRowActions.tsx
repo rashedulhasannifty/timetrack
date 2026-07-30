@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useState } from 'react';
+import { Button } from '../../../../components/ui/Button';
 import { setUserActiveAction, eraseUserAction, type RowState } from './actions';
 
 const INITIAL: RowState = { ok: false };
@@ -30,24 +31,18 @@ export function UserRowActions({
         <form action={formAction} className="flex items-center gap-2">
           <input type="hidden" name="userId" value={userId} />
           <input type="hidden" name="deactivated" value={deactivated ? 'false' : 'true'} />
-          <button
+          <Button
             type="submit"
+            variant={deactivated ? 'secondary' : 'destructive'}
+            size="sm"
             disabled={pending}
-            className={`rounded-md border px-2.5 py-1 text-caption font-medium transition-colors disabled:opacity-50 ${
-              deactivated
-                ? 'border-separator text-text hover:bg-surface'
-                : 'border-destructive/30 text-destructive hover:bg-destructive/10'
-            }`}
           >
             {deactivated ? 'Reactivate' : 'Deactivate'}
-          </button>
+          </Button>
         </form>
-        <a
-          href={`/admin/users/${userId}/export`}
-          className="border-separator text-text hover:bg-surface rounded-md border px-2.5 py-1 text-caption font-medium transition-colors"
-        >
+        <Button href={`/admin/users/${userId}/export`} variant="secondary" size="sm">
           Export
-        </a>
+        </Button>
         {!open ? (
           <button
             type="button"
@@ -82,13 +77,14 @@ export function UserRowActions({
             <span className="text-destructive text-caption">{eraseState.message}</span>
           ) : null}
           <div className="flex gap-2">
-            <button
+            <Button
               type="submit"
+              variant="destructive"
+              size="sm"
               disabled={erasing || reason.trim().length === 0}
-              className="bg-destructive rounded px-2 py-1 text-caption text-white transition-colors disabled:opacity-50"
             >
               {erasing ? 'Erasing…' : 'Confirm erase'}
-            </button>
+            </Button>
             <button
               type="button"
               disabled={erasing}
@@ -96,7 +92,7 @@ export function UserRowActions({
                 setOpen(false);
                 setReason('');
               }}
-              className="border-separator text-text hover:bg-surface rounded border px-2 py-1 text-caption transition-colors"
+              className="border-separator text-text hover:bg-surface rounded border px-2 py-1 text-caption transition-colors disabled:opacity-50"
             >
               Cancel
             </button>

@@ -1,5 +1,7 @@
 import { Forbidden } from '../../../../components/ui/Forbidden';
 import { Card } from '../../../../components/ui/Card';
+import { Button } from '../../../../components/ui/Button';
+import { Table, THead, Tbody, Tr, Th, Td } from '../../../../components/ui/Table';
 import { AdminTabs } from '../../../../components/ui/AdminTabs';
 import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { getSession } from '../../../../lib/session';
@@ -66,7 +68,7 @@ export default async function AdminAuditPage({
                 name="targetType"
                 defaultValue={sp.targetType ?? ''}
                 placeholder="e.g. user"
-                className="bg-surface border-separator text-label rounded-md border px-3 py-2 outline-none transition-colors"
+                className="bg-surface border-separator focus:border-accent text-label rounded-md border px-3 py-2 outline-none transition-colors"
               />
             </label>
             <label className="flex flex-col gap-1">
@@ -74,7 +76,7 @@ export default async function AdminAuditPage({
               <input
                 name="targetId"
                 defaultValue={sp.targetId ?? ''}
-                className="bg-surface border-separator text-label rounded-md border px-3 py-2 outline-none transition-colors"
+                className="bg-surface border-separator focus:border-accent text-label rounded-md border px-3 py-2 outline-none transition-colors"
               />
             </label>
             <label className="flex flex-col gap-1">
@@ -83,7 +85,7 @@ export default async function AdminAuditPage({
                 type="date"
                 name="from"
                 defaultValue={sp.from ?? ''}
-                className="bg-surface border-separator text-label rounded-md border px-3 py-2 outline-none transition-colors"
+                className="bg-surface border-separator focus:border-accent text-label rounded-md border px-3 py-2 outline-none transition-colors"
               />
             </label>
             <label className="flex flex-col gap-1">
@@ -92,15 +94,12 @@ export default async function AdminAuditPage({
                 type="date"
                 name="to"
                 defaultValue={sp.to ?? ''}
-                className="bg-surface border-separator text-label rounded-md border px-3 py-2 outline-none transition-colors"
+                className="bg-surface border-separator focus:border-accent text-label rounded-md border px-3 py-2 outline-none transition-colors"
               />
             </label>
-            <button
-              type="submit"
-              className="bg-accent hover:bg-accent-hover rounded-md px-3 py-1.5 text-label text-white transition-colors"
-            >
+            <Button type="submit" variant="primary" size="sm">
               Filter
-            </button>
+            </Button>
           </form>
         </Card>
 
@@ -117,58 +116,39 @@ export default async function AdminAuditPage({
         ) : (
           <>
             <Card padding="none" className="overflow-hidden">
-              <table className="w-full text-[13px]">
-                <thead>
-                  <tr>
-                    <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
-                      Time
-                    </th>
-                    <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
-                      Actor
-                    </th>
-                    <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
-                      Action
-                    </th>
-                    <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
-                      Target
-                    </th>
-                    <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
-                      Diff
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table>
+                <THead>
+                  <Tr>
+                    <Th>Time</Th>
+                    <Th>Actor</Th>
+                    <Th>Action</Th>
+                    <Th>Target</Th>
+                    <Th>Diff</Th>
+                  </Tr>
+                </THead>
+                <Tbody>
                   {page.items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="tt-numeric border-separator px-[18px] py-[11px] whitespace-nowrap border-b">
-                        {item.timestamp}
-                      </td>
-                      <td className="border-separator px-[18px] py-[11px] border-b">
-                        {actorLabel(item)}
-                      </td>
-                      <td className="text-caption border-separator px-[18px] py-[11px] font-mono border-b">
-                        {item.action}
-                      </td>
-                      <td className="text-text-secondary border-separator px-[18px] py-[11px] border-b">
+                    <Tr key={item.id}>
+                      <Td className="tt-numeric whitespace-nowrap">{item.timestamp}</Td>
+                      <Td>{actorLabel(item)}</Td>
+                      <Td className="text-caption font-mono">{item.action}</Td>
+                      <Td className="text-text-secondary">
                         {item.targetType}
                         <span className="text-text-secondary"> · {item.targetId}</span>
-                      </td>
-                      <td className="border-separator px-[18px] py-[11px] border-b">
+                      </Td>
+                      <Td>
                         <DiffToggle json={formatDiff(item.diff)} />
-                      </td>
-                    </tr>
+                      </Td>
+                    </Tr>
                   ))}
-                </tbody>
-              </table>
+                </Tbody>
+              </Table>
             </Card>
             {nextHref ? (
               <div>
-                <a
-                  href={nextHref}
-                  className="border-separator text-text hover:bg-surface rounded-md border px-3 py-1.5 text-label transition-colors"
-                >
+                <Button href={nextHref} variant="secondary" size="sm">
                   Next →
-                </a>
+                </Button>
               </div>
             ) : null}
           </>

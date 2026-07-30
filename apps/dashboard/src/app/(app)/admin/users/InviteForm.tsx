@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
+import { Button } from '../../../../components/ui/Button';
 import { inviteUserAction, type InviteState } from './actions';
 
 const INITIAL: InviteState = { ok: false };
@@ -49,13 +50,9 @@ export function InviteForm() {
           <option value="ADMIN">Admin</option>
         </select>
       </label>
-      <button
-        type="submit"
-        disabled={pending}
-        className="bg-accent hover:bg-accent-hover text-body rounded-md px-3 py-2 font-medium text-white transition-colors disabled:opacity-50"
-      >
+      <Button type="submit" variant="primary" disabled={pending}>
         {pending ? 'Inviting…' : 'Invite'}
-      </button>
+      </Button>
 
       {state.message ? (
         <p

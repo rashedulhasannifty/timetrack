@@ -2,6 +2,7 @@ import { Forbidden } from '../../../../components/ui/Forbidden';
 import { Card } from '../../../../components/ui/Card';
 import { Avatar } from '../../../../components/ui/Avatar';
 import { Badge } from '../../../../components/ui/Badge';
+import { Table, THead, Tbody, Tr, Th, Td } from '../../../../components/ui/Table';
 import { AdminTabs } from '../../../../components/ui/AdminTabs';
 import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { getSession } from '../../../../lib/session';
@@ -43,66 +44,52 @@ export default async function AdminUsersPage() {
           </p>
         ) : (
           <Card padding="none" className="overflow-hidden">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr>
-                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
-                    Name
-                  </th>
-                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
-                    Email
-                  </th>
-                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
-                    Role
-                  </th>
-                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
-                    Monitoring
-                  </th>
-                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-left font-semibold border-b">
-                    Status
-                  </th>
-                  <th className="text-caption text-text-secondary border-separator px-[18px] py-3 text-right font-semibold border-b">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>Name</Th>
+                  <Th>Email</Th>
+                  <Th>Role</Th>
+                  <Th>Monitoring</Th>
+                  <Th>Status</Th>
+                  <Th align="right">Actions</Th>
+                </Tr>
+              </THead>
+              <Tbody>
                 {users.map((u) => {
                   const deactivated = u.deactivatedAt !== null;
                   return (
-                    <tr key={u.id}>
-                      <td className="border-separator px-[18px] py-[11px] border-b">
+                    <Tr key={u.id}>
+                      <Td>
                         <span className="inline-flex items-center gap-2">
                           <Avatar name={u.name} size={26} />
                           {u.name}
                         </span>
-                      </td>
-                      <td className="text-text-secondary border-separator px-[18px] py-[11px] border-b">
-                        {u.email}
-                      </td>
-                      <td className="border-separator px-[18px] py-[11px] border-b">
+                      </Td>
+                      <Td className="text-text-secondary">{u.email}</Td>
+                      <Td>
                         <RoleSelect userId={u.id} role={u.role} />
-                      </td>
-                      <td className="text-text-secondary border-separator px-[18px] py-[11px] border-b">
+                      </Td>
+                      <Td className="text-text-secondary">
                         {u.monitoringAckAt ? (
                           `Acknowledged ${formatDate(u.monitoringAckAt)}`
                         ) : (
                           <span className="text-text-secondary">Not acknowledged</span>
                         )}
-                      </td>
-                      <td className="border-separator px-[18px] py-[11px] border-b">
+                      </Td>
+                      <Td>
                         <Badge tone={deactivated ? 'neutral' : 'good'}>
                           {deactivated ? 'Deactivated' : 'Active'}
                         </Badge>
-                      </td>
-                      <td className="border-separator px-[18px] py-[11px] text-right border-b">
+                      </Td>
+                      <Td align="right">
                         <UserRowActions userId={u.id} name={u.name} deactivated={deactivated} />
-                      </td>
-                    </tr>
+                      </Td>
+                    </Tr>
                   );
                 })}
-              </tbody>
-            </table>
+              </Tbody>
+            </Table>
           </Card>
         )}
       </div>
