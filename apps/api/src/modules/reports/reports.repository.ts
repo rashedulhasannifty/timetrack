@@ -221,8 +221,8 @@ export class ReportsRepository {
     >`
       WITH days AS (
         SELECT generate_series(
-          (${from}::timestamptz)::date,
-          (${to}::timestamptz)::date,
+          (${from} AT TIME ZONE 'UTC')::date,
+          (${to} AT TIME ZONE 'UTC')::date,
           interval '1 day'
         )::date AS day
       ),
@@ -232,7 +232,7 @@ export class ReportsRepository {
                SUM(COALESCE((ads."byCategory"->>'NEUTRAL')::int, 0))      * 60 AS "neutralSeconds",
                SUM(COALESCE((ads."byCategory"->>'UNPRODUCTIVE')::int, 0)) * 60 AS "unproductiveSeconds"
         FROM activity_daily_summaries ads
-        WHERE ads."day" BETWEEN (${from}::timestamptz)::date AND (${to}::timestamptz)::date
+        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'UTC')::date AND (${to} AT TIME ZONE 'UTC')::date
           AND (${this.scopeSql(scope, Prisma.sql`ads."userId"`)})
         GROUP BY ads."day"
       ),
