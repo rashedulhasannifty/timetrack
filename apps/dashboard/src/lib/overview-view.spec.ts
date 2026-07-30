@@ -141,3 +141,155 @@ describe('donutFromProjects', () => {
     expect(donutFromProjects([])).toEqual({ segments: [], totalSeconds: 0 });
   });
 });
+
+import {
+  teamCategoryKpis,
+  teamIdleKpi,
+  trendsToHoursLine,
+  trendsToProductivityBars,
+  topByProductive,
+  topByUnproductive,
+  topByIdle,
+  appUsageByCategory,
+} from './overview-view';
+import type { TeamTrends, TeamActivity, TeamAppUsage } from '@timetrack/contracts';
+
+const trends: TeamTrends = {
+  from: '2026-07-11T00:00:00.000Z',
+  to: '2026-07-13T00:00:00.000Z',
+  days: [
+    {
+      day: '2026-07-11',
+      trackedSeconds: 0,
+      productiveSeconds: 0,
+      neutralSeconds: 0,
+      unproductiveSeconds: 0,
+    },
+    {
+      day: '2026-07-12',
+      trackedSeconds: 3600,
+      productiveSeconds: 2700,
+      neutralSeconds: 900,
+      unproductiveSeconds: 0,
+    },
+    {
+      day: '2026-07-13',
+      trackedSeconds: 7200,
+      productiveSeconds: 1800,
+      neutralSeconds: 0,
+      unproductiveSeconds: 1800,
+    },
+  ],
+};
+const activity: TeamActivity = {
+  from: trends.from,
+  to: trends.to,
+  rows: [
+    {
+      userId: '1',
+      name: 'Ada',
+      activeMinutes: 90,
+      productivePct: 75,
+      neutralPct: 25,
+      unproductivePct: 0,
+      idleMinutes: 10,
+      idlePct: 10,
+    },
+    {
+      userId: '2',
+      name: 'Bo',
+      activeMinutes: 60,
+      productivePct: 20,
+      neutralPct: 0,
+      unproductivePct: 80,
+      idleMinutes: 40,
+      idlePct: 40,
+    },
+  ],
+};
+const appUsage: TeamAppUsage = {
+  from: trends.from,
+  to: trends.to,
+  rows: [
+    { appName: 'Xcode', seconds: 3600, category: 'PRODUCTIVE' },
+    { appName: 'Slack', seconds: 1800, category: 'NEUTRAL' },
+    { appName: 'YouTube', seconds: 600, category: 'UNPRODUCTIVE' },
+  ],
+};
+
+describe('teamCategoryKpis', () => {
+  it('sums category seconds across days and rounds pcts', () => {
+    // prod=4500 neut=900 unprod=1800 total=7200 → prod 63, unprod 25
+    expect(teamCategoryKpis(trends)).toEqual({ productivePct: 63, unproductivePct: 25 });
+  });
+  it('returns zeros when no categorized time', () => {
+    expect(teamCategoryKpis({ ...trends, days: [] })).toEqual({
+      productivePct: 0,
+      unproductivePct: 0,
+    });
+  });
+});
+
+describe('teamIdleKpi', () => {
+  it('idle / (idle + active) across rows', () => {
+    // idle=50 active=150 → 50/200 = 25
+    expect(teamIdleKpi(activity)).toEqual({ idlePct: 25 });
+  });
+  it('zero when no minutes', () => {
+    expect(teamIdleKpi({ ...activity, rows: [] })).toEqual({ idlePct: 0 });
+  });
+});
+
+describe('trendsToHoursLine', () => {
+  it('maps tracked hours, a multiple-of-6 max, thirds axis, day letters and labels', () => {
+    const m = trendsToHoursLine(trends);
+    expect(m.values).toEqual([0, 1, 2]); // seconds/3600, 1dp
+    expect(m.max).toBe(6); // ceil(2/6)*6, min 6
+    expect(m.axis).toEqual(['6', '4', '2', '0']); // niceMax, *2/3, /3, 0
+    expect(m.dayLetters).toEqual([
+      { letter: 'S', weekend: true }, // 2026-07-11 is a Saturday (UTC)
+      { letter: 'S', weekend: true }, // 2026-07-12 Sunday
+      { letter: 'M', weekend: false }, // 2026-07-13 Monday
+    ]);
+    expect(m.labels).toEqual(['Jul 11', 'Jul 12', 'Jul 13']);
+  });
+});
+
+describe('trendsToProductivityBars', () => {
+  it('productive % of categorized per day', () => {
+    const m = trendsToProductivityBars(trends);
+    expect(m.values).toEqual([0, 75, 50]); // day1 0/0→0; day2 2700/3600; day3 1800/3600
+    expect(m.dayLetters.length).toBe(3);
+  });
+});
+
+describe('leaderboards', () => {
+  it('topByProductive sorts desc', () => {
+    expect(topByProductive(activity)).toEqual([
+      { userId: '1', name: 'Ada', pct: 75 },
+      { userId: '2', name: 'Bo', pct: 20 },
+    ]);
+  });
+  it('topByUnproductive sorts desc', () => {
+    expect(topByUnproductive(activity)[0]!).toEqual({ userId: '2', name: 'Bo', pct: 80 });
+  });
+  it('topByIdle sorts desc and carries minutes', () => {
+    expect(topByIdle(activity)[0]!).toEqual({
+      userId: '2',
+      name: 'Bo',
+      idlePct: 40,
+      idleMinutes: 40,
+    });
+  });
+});
+
+describe('appUsageByCategory', () => {
+  it('splits by category and normalizes pct within each list', () => {
+    const r = appUsageByCategory(appUsage);
+    expect(r.topUsed.map((i) => i.appName)).toEqual(['Xcode', 'Slack', 'YouTube']);
+    expect(r.topUsed[0]!.pct).toBe(100); // 3600 is the max in topUsed
+    expect(r.topUsed[1]!.pct).toBe(50); // 1800/3600
+    expect(r.unproductive.map((i) => i.appName)).toEqual(['YouTube']);
+    expect(r.unrated.map((i) => i.appName)).toEqual(['Slack']);
+  });
+});
