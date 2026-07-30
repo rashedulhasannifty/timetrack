@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useWidgetVisibility } from './WidgetVisibilityProvider';
 
 export interface WidgetGroup {
@@ -12,6 +12,22 @@ export interface WidgetGroup {
 export function WidgetsDrawer({ groups }: { groups: WidgetGroup[] }) {
   const [open, setOpen] = useState(false);
   const { isOn, toggle } = useWidgetVisibility();
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
   return (
     <>
       <button
@@ -22,14 +38,22 @@ export function WidgetsDrawer({ groups }: { groups: WidgetGroup[] }) {
         ⚙ Widgets
       </button>
       {open ? (
-        <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-label="Widgets">
+        <div
+          className="fixed inset-0 z-40 flex justify-end"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Widgets"
+        >
           <button
             type="button"
             aria-label="Close"
             className="flex-1 bg-black/20"
             onClick={() => setOpen(false)}
           />
-          <div className="bg-surface-raised border-separator flex w-72 flex-col gap-4 overflow-y-auto border-l p-5">
+          <div
+            ref={panelRef}
+            className="bg-surface-raised border-separator flex w-72 flex-col gap-4 overflow-y-auto border-l p-5"
+          >
             <div className="flex items-center justify-between">
               <h2 className="text-body font-semibold">Widgets</h2>
               <button
