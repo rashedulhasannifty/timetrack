@@ -1,7 +1,7 @@
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'react';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'destructive';
-export type ButtonSize = 'sm' | 'md';
+export type ButtonSize = 'xs' | 'sm' | 'md';
 
 const BASE =
   'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-50 disabled:pointer-events-none';
@@ -13,9 +13,22 @@ const VARIANTS: Record<ButtonVariant, string> = {
 };
 
 const SIZES: Record<ButtonSize, string> = {
+  xs: 'text-caption px-2.5 py-1',
   sm: 'text-label px-3 py-1.5',
   md: 'text-body px-4 py-2',
 };
+
+/**
+ * The shared button styling recipe: base + variant + size. Exported so the two kinds of control that
+ * cannot adopt the `Button` component itself — interactive `onClick` toggles and `next/link` links —
+ * can render the exact same look by applying this to their own `className`.
+ */
+export function buttonClasses(
+  variant: ButtonVariant = 'secondary',
+  size: ButtonSize = 'md',
+): string {
+  return `${BASE} ${VARIANTS[variant]} ${SIZES[size]}`;
+}
 
 type CommonProps = {
   variant?: ButtonVariant;
@@ -53,7 +66,7 @@ export function Button({
   children,
   ...rest
 }: ButtonAsButton | ButtonAsLink) {
-  const cls = `${BASE} ${VARIANTS[variant]} ${SIZES[size]} ${className}`.trim();
+  const cls = `${buttonClasses(variant, size)} ${className}`.trim();
   if ('href' in rest && rest.href !== undefined) {
     return (
       <a className={cls} {...rest}>
