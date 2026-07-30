@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useEffect, useRef, useState } from 'react';
+import { Button } from '../../../components/ui/Button';
 import { decideAction, type DecideState } from './actions';
 
 const INITIAL: DecideState = { ok: false };
@@ -53,24 +54,26 @@ export function DecideForm({ approvalId }: { approvalId: string }) {
             className="bg-surface border-separator text-text focus:border-accent w-full rounded-md border px-2 py-1 text-caption outline-none"
           />
           <div className="flex gap-2">
-            <button
+            <Button
               type="submit"
               name="status"
               value="APPROVED"
+              variant="primary"
+              size="sm"
               disabled={pending}
-              className="bg-good rounded-md px-3 py-1.5 text-caption font-medium text-white disabled:opacity-50"
             >
               Approve
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
               name="status"
               value="FLAGGED"
+              variant="secondary"
+              size="sm"
               disabled={pending}
-              className="bg-surface border-separator text-category-unproductive rounded-md border px-3 py-1.5 text-caption font-medium disabled:opacity-50"
             >
               Flag for payroll
-            </button>
+            </Button>
           </div>
           {state.message ? (
             <span className="text-destructive text-caption">{state.message}</span>

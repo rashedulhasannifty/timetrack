@@ -2,6 +2,7 @@ import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { Card } from '../../../components/ui/Card';
 import { Avatar } from '../../../components/ui/Avatar';
 import { Badge, type BadgeTone } from '../../../components/ui/Badge';
+import { Table, THead, Tbody, Tr, Th, Td } from '../../../components/ui/Table';
 import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
 import { weekLabel, formatHours, statusBadge } from '../../../lib/approvals-view';
@@ -59,54 +60,42 @@ export default async function ApprovalsPage({
             export.
           </p>
           <Card padding="none" className="overflow-hidden">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr>
-                  <th className="text-caption text-text-secondary border-separator border-b px-[18px] py-3 text-left font-semibold">
-                    User
-                  </th>
-                  <th className="text-caption text-text-secondary border-separator border-b px-[18px] py-3 text-left font-semibold">
-                    Week
-                  </th>
-                  <th className="text-caption text-text-secondary border-separator border-b px-[18px] py-3 text-right font-semibold">
-                    Hours
-                  </th>
-                  <th className="text-caption text-text-secondary border-separator border-b px-[18px] py-3 text-left font-semibold">
-                    Status
-                  </th>
-                  <th className="text-caption text-text-secondary border-separator border-b px-[18px] py-3 text-right font-semibold">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <THead>
+                <Tr>
+                  <Th>User</Th>
+                  <Th>Week</Th>
+                  <Th align="right">Hours</Th>
+                  <Th>Status</Th>
+                  <Th align="right">Action</Th>
+                </Tr>
+              </THead>
+              <Tbody>
                 {rows.map((row) => {
                   const badge = statusBadge(row.status);
                   return (
-                    <tr key={row.id}>
-                      <td className="border-separator border-b px-[18px] py-[11px]">
+                    <Tr key={row.id}>
+                      <Td>
                         <span className="inline-flex items-center gap-2">
                           <Avatar name={row.userName} size={26} />
                           {row.userName}
                         </span>
-                      </td>
-                      <td className="tt-numeric text-text-secondary border-separator border-b px-[18px] py-[11px]">
+                      </Td>
+                      <Td className="text-text-secondary tt-numeric">
                         {weekLabel(row.periodStart)}
-                      </td>
-                      <td className="tt-numeric border-separator border-b px-[18px] py-[11px] text-right">
-                        {formatHours(row.totalSeconds ?? row.trackedSeconds)}
-                      </td>
-                      <td className="border-separator border-b px-[18px] py-[11px]">
+                      </Td>
+                      <Td align="right">{formatHours(row.totalSeconds ?? row.trackedSeconds)}</Td>
+                      <Td>
                         <Badge tone={TONE[badge.tone]}>{badge.label}</Badge>
-                      </td>
-                      <td className="border-separator border-b px-[18px] py-[11px] text-right">
+                      </Td>
+                      <Td align="right">
                         <DecideForm approvalId={row.id} />
-                      </td>
-                    </tr>
+                      </Td>
+                    </Tr>
                   );
                 })}
-              </tbody>
-            </table>
+              </Tbody>
+            </Table>
           </Card>
         </div>
       )}
