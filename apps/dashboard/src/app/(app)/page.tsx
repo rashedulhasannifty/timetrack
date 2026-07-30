@@ -207,9 +207,13 @@ export default async function OverviewPage({
                 </Widget>
                 <Widget id="trend-productivity">
                   <Card padding="md" className="h-full">
-                    <h3 className="text-label text-text-secondary mb-3.5 font-semibold">
+                    <h3 className="text-label text-text-secondary mb-1 font-semibold">
                       Productivity % per day
                     </h3>
+                    <p className="text-caption text-text-secondary mb-3.5">
+                      Green: productive share of categorized time. Remainder: neutral +
+                      unproductive.
+                    </p>
                     <StackedDayBars values={prodBars.values} dayLetters={prodBars.dayLetters} />
                   </Card>
                 </Widget>
