@@ -18,7 +18,10 @@ export class ActivityController {
 
   /** PRD §7.8 — max 500 samples per batch (enforced by ActivityBatchSchema). */
   @Post('batch')
-  @HttpCode(202)
+  // 201 Created (matches the screenshots ingest), NOT 202: the shipped Mac client's uploader
+  // classifies only 2xx it recognizes as success, and a 202 was treated as a transient failure —
+  // wedging the activity-sample buffer into an endless re-send. See activity.controller.spec.ts.
+  @HttpCode(201)
   ingest(
     @Body(new ZodValidationPipe(ActivityBatchSchema)) batch: ActivityBatch,
     @CurrentUser() user: SessionUser,
