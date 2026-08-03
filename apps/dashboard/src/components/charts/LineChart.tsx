@@ -14,7 +14,10 @@ export interface LineChartProps {
   axis: string[];
   dayLetters: LineChartDayLetter[];
   color: string;
-  format: (v: number) => string;
+  /** Unit suffix appended to the hovered value in the tooltip (e.g. `'h'`). A plain
+   *  string rather than a formatter function so this client component can be rendered
+   *  from a Server Component — functions can't cross the RSC boundary. */
+  unit: string;
   /** Per-point date string shown in the tooltip; same length as `values`. */
   labels: string[];
 }
@@ -25,15 +28,7 @@ interface HoverState {
 }
 
 /** Interactive line chart: polyline + hover tooltip + dashed cursor + axis + day-letter row. */
-export function LineChart({
-  values,
-  max,
-  axis,
-  dayLetters,
-  color,
-  format,
-  labels,
-}: LineChartProps) {
+export function LineChart({ values, max, axis, dayLetters, color, unit, labels }: LineChartProps) {
   const [hover, setHover] = useState<HoverState | null>(null);
 
   const lp = linePoints(values, max);
@@ -175,7 +170,7 @@ export function LineChart({
             {hoverLabel ?? ''}
           </div>
           <div style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-            {hoverValue !== undefined ? format(hoverValue) : ''}
+            {hoverValue !== undefined ? `${hoverValue}${unit}` : ''}
           </div>
         </div>
       )}

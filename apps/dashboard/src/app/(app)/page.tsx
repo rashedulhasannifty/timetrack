@@ -211,7 +211,7 @@ export default async function OverviewPage({
                       dayLetters={hoursLine.dayLetters}
                       labels={hoursLine.labels}
                       color="var(--tt-accent)"
-                      format={(v) => `${v}h`}
+                      unit="h"
                     />
                   </Card>
                 </Widget>
