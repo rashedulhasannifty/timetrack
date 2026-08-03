@@ -110,12 +110,26 @@ TRACKING_FRESHNESS_SECONDS: z.coerce.number().int().min(60).max(3600).default(30
 
 `.env.example` — document it in the same commit.
 
-`apps/api/src/modules/reports/reports.service.ts` — read the validated env with the established API
-pattern `private readonly env = loadEnv();` (import `loadEnv` from `@timetrack/config`, exactly as
-`infra/storage/minio.service.ts` and `infra/queue/queue.module.ts` do — the service does **not**
-currently inject config, and the API has no Nest `ConfigService`). Pass
-`this.env.TRACKING_FRESHNESS_SECONDS` to both `overviewForSelf` / `overviewForTeam` calls at
-lines ~42–43. No behavior change beyond forwarding the value.
+**Wiring — inject the value, don't call `loadEnv()` in the service.** `ReportsService` has an
+env-free unit spec (`reports.service.spec.ts` constructs `new ReportsService(repo, access)` and calls
+`svc.overview()`), so a `loadEnv()` call inside the service would throw in CI where no `.env` exists.
+(That is why `minio.service.ts` can do `private readonly env = loadEnv()` and this service cannot —
+minio has no unit spec.) Instead:
+
+- `apps/api/src/modules/reports/reports.module.ts` — provide the value via a factory that reads env
+  once at DI resolution: `{ provide: TRACKING_FRESHNESS_SECONDS, useFactory: () => loadEnv().TRACKING_FRESHNESS_SECONDS }`
+  (token is an exported `symbol`/string const). The factory runs only at real app boot and at e2e
+  module boot (where `test-env.ts` supplies env) — there is no module-boot unit test.
+- `apps/api/src/modules/reports/reports.service.ts` — add a third constructor param
+  `@Inject(TRACKING_FRESHNESS_SECONDS) private readonly trackingFreshnessSeconds: number` (explicit
+  token, which also sidesteps the vitest DI-metadata gap) and pass `this.trackingFreshnessSeconds` to
+  both `overviewForSelf` / `overviewForTeam` calls at lines ~42–43.
+- `reports.service.spec.ts` — update the two hand-built `ReportsService` constructions to pass a
+  literal (e.g. `300`) as the third arg, and update the `overviewForTeam/Self` `toHaveBeenCalledWith`
+  assertions to expect that fourth argument. Stays env-free.
+
+This keeps `ReportsRepository` a pure function of its arguments (the window is just a query parameter)
+and the service unit-testable.
 
 ## 6. Testing
 
@@ -127,6 +141,11 @@ lines ~42–43. No behavior change beyond forwarding the value.
      regression guard.
   3. A **fresh sample but no open entry** (all entries closed) → `tracking = false`.
      Pass an explicit small `freshnessSeconds` (or the default 300) so the stale case sits outside it.
+- **Update the existing running-entry test.** `reports.e2e-spec.ts`'s current
+  "a running entry sets tracking=true and counts live elapsed" seeds an open entry with **no** activity
+  sample; under the new rule that becomes `tracking=false`, so this test **will break** unless it also
+  seeds a fresh sample (at ~`now()`) for the user. Update it in the same commit. Every `overviewFor*`
+  call in this spec file gains the new `freshnessSeconds` argument.
 - **Unit (dashboard, node-env):** none needed — `overview-view.ts` already has coverage for counting
   `tracking` rows, and its input contract (`tracking: boolean`) is unchanged.
 - **Verification:** `pnpm lint && pnpm typecheck && pnpm test && pnpm build`, plus the coverage-gated
