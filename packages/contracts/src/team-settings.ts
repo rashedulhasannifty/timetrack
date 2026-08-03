@@ -50,18 +50,38 @@ export const TeamSettingsSchema = z.object({
   autoStartOnLogin: teamSettingsFields.autoStartOnLogin.default(false),
   distractionAlertsEnabled: teamSettingsFields.distractionAlertsEnabled.default(false),
   distractionRepeatMinutes: teamSettingsFields.distractionRepeatMinutes.default(5),
+  // Unproductive lists ship EMPTY — the product stays neutral until an admin classifies
+  // (distraction lists are a deliberate, opt-in admin decision, not a shipped judgment).
   unproductiveApps: teamSettingsFields.unproductiveApps.default([]),
-  // Dev-focused productive defaults. App names must match the macOS frontmost app name exactly;
-  // terminal tools like tmux/cmux run inside these terminals, so the terminal covers them.
+  // Dev/knowledge-work productive defaults. App names must match the macOS frontmost app name
+  // EXACTLY (not bundleId) — only stable, unversioned names are seeded (e.g. no 'Adobe Photoshop
+  // 2024' or 'zoom.us'). tmux/cmux run inside a terminal, so the terminal entry already covers
+  // them. High-confidence entries only; admins add the rest.
   productiveApps: teamSettingsFields.productiveApps.default([
     'Code',
     'Visual Studio Code',
     'Cursor',
     'Antigravity',
+    'Zed',
+    'Xcode',
+    'IntelliJ IDEA',
+    'PyCharm',
+    'WebStorm',
+    'Android Studio',
+    'Sublime Text',
     'Terminal',
     'iTerm2',
     'Warp',
     'Ghostty',
+    'Docker Desktop',
+    'Postman',
+    'TablePlus',
+    'GitHub Desktop',
+    'Figma',
+    'Sketch',
+    'Notion',
+    'Obsidian',
+    'Linear',
     'Microsoft Word',
     'Microsoft Excel',
     'Microsoft PowerPoint',
@@ -70,11 +90,41 @@ export const TeamSettingsSchema = z.object({
     'Slack',
   ]),
   unproductiveSites: teamSettingsFields.unproductiveSites.default([]),
+  // Registrable domains — dotted-suffix match means subdomains inherit (`niftyhq.ai` covers
+  // `api.niftyhq.ai`/`docs.niftyhq.ai`). No blanket `api.*`/`docs.*` wildcards here: as defaults
+  // they'd mark every `api.`/`docs.` host on the internet productive. The wildcard feature stays
+  // available for admins who want it.
   productiveSites: teamSettingsFields.productiveSites.default([
     'github.com',
+    'gitlab.com',
+    'bitbucket.org',
+    'stackoverflow.com',
+    'developer.mozilla.org',
+    'readthedocs.io',
+    'npmjs.com',
+    'pypi.org',
+    'pkg.go.dev',
+    'crates.io',
+    'aws.amazon.com',
+    'cloud.google.com',
+    'portal.azure.com',
+    'vercel.com',
+    'netlify.com',
+    'cloudflare.com',
+    'atlassian.net',
+    'linear.app',
+    'asana.com',
+    'trello.com',
+    'notion.so',
+    'clickup.com',
+    'figma.com',
+    'docs.google.com',
+    'drive.google.com',
+    'meet.google.com',
+    'circleci.com',
+    'datadoghq.com',
+    'sentry.io',
     'niftyhq.ai',
-    'api.*',
-    'docs.*',
   ]),
 });
 

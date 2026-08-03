@@ -167,6 +167,19 @@ describe('team-settings + policy', () => {
     expect(TeamSettingsSchema.safeParse({ screenshotRetentionDays: 0 }).success).toBe(false);
   });
 
+  it('seeds productive defaults, keeps unproductive empty, and ships no blanket wildcards', () => {
+    const s = TeamSettingsSchema.parse({});
+    expect(s.productiveApps).toContain('Code');
+    expect(s.productiveApps).toContain('Cursor');
+    expect(s.productiveSites).toContain('github.com');
+    expect(s.productiveSites).toContain('niftyhq.ai');
+    // Unproductive stays neutral-by-default (opt-in admin decision).
+    expect(s.unproductiveApps).toEqual([]);
+    expect(s.unproductiveSites).toEqual([]);
+    // No blanket `api.*`/`docs.*` wildcards seeded (the feature stays; the defaults don't use it).
+    expect(s.productiveSites.some((t) => t.endsWith('.*'))).toBe(false);
+  });
+
   it('parses an effective policy with nested settings', () => {
     expect(
       EffectivePolicySchema.safeParse({
