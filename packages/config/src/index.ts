@@ -57,6 +57,7 @@ const EnvSchema = z
     S3_ACCESS_KEY: z.string(),
     S3_SECRET_KEY: z.string(),
     PRESIGNED_URL_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(300),
+    TRACKING_FRESHNESS_SECONDS: z.coerce.number().int().min(60).max(3600).default(300),
 
     API_PORT: z.coerce.number().int().default(3001),
     API_URL: z.url(),
