@@ -64,3 +64,23 @@ export function flaggedTerms(value: string, kind: TermKind): FlaggedTerm[] {
   }
   return out;
 }
+
+/**
+ * Observed app names not already present in `value` (case-insensitive), preserving the input
+ * order (the API returns them ranked by usage), capped at `limit`. Powers the "seen recently"
+ * picker chips so an admin only sees apps they haven't classified yet.
+ */
+export function availableSuggestions(suggestions: string[], value: string, limit = 15): string[] {
+  const present = new Set(parseTerms(value).map((t) => t.toLowerCase()));
+  const out: string[] = [];
+  for (const s of suggestions) {
+    if (out.length >= limit) break;
+    if (!present.has(s.trim().toLowerCase())) out.push(s);
+  }
+  return out;
+}
+
+/** Append `term` to a textarea value on its own line (no leading blank line for an empty box). */
+export function appendTerm(value: string, term: string): string {
+  return value.trim().length === 0 ? term : `${value.replace(/\s+$/, '')}\n${term}`;
+}

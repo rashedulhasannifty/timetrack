@@ -4,7 +4,12 @@ import { useActionState, useState } from 'react';
 import type { TeamSettings } from '@timetrack/contracts';
 import { Card } from '../../../../components/ui/Card';
 import { Button } from '../../../../components/ui/Button';
-import { flaggedTerms, type TermKind } from '../../../../lib/classification-hints';
+import {
+  flaggedTerms,
+  availableSuggestions,
+  appendTerm,
+  type TermKind,
+} from '../../../../lib/classification-hints';
 import { updateSettingsAction, type SettingsState } from './actions';
 
 const INITIAL: SettingsState = { ok: false };
@@ -76,6 +81,7 @@ function ListField({
   placeholder,
   defaultValue,
   kind,
+  suggestions,
 }: {
   name: string;
   label: string;
@@ -83,9 +89,11 @@ function ListField({
   placeholder: string;
   defaultValue: string;
   kind: TermKind;
+  suggestions?: string[];
 }) {
   const [value, setValue] = useState(defaultValue);
   const flagged = flaggedTerms(value, kind);
+  const picks = suggestions ? availableSuggestions(suggestions, value) : [];
   return (
     <label className="flex flex-col gap-1">
       <span className="text-[13px] font-medium">{label}</span>
@@ -98,6 +106,21 @@ function ListField({
         className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
       />
       <span className="text-text-secondary text-caption">{hint}</span>
+      {picks.length > 0 ? (
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <span className="text-text-secondary text-caption">Seen recently:</span>
+          {picks.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setValue((v) => appendTerm(v, s))}
+              className="border-separator text-text-secondary hover:border-accent hover:text-text rounded-full border px-2 py-0.5 text-[12px] transition-colors"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {flagged.length > 0 ? (
         <ul className="text-destructive text-caption mt-1 flex flex-col gap-0.5" role="status">
           {flagged.map((f, i) => (
@@ -116,7 +139,13 @@ function ListField({
  * replacement (see the action). Client component to show the save result inline. Copy is
  * plain and candid about what is captured (design-prompt §0 voice).
  */
-export function SettingsForm({ settings }: { settings: TeamSettings }) {
+export function SettingsForm({
+  settings,
+  observedApps,
+}: {
+  settings: TeamSettings;
+  observedApps: string[];
+}) {
   const [state, formAction, pending] = useActionState(updateSettingsAction, INITIAL);
 
   return (
@@ -234,6 +263,7 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
           placeholder="One app per line"
           defaultValue={settings.productiveApps.join('\n')}
           kind="app"
+          suggestions={observedApps}
         />
         <ListField
           name="unproductiveApps"
@@ -242,6 +272,7 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
           placeholder="One app per line"
           defaultValue={settings.unproductiveApps.join('\n')}
           kind="app"
+          suggestions={observedApps}
         />
       </Card>
 

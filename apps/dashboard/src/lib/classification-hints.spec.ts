@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { termIssue, parseTerms, flaggedTerms } from './classification-hints';
+import {
+  termIssue,
+  parseTerms,
+  flaggedTerms,
+  availableSuggestions,
+  appendTerm,
+} from './classification-hints';
 
 describe('termIssue — sites', () => {
   it('accepts a plain host, a subdomain, and a valid wildcard', () => {
@@ -61,5 +67,25 @@ describe('parseTerms / flaggedTerms', () => {
     expect(flagged).toHaveLength(1);
     expect(flagged[0]?.term).toBe('www.youtube.com');
     expect(flagged[0]?.issue).toMatch(/www/i);
+  });
+});
+
+describe('availableSuggestions', () => {
+  it('drops already-listed apps (case-insensitive) and preserves ranked order', () => {
+    const suggestions = ['Code', 'Slack', 'Figma'];
+    expect(availableSuggestions(suggestions, 'code\nzed')).toEqual(['Slack', 'Figma']);
+  });
+
+  it('caps the number of suggestions', () => {
+    const many = Array.from({ length: 30 }, (_, i) => `App${i}`);
+    expect(availableSuggestions(many, '', 5)).toHaveLength(5);
+  });
+});
+
+describe('appendTerm', () => {
+  it('appends on a new line, with no leading blank line for an empty box', () => {
+    expect(appendTerm('', 'Code')).toBe('Code');
+    expect(appendTerm('Code', 'Slack')).toBe('Code\nSlack');
+    expect(appendTerm('Code\n', 'Slack')).toBe('Code\nSlack');
   });
 });
