@@ -24,7 +24,9 @@ const teamSettingsFields = {
   unproductiveApps: z.array(z.string()),
   productiveApps: z.array(z.string()),
   // Site (host) lists — matched against the front browser's active-tab host, SEPARATE from
-  // the app lists (slice 4.5). e.g. 'youtube.com'; dotted-suffix match on the client.
+  // the app lists (slice 4.5). e.g. 'youtube.com'; dotted-suffix match on the client. A term
+  // ending in '.*' (e.g. 'api.*') is a leading-label wildcard: it matches any host whose first
+  // label is that prefix (api.stripe.com).
   unproductiveSites: z.array(z.string()),
   productiveSites: z.array(z.string()),
 };
@@ -49,9 +51,31 @@ export const TeamSettingsSchema = z.object({
   distractionAlertsEnabled: teamSettingsFields.distractionAlertsEnabled.default(false),
   distractionRepeatMinutes: teamSettingsFields.distractionRepeatMinutes.default(5),
   unproductiveApps: teamSettingsFields.unproductiveApps.default([]),
-  productiveApps: teamSettingsFields.productiveApps.default([]),
+  // Dev-focused productive defaults. App names must match the macOS frontmost app name exactly;
+  // terminal tools like tmux/cmux run inside these terminals, so the terminal covers them.
+  productiveApps: teamSettingsFields.productiveApps.default([
+    'Code',
+    'Visual Studio Code',
+    'Cursor',
+    'Antigravity',
+    'Terminal',
+    'iTerm2',
+    'Warp',
+    'Ghostty',
+    'Microsoft Word',
+    'Microsoft Excel',
+    'Microsoft PowerPoint',
+    'Microsoft Outlook',
+    'Microsoft Teams',
+    'Slack',
+  ]),
   unproductiveSites: teamSettingsFields.unproductiveSites.default([]),
-  productiveSites: teamSettingsFields.productiveSites.default([]),
+  productiveSites: teamSettingsFields.productiveSites.default([
+    'github.com',
+    'niftyhq.ai',
+    'api.*',
+    'docs.*',
+  ]),
 });
 
 export type TeamSettings = z.infer<typeof TeamSettingsSchema>;
