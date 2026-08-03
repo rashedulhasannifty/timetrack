@@ -90,6 +90,32 @@ export class AdminRepository {
     return { items, nextCursor };
   }
 
+  /** Recent window + result cap for the observed-apps picker. */
+  private static readonly OBSERVED_APPS_WINDOW_DAYS = 30;
+  private static readonly OBSERVED_APPS_LIMIT = 200;
+
+  /**
+   * Distinct app names the team's fleet reported in the last 30 days, ranked by total minutes.
+   * Reads the KEYS of `activity_daily_summaries.byApp` (the worker's per-app rollup) — the small
+   * UNPARTITIONED table — rather than a DISTINCT scan of the monthly-partitioned raw samples.
+   * Team-scoped via the users subquery; no client-supplied team/user.
+   */
+  async listObservedApps(teamId: string): Promise<string[]> {
+    const since = new Date(
+      Date.now() - AdminRepository.OBSERVED_APPS_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const rows = await this.prisma.$queryRaw<{ appName: string }[]>`
+      SELECT kv.key AS "appName"
+      FROM "activity_daily_summaries" ads,
+           LATERAL jsonb_each_text(ads."byApp"::jsonb) AS kv(key, value)
+      WHERE ads."userId" IN (SELECT "id" FROM "users" WHERE "teamId" = ${teamId})
+        AND ads."day" >= ${since}
+      GROUP BY kv.key
+      ORDER BY SUM(kv.value::int) DESC, kv.key ASC
+      LIMIT ${AdminRepository.OBSERVED_APPS_LIMIT}`;
+    return rows.map((r) => r.appName);
+  }
+
   async getSettings(teamId: string): Promise<unknown> {
     const row = await this.prisma.team.findUnique({
       where: { id: teamId },

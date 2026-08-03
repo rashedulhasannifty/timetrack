@@ -56,6 +56,16 @@ describe('AdminService.updateSettings', () => {
   });
 });
 
+describe('AdminService.listObservedApps', () => {
+  it('delegates to the repo with the actor team and wraps the names', async () => {
+    const { svc, repo } = makeService({
+      listObservedApps: vi.fn().mockResolvedValue(['Code', 'Slack']),
+    });
+    await expect(svc.listObservedApps(actor)).resolves.toEqual({ appNames: ['Code', 'Slack'] });
+    expect(repo.listObservedApps).toHaveBeenCalledWith('t1');
+  });
+});
+
 describe('AdminService.listAudit', () => {
   it('passes the query straight to the repository and returns its page', async () => {
     const page = { items: [], nextCursor: null };

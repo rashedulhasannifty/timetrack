@@ -9,6 +9,7 @@ import type {
   AuditLogPage,
   AuditLogQuery,
   EraseUser,
+  ObservedApps,
   TeamSettings,
   UpdateSettings,
 } from '@timetrack/contracts';
@@ -25,6 +26,12 @@ export class AdminService {
 
   listAudit(query: AuditLogQuery): Promise<AuditLogPage> {
     return this.repo.listAudit(query);
+  }
+
+  /** App names the actor's team has actually reported recently, for the settings picker. */
+  async listObservedApps(actor: SessionUser): Promise<ObservedApps> {
+    const appNames = await this.repo.listObservedApps(actor.teamId);
+    return { appNames };
   }
 
   async updateSettings(patch: UpdateSettings, actor: SessionUser): Promise<TeamSettings> {

@@ -17,6 +17,7 @@ import {
   type AuditLogPage,
   type AuditLogQuery,
   type EraseUser,
+  type ObservedApps,
   type TeamSettings,
   type UpdateSettings,
 } from '@timetrack/contracts';
@@ -36,6 +37,11 @@ export class AdminController {
     @Query(new ZodValidationPipe(AuditLogQuerySchema)) query: AuditLogQuery,
   ): Promise<AuditLogPage> {
     return this.service.listAudit(query);
+  }
+
+  @Get('observed-apps')
+  observedApps(@CurrentUser() actor: SessionUser): Promise<ObservedApps> {
+    return this.service.listObservedApps(actor);
   }
 
   @Patch('settings')
