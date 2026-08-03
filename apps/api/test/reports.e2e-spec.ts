@@ -189,14 +189,18 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     });
     await seedSample(user.id, new Date(Date.now() - 10 * 60_000)); // 10 min ago, outside WINDOW
     const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
-    expect(row.tracking).toBe(false); // fails against pre-fix SQL (returns true)
+    expect(row.tracking).toBe(false); // stale heartbeat → not live, regardless of the open entry
   });
 
-  it('fresh heartbeat but NO open entry → tracking=false', async () => {
+  it('fresh heartbeat with NO open entry → tracking=true (the heartbeat is the signal)', async () => {
     const team = await seedTeam();
     const user = await seedUser(team.id, 'Ada', 'ada@example.com');
     const dayStart = new Date(Date.now() - 3_600_000);
     const dayEnd = new Date(Date.now() + 3_600_000);
+    // Only a CLOSED entry. The macOS client uploads a time entry on stop, never an open one —
+    // the live "who's tracking now" signal it emits is the activity-sample heartbeat, so a
+    // fresh sample alone means tracking. (Fails against the open-entry-AND SQL, which needs an
+    // open entry that a real client never sends.)
     await db.prisma.timeEntry.create({
       data: {
         id: '019797a0-0000-7000-8000-000000000112',
@@ -207,6 +211,25 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       },
     });
     await seedSample(user.id, new Date());
+    const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
+    expect(row.tracking).toBe(true);
+  });
+
+  it('no heartbeat at all → tracking=false even with a closed entry today', async () => {
+    const team = await seedTeam();
+    const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+    const dayStart = new Date(Date.now() - 3_600_000);
+    const dayEnd = new Date(Date.now() + 3_600_000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000113',
+        userId: user.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 120_000),
+        endTime: new Date(Date.now() - 60_000),
+      },
+    });
+    // no sample seeded
     const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
     expect(row.tracking).toBe(false);
   });
