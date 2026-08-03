@@ -38,10 +38,16 @@ struct Categorizer {
         return .neutral
     }
 
-    /// A term matches a host by equality or dotted-suffix (`youtube.com` matches `m.youtube.com`).
+    /// A term matches a host by equality or dotted-suffix (`youtube.com` matches `m.youtube.com`),
+    /// or by a leading-label wildcard: a term ending in `.*` (e.g. `api.*`) matches any host whose
+    /// first label is that prefix (`api.stripe.com`, `api.github.com`) via a `api.` prefix check.
+    /// A bare `*` (no dot) matches nothing.
     private func matchesHost(_ host: String, _ list: [String]) -> Bool {
         list.contains { raw in
             guard let term = Self.normalize(raw) else { return false }
+            if term.hasSuffix(".*") {
+                return host.hasPrefix(String(term.dropLast(1))) // "api.*" -> prefix "api."
+            }
             return host == term || host.hasSuffix("." + term)
         }
     }

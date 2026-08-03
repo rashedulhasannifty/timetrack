@@ -56,4 +56,27 @@ final class CategorizerTests: XCTestCase {
         let c = make(prodSites: ["slack.com"], unprodSites: ["slack.com"])
         XCTAssertEqual(c.category(appName: "x", host: "slack.com"), .unproductive)
     }
+
+    func testWildcardSubdomainMatch() {
+        let c = make(prodSites: ["api.*"])
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: "api.stripe.com"), .productive)
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: "api.github.com"), .productive)
+    }
+
+    func testWildcardRequiresLabelBoundary() {
+        // `api.*` matches only hosts whose FIRST label is exactly `api`, not substrings.
+        let c = make(prodSites: ["api.*"])
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: "myapi.com"), .neutral)
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: "apix.com"), .neutral)
+    }
+
+    func testWildcardWorksInUnproductiveList() {
+        let c = make(unprodSites: ["ads.*"])
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: "ads.example.com"), .unproductive)
+    }
+
+    func testBareWildcardMatchesNothing() {
+        let c = make(prodSites: ["*"])
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: "example.com"), .neutral)
+    }
 }
