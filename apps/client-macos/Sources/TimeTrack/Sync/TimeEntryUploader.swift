@@ -49,7 +49,10 @@ final class TimeEntryUploader: Uploading {
     /// Pure status → result mapping (unit-tested; the async orchestration is build-verified).
     static func classify(status: Int) -> UploadResult {
         switch status {
-        case 200, 201: return .success
+        // Any 2xx = the server accepted the record. The activity-samples/batch endpoint
+        // returns 202 Accepted; narrowing success to 200/201 made the client treat every
+        // accepted batch as a transient failure, wedging the buffer and re-sending forever.
+        case 200...299: return .success
         case 401: return .authFailed
         case 408, 429: return .transient
         case 500...599: return .transient
