@@ -23,6 +23,7 @@ import {
   ListProjectsQuerySchema,
   TeamSummarySchema,
   UpdateSettingsSchema,
+  ObservedAppsSchema,
   ProblemSchema,
   Role,
   AcceptInviteSchema,
@@ -193,6 +194,13 @@ describe('team-settings + policy', () => {
 
   it('accepts an empty admin settings patch', () => {
     expect(UpdateSettingsSchema.safeParse({}).success).toBe(true);
+  });
+
+  it('ObservedAppsSchema parses an app-name list and rejects a non-array', () => {
+    expect(ObservedAppsSchema.parse({ appNames: ['Code', 'Slack'] })).toEqual({
+      appNames: ['Code', 'Slack'],
+    });
+    expect(ObservedAppsSchema.safeParse({ appNames: 'Code' }).success).toBe(false);
   });
 });
 
