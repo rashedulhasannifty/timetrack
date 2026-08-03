@@ -79,4 +79,26 @@ final class CategorizerTests: XCTestCase {
         let c = make(prodSites: ["*"])
         XCTAssertEqual(c.category(appName: "Google Chrome", host: "example.com"), .neutral)
     }
+
+    func testMoreSpecificProductiveBeatsBroaderUnproductive() {
+        // The AWS-console-under-amazon.com collision: specific productive wins.
+        let c = make(prodSites: ["aws.amazon.com"], unprodSites: ["amazon.com"])
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: "console.aws.amazon.com"), .productive)
+    }
+
+    func testMoreSpecificUnproductiveBeatsBroaderProductive() {
+        let c = make(prodSites: ["google.com"], unprodSites: ["mail.google.com"])
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: "mail.google.com"), .unproductive)
+    }
+
+    func testExactMatchBeatsBroaderSuffix() {
+        let c = make(prodSites: ["mail.google.com"], unprodSites: ["google.com"])
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: "mail.google.com"), .productive)
+    }
+
+    func testDomainRuleOutranksWildcard() {
+        // A real-domain suffix is more specific than a broad `api.*` wildcard.
+        let c = make(prodSites: ["stripe.com"], unprodSites: ["api.*"])
+        XCTAssertEqual(c.category(appName: "Google Chrome", host: "api.stripe.com"), .productive)
+    }
 }
