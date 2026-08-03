@@ -38,6 +38,22 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     });
   }
 
+  const WINDOW = 300; // freshnessSeconds for these assertions
+  let sampleSeq = 0;
+  async function seedSample(userId: string, ts: Date) {
+    await db.prisma.activitySample.create({
+      data: {
+        id: `019797a0-0000-7000-8000-0000000005${String(sampleSeq++).padStart(2, '0')}`,
+        userId,
+        timestamp: ts,
+        appName: 'Code',
+        windowTitle: null,
+        activityPct: 50,
+        category: 'PRODUCTIVE',
+      },
+    });
+  }
+
   it('sums a closed entry inside the window and flags tracking=false', async () => {
     const team = await seedTeam();
     const user = await seedUser(team.id, 'Ada', 'ada@example.com');
@@ -51,7 +67,7 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       },
     });
 
-    const rows = await repo().overviewForTeam(team.id, DAY_START, DAY_END);
+    const rows = await repo().overviewForTeam(team.id, DAY_START, DAY_END, WINDOW);
     expect(rows).toEqual([
       { userId: user.id, name: 'Ada', tracking: false, trackedSecondsToday: 5400 },
     ]);
@@ -74,7 +90,8 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       },
     });
 
-    const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd);
+    await seedSample(user.id, new Date()); // fresh heartbeat within WINDOW
+    const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
     expect(row.tracking).toBe(true);
     expect(row.trackedSecondsToday).toBeGreaterThanOrEqual(59);
     expect(row.trackedSecondsToday).toBeLessThan(120);
@@ -93,7 +110,7 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       },
     });
 
-    const [row] = await repo().overviewForTeam(team.id, DAY_START, DAY_END);
+    const [row] = await repo().overviewForTeam(team.id, DAY_START, DAY_END, WINDOW);
     expect(row.trackedSecondsToday).toBe(3600); // only the in-window hour
   });
 
@@ -102,7 +119,7 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     const a = await seedUser(team.id, 'Ada', 'ada@example.com');
     const b = await seedUser(team.id, 'Bea', 'bea@example.com');
     void a;
-    const rows = await repo().overviewForTeam(team.id, DAY_START, DAY_END);
+    const rows = await repo().overviewForTeam(team.id, DAY_START, DAY_END, WINDOW);
     const bea = rows.find((r) => r.name === 'Bea');
     expect(bea).toEqual({ userId: b.id, name: 'Bea', tracking: false, trackedSecondsToday: 0 });
   });
@@ -111,7 +128,7 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     const team = await seedTeam();
     const a = await seedUser(team.id, 'Ada', 'ada@example.com');
     await seedUser(team.id, 'Bea', 'bea@example.com');
-    const rows = await repo().overviewForSelf(a.id, DAY_START, DAY_END);
+    const rows = await repo().overviewForSelf(a.id, DAY_START, DAY_END, WINDOW);
     expect(rows.map((r) => r.name)).toEqual(['Ada']);
   });
 
@@ -130,11 +147,68 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     });
     void deactivated;
 
-    const rows = await repo().overviewForTeam(team.id, DAY_START, DAY_END);
+    const rows = await repo().overviewForTeam(team.id, DAY_START, DAY_END, WINDOW);
     expect(rows.map((r) => r.name)).toEqual(['Ada']);
     expect(rows).toEqual([
       { userId: active.id, name: 'Ada', tracking: false, trackedSecondsToday: 0 },
     ]);
+  });
+
+  it('open entry + fresh heartbeat → tracking=true', async () => {
+    const team = await seedTeam();
+    const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+    const dayStart = new Date(Date.now() - 3_600_000);
+    const dayEnd = new Date(Date.now() + 3_600_000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000110',
+        userId: user.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 60_000),
+        endTime: null,
+      },
+    });
+    await seedSample(user.id, new Date()); // now
+    const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
+    expect(row.tracking).toBe(true);
+  });
+
+  it('open entry + STALE heartbeat → tracking=false (regression)', async () => {
+    const team = await seedTeam();
+    const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+    const dayStart = new Date(Date.now() - 3_600_000);
+    const dayEnd = new Date(Date.now() + 3_600_000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000111',
+        userId: user.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 60_000),
+        endTime: null, // open, but…
+      },
+    });
+    await seedSample(user.id, new Date(Date.now() - 10 * 60_000)); // 10 min ago, outside WINDOW
+    const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
+    expect(row.tracking).toBe(false); // fails against pre-fix SQL (returns true)
+  });
+
+  it('fresh heartbeat but NO open entry → tracking=false', async () => {
+    const team = await seedTeam();
+    const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+    const dayStart = new Date(Date.now() - 3_600_000);
+    const dayEnd = new Date(Date.now() + 3_600_000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000112',
+        userId: user.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 120_000),
+        endTime: new Date(Date.now() - 60_000), // closed
+      },
+    });
+    await seedSample(user.id, new Date());
+    const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
+    expect(row.tracking).toBe(false);
   });
 
   describe('trends', () => {

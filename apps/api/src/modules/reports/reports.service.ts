@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import {
   ProjectSummarySchema,
   TeamActivitySchema,
@@ -20,14 +20,22 @@ import type { SessionUser } from '../../common/decorators/current-user.decorator
 import { ResourceAccessService } from '../../common/authz/resource-access.service.js';
 import { ReportsRepository, type ReportScope } from './reports.repository.js';
 import { csvHeaderLine, formatCsvRow } from './csv-writer.js';
+import { TRACKING_FRESHNESS_SECONDS } from './reports.tokens.js';
 
 const DAY_MS = 86_400_000;
 
 @Injectable()
 export class ReportsService {
+  // All three params carry an explicit @Inject token. Mixing a token-injected param with
+  // bare class-typed params breaks under this repo's vitest e2e transform (esbuild, no
+  // `emitDecoratorMetadata`/design:paramtypes — see app-bootstrap.e2e-spec.ts): once Nest
+  // sees ANY explicit @Inject on the constructor it stops falling back to type reflection
+  // for the others, and they resolve to nothing. Explicit tokens on all three keep
+  // resolution metadata-independent.
   constructor(
-    private readonly repo: ReportsRepository,
-    private readonly access: ResourceAccessService,
+    @Inject(ReportsRepository) private readonly repo: ReportsRepository,
+    @Inject(ResourceAccessService) private readonly access: ResourceAccessService,
+    @Inject(TRACKING_FRESHNESS_SECONDS) private readonly trackingFreshnessSeconds: number,
   ) {}
 
   async overview(query: TeamOverviewQuery, user: SessionUser): Promise<TeamOverview> {
@@ -39,8 +47,13 @@ export class ReportsService {
     // by the actor's identity — no client parameter can widen it (CLAUDE.md §4).
     const rows =
       user.role === 'EMPLOYEE'
-        ? await this.repo.overviewForSelf(user.id, dayStart, dayEnd)
-        : await this.repo.overviewForTeam(user.teamId, dayStart, dayEnd);
+        ? await this.repo.overviewForSelf(user.id, dayStart, dayEnd, this.trackingFreshnessSeconds)
+        : await this.repo.overviewForTeam(
+            user.teamId,
+            dayStart,
+            dayEnd,
+            this.trackingFreshnessSeconds,
+          );
 
     return TeamOverviewSchema.parse({ date, rows });
   }

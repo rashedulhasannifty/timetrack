@@ -38,22 +38,44 @@ export interface ProjectSummaryRepoRow {
 export class ReportsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  overviewForTeam(teamId: string, dayStart: Date, dayEnd: Date): Promise<OverviewRow[]> {
-    return this.overview(Prisma.sql`u."teamId" = ${teamId}`, dayStart, dayEnd);
+  overviewForTeam(
+    teamId: string,
+    dayStart: Date,
+    dayEnd: Date,
+    freshnessSeconds: number,
+  ): Promise<OverviewRow[]> {
+    return this.overview(Prisma.sql`u."teamId" = ${teamId}`, dayStart, dayEnd, freshnessSeconds);
   }
 
-  overviewForSelf(userId: string, dayStart: Date, dayEnd: Date): Promise<OverviewRow[]> {
-    return this.overview(Prisma.sql`u.id = ${userId}`, dayStart, dayEnd);
+  overviewForSelf(
+    userId: string,
+    dayStart: Date,
+    dayEnd: Date,
+    freshnessSeconds: number,
+  ): Promise<OverviewRow[]> {
+    return this.overview(Prisma.sql`u.id = ${userId}`, dayStart, dayEnd, freshnessSeconds);
   }
 
-  private async overview(scope: Prisma.Sql, dayStart: Date, dayEnd: Date): Promise<OverviewRow[]> {
+  private async overview(
+    scope: Prisma.Sql,
+    dayStart: Date,
+    dayEnd: Date,
+    freshnessSeconds: number,
+  ): Promise<OverviewRow[]> {
     const rows = await this.prisma.$queryRaw<
       Array<{ userId: string; name: string; tracking: boolean; trackedSeconds: number | bigint }>
     >`
       SELECT
         u.id AS "userId",
         u.name AS "name",
-        COALESCE(bool_or(te.id IS NOT NULL AND te."endTime" IS NULL), false) AS "tracking",
+        (
+          COALESCE(bool_or(te.id IS NOT NULL AND te."endTime" IS NULL), false)
+          AND EXISTS (
+            SELECT 1 FROM activity_samples a
+            WHERE a."userId" = u.id
+              AND a."timestamp" > now() - make_interval(secs => ${freshnessSeconds})
+          )
+        ) AS "tracking",
         COALESCE(FLOOR(SUM(
           CASE WHEN te.id IS NULL THEN 0
                ELSE GREATEST(

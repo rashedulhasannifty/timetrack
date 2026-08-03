@@ -16,7 +16,7 @@ function make() {
     overviewForSelf: vi.fn().mockResolvedValue(rows),
   } as unknown as ReportsRepository;
   const access = {} as unknown as ResourceAccessService;
-  return { svc: new ReportsService(repo, access), repo };
+  return { svc: new ReportsService(repo, access, 300), repo };
 }
 
 function makeReports() {
@@ -33,7 +33,7 @@ function makeReports() {
   const access = {
     assertCanAccessUser: vi.fn().mockResolvedValue(undefined),
   } as unknown as ResourceAccessService;
-  return { svc: new ReportsService(repo, access), repo, access };
+  return { svc: new ReportsService(repo, access, 300), repo, access };
 }
 
 const range = { from: '2026-07-01T00:00:00.000Z', to: '2026-07-08T00:00:00.000Z' };
@@ -46,6 +46,7 @@ describe('ReportsService.overview', () => {
       't1',
       new Date('2026-07-12T00:00:00.000Z'),
       new Date('2026-07-13T00:00:00.000Z'),
+      300,
     );
     expect(repo.overviewForSelf).not.toHaveBeenCalled();
   });
@@ -53,13 +54,23 @@ describe('ReportsService.overview', () => {
   it('scopes an ADMIN to their own team', async () => {
     const { svc, repo } = make();
     await svc.overview({ date: '2026-07-12' }, admin);
-    expect(repo.overviewForTeam).toHaveBeenCalledWith('t1', expect.any(Date), expect.any(Date));
+    expect(repo.overviewForTeam).toHaveBeenCalledWith(
+      't1',
+      expect.any(Date),
+      expect.any(Date),
+      300,
+    );
   });
 
   it('scopes an EMPLOYEE to themselves and never widens to the team', async () => {
     const { svc, repo } = make();
     await svc.overview({ date: '2026-07-12' }, employee);
-    expect(repo.overviewForSelf).toHaveBeenCalledWith('u1', expect.any(Date), expect.any(Date));
+    expect(repo.overviewForSelf).toHaveBeenCalledWith(
+      'u1',
+      expect.any(Date),
+      expect.any(Date),
+      300,
+    );
     expect(repo.overviewForTeam).not.toHaveBeenCalled();
   });
 
@@ -72,6 +83,7 @@ describe('ReportsService.overview', () => {
       't1',
       new Date(`${today}T00:00:00.000Z`),
       new Date(new Date(`${today}T00:00:00.000Z`).getTime() + 86_400_000),
+      300,
     );
   });
 });
