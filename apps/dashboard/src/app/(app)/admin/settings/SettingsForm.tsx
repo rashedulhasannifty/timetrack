@@ -1,9 +1,10 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import type { TeamSettings } from '@timetrack/contracts';
 import { Card } from '../../../../components/ui/Card';
 import { Button } from '../../../../components/ui/Button';
+import { flaggedTerms, type TermKind } from '../../../../lib/classification-hints';
 import { updateSettingsAction, type SettingsState } from './actions';
 
 const INITIAL: SettingsState = { ok: false };
@@ -58,6 +59,54 @@ function Toggle({
         <span className="block text-[13px] font-medium">{label}</span>
         <span className="text-text-secondary text-caption">{hint}</span>
       </span>
+    </label>
+  );
+}
+
+/**
+ * A classification list (app or site) with live, non-blocking hints. The client Categorizer
+ * matches silently, so a mistyped term just never matches; this surfaces likely mistakes as the
+ * admin types without ever preventing a save. The textarea is controlled so hints stay live, but
+ * keeps its `name` so the server action reads it from FormData unchanged.
+ */
+function ListField({
+  name,
+  label,
+  hint,
+  placeholder,
+  defaultValue,
+  kind,
+}: {
+  name: string;
+  label: string;
+  hint: string;
+  placeholder: string;
+  defaultValue: string;
+  kind: TermKind;
+}) {
+  const [value, setValue] = useState(defaultValue);
+  const flagged = flaggedTerms(value, kind);
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[13px] font-medium">{label}</span>
+      <textarea
+        name={name}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        rows={3}
+        placeholder={placeholder}
+        className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
+      />
+      <span className="text-text-secondary text-caption">{hint}</span>
+      {flagged.length > 0 ? (
+        <ul className="text-destructive text-caption mt-1 flex flex-col gap-0.5" role="status">
+          {flagged.map((f, i) => (
+            <li key={`${f.term}-${i}`}>
+              <code>{f.term}</code> — {f.issue}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </label>
   );
 }
@@ -178,32 +227,22 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
             Classify apps as productive or unproductive for reporting.
           </p>
         </div>
-        <label className="flex flex-col gap-1">
-          <span className="text-[13px] font-medium">Productive apps</span>
-          <textarea
-            name="productiveApps"
-            defaultValue={settings.productiveApps.join('\n')}
-            rows={3}
-            placeholder="One app per line"
-            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
-          />
-          <span className="text-text-secondary text-caption">
-            One app name per line (or comma-separated).
-          </span>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[13px] font-medium">Unproductive apps</span>
-          <textarea
-            name="unproductiveApps"
-            defaultValue={settings.unproductiveApps.join('\n')}
-            rows={3}
-            placeholder="One app per line"
-            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
-          />
-          <span className="text-text-secondary text-caption">
-            A category label, not a judgement.
-          </span>
-        </label>
+        <ListField
+          name="productiveApps"
+          label="Productive apps"
+          hint="One app name per line (or comma-separated)."
+          placeholder="One app per line"
+          defaultValue={settings.productiveApps.join('\n')}
+          kind="app"
+        />
+        <ListField
+          name="unproductiveApps"
+          label="Unproductive apps"
+          hint="A category label, not a judgement."
+          placeholder="One app per line"
+          defaultValue={settings.unproductiveApps.join('\n')}
+          kind="app"
+        />
       </Card>
 
       <Card padding="md" className="flex flex-col gap-4">
@@ -215,32 +254,22 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
             <code>api.*</code>) matches any host with that leading label.
           </p>
         </div>
-        <label className="flex flex-col gap-1">
-          <span className="text-[13px] font-medium">Productive sites</span>
-          <textarea
-            name="productiveSites"
-            defaultValue={settings.productiveSites.join('\n')}
-            rows={3}
-            placeholder="One site host per line, e.g. docs.google.com"
-            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
-          />
-          <span className="text-text-secondary text-caption">
-            One host per line (or comma-separated).
-          </span>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[13px] font-medium">Unproductive sites</span>
-          <textarea
-            name="unproductiveSites"
-            defaultValue={settings.unproductiveSites.join('\n')}
-            rows={3}
-            placeholder="One site host per line, e.g. youtube.com"
-            className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
-          />
-          <span className="text-text-secondary text-caption">
-            A category label, not a judgement.
-          </span>
-        </label>
+        <ListField
+          name="productiveSites"
+          label="Productive sites"
+          hint="One host per line (or comma-separated)."
+          placeholder="One site host per line, e.g. docs.google.com"
+          defaultValue={settings.productiveSites.join('\n')}
+          kind="site"
+        />
+        <ListField
+          name="unproductiveSites"
+          label="Unproductive sites"
+          hint="A category label, not a judgement."
+          placeholder="One site host per line, e.g. youtube.com"
+          defaultValue={settings.unproductiveSites.join('\n')}
+          kind="site"
+        />
       </Card>
 
       <div className="flex items-center gap-3">
