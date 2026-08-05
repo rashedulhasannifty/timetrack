@@ -20,6 +20,8 @@ import {
   type User,
   TeamSchema,
   type Team,
+  ObservedAppsSchema,
+  type ObservedApps,
   TokenPairSchema,
   type TokenPair,
   TeamOverviewSchema,
@@ -208,6 +210,8 @@ export const api = {
   listUsers: (token: string): Promise<User[]> => get('/users', z.array(UserSchema), token),
   getCurrentUser: (token: string): Promise<User> => get('/users/me', UserSchema, token),
   getCurrentTeam: (token: string): Promise<Team> => get('/teams/current', TeamSchema, token),
+  getObservedApps: (token: string): Promise<ObservedApps> =>
+    get('/admin/observed-apps', ObservedAppsSchema, token),
   teamOverview: (token: string, date?: string): Promise<TeamOverview> =>
     get(`/reports/overview${date ? `?date=${date}` : ''}`, TeamOverviewSchema, token),
   teamSummary: (token: string, params: URLSearchParams): Promise<TeamSummary> =>

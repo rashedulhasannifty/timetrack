@@ -44,18 +44,21 @@ All matching is case-insensitive and trimmed.
 - No blanket `api.*` / `docs.*` in the seeded defaults — as defaults they'd mark every
   `api.`/`docs.` host productive. The wildcard **feature** remains available to admins.
 
+## Shipped
+
+- **Settings UI validation.** The matcher fails silently on bad input (mistyped app name,
+  leading wildcard, full URL, path, `www.`, spaces), so the settings textareas surface live,
+  non-blocking hints (`lib/classification-hints.ts`).
+- **App-name picker from telemetry.** `GET /admin/observed-apps` (ADMIN-only, team from session)
+  ranks the app names the fleet reported in the last 30 days from the `activity_daily_summaries.byApp`
+  rollup; the settings app fields show them as "seen recently" chips. Sites get no picker — hosts
+  are never stored server-side.
+
 ## Deferred follow-ups (each its own slice)
 
 1. **Match apps by bundleId, not display name.** Exact `localizedName` matching is fragile
    (versioned names, `zoom.us`). Requires the client to send `bundleId` + a matching change.
-2. **Settings UI validation.** The matcher fails _silently_ on bad input (mistyped app name,
-   leading wildcard, full URL, path, `www.`, spaces). Add inline validation/normalization on the
-   four textareas. Dashboard-only.
-3. **App-name picker from telemetry.** `ActivitySample.appName` is stored server-side, so we can
-   offer admins a picker of app names the fleet actually reported (kills the app silent-failure
-   case). It reads other users' activity → **admin-only** endpoint with `@ResourceScope` + the
-   403 test. Sites can't have this — hosts are never stored.
-4. **Optional richer model** (per RescueTime/Time Doctor): numeric per-category score, an
+2. **Optional richer model** (per RescueTime/Time Doctor): numeric per-category score, an
    explicit `UNRATED` state distinct from `NEUTRAL`, and scope override (team/user).
 
 Path-based matching (`/api`, `/docs`) is **out of scope** by design — the client keeps only the

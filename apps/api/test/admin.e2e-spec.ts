@@ -68,6 +68,62 @@ describe.runIf(RUN_E2E)('admin settings — real Postgres', () => {
   });
 });
 
+describe.runIf(RUN_E2E)('admin observed-apps — real Postgres', () => {
+  let db: TestDb;
+  beforeAll(async () => {
+    db = await startTestDb();
+  });
+  afterAll(async () => {
+    await db.close();
+  });
+  afterEach(async () => {
+    await truncateAll(db.prisma);
+  });
+
+  function repo(): AdminRepository {
+    return new AdminRepository(db.prisma as unknown as PrismaService);
+  }
+
+  async function summary(userId: string, day: Date, byApp: Record<string, number>): Promise<void> {
+    await db.prisma.activityDailySummary.create({
+      data: { userId, day, avgActivityPct: 50, activeMinutes: 100, byApp, byCategory: {} },
+    });
+  }
+
+  async function user(email: string, teamId: string): Promise<string> {
+    const u = await db.prisma.user.create({
+      data: { email, name: email, passwordHash: 'x', teamId },
+      select: { id: true },
+    });
+    return u.id;
+  }
+
+  it('ranks the team’s app names by summed minutes and excludes other teams', async () => {
+    const teamA = await db.prisma.team.create({ data: { name: 'A', settings: {} } });
+    const teamB = await db.prisma.team.create({ data: { name: 'B', settings: {} } });
+    const ua = await user('a@x.com', teamA.id);
+    const ub = await user('b@x.com', teamB.id);
+
+    const d1 = new Date();
+    const d2 = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await summary(ua, d1, { Code: 100, Slack: 30 });
+    await summary(ua, d2, { Code: 50, Slack: 200 }); // Slack total 230 > Code total 150
+    await summary(ub, d1, { Figma: 999 }); // other team — must not appear
+
+    const apps = await repo().listObservedApps(teamA.id);
+    expect(apps).toEqual(['Slack', 'Code']); // ranked by summed minutes desc
+    expect(apps).not.toContain('Figma');
+  });
+
+  it('excludes summaries older than the 30-day window and returns [] for an empty team', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'A', settings: {} } });
+    const u = await user('a@x.com', team.id);
+    await summary(u, new Date(Date.now() - 40 * 24 * 60 * 60 * 1000), { Ancient: 500 });
+
+    expect(await repo().listObservedApps(team.id)).toEqual([]);
+  });
+});
+
 describe.runIf(RUN_E2E)('admin audit-log — keyset paging + actor resolution', () => {
   let db: TestDb;
   beforeAll(async () => {

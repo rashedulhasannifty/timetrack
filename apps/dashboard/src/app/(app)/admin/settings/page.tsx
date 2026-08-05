@@ -33,7 +33,12 @@ export default async function AdminSettingsPage() {
   if (!session) return null; // the layout already gated; this satisfies type-narrowing.
   if (session.role !== 'ADMIN') return <Forbidden />;
 
-  const team = await api.getCurrentTeam(session.accessToken);
+  // The observed-apps list only powers a convenience picker, so a failure must not break the
+  // settings page — fall back to no suggestions.
+  const [team, observed] = await Promise.all([
+    api.getCurrentTeam(session.accessToken),
+    api.getObservedApps(session.accessToken).catch(() => ({ appNames: [] as string[] })),
+  ]);
   const { settings } = team;
 
   return (
@@ -41,7 +46,7 @@ export default async function AdminSettingsPage() {
       <SetPageTitle title="Admin" />
       <AdminTabs />
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
-        <SettingsForm settings={settings} />
+        <SettingsForm settings={settings} observedApps={observed.appNames} />
         <Card padding="md" className="flex flex-col gap-3">
           <div className="text-text text-[15px] font-semibold">Effective policy</div>
           <div className="flex flex-col gap-2.5">

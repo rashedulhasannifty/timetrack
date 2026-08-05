@@ -52,9 +52,20 @@ export const EraseUserSchema = z.object({
   reason: z.string().min(1).max(500),
 });
 
+/**
+ * GET /admin/observed-apps — app names the team's fleet has actually reported (recent window),
+ * ranked by usage. Powers the settings classification picker so admins classify from real data
+ * instead of guessing the exact macOS app name. Hosts are intentionally NOT offered — they never
+ * leave the device, so there is nothing to suggest for sites.
+ */
+export const ObservedAppsSchema = z.object({
+  appNames: z.array(z.string()),
+});
+
 export type UpdateSettings = z.infer<typeof UpdateSettingsSchema>;
 export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>;
 export type AuditLogListItem = z.infer<typeof AuditLogListItemSchema>;
 export type AuditLogPage = z.infer<typeof AuditLogPageSchema>;
 export type AuditLogQuery = z.infer<typeof AuditLogQuerySchema>;
 export type EraseUser = z.infer<typeof EraseUserSchema>;
+export type ObservedApps = z.infer<typeof ObservedAppsSchema>;
