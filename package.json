@@ -60,6 +60,13 @@
       "esbuild",
       "prisma",
       "sharp"
-    ]
+    ],
+    "//overrides": "Patch high-severity transitive CVEs (pnpm audit --prod --audit-level high). Ranges target only the vulnerable versions; each is a patch bump within its major line, so no framework major is forced.",
+    "overrides": {
+      "postcss@<8.5.18": ">=8.5.18",
+      "sharp@<0.35.0": ">=0.35.0",
+      "find-my-way@<9.7.0": ">=9.7.0",
+      "fast-uri": ">=4.1.2"
+    }
   }
 }
