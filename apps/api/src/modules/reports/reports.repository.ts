@@ -68,13 +68,10 @@ export class ReportsRepository {
       SELECT
         u.id AS "userId",
         u.name AS "name",
-        (
-          COALESCE(bool_or(te.id IS NOT NULL AND te."endTime" IS NULL), false)
-          AND EXISTS (
-            SELECT 1 FROM activity_samples a
-            WHERE a."userId" = u.id
-              AND a."timestamp" > now() - make_interval(secs => ${freshnessSeconds})
-          )
+        EXISTS (
+          SELECT 1 FROM activity_samples a
+          WHERE a."userId" = u.id
+            AND a."timestamp" > now() - make_interval(secs => ${freshnessSeconds})
         ) AS "tracking",
         COALESCE(FLOOR(SUM(
           CASE WHEN te.id IS NULL THEN 0
