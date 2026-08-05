@@ -211,7 +211,8 @@ export function SettingsForm({ settings }: { settings: TeamSettings }) {
           <h2 className="text-text text-[15px] font-semibold">Site categories</h2>
           <p className="text-text-secondary text-caption">
             Matched against the browser&rsquo;s current site host (e.g. <code>youtube.com</code>),
-            separately from apps. A host matches its subdomains.
+            separately from apps. A host matches its subdomains; a <code>.*</code> suffix (e.g.{' '}
+            <code>api.*</code>) matches any host with that leading label.
           </p>
         </div>
         <label className="flex flex-col gap-1">
