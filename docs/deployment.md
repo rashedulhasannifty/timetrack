@@ -97,22 +97,26 @@ docker build -f infra/dashboard.Dockerfile -t timetrack/dashboard:$TAG .
 
 ## 5. Release flow (runbook)
 
+All commands run **from the repo root** with `--env-file .env.prod` (see §2 for why). `.env.prod`
+lives at the repo root, `chmod 600`.
+
 **First deploy:**
 
-1. Provision the VM; install Docker + compose.
-2. Place `.env.prod` (600) and `infra/docker-compose.prod.yml` + `Caddyfile`.
-3. Build/pull images: `docker build -f infra/api.Dockerfile -t timetrack/api:$TAG .` (and worker, dashboard), or pull from your registry.
-4. Start datastores; wait healthy.
-5. Run `migrate deploy` (one-shot).
-6. Seed the bootstrap ADMIN (`pnpm db:seed` with `SEED_ADMIN_*`), then rotate that password on first login.
-7. Start api/worker/dashboard/proxy.
-8. Verify `/health` (liveness) and `/health/ready` (PG+Redis+MinIO reachable).
+1. Provision the VM; install Docker + compose. Point DNS for `PUBLIC_DOMAIN` at it (Caddy needs it resolving before it can issue the cert).
+2. Copy `.env.prod.example` → `.env.prod`, fill it, `chmod 600`.
+3. Build (or pull) the three images — the `docker build …` commands in §2.
+4. Run the migrate one-shot (also seeds the datastores' health-gated startup):
+   `docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm migrate`
+5. Seed the bootstrap ADMIN (needs `SEED_ADMIN_*` set), then rotate that password on first login:
+   `docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm seed`
+6. Start the stack: `docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d` (datastores → `createbuckets` → apps → proxy, gated by healthchecks).
+7. Verify `/health` (liveness) and `/health/ready` (PG+Redis+MinIO reachable) via the public domain.
 
 **Upgrade:**
 
-1. Build/pull the new `$TAG`.
-2. `migrate deploy` (forward-only).
-3. Roll api → worker → dashboard (api is stateless; brief overlap is fine).
+1. Build/pull the new `$TAG` (set `TAG` in `.env.prod`).
+2. `--profile setup run --rm migrate` (forward-only).
+3. `up -d` rolls api → worker → dashboard (api is stateless; brief overlap is fine).
 4. Smoke `/health/ready` + a login + a report.
 
 **Rollback:** redeploy the previous image `$TAG`. **Migrations are forward-only** — do not auto-revert; a bad migration needs a new corrective migration. Restore from backup only for data loss.

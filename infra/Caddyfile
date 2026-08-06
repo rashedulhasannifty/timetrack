@@ -15,7 +15,9 @@
 	encode zstd gzip
 
 	# HSTS at the proxy (deployment §9). Backend not directly exposed; this is the edge.
-	header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+	# includeSubDomains is deliberate; no `preload` — self-hosted, we don't submit to the
+	# preload list, and it would over-commit an operator's apex domain.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 
 	# NestJS API: the Mac client's /v1/* traffic and the /health, /health/ready probes.
 	@api path /v1 /v1/* /health /health/*
