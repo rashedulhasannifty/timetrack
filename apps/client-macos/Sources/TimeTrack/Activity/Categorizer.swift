@@ -5,10 +5,11 @@ import Foundation
 /// frontmost app name matches only the app lists. A host category wins over the app category;
 /// else NEUTRAL. For sites the MOST SPECIFIC matching term wins across both lists (so a broad
 /// `amazon.com` in the unproductive list can't silently override a specific `aws.amazon.com` in
-/// the productive list); on equal specificity, UNPRODUCTIVE wins (fail toward flagging). App
-/// names match by exact equality, and there UNPRODUCTIVE wins on overlap. All matching is
-/// case-insensitive + trimmed. No content is read here — only the app name and (optionally) a
-/// host derived upstream for this call.
+/// the productive list); on equal specificity, UNPRODUCTIVE wins (fail toward flagging). An app
+/// rule matches by exact equality against EITHER the app's bundleId or its display name (so a
+/// bundleId rule survives a rename), and there UNPRODUCTIVE wins on overlap. All matching is
+/// case-insensitive + trimmed. No content is read here — only the app name, its bundleId, and
+/// (optionally) a host derived upstream for this call.
 enum Category: String {
     case productive = "PRODUCTIVE"
     case unproductive = "UNPRODUCTIVE"
@@ -29,7 +30,7 @@ struct Categorizer {
         self.unproductiveSites = unproductiveSites
     }
 
-    func category(appName: String, host: String?) -> Category {
+    func category(appName: String, bundleId: String? = nil, host: String?) -> Category {
         if let host = Self.normalize(host) {
             // Most-specific term wins across both site lists; equal specificity -> unproductive.
             let unprod = bestSiteSpecificity(host, unproductiveSites)
@@ -38,11 +39,23 @@ struct Categorizer {
             if unprod != nil { return .unproductive }
             if prod != nil { return .productive }
         }
-        if let app = Self.normalize(appName) {
-            if unproductiveApps.contains(where: { Self.normalize($0) == app }) { return .unproductive }
-            if productiveApps.contains(where: { Self.normalize($0) == app }) { return .productive }
+        // An app rule matches by bundleId OR display name (either normalized) — so a bundleId rule
+        // survives a rename, and a name rule keeps working. UNPRODUCTIVE wins on overlap.
+        let app = Self.normalize(appName)
+        let bundle = Self.normalize(bundleId)
+        if app != nil || bundle != nil {
+            if Self.appListMatches(unproductiveApps, app, bundle) { return .unproductive }
+            if Self.appListMatches(productiveApps, app, bundle) { return .productive }
         }
         return .neutral
+    }
+
+    /// True if any term in `list` equals the app's normalized display name or bundleId.
+    private static func appListMatches(_ list: [String], _ app: String?, _ bundle: String?) -> Bool {
+        list.contains { raw in
+            guard let term = normalize(raw) else { return false }
+            return term == app || term == bundle
+        }
     }
 
     /// Highest match specificity of any term in `list` against `host`, or nil if none match.

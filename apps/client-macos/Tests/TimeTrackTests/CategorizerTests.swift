@@ -101,4 +101,39 @@ final class CategorizerTests: XCTestCase {
         let c = make(prodSites: ["stripe.com"], unprodSites: ["api.*"])
         XCTAssertEqual(c.category(appName: "Google Chrome", host: "api.stripe.com"), .productive)
     }
+
+    func testAppMatchesByBundleId() {
+        let c = make(prod: ["com.microsoft.VSCode"])
+        XCTAssertEqual(c.category(appName: "Code", bundleId: "com.microsoft.VSCode", host: nil), .productive)
+    }
+
+    func testBundleIdRuleSurvivesARename() {
+        // The display name differs from what an admin might have typed, but the bundleId rule holds.
+        let c = make(prod: ["com.microsoft.VSCode"])
+        XCTAssertEqual(
+            c.category(appName: "Visual Studio Code", bundleId: "com.microsoft.VSCode", host: nil),
+            .productive)
+    }
+
+    func testAppNameRuleStillMatchesWithABundleIdPresent() {
+        let c = make(prod: ["Slack"])
+        XCTAssertEqual(
+            c.category(appName: "Slack", bundleId: "com.tinyspeck.slackmacgap", host: nil), .productive)
+    }
+
+    func testBundleIdMatchIsCaseInsensitive() {
+        let c = make(prod: ["COM.MICROSOFT.VSCODE"])
+        XCTAssertEqual(c.category(appName: "x", bundleId: "com.microsoft.vscode", host: nil), .productive)
+    }
+
+    func testUnproductiveByBundleId() {
+        let c = make(unprod: ["com.example.game"])
+        XCTAssertEqual(c.category(appName: "Some Game", bundleId: "com.example.game", host: nil), .unproductive)
+    }
+
+    func testNilBundleIdFallsBackToNameOnly() {
+        let c = make(prod: ["com.microsoft.VSCode"])
+        // No bundleId and the name isn't the rule → NEUTRAL (bundleId rules need a bundleId).
+        XCTAssertEqual(c.category(appName: "Code", bundleId: nil, host: nil), .neutral)
+    }
 }
