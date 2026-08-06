@@ -19,7 +19,7 @@
     "@timetrack/contracts": "workspace:*",
     "@timetrack/db": "workspace:*",
     "@timetrack/logger": "workspace:*",
-    "bullmq": "^5.58.0",
+    "bullmq": "^6.0.6",
     "nestjs-pino": "^4.4.0",
     "reflect-metadata": "^0.2.2",
     "sharp": "^0.35.3"
