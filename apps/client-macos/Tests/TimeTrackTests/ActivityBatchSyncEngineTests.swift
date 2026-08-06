@@ -10,7 +10,8 @@ final class ActivityBatchSyncEngineTests: XCTestCase {
     private func seed(_ store: ActivitySampleStore, _ ids: [String]) {
         for id in ids {
             store.enqueue(ActivitySample(id: id, timestamp: "2023-11-14T22:13:20Z", appName: "Xcode",
-                                         windowTitle: nil, activityPct: 50, category: "NEUTRAL"))
+                                         bundleId: nil, windowTitle: nil, activityPct: 50,
+                                         category: "NEUTRAL"))
         }
     }
     private func engine(_ store: ActivitySampleStore, _ up: FakeActivityUploader) -> ActivityBatchSyncEngine {

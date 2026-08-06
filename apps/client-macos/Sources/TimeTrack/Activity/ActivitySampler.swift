@@ -93,12 +93,12 @@ final class ActivitySampler {
                 // Cancelled mid-cycle (e.g. sign-out) → never persist a partial-window sample.
                 guard !Task.isCancelled else { return false }
                 let capturedAt = clock()
-                let (appName, windowTitle) = appSampler.sample(captureWindowTitles: captureWindowTitles)
+                let (appName, bundleId, windowTitle) = appSampler.sample(captureWindowTitles: captureWindowTitles)
                 let host = siteResolver.currentHost()  // discarded after this line; never stored/sent
-                let category = categorizer.category(appName: appName, host: host)
+                let category = categorizer.category(appName: appName, bundleId: bundleId, host: host)
                 let sample = ActivitySample(
                     id: idGen(capturedAt), timestamp: Self.iso.string(from: capturedAt),
-                    appName: appName, windowTitle: windowTitle,
+                    appName: appName, bundleId: bundleId, windowTitle: windowTitle,
                     activityPct: meter.activityPct(), category: category.rawValue)
                 store.enqueue(sample)
                 onSampled()

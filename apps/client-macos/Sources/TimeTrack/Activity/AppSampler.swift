@@ -7,15 +7,17 @@ import Foundation
 /// nil, never block. Truncated to 120 chars; never logged (CLAUDE.md §1). Title capture is gated
 /// by `captureWindowTitles` (PRD §13).
 protocol AppSampling {
-    func sample(captureWindowTitles: Bool) -> (appName: String, windowTitle: String?)
+    func sample(captureWindowTitles: Bool) -> (appName: String, bundleId: String?, windowTitle: String?)
 }
 
 final class AppSampler: AppSampling {
-    func sample(captureWindowTitles: Bool) -> (appName: String, windowTitle: String?) {
+    func sample(captureWindowTitles: Bool) -> (appName: String, bundleId: String?, windowTitle: String?) {
         let front = NSWorkspace.shared.frontmostApplication
         let appName = Self.truncateAppName(front?.localizedName) ?? "Unknown"
-        guard captureWindowTitles, let pid = front?.processIdentifier else { return (appName, nil) }
-        return (appName, Self.truncateTitle(frontWindowName(pid: pid)))
+        // Stable reverse-DNS bundle id (e.g. com.microsoft.VSCode); nil for apps without a bundle.
+        let bundleId = front?.bundleIdentifier
+        guard captureWindowTitles, let pid = front?.processIdentifier else { return (appName, bundleId, nil) }
+        return (appName, bundleId, Self.truncateTitle(frontWindowName(pid: pid)))
     }
 
     /// First on-screen window title owned by `pid` (front-to-back z-order). Empty/absent ⇒ nil.
