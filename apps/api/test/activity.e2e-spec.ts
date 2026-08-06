@@ -64,6 +64,40 @@ describe.runIf(RUN_E2E)('activity repository read — real Postgres', () => {
     expect(rows.map((r) => r.activityPct)).toEqual([40, 60]); // ordered, windowed, own-only
     expect(rows[0].timestamp).toBe('2026-07-11T09:00:00.000Z');
   });
+
+  it('ingests and reads back an optional bundleId (present and absent)', async () => {
+    const u = await seedUser('b1@example.com');
+    const accepted = await repo().insertBatch(u.id, [
+      {
+        id: '019797a0-0000-7000-8000-0000000000d1',
+        timestamp: '2026-07-11T09:00:00.000Z',
+        appName: 'Code',
+        bundleId: 'com.microsoft.VSCode',
+        windowTitle: null,
+        activityPct: 50,
+        category: 'NEUTRAL',
+      },
+      {
+        // No bundleId — mirrors the shipped client that omits it.
+        id: '019797a0-0000-7000-8000-0000000000d2',
+        timestamp: '2026-07-11T09:01:00.000Z',
+        appName: 'loginwindow',
+        windowTitle: null,
+        activityPct: 10,
+        category: 'NEUTRAL',
+      },
+    ]);
+    expect(accepted).toBe(2);
+
+    const rows = await repo().list({
+      userId: u.id,
+      from: '2026-07-11T00:00:00.000Z',
+      to: '2026-07-11T23:59:59.999Z',
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get('019797a0-0000-7000-8000-0000000000d1')?.bundleId).toBe('com.microsoft.VSCode');
+    expect(byId.get('019797a0-0000-7000-8000-0000000000d2')?.bundleId).toBeNull();
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.

@@ -92,6 +92,15 @@ describe('activity', () => {
     expect(ActivitySampleSchema.safeParse({ ...sample, activityPct: 101 }).success).toBe(false);
   });
 
+  it('accepts an optional bundleId (present, null, or absent)', () => {
+    expect(
+      ActivitySampleSchema.parse({ ...sample, bundleId: 'com.microsoft.VSCode' }).bundleId,
+    ).toBe('com.microsoft.VSCode');
+    expect(ActivitySampleSchema.parse({ ...sample, bundleId: null }).bundleId).toBeNull();
+    // Absent is fine — the shipped client sends no bundleId.
+    expect(ActivitySampleSchema.parse(sample).bundleId).toBeUndefined();
+  });
+
   it('ListActivityQuerySchema requires from+to, userId optional', () => {
     expect(ListActivityQuerySchema.safeParse({ from: ISO, to: ISO }).success).toBe(true);
     expect(ListActivityQuerySchema.safeParse({ userId: UUID, from: ISO, to: ISO }).success).toBe(

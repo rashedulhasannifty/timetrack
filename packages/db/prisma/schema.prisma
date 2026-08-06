@@ -181,6 +181,7 @@ model ActivitySample {
   userId      String
   timestamp   DateTime
   appName     String
+  bundleId    String?
   windowTitle String?
   activityPct Int
   category    Category @default(NEUTRAL)
