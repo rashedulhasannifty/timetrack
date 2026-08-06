@@ -34,47 +34,46 @@ This is the operations runbook. The app images are built from `infra/{api,worker
 
 ---
 
-## 2. Production compose (to add: `infra/docker-compose.prod.yml`)
+## 2. Production compose (shipped)
 
-The dev `infra/docker-compose.yml` runs only the datastores. Production adds the three app images plus the proxy. Sketch:
+The dev `infra/docker-compose.yml` runs only the datastores. Production adds the three app
+images plus a TLS-terminating Caddy reverse proxy. The files:
 
-```yaml
-services:
-  postgres: { image: postgres:18-alpine, volumes: [pgdata:/var/lib/postgresql], ... }
-  redis: { image: redis:8-alpine, ... }
-  minio:
-    {
-      image: minio/minio:latest,
-      command: server /data --console-address ":9001",
-      volumes: [miniodata:/data],
-      ...,
-    }
+- **`infra/docker-compose.prod.yml`** — postgres, redis (appendonly), minio, the three app
+  images, and the proxy, plus three helper services: a `createbuckets` one-shot (idempotent,
+  creates the screenshots bucket so the first upload doesn't hit `NoSuchBucket`), and
+  profile-gated `migrate` / `seed` one-shots.
+- **`infra/Caddyfile`** — auto-TLS (Let's Encrypt) and path routing on a single public host.
+- **`.env.prod.example`** — every var the stack needs, validated against `packages/config` at
+  boot. Copy to `.env.prod` at the repo root, fill, `chmod 600`; never commit the filled file.
 
-  api:
-    image: timetrack/api:${TAG}
-    env_file: [.env.prod]
-    depends_on: [postgres, redis, minio]
-    deploy: { replicas: 2 } # stateless
+Run everything **from the repo root** (`env_file` paths are `../.env.prod`, relative to the
+compose file in `infra/`):
 
-  worker:
-    image: timetrack/worker:${TAG}
-    env_file: [.env.prod]
-    depends_on: [postgres, redis, minio]
+```bash
+# First deploy / every upgrade: migrate BEFORE rolling the apps (§4). First deploy also seeds.
+docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm migrate
+docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm seed
 
-  dashboard:
-    image: timetrack/dashboard:${TAG}
-    env_file: [.env.prod]
-    depends_on: [api]
+# Start the stack (proxy is the only service that publishes ports: 80/443):
+docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d
 
-  proxy:
-    image: caddy:2 # or nginx
-    ports: ['443:443', '80:80']
-    volumes: [./infra/Caddyfile:/etc/caddy/Caddyfile, caddydata:/data]
-
-volumes: { pgdata, miniodata, caddydata }
+# Scale the stateless API (plain compose, not Swarm — there is no deploy.replicas):
+docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d --scale api=2
 ```
 
-**Deliverables to build when we reach deployment:** `infra/docker-compose.prod.yml`, `infra/Caddyfile` (or `nginx.conf`), and a `.env.prod.example`.
+**Routing (Caddyfile):** `/v1/*` and `/health*` → api; everything else → dashboard. The Mac
+client pins `/v1`, so that prefix must reach the API unmodified; the dashboard's own Next
+`/api/*` BFF routes stay on the dashboard (do **not** route `/api/*` to the API). The dashboard
+reaches the API over the internal network (`API_URL=http://api:3001`), not through the proxy.
+
+Build the app images (repo root as context) before first `up`, or pull them from your registry:
+
+```bash
+docker build -f infra/api.Dockerfile       -t timetrack/api:$TAG .
+docker build -f infra/worker.Dockerfile    -t timetrack/worker:$TAG .
+docker build -f infra/dashboard.Dockerfile -t timetrack/dashboard:$TAG .
+```
 
 ---
 

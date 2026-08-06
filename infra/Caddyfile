@@ -1,0 +1,30 @@
+# TimeTrack reverse proxy. TLS terminates here; Caddy auto-provisions a Let's Encrypt cert
+# for $PUBLIC_DOMAIN (point DNS at this VM first). See docs/deployment.md §1.
+#
+# Routing is by path on a single public host:
+#   /v1/*, /health*  -> api (NestJS, port 3001). The shipped Mac client pins /v1 and the
+#                       infra health probes hit /health — these MUST reach the API unmodified.
+#   everything else  -> dashboard (Next, port 3000), INCLUDING its own /api/* BFF routes
+#                       (e.g. /api/auth/... — those are Next routes, not the Nest API).
+# Do not route /api/* to the API: that would break the dashboard's server-side auth/SSO.
+{
+	email {$ACME_EMAIL}
+}
+
+{$PUBLIC_DOMAIN} {
+	encode zstd gzip
+
+	# HSTS at the proxy (deployment §9). Backend not directly exposed; this is the edge.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+	# NestJS API: the Mac client's /v1/* traffic and the /health, /health/ready probes.
+	@api path /v1 /v1/* /health /health/*
+	handle @api {
+		reverse_proxy api:3001
+	}
+
+	# Browser UI + the dashboard's own Next /api/* BFF routes.
+	handle {
+		reverse_proxy dashboard:3000
+	}
+}

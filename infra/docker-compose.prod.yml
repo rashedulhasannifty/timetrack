@@ -1,0 +1,178 @@
+# TimeTrack — production compose (single VM, ~50 users). See docs/deployment.md.
+#
+# The dev infra/docker-compose.yml runs ONLY the datastores. This file adds the three app
+# images plus a TLS-terminating Caddy reverse proxy. Only the proxy publishes ports (80/443);
+# everything else talks over the internal compose network.
+#
+# Run from the REPO ROOT (env_file paths below are ../ — relative to this file in infra/):
+#   docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d
+#
+# First deploy / upgrade — run migrations (and, first time, seed the admin) BEFORE `up`:
+#   docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm migrate
+#   docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm seed
+#
+# Scale the stateless API:
+#   docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d --scale api=2
+
+services:
+  # ---- Datastores (stateful — volumes + backups; deployment §6) --------------------------
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # PG18 images expect the mount at /var/lib/postgresql (data lands in a versioned
+    # subdir); /var/lib/postgresql/data fails on boot. Matches the dev compose.
+    volumes: ['pgdata:/var/lib/postgresql']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    # appendonly so a restart doesn't drop in-flight BullMQ jobs. Not part of backups —
+    # jobs are idempotent and retried (deployment §6).
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes: ['redisdata:/data']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    # No published ports: the bucket is never public (deployment §1). The dashboard fetches
+    # screenshots via short-lived presigned URLs the API mints over the internal network.
+    volumes: ['miniodata:/data']
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: create the screenshots bucket before any app boots. Idempotent — safe on every
+  # `up`. Without this the first screenshot upload fails with NoSuchBucket on a fresh volume.
+  createbuckets:
+    image: minio/mc:latest
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+    restart: 'no'
+
+  # ---- App images (built from infra/*.Dockerfile, repo root as context) ------------------
+  api:
+    image: timetrack/api:${TAG}
+    restart: unless-stopped
+    env_file: ['../.env.prod']
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      createbuckets: { condition: service_completed_successfully }
+    # Liveness only — /health is VERSION_NEUTRAL (no /v1). Do NOT use /health/ready here:
+    # that checks PG/Redis/MinIO and would flap the container on a transient dep blip.
+    # busybox wget (node:alpine) exits non-zero on any non-2xx.
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3001/health']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  # NOT optional: the partition-provision job keeps activity_samples/screenshots insertable
+  # past the seeded partition months, and screenshot/rollup processing runs here (deployment §4).
+  worker:
+    image: timetrack/worker:${TAG}
+    restart: unless-stopped
+    env_file: ['../.env.prod']
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      createbuckets: { condition: service_completed_successfully }
+
+  dashboard:
+    image: timetrack/dashboard:${TAG}
+    restart: unless-stopped
+    env_file: ['../.env.prod']
+    # The dashboard is a BFF: it calls the API server-side. Reach it over the internal
+    # network, not by hairpinning through the public proxy. Overrides API_URL from env_file.
+    environment:
+      API_URL: http://api:3001
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/login']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+
+  # ---- Reverse proxy — the ONLY service that publishes ports -----------------------------
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp' # HTTP/3
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - './Caddyfile:/etc/caddy/Caddyfile:ro'
+      - 'caddydata:/data' # issued certificates — persist across restarts
+      - 'caddyconfig:/config'
+    depends_on:
+      api: { condition: service_healthy }
+      dashboard: { condition: service_healthy }
+
+  # ---- Setup one-shots (profile: setup — never started by a plain `up`) ------------------
+  # migrate deploy is forward-only and non-interactive-safe (unlike migrate dev). Runs from
+  # the repo root inside the api image, which carries the full workspace + Prisma CLI.
+  migrate:
+    image: timetrack/api:${TAG}
+    profiles: ['setup']
+    working_dir: /repo
+    command: ['pnpm', 'db:deploy']
+    env_file: ['../.env.prod']
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # First-deploy only: seeds the bootstrap ADMIN (needs SEED_ADMIN_EMAIL + SEED_ADMIN_PASSWORD
+  # in .env.prod). Rotate that password on first login.
+  seed:
+    image: timetrack/api:${TAG}
+    profiles: ['setup']
+    working_dir: /repo
+    command: ['pnpm', 'db:seed']
+    env_file: ['../.env.prod']
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  caddydata:
+  caddyconfig:
