@@ -25,14 +25,22 @@ export default tseslint.config(
     },
     rules: {
       // PRD 7.1.7 — import direction is one-way. apps -> packages, never the reverse.
-      'boundaries/element-types': [
+      // eslint-plugin-boundaries v7 API: rule is `dependencies` (was `element-types`),
+      // the option is `policies` (was `rules`), and selectors are object-based (was strings).
+      'boundaries/dependencies': [
         'error',
         {
           default: 'disallow',
-          rules: [
-            { from: 'app', allow: ['app', 'package', 'contracts'] },
-            { from: 'contracts', allow: [] },
-            { from: 'package', allow: ['contracts'] },
+          policies: [
+            {
+              from: { element: { type: 'app' } },
+              allow: { to: { element: { type: ['app', 'package', 'contracts'] } } },
+            },
+            { from: { element: { type: 'contracts' } }, allow: [] },
+            {
+              from: { element: { type: 'package' } },
+              allow: { to: { element: { type: ['contracts'] } } },
+            },
           ],
         },
       ],
