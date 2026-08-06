@@ -131,7 +131,10 @@ describe.runIf(RUN_E2E)('admin observed-apps — real Postgres', () => {
   it('excludes samples older than the 30-day window and returns [] for an empty team', async () => {
     const team = await db.prisma.team.create({ data: { name: 'A', settings: {} } });
     const u = await user('a@x.com', team.id);
-    await sample(u, 'old1', 'Ancient', null, new Date(Date.now() - 40 * 24 * 60 * 60 * 1000));
+    // Fixed 2026-07-03: sits in the earliest seeded partition (activity_samples_2026_07) and is
+    // >30 days before "now", so the window excludes it without needing a partition the test DB
+    // doesn't have (a relative "40 days ago" fell into an unpartitioned month).
+    await sample(u, 'old1', 'Ancient', null, new Date('2026-07-03T12:00:00Z'));
 
     expect(await repo().listObservedApps(team.id)).toEqual([]);
   });
