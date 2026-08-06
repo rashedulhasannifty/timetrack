@@ -110,5 +110,6 @@ When §2 and §3 are all checked:
 
 - [ ] Tick **"Release bundles self-view with capture (PRD §11 gate)"** in
       `docs/plans/phase-2-monitoring.md` and flip slice **2.4** from `[~]` to `[x]`.
-- [ ] Also correct the two stale `[ ]` boxes in that plan — 2.2 (screenshot pipeline) is in fact
-      shipped (`apps/api/src/modules/screenshots`, worker `screenshot-process`/`screenshot-derive`).
+
+(The previously-stale 2.2 box — the screenshot pipeline was in fact shipped — has already been
+corrected to `[x]`, so the §11 gate box is the only one left open in that plan.)
