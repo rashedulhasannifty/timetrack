@@ -5,6 +5,10 @@ export const ActivitySampleSchema = z.object({
   id: z.uuid(),
   timestamp: z.iso.datetime(),
   appName: z.string().max(200),
+  // Stable macOS bundle identifier (e.g. 'com.microsoft.VSCode'), for rename-proof matching.
+  // Optional + nullable and additive to /v1: the shipped client omits it; a newer client sends it
+  // or null. Deploy the API (which accepts it) BEFORE releasing a client that sends it.
+  bundleId: z.string().max(255).nullable().optional(),
   // PRD §13 — truncated to 120 chars, redacted in logs, nullable if the team opts out.
   windowTitle: z.string().max(120).nullable(),
   activityPct: z.number().int().min(0).max(100),
