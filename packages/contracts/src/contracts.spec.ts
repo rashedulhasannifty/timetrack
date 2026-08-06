@@ -205,11 +205,14 @@ describe('team-settings + policy', () => {
     expect(UpdateSettingsSchema.safeParse({}).success).toBe(true);
   });
 
-  it('ObservedAppsSchema parses an app-name list and rejects a non-array', () => {
-    expect(ObservedAppsSchema.parse({ appNames: ['Code', 'Slack'] })).toEqual({
-      appNames: ['Code', 'Slack'],
-    });
-    expect(ObservedAppsSchema.safeParse({ appNames: 'Code' }).success).toBe(false);
+  it('ObservedAppsSchema parses apps with a nullable bundleId', () => {
+    const apps = [
+      { name: 'Code', bundleId: 'com.microsoft.VSCode' },
+      { name: 'Terminal', bundleId: null },
+    ];
+    expect(ObservedAppsSchema.parse({ apps })).toEqual({ apps });
+    // bundleId is nullable but required — a missing bundleId is rejected.
+    expect(ObservedAppsSchema.safeParse({ apps: [{ name: 'Code' }] }).success).toBe(false);
   });
 });
 
