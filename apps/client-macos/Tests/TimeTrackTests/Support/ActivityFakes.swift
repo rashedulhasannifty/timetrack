@@ -13,12 +13,12 @@ final class FakeInputCounter: InputCounting {
 }
 
 final class FakeAppSampler: AppSampling {
-    let appName: String; let windowTitle: String?
-    init(appName: String = "Google Chrome", windowTitle: String? = nil) {
-        self.appName = appName; self.windowTitle = windowTitle
+    let appName: String; let bundleId: String?; let windowTitle: String?
+    init(appName: String = "Google Chrome", bundleId: String? = nil, windowTitle: String? = nil) {
+        self.appName = appName; self.bundleId = bundleId; self.windowTitle = windowTitle
     }
-    func sample(captureWindowTitles: Bool) -> (appName: String, windowTitle: String?) {
-        (appName, captureWindowTitles ? windowTitle : nil)
+    func sample(captureWindowTitles: Bool) -> (appName: String, bundleId: String?, windowTitle: String?) {
+        (appName, bundleId, captureWindowTitles ? windowTitle : nil)
     }
 }
 

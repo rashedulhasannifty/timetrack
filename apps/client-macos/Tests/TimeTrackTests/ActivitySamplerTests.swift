@@ -76,6 +76,16 @@ final class ActivitySamplerTests: XCTestCase {
         XCTAssertEqual(s.appName, "Google Chrome")
     }
 
+    func testSampleCarriesTheAppBundleId() async {
+        let buffer = MemoryActivityBuffer()
+        let sampler = makeSampler(ackRequired: false, isTracking: { true },
+                                  counter: halfActiveCounter(),
+                                  app: FakeAppSampler(appName: "Code", bundleId: "com.microsoft.VSCode"),
+                                  buffer: buffer)
+        await sampler.captureTick()
+        XCTAssertEqual(buffer.samples.first?.bundleId, "com.microsoft.VSCode")
+    }
+
     func testWindowTitlePolicyRespected() async {
         let buffer = MemoryActivityBuffer()
         let sampler = makeSampler(ackRequired: false, isTracking: { true },

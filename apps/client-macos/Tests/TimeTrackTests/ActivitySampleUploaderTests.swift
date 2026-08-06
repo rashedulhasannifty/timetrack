@@ -4,7 +4,8 @@ import XCTest
 final class ActivitySampleUploaderTests: XCTestCase {
     func testBodyWrapsSamplesUnderSamplesKey() throws {
         let s = ActivitySample(id: "a", timestamp: "2023-11-14T22:13:20Z", appName: "Xcode",
-                               windowTitle: nil, activityPct: 80, category: "PRODUCTIVE")
+                               bundleId: "com.apple.dt.Xcode", windowTitle: nil, activityPct: 80,
+                               category: "PRODUCTIVE")
         let data = ActivitySampleUploader.body(samples: [s])
         let decoded = try JSONDecoder().decode([String: [ActivitySample]].self, from: data)
         XCTAssertEqual(decoded["samples"], [s])

@@ -10,7 +10,7 @@ final class ActivitySampleStoreTests: XCTestCase {
     }
     private func sample(_ id: String, pct: Int = 50) -> ActivitySample {
         ActivitySample(id: id, timestamp: "2023-11-14T22:13:20Z", appName: "Xcode",
-                       windowTitle: nil, activityPct: pct, category: "PRODUCTIVE")
+                       bundleId: nil, windowTitle: nil, activityPct: pct, category: "PRODUCTIVE")
     }
 
     func testEnqueueTakeFifoAndRoundTrip() {

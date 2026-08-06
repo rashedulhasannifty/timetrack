@@ -7,12 +7,13 @@ struct ActivitySample: Codable, Equatable {
     let id: String            // client-minted UUIDv7 → idempotency key
     let timestamp: String     // ISO-8601 (interval end)
     let appName: String
+    let bundleId: String?     // stable macOS bundle id; nil when the app has none
     let windowTitle: String?
     let activityPct: Int      // 0…100
     let category: String      // Category.rawValue
 
     private enum CodingKeys: String, CodingKey {
-        case id, timestamp, appName, windowTitle, activityPct, category
+        case id, timestamp, appName, bundleId, windowTitle, activityPct, category
     }
 
     // Custom encode: the contract's windowTitle is `.nullable()` but NOT `.optional()`, so
@@ -28,6 +29,9 @@ struct ActivitySample: Codable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encode(timestamp, forKey: .timestamp)
         try container.encode(appName, forKey: .appName)
+        // Server field is `.nullable().optional()`, so an explicit `null` is accepted (and
+        // unambiguous). Emit it rather than omitting the key, mirroring windowTitle.
+        try container.encode(bundleId, forKey: .bundleId)
         try container.encode(windowTitle, forKey: .windowTitle)
         try container.encode(activityPct, forKey: .activityPct)
         try container.encode(category, forKey: .category)
