@@ -5,7 +5,7 @@ import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
 import { SettingsForm } from './SettingsForm';
-import type { TeamSettings } from '@timetrack/contracts';
+import type { TeamSettings, ObservedApp } from '@timetrack/contracts';
 
 const BLUR_LABEL: Record<TeamSettings['screenshotBlur'], string> = {
   NONE: 'No blur',
@@ -37,7 +37,7 @@ export default async function AdminSettingsPage() {
   // settings page — fall back to no suggestions.
   const [team, observed] = await Promise.all([
     api.getCurrentTeam(session.accessToken),
-    api.getObservedApps(session.accessToken).catch(() => ({ appNames: [] as string[] })),
+    api.getObservedApps(session.accessToken).catch(() => ({ apps: [] as ObservedApp[] })),
   ]);
   const { settings } = team;
 
@@ -46,7 +46,7 @@ export default async function AdminSettingsPage() {
       <SetPageTitle title="Admin" />
       <AdminTabs />
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
-        <SettingsForm settings={settings} observedApps={observed.appNames} />
+        <SettingsForm settings={settings} observedApps={observed.apps} />
         <Card padding="md" className="flex flex-col gap-3">
           <div className="text-text text-[15px] font-semibold">Effective policy</div>
           <div className="flex flex-col gap-2.5">

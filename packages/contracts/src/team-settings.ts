@@ -53,10 +53,11 @@ export const TeamSettingsSchema = z.object({
   // Unproductive lists ship EMPTY — the product stays neutral until an admin classifies
   // (distraction lists are a deliberate, opt-in admin decision, not a shipped judgment).
   unproductiveApps: teamSettingsFields.unproductiveApps.default([]),
-  // Dev/knowledge-work productive defaults. App names must match the macOS frontmost app name
-  // EXACTLY (not bundleId) — only stable, unversioned names are seeded (e.g. no 'Adobe Photoshop
-  // 2024' or 'zoom.us'). tmux/cmux run inside a terminal, so the terminal entry already covers
-  // them. High-confidence entries only; admins add the rest.
+  // Dev/knowledge-work productive defaults. An app rule matches the frontmost app's display name
+  // OR its bundleId. Stable-named apps are seeded by name; fragile-named apps (versioned or
+  // unstable display names, e.g. Zoom reports as 'zoom.us') are seeded by their stable bundleId,
+  // which survives renames. tmux/cmux run inside a terminal, so the terminal entry covers them.
+  // High-confidence entries only; admins add the rest from the settings picker.
   productiveApps: teamSettingsFields.productiveApps.default([
     'Code',
     'Visual Studio Code',
@@ -88,6 +89,8 @@ export const TeamSettingsSchema = z.object({
     'Microsoft Outlook',
     'Microsoft Teams',
     'Slack',
+    // Fragile display name ('zoom.us') — seed the stable bundleId instead.
+    'us.zoom.xos',
   ]),
   unproductiveSites: teamSettingsFields.unproductiveSites.default([]),
   // Registrable domains — dotted-suffix match means subdomains inherit (`niftyhq.ai` covers

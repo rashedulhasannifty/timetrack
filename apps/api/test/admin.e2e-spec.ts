@@ -84,9 +84,15 @@ describe.runIf(RUN_E2E)('admin observed-apps — real Postgres', () => {
     return new AdminRepository(db.prisma as unknown as PrismaService);
   }
 
-  async function summary(userId: string, day: Date, byApp: Record<string, number>): Promise<void> {
-    await db.prisma.activityDailySummary.create({
-      data: { userId, day, avgActivityPct: 50, activeMinutes: 100, byApp, byCategory: {} },
+  async function sample(
+    userId: string,
+    id: string,
+    appName: string,
+    bundleId: string | null,
+    timestamp: Date,
+  ): Promise<void> {
+    await db.prisma.activitySample.create({
+      data: { id, userId, timestamp, appName, bundleId, windowTitle: null, activityPct: 50, category: 'NEUTRAL' },
     });
   }
 
@@ -98,27 +104,37 @@ describe.runIf(RUN_E2E)('admin observed-apps — real Postgres', () => {
     return u.id;
   }
 
-  it('ranks the team’s app names by summed minutes and excludes other teams', async () => {
+  it('ranks apps by sample count, surfaces the bundleId, and excludes other teams', async () => {
     const teamA = await db.prisma.team.create({ data: { name: 'A', settings: {} } });
     const teamB = await db.prisma.team.create({ data: { name: 'B', settings: {} } });
     const ua = await user('a@x.com', teamA.id);
     const ub = await user('b@x.com', teamB.id);
+    const now = new Date();
 
-    const d1 = new Date();
-    const d2 = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    await summary(ua, d1, { Code: 100, Slack: 30 });
-    await summary(ua, d2, { Code: 50, Slack: 200 }); // Slack total 230 > Code total 150
-    await summary(ub, d1, { Figma: 999 }); // other team — must not appear
+    // Slack: 3 samples, bundleId on two + one null (mixed old/new clients) → MAX surfaces it.
+    await sample(ua, 'a1', 'Slack', 'com.tinyspeck.slackmacgap', now);
+    await sample(ua, 'a2', 'Slack', null, now);
+    await sample(ua, 'a3', 'Slack', 'com.tinyspeck.slackmacgap', now);
+    await sample(ua, 'a4', 'Code', 'com.microsoft.VSCode', now);
+    await sample(ua, 'a5', 'Terminal', null, now); // old-client only → bundleId null
+    await sample(ub, 'b1', 'Figma', 'com.figma.Desktop', now); // other team — must not appear
 
     const apps = await repo().listObservedApps(teamA.id);
-    expect(apps).toEqual(['Slack', 'Code']); // ranked by summed minutes desc
-    expect(apps).not.toContain('Figma');
+    expect(apps).toEqual([
+      { name: 'Slack', bundleId: 'com.tinyspeck.slackmacgap' }, // count 3
+      { name: 'Code', bundleId: 'com.microsoft.VSCode' }, // count 1, ties broken by name ASC
+      { name: 'Terminal', bundleId: null }, // seen only without a bundleId, still surfaced
+    ]);
+    expect(apps.map((a) => a.name)).not.toContain('Figma');
   });
 
-  it('excludes summaries older than the 30-day window and returns [] for an empty team', async () => {
+  it('excludes samples older than the 30-day window and returns [] for an empty team', async () => {
     const team = await db.prisma.team.create({ data: { name: 'A', settings: {} } });
     const u = await user('a@x.com', team.id);
-    await summary(u, new Date(Date.now() - 40 * 24 * 60 * 60 * 1000), { Ancient: 500 });
+    // Fixed 2026-07-03: sits in the earliest seeded partition (activity_samples_2026_07) and is
+    // >30 days before "now", so the window excludes it without needing a partition the test DB
+    // doesn't have (a relative "40 days ago" fell into an unpartitioned month).
+    await sample(u, 'old1', 'Ancient', null, new Date('2026-07-03T12:00:00Z'));
 
     expect(await repo().listObservedApps(team.id)).toEqual([]);
   });

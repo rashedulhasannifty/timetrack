@@ -9,6 +9,8 @@
  *   stripped from the observed host), or a trailing-`.*` leading-label wildcard.
  * - Apps match the macOS frontmost app name by exact (trimmed, case-insensitive) equality.
  */
+import type { ObservedApp } from '@timetrack/contracts';
+
 export type TermKind = 'site' | 'app';
 
 /** A human hint if `raw` likely won't match as intended, else null (blank terms are ignored). */
@@ -65,17 +67,29 @@ export function flaggedTerms(value: string, kind: TermKind): FlaggedTerm[] {
   return out;
 }
 
+/** The rule a picked app inserts: its stable bundleId when known, else the display name. */
+export function appRuleToken(app: ObservedApp): string {
+  return app.bundleId ?? app.name;
+}
+
 /**
- * Observed app names not already present in `value` (case-insensitive), preserving the input
- * order (the API returns them ranked by usage), capped at `limit`. Powers the "seen recently"
- * picker chips so an admin only sees apps they haven't classified yet.
+ * Observed apps not already classified in `value` — an app counts as present if its name OR its
+ * bundleId already appears (case-insensitive), so a name rule and its bundleId equivalent don't
+ * both surface. Preserves input order (ranked by usage), capped at `limit`.
  */
-export function availableSuggestions(suggestions: string[], value: string, limit = 15): string[] {
+export function availableSuggestions(
+  suggestions: ObservedApp[],
+  value: string,
+  limit = 15,
+): ObservedApp[] {
   const present = new Set(parseTerms(value).map((t) => t.toLowerCase()));
-  const out: string[] = [];
-  for (const s of suggestions) {
+  const out: ObservedApp[] = [];
+  for (const app of suggestions) {
     if (out.length >= limit) break;
-    if (!present.has(s.trim().toLowerCase())) out.push(s);
+    const seen =
+      present.has(app.name.trim().toLowerCase()) ||
+      (app.bundleId != null && present.has(app.bundleId.trim().toLowerCase()));
+    if (!seen) out.push(app);
   }
   return out;
 }

@@ -49,17 +49,18 @@ All matching is case-insensitive and trimmed.
 - **Settings UI validation.** The matcher fails silently on bad input (mistyped app name,
   leading wildcard, full URL, path, `www.`, spaces), so the settings textareas surface live,
   non-blocking hints (`lib/classification-hints.ts`).
-- **App-name picker from telemetry.** `GET /admin/observed-apps` (ADMIN-only, team from session)
-  ranks the app names the fleet reported in the last 30 days from the `activity_daily_summaries.byApp`
-  rollup; the settings app fields show them as "seen recently" chips. Sites get no picker — hosts
-  are never stored server-side.
+- **App picker from telemetry.** `GET /admin/observed-apps` (ADMIN-only, team from session) ranks
+  the apps the fleet reported in the last 30 days and returns each with its stable `bundleId` (when
+  a client sent one); the settings app fields show them as "seen recently" chips that display the
+  name but insert the bundleId. Sites get no picker — hosts are never stored server-side.
+- **BundleId app-matching.** An app rule matches the frontmost app's display name OR its bundleId,
+  so a rule survives a rename. The client sends `bundleId` with each sample; fragile-named apps
+  (e.g. Zoom, `zoom.us`) are seeded as bundleids. See `docs/bundleid-app-matching.md`.
 
-## Deferred follow-ups (each its own slice)
+## Deferred follow-ups
 
-1. **Match apps by bundleId, not display name.** Exact `localizedName` matching is fragile
-   (versioned names, `zoom.us`). Requires the client to send `bundleId` + a matching change.
-2. **Optional richer model** (per RescueTime/Time Doctor): numeric per-category score, an
-   explicit `UNRATED` state distinct from `NEUTRAL`, and scope override (team/user).
+- **Optional richer model** (per RescueTime/Time Doctor): numeric per-category score, an explicit
+  `UNRATED` state distinct from `NEUTRAL`, and scope override (team/user).
 
 Path-based matching (`/api`, `/docs`) is **out of scope** by design — the client keeps only the
 host, never the URL path.

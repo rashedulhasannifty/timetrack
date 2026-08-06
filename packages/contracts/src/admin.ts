@@ -53,13 +53,19 @@ export const EraseUserSchema = z.object({
 });
 
 /**
- * GET /admin/observed-apps — app names the team's fleet has actually reported (recent window),
- * ranked by usage. Powers the settings classification picker so admins classify from real data
- * instead of guessing the exact macOS app name. Hosts are intentionally NOT offered — they never
- * leave the device, so there is nothing to suggest for sites.
+ * GET /admin/observed-apps — apps the team's fleet has actually reported (recent window), ranked
+ * by usage. Powers the settings classification picker so admins classify from real data instead of
+ * guessing. `bundleId` is the stable macOS id when a reporting client sent one (else null, e.g. a
+ * client predating bundleId capture); the picker labels the chip with `name` but stores the
+ * bundleId when present, so a rule survives a rename. Hosts are intentionally NOT offered — they
+ * never leave the device.
  */
+export const ObservedAppSchema = z.object({
+  name: z.string(),
+  bundleId: z.string().nullable(),
+});
 export const ObservedAppsSchema = z.object({
-  appNames: z.array(z.string()),
+  apps: z.array(ObservedAppSchema),
 });
 
 export type UpdateSettings = z.infer<typeof UpdateSettingsSchema>;
@@ -68,4 +74,5 @@ export type AuditLogListItem = z.infer<typeof AuditLogListItemSchema>;
 export type AuditLogPage = z.infer<typeof AuditLogPageSchema>;
 export type AuditLogQuery = z.infer<typeof AuditLogQuerySchema>;
 export type EraseUser = z.infer<typeof EraseUserSchema>;
+export type ObservedApp = z.infer<typeof ObservedAppSchema>;
 export type ObservedApps = z.infer<typeof ObservedAppsSchema>;
