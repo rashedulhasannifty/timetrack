@@ -4,6 +4,7 @@ import {
   parseTerms,
   flaggedTerms,
   availableSuggestions,
+  appRuleToken,
   appendTerm,
 } from './classification-hints';
 
@@ -71,14 +72,31 @@ describe('parseTerms / flaggedTerms', () => {
 });
 
 describe('availableSuggestions', () => {
-  it('drops already-listed apps (case-insensitive) and preserves ranked order', () => {
-    const suggestions = ['Code', 'Slack', 'Figma'];
-    expect(availableSuggestions(suggestions, 'code\nzed')).toEqual(['Slack', 'Figma']);
+  const apps = [
+    { name: 'Code', bundleId: 'com.microsoft.VSCode' },
+    { name: 'Slack', bundleId: 'com.tinyspeck.slackmacgap' },
+    { name: 'Figma', bundleId: null },
+  ];
+
+  it('drops apps already present by name OR bundleId, preserving ranked order', () => {
+    // "code" matches Code by name; the Slack bundleId matches Slack → only Figma remains.
+    expect(availableSuggestions(apps, 'code\ncom.tinyspeck.slackmacgap')).toEqual([
+      { name: 'Figma', bundleId: null },
+    ]);
   });
 
   it('caps the number of suggestions', () => {
-    const many = Array.from({ length: 30 }, (_, i) => `App${i}`);
+    const many = Array.from({ length: 30 }, (_, i) => ({ name: `App${i}`, bundleId: null }));
     expect(availableSuggestions(many, '', 5)).toHaveLength(5);
+  });
+});
+
+describe('appRuleToken', () => {
+  it('prefers the bundleId, falls back to the name', () => {
+    expect(appRuleToken({ name: 'Code', bundleId: 'com.microsoft.VSCode' })).toBe(
+      'com.microsoft.VSCode',
+    );
+    expect(appRuleToken({ name: 'Terminal', bundleId: null })).toBe('Terminal');
   });
 });
 

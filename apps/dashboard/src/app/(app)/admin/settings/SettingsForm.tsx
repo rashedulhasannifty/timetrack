@@ -1,12 +1,13 @@
 'use client';
 
 import { useActionState, useState } from 'react';
-import type { TeamSettings } from '@timetrack/contracts';
+import type { TeamSettings, ObservedApp } from '@timetrack/contracts';
 import { Card } from '../../../../components/ui/Card';
 import { Button } from '../../../../components/ui/Button';
 import {
   flaggedTerms,
   availableSuggestions,
+  appRuleToken,
   appendTerm,
   type TermKind,
 } from '../../../../lib/classification-hints';
@@ -89,7 +90,7 @@ function ListField({
   placeholder: string;
   defaultValue: string;
   kind: TermKind;
-  suggestions?: string[];
+  suggestions?: ObservedApp[];
 }) {
   const [value, setValue] = useState(defaultValue);
   const flagged = flaggedTerms(value, kind);
@@ -111,12 +112,13 @@ function ListField({
           <span className="text-text-secondary text-caption">Seen recently:</span>
           {picks.map((s) => (
             <button
-              key={s}
+              key={appRuleToken(s)}
               type="button"
-              onClick={() => setValue((v) => appendTerm(v, s))}
+              title={s.bundleId ?? undefined}
+              onClick={() => setValue((v) => appendTerm(v, appRuleToken(s)))}
               className="border-separator text-text-secondary hover:border-accent hover:text-text rounded-full border px-2 py-0.5 text-[12px] transition-colors"
             >
-              {s}
+              {s.name}
             </button>
           ))}
         </div>
@@ -144,7 +146,7 @@ export function SettingsForm({
   observedApps,
 }: {
   settings: TeamSettings;
-  observedApps: string[];
+  observedApps: ObservedApp[];
 }) {
   const [state, formAction, pending] = useActionState(updateSettingsAction, INITIAL);
 
