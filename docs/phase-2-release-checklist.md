@@ -78,26 +78,29 @@ slice 2.4 and PRD §10.
 
 ## 3. Pre-distribution blockers — ⬜ before shipping to employees
 
-The built bundle is a **dev** bundle. Two things must change before it goes to real machines:
+The built bundle is a **dev** bundle. Three things must change before it goes to real machines:
 
-- [ ] **Bundle id is a placeholder.** `apps/client-macos/Info.plist:13` is
-      `com.example.timetrack`. Change it to a real reverse-DNS id owned by the team **before**
-      signing — TCC permission grants (Screen Recording, etc.) key off bundle id + signing
-      identity, and notarization requires a real one.
+- [ ] **Bundle id is a placeholder.** `apps/client-macos/Info.plist:13` is `com.example.timetrack`.
+      Change it to a real reverse-DNS id owned by the team **before** signing — TCC permission
+      grants (Screen Recording, etc.) key off bundle id + signing identity, and notarization
+      requires a real one.
 - [ ] **Real signing + notarization.** The machine currently has only _Apple Development_
       identities; distribution needs a **Developer ID Application** certificate and a `notarytool`
-      keychain profile, then:
-      `bash
-    cd apps/client-macos
-    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/package-app.sh
-    DEVELOPER_ID_APP="Developer ID Application: <Org> (TEAMID)" NOTARY_PROFILE=timetrack \
-      ./scripts/sign-and-notarize.sh
-    `
-      Full runbook: [`apps/client-macos/SIGNING.md`](../apps/client-macos/SIGNING.md).
-- [ ] For a smoother multi-run E2E in §2, sign the dev bundle with a **stable**
+      keychain profile, then run the build → sign → notarize → staple flow (below).
+- [ ] **Stable dev signing for the §2 dry-run.** Sign the dev bundle with a stable
       `CODESIGN_IDENTITY` (either _Apple Development_ identity from
       `security find-identity -v -p codesigning`) so macOS doesn't re-prompt for Screen Recording
       on every rebuild. Ad-hoc (the default) re-prompts each rebuild.
+
+Build → sign → notarize → staple (full runbook:
+[`apps/client-macos/SIGNING.md`](../apps/client-macos/SIGNING.md)):
+
+```bash
+cd apps/client-macos
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/package-app.sh
+DEVELOPER_ID_APP="Developer ID Application: <Org> (TEAMID)" NOTARY_PROFILE=timetrack \
+  ./scripts/sign-and-notarize.sh
+```
 
 ---
 
