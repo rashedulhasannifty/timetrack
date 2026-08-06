@@ -18,21 +18,29 @@ export default tseslint.config(
     plugins: { boundaries },
     settings: {
       'boundaries/elements': [
-        { type: 'app',        pattern: 'apps/*' },
-        { type: 'package',    pattern: 'packages/*' },
-        { type: 'contracts',  pattern: 'packages/contracts' },
+        { type: 'app', pattern: 'apps/*' },
+        { type: 'package', pattern: 'packages/*' },
+        { type: 'contracts', pattern: 'packages/contracts' },
       ],
     },
     rules: {
       // PRD 7.1.7 — import direction is one-way. apps -> packages, never the reverse.
-      'boundaries/element-types': ['error', {
-        default: 'disallow',
-        rules: [
-          { from: 'app',       allow: ['app', 'package', 'contracts'] },
-          { from: 'contracts', allow: [] },
-          { from: 'package',   allow: ['contracts'] },
-        ],
-      }],
+      'boundaries/element-types': [
+        'error',
+        {
+          default: 'disallow',
+          rules: [
+            { from: 'app', allow: ['app', 'package', 'contracts'] },
+            { from: 'contracts', allow: [] },
+            { from: 'package', allow: ['contracts'] },
+          ],
+        },
+      ],
+      // eslint 10 added `no-useless-assignment` to js.configs.recommended. It flags our
+      // intentional `let x: T | null = null; try { x = await … } catch { … }` initializers
+      // (the null is overwritten before any read) — a definite-assignment pattern TS needs,
+      // not a dead store. Off, rather than churn working app code in a dependency bump.
+      'no-useless-assignment': 'off',
       // Pino only. console.log is banned outside scripts/.
       'no-console': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
@@ -50,12 +58,17 @@ export default tseslint.config(
     files: ['apps/api/src/**/*.ts'],
     ignores: ['apps/api/src/**/*.repository.ts', 'apps/api/src/infra/prisma/**'],
     rules: {
-      'no-restricted-imports': ['error', {
-        paths: [{
-          name: '@timetrack/db',
-          message: 'Prisma belongs in *.repository.ts only. See CLAUDE.md §3.',
-        }],
-      }],
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@timetrack/db',
+              message: 'Prisma belongs in *.repository.ts only. See CLAUDE.md §3.',
+            },
+          ],
+        },
+      ],
     },
   },
   { files: ['scripts/**/*.ts'], rules: { 'no-console': 'off' } },
