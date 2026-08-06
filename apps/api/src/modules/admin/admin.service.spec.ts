@@ -57,11 +57,15 @@ describe('AdminService.updateSettings', () => {
 });
 
 describe('AdminService.listObservedApps', () => {
-  it('delegates to the repo with the actor team and wraps the names', async () => {
+  it('delegates to the repo with the actor team and wraps the apps', async () => {
+    const apps = [
+      { name: 'Code', bundleId: 'com.microsoft.VSCode' },
+      { name: 'Slack', bundleId: null },
+    ];
     const { svc, repo } = makeService({
-      listObservedApps: vi.fn().mockResolvedValue(['Code', 'Slack']),
+      listObservedApps: vi.fn().mockResolvedValue(apps),
     });
-    await expect(svc.listObservedApps(actor)).resolves.toEqual({ appNames: ['Code', 'Slack'] });
+    await expect(svc.listObservedApps(actor)).resolves.toEqual({ apps });
     expect(repo.listObservedApps).toHaveBeenCalledWith('t1');
   });
 });

@@ -95,25 +95,25 @@ export class AdminRepository {
   private static readonly OBSERVED_APPS_LIMIT = 200;
 
   /**
-   * Distinct app names the team's fleet reported in the last 30 days, ranked by total minutes.
-   * Reads the KEYS of `activity_daily_summaries.byApp` (the worker's per-app rollup) — the small
-   * UNPARTITIONED table — rather than a DISTINCT scan of the monthly-partitioned raw samples.
-   * Team-scoped via the users subquery; no client-supplied team/user.
+   * Apps the team's fleet reported in the last 30 days, ranked by sample count, with the stable
+   * bundleId when a reporting client sent one (MAX ignores nulls, so it surfaces a bundleId if ANY
+   * sample of that app carried one — e.g. mixed old/new clients). Reads the monthly-partitioned
+   * `activity_samples` (bounded by team + a 30-day window) because bundleId is not in the daily
+   * rollup; this is an infrequent admin query. Team-scoped via the users subquery.
    */
-  async listObservedApps(teamId: string): Promise<string[]> {
+  async listObservedApps(teamId: string): Promise<{ name: string; bundleId: string | null }[]> {
     const since = new Date(
       Date.now() - AdminRepository.OBSERVED_APPS_WINDOW_DAYS * 24 * 60 * 60 * 1000,
     );
-    const rows = await this.prisma.$queryRaw<{ appName: string }[]>`
-      SELECT kv.key AS "appName"
-      FROM "activity_daily_summaries" ads,
-           LATERAL jsonb_each_text(ads."byApp"::jsonb) AS kv(key, value)
-      WHERE ads."userId" IN (SELECT "id" FROM "users" WHERE "teamId" = ${teamId})
-        AND ads."day" >= ${since}
-      GROUP BY kv.key
-      ORDER BY SUM(kv.value::int) DESC, kv.key ASC
+    const rows = await this.prisma.$queryRaw<{ name: string; bundleId: string | null }[]>`
+      SELECT a."appName" AS name, MAX(a."bundleId") AS "bundleId"
+      FROM "activity_samples" a
+      WHERE a."userId" IN (SELECT "id" FROM "users" WHERE "teamId" = ${teamId})
+        AND a."timestamp" >= ${since}
+      GROUP BY a."appName"
+      ORDER BY COUNT(*) DESC, a."appName" ASC
       LIMIT ${AdminRepository.OBSERVED_APPS_LIMIT}`;
-    return rows.map((r) => r.appName);
+    return rows.map((r) => ({ name: r.name, bundleId: r.bundleId }));
   }
 
   async getSettings(teamId: string): Promise<unknown> {

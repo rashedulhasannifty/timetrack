@@ -28,10 +28,10 @@ export class AdminService {
     return this.repo.listAudit(query);
   }
 
-  /** App names the actor's team has actually reported recently, for the settings picker. */
+  /** Apps the actor's team has actually reported recently (with bundleId), for the picker. */
   async listObservedApps(actor: SessionUser): Promise<ObservedApps> {
-    const appNames = await this.repo.listObservedApps(actor.teamId);
-    return { appNames };
+    const apps = await this.repo.listObservedApps(actor.teamId);
+    return { apps };
   }
 
   async updateSettings(patch: UpdateSettings, actor: SessionUser): Promise<TeamSettings> {
