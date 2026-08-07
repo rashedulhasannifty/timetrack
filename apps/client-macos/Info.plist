@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Bundle metadata for the packaged .app. Replace CFBundleIdentifier / copyright with
-     your team's values. LSUIElement=1 makes it a menu-bar agent with no Dock icon,
-     matching the .accessory activation policy in App/main.swift. -->
+<!-- Bundle metadata for the packaged .app. CFBundleIdentifier, TimeTrackAPIBaseURL and
+     TimeTrackDashboardURL are the committed dev defaults; scripts/package-app.sh overrides
+     them at package time from BUNDLE_ID / API_BASE_URL / DASHBOARD_URL for a distribution
+     build. LSUIElement=1 makes it a menu-bar agent with no Dock icon, matching the
+     .accessory activation policy in App/main.swift. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -10,7 +12,7 @@
   <key>CFBundleDisplayName</key>
   <string>TimeTrack</string>
   <key>CFBundleIdentifier</key>
-  <string>com.example.timetrack</string>
+  <string>com.niftyitsolution.timetrack</string>
   <key>CFBundleExecutable</key>
   <string>TimeTrack</string>
   <key>CFBundlePackageType</key>
@@ -24,7 +26,7 @@
   <key>LSUIElement</key>
   <true/>
   <key>NSHumanReadableCopyright</key>
-  <string>Copyright © TimeTrack.</string>
+  <string>Copyright © Nifty IT Solution.</string>
   <key>TimeTrackAPIBaseURL</key>
   <string>http://127.0.0.1:3001/v1</string>
   <key>TimeTrackDashboardURL</key>

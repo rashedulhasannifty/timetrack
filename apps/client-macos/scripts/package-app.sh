@@ -19,6 +19,21 @@ cp "$RELEASE_BIN" "$APP/Contents/MacOS/${APP_NAME}"
 cp Info.plist "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
+# Distribution knobs. Defaults match the committed Info.plist (dev/localhost), so a plain
+# build is unchanged; a distribution build sets these to the team's bundle id + the prod
+# deployment URLs. TCC (Screen Recording, etc.) keys off bundle id + signing identity, so the
+# bundle id must be the team's real reverse-DNS id before signing for real machines.
+BUNDLE_ID="${BUNDLE_ID:-com.niftyitsolution.timetrack}"
+API_BASE_URL="${API_BASE_URL:-http://127.0.0.1:3001/v1}"
+DASHBOARD_URL="${DASHBOARD_URL:-http://127.0.0.1:3000}"
+PB=/usr/libexec/PlistBuddy
+"$PB" -c "Set :CFBundleIdentifier ${BUNDLE_ID}" "$APP/Contents/Info.plist"
+"$PB" -c "Set :TimeTrackAPIBaseURL ${API_BASE_URL}" "$APP/Contents/Info.plist"
+"$PB" -c "Set :TimeTrackDashboardURL ${DASHBOARD_URL}" "$APP/Contents/Info.plist"
+echo "  bundle id:  ${BUNDLE_ID}"
+echo "  api base:   ${API_BASE_URL}"
+echo "  dashboard:  ${DASHBOARD_URL}"
+
 # Sign the bundle. macOS TCC (Screen Recording, etc.) keys a permission grant to the app's
 # code-signing identity: an ad-hoc signature has no stable identity, so its fingerprint changes
 # every rebuild and macOS re-prompts each time. Set CODESIGN_IDENTITY to a stable identity (an
