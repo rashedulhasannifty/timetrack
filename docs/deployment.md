@@ -47,6 +47,11 @@ images plus a TLS-terminating Caddy reverse proxy. The files:
 - **`.env.prod.example`** — every var the stack needs, validated against `packages/config` at
   boot. Copy to `.env.prod` at the repo root, fill, `chmod 600`; never commit the filled file.
 
+The prod compose sets `name: timetrack-prod`, so its containers and volumes live in their own
+namespace (`timetrack-prod_*`), isolated from the dev stack (which defaults to the `infra`
+project). This matters even on a shared machine: without it both files resolve to the same
+project and share `pgdata`/`miniodata`, so a `down -v` on one destroys the other's data.
+
 Run everything **from the repo root** (`env_file` paths are `../.env.prod`, relative to the
 compose file in `infra/`):
 

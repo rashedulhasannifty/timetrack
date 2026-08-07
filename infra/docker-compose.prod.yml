@@ -14,6 +14,11 @@
 # Scale the stateless API:
 #   docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d --scale api=2
 
+# Own project name → own volume/container namespace (timetrack-prod_*), isolated from the dev
+# stack (infra/docker-compose.yml, which defaults to the `infra` project). Without this both
+# resolve to `infra` and share pgdata/miniodata — a `down -v` on one wipes the other's data.
+name: timetrack-prod
+
 services:
   # ---- Datastores (stateful — volumes + backups; deployment §6) --------------------------
   postgres:
