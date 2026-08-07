@@ -128,6 +128,17 @@ struct MenuBarView: View {
 
     // MARK: Project picker
 
+    /// A DEFINITE list height (not `maxHeight`). A flexible ScrollView gets squeezed to almost
+    /// nothing when the tracking header adds the large elapsed timer — SwiftUI shrinks the list
+    /// to keep the popover's ideal height ~constant, collapsing the picker to ~2 rows while
+    /// tracking (idle shows ~6). A definite height keeps the list stable and lets the popover
+    /// grow to fit the header. Per-row estimate (project rows are single-line; task rows add a
+    /// subtitle and run a little taller), capped so a long list scrolls.
+    private var pickerListHeight: CGFloat {
+        let rows = max(viewModel.filteredChoices.count, 1)
+        return min(CGFloat(rows) * 36, 300)
+    }
+
     @ViewBuilder private var picker: some View {
         VStack(alignment: .leading, spacing: TT.Space.x2) {
             Text("SWITCH PROJECT")
@@ -164,10 +175,9 @@ struct MenuBarView: View {
                     }
                 }
             }
-            // Grow to fit the projects (the popover auto-sizes with it), capping at ~6 rows
-            // before it starts scrolling — so a handful of projects no longer collapse into a
-            // tiny 2-row scroll box.
-            .frame(maxHeight: 280)
+            // Definite height (see pickerListHeight) so the list isn't squeezed to ~2 rows once
+            // the tracking header grows; caps at ~8 rows before it starts scrolling.
+            .frame(height: pickerListHeight)
         }
         .padding(.horizontal, TT.Space.x4)
         .padding(.vertical, TT.Space.x3)
