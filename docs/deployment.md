@@ -34,47 +34,51 @@ This is the operations runbook. The app images are built from `infra/{api,worker
 
 ---
 
-## 2. Production compose (to add: `infra/docker-compose.prod.yml`)
+## 2. Production compose (shipped)
 
-The dev `infra/docker-compose.yml` runs only the datastores. Production adds the three app images plus the proxy. Sketch:
+The dev `infra/docker-compose.yml` runs only the datastores. Production adds the three app
+images plus a TLS-terminating Caddy reverse proxy. The files:
 
-```yaml
-services:
-  postgres: { image: postgres:18-alpine, volumes: [pgdata:/var/lib/postgresql], ... }
-  redis: { image: redis:8-alpine, ... }
-  minio:
-    {
-      image: minio/minio:latest,
-      command: server /data --console-address ":9001",
-      volumes: [miniodata:/data],
-      ...,
-    }
+- **`infra/docker-compose.prod.yml`** — postgres, redis (appendonly), minio, the three app
+  images, and the proxy, plus three helper services: a `createbuckets` one-shot (idempotent,
+  creates the screenshots bucket so the first upload doesn't hit `NoSuchBucket`), and
+  profile-gated `migrate` / `seed` one-shots.
+- **`infra/Caddyfile`** — auto-TLS (Let's Encrypt) and path routing on a single public host.
+- **`.env.prod.example`** — every var the stack needs, validated against `packages/config` at
+  boot. Copy to `.env.prod` at the repo root, fill, `chmod 600`; never commit the filled file.
 
-  api:
-    image: timetrack/api:${TAG}
-    env_file: [.env.prod]
-    depends_on: [postgres, redis, minio]
-    deploy: { replicas: 2 } # stateless
+The prod compose sets `name: timetrack-prod`, so its containers and volumes live in their own
+namespace (`timetrack-prod_*`), isolated from the dev stack (which defaults to the `infra`
+project). This matters even on a shared machine: without it both files resolve to the same
+project and share `pgdata`/`miniodata`, so a `down -v` on one destroys the other's data.
 
-  worker:
-    image: timetrack/worker:${TAG}
-    env_file: [.env.prod]
-    depends_on: [postgres, redis, minio]
+Run everything **from the repo root** (`env_file` paths are `../.env.prod`, relative to the
+compose file in `infra/`):
 
-  dashboard:
-    image: timetrack/dashboard:${TAG}
-    env_file: [.env.prod]
-    depends_on: [api]
+```bash
+# First deploy / every upgrade: migrate BEFORE rolling the apps (§4). First deploy also seeds.
+docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm migrate
+docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm seed
 
-  proxy:
-    image: caddy:2 # or nginx
-    ports: ['443:443', '80:80']
-    volumes: [./infra/Caddyfile:/etc/caddy/Caddyfile, caddydata:/data]
+# Start the stack (proxy is the only service that publishes ports: 80/443):
+docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d
 
-volumes: { pgdata, miniodata, caddydata }
+# Scale the stateless API (plain compose, not Swarm — there is no deploy.replicas):
+docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d --scale api=2
 ```
 
-**Deliverables to build when we reach deployment:** `infra/docker-compose.prod.yml`, `infra/Caddyfile` (or `nginx.conf`), and a `.env.prod.example`.
+**Routing (Caddyfile):** `/v1/*` and `/health*` → api; everything else → dashboard. The Mac
+client pins `/v1`, so that prefix must reach the API unmodified; the dashboard's own Next
+`/api/*` BFF routes stay on the dashboard (do **not** route `/api/*` to the API). The dashboard
+reaches the API over the internal network (`API_URL=http://api:3001`), not through the proxy.
+
+Build the app images (repo root as context) before first `up`, or pull them from your registry:
+
+```bash
+docker build -f infra/api.Dockerfile       -t timetrack/api:$TAG .
+docker build -f infra/worker.Dockerfile    -t timetrack/worker:$TAG .
+docker build -f infra/dashboard.Dockerfile -t timetrack/dashboard:$TAG .
+```
 
 ---
 
@@ -98,22 +102,26 @@ volumes: { pgdata, miniodata, caddydata }
 
 ## 5. Release flow (runbook)
 
+All commands run **from the repo root** with `--env-file .env.prod` (see §2 for why). `.env.prod`
+lives at the repo root, `chmod 600`.
+
 **First deploy:**
 
-1. Provision the VM; install Docker + compose.
-2. Place `.env.prod` (600) and `infra/docker-compose.prod.yml` + `Caddyfile`.
-3. Build/pull images: `docker build -f infra/api.Dockerfile -t timetrack/api:$TAG .` (and worker, dashboard), or pull from your registry.
-4. Start datastores; wait healthy.
-5. Run `migrate deploy` (one-shot).
-6. Seed the bootstrap ADMIN (`pnpm db:seed` with `SEED_ADMIN_*`), then rotate that password on first login.
-7. Start api/worker/dashboard/proxy.
-8. Verify `/health` (liveness) and `/health/ready` (PG+Redis+MinIO reachable).
+1. Provision the VM; install Docker + compose. Point DNS for `PUBLIC_DOMAIN` at it (Caddy needs it resolving before it can issue the cert).
+2. Copy `.env.prod.example` → `.env.prod`, fill it, `chmod 600`.
+3. Build (or pull) the three images — the `docker build …` commands in §2.
+4. Run the migrate one-shot (also seeds the datastores' health-gated startup):
+   `docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm migrate`
+5. Seed the bootstrap ADMIN (needs `SEED_ADMIN_*` set), then rotate that password on first login:
+   `docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm seed`
+6. Start the stack: `docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d` (datastores → `createbuckets` → apps → proxy, gated by healthchecks).
+7. Verify `/health` (liveness) and `/health/ready` (PG+Redis+MinIO reachable) via the public domain.
 
 **Upgrade:**
 
-1. Build/pull the new `$TAG`.
-2. `migrate deploy` (forward-only).
-3. Roll api → worker → dashboard (api is stateless; brief overlap is fine).
+1. Build/pull the new `$TAG` (set `TAG` in `.env.prod`).
+2. `--profile setup run --rm migrate` (forward-only).
+3. `up -d` rolls api → worker → dashboard (api is stateless; brief overlap is fine).
 4. Smoke `/health/ready` + a login + a report.
 
 **Rollback:** redeploy the previous image `$TAG`. **Migrations are forward-only** — do not auto-revert; a bad migration needs a new corrective migration. Restore from backup only for data loss.
