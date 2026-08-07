@@ -164,7 +164,10 @@ struct MenuBarView: View {
                     }
                 }
             }
-            .frame(maxHeight: 132)
+            // Grow to fit the projects (the popover auto-sizes with it), capping at ~6 rows
+            // before it starts scrolling — so a handful of projects no longer collapse into a
+            // tiny 2-row scroll box.
+            .frame(maxHeight: 280)
         }
         .padding(.horizontal, TT.Space.x4)
         .padding(.vertical, TT.Space.x3)
