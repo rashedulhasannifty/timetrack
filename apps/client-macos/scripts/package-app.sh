@@ -36,13 +36,29 @@ echo "  dashboard:  ${DASHBOARD_URL}"
 
 # Sign the bundle. macOS TCC (Screen Recording, etc.) keys a permission grant to the app's
 # code-signing identity: an ad-hoc signature has no stable identity, so its fingerprint changes
-# every rebuild and macOS re-prompts each time. Set CODESIGN_IDENTITY to a stable identity (an
-# "Apple Development: …" or "Developer ID Application: …" from `security find-identity -v
-# -p codesigning`) and — with the bundle ID held fixed — a granted permission persists across
-# rebuilds. Falls back to ad-hoc (dev only; re-prompts) when unset.
-IDENTITY="${CODESIGN_IDENTITY:--}"
+# every rebuild and macOS re-prompts each time (and the prior grant never sticks). With the
+# bundle ID held fixed, a STABLE identity makes a granted permission persist across rebuilds.
+#
+# Identity resolution: explicit CODESIGN_IDENTITY wins; otherwise auto-pick a stable cert so a
+# plain dev build is stably signed by default and nobody has to remember CODESIGN_IDENTITY.
+# Prefer "Developer ID Application" (distribution), else "Apple Development" (local dev). The
+# pick MUST be deterministic — `security find-identity` does not guarantee order, and picking a
+# different identity between rebuilds would itself re-trigger the TCC prompt — so sort the
+# fingerprints and take the first. If several exist, note it (pin one with CODESIGN_IDENTITY).
+# awk (not grep) so a no-match exits 0 — grep's exit 1 would trip `set -o pipefail`.
+find_ids() { security find-identity -v -p codesigning 2>/dev/null | awk -v p="$1" 'index($0, p) { print $2 }' | sort; }
+IDENTITY="${CODESIGN_IDENTITY:-}"
+if [[ -z "$IDENTITY" ]]; then
+  ids="$(find_ids 'Developer ID Application')"
+  [[ -z "$ids" ]] && ids="$(find_ids 'Apple Development')"
+  IDENTITY="$(printf '%s\n' "$ids" | head -1)"
+  if [[ "$(printf '%s\n' "$ids" | grep -c .)" -gt 1 ]]; then
+    echo "  note: multiple signing identities found; using ${IDENTITY} (deterministic). Set CODESIGN_IDENTITY to pin one."
+  fi
+fi
+IDENTITY="${IDENTITY:--}"
 if [[ "$IDENTITY" == "-" ]]; then
-  echo "→ codesign (ad-hoc — permissions WILL re-prompt each rebuild; set CODESIGN_IDENTITY to persist)"
+  echo "→ codesign (ad-hoc — no signing identity installed; permissions WILL re-prompt each rebuild)"
 else
   echo "→ codesign (identity: ${IDENTITY})"
 fi
