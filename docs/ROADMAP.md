@@ -12,16 +12,34 @@ Read `PRD.md` for _what_ and _why_; read this for _in what order_ and _how we wo
 
 ## 1. Where we are
 
-**Done (foundation + first slice of Phase 1):**
+**All four phases are code-complete and merged to `main`.** The one open ship-gate is the
+Phase 2 §11 hard gate (self-view must ship _with_ capture); what remains of it is account/hardware
+work, not code — see **Next**.
 
-- Monorepo (pnpm + turbo), pinned stack, CI, husky + lint-staged, green gate (`lint`/`typecheck`/`test`/`build`).
-- `packages/`: `contracts` (Zod schemas for every domain), `db` (Prisma 7 + adapter, partitioned schema, migrations), `logger` (Pino + redaction), `config` (Zod env).
-- `apps/api`: guards (JWT deny-by-default, roles), Zod pipe, RFC 9457 filter, request-id interceptor, MinIO + BullMQ infra. **Auth is fully implemented** (Argon2id login, rotating refresh tokens, logout). Other modules are typed, guarded skeletons.
-- `apps/worker`: bootstrap + processors (partition-provision real; others stubbed).
-- `apps/dashboard`: Next 16 App Router shell + routes (scaffold pages).
-- `apps/client-macos`: SwiftPM package, `AckGate` + `PolicyClient`, app + capture stubs.
+- **Foundation** — monorepo (pnpm + turbo), pinned stack, CI, husky + lint-staged, green gate
+  (`lint`/`typecheck`/`test`/`build`). `packages/`: `contracts` (Zod schemas per domain), `db`
+  (Prisma 7 + adapter, partitioned schema, migrations), `logger` (Pino + redaction), `config`
+  (Zod env).
+- **Phase 1 — MVP** ✅ (`docs/plans/phase-1-mvp.md`, 8/8). Auth (Argon2id + rotating refresh),
+  time entries, projects/tasks, dashboard overview, macOS client MVP (manual + auto tracking).
+- **Phase 2 — Monitoring + self-view** — code shipped (screenshots pipeline, activity %,
+  idle/focus nudges, employee self-view). **The §11 gate is the only open box**
+  (`docs/plans/phase-2-monitoring.md`).
+- **Phase 3 — Reporting + approvals** ✅ (`docs/plans/phase-3-reporting-approvals.md`, 5/5).
+  CSV export, timesheet approvals, local-only distraction nudges.
+- **Phase 4 — SSO + admin + retention** ✅ (`docs/plans/phase-4-sso-admin.md`, 6/6). OIDC SSO,
+  admin settings UI, nightly retention (DROP PARTITION + audit), audit-log UI, right-to-erasure.
+- **Deployment** — production scaffolding shipped: `infra/docker-compose.prod.yml` (app images +
+  Caddy TLS proxy, own project namespace), `infra/Caddyfile`, `.env.prod.example`
+  (`docs/deployment.md`). macOS client distribution wired: real bundle id
+  (`com.niftyitsolution.timetrack`) + build-time-parameterized packaging + `apps/client-macos/SIGNING.md`.
 
-**Next:** finish **Phase 1 (MVP)**.
+**Next — close the Phase 2 §11 gate (self-view ships _with_ capture, PRD §11):**
+
+1. Renew the Apple Developer membership, then sign + notarize the client on one host, and run the
+   manual macOS GUI-login E2E (`docs/phase-2-release-checklist.md` §2–§3).
+2. Flip the §11 gate box and slice 2.4 in `docs/plans/phase-2-monitoring.md`.
+3. First production deploy per `docs/deployment.md` §5.
 
 ---
 
