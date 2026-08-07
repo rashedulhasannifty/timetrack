@@ -15,6 +15,7 @@ final class ScreenshotSchedulerTests: XCTestCase {
         grabber: DisplayGrabbing,
         buffer: ImageBufferStore,
         isTracking: @escaping () -> Bool,
+        isPermitted: @escaping () -> Bool = { true },
         onCaptured: @escaping () -> Void = {},
         onPermissionDenied: @escaping () -> Void = {},
         onCaptureSucceeded: @escaping () -> Void = {}
@@ -25,6 +26,7 @@ final class ScreenshotSchedulerTests: XCTestCase {
             buffer: buffer,
             intervalMinutes: 10,
             isTracking: isTracking,
+            isPermitted: isPermitted,
             clock: { self.t0 },
             onCaptured: onCaptured,
             onPermissionDenied: onPermissionDenied,
@@ -87,6 +89,31 @@ final class ScreenshotSchedulerTests: XCTestCase {
 
         XCTAssertTrue(denied, "permission-denied surfaced to the menu bar")
         XCTAssertTrue(buffer.take(limit: 10).isEmpty, "nothing enqueued on a failed grab")
+    }
+
+    /// Regression (per-interval Screen Recording re-prompt): when the non-prompting preflight
+    /// reports permission missing, `captureTick` must surface the warning and NEVER enter the
+    /// grabber — entering ScreenCaptureKit is what re-triggered the OS dialog every interval. A
+    /// grabber that WOULD have succeeded (`.bytes`, not `.fail`) proves the point: `grabCount == 0`
+    /// can only hold because the preflight guard short-circuited before the grab, not because the
+    /// grab itself failed.
+    func testDeniedPreflightSurfacesWarningAndNeverGrabs() async {
+        let buffer = tempBuffer()
+        let grabber = FakeDisplayGrabber(.bytes(Data([0xFF, 0xD8, 0xFF])))
+        var denied = false
+        var succeeded = false
+        let sched = makeScheduler(ackRequired: false, grabber: grabber, buffer: buffer,
+                                  isTracking: { true },
+                                  isPermitted: { false },
+                                  onPermissionDenied: { denied = true },
+                                  onCaptureSucceeded: { succeeded = true })
+
+        await sched.captureTick()
+
+        XCTAssertEqual(grabber.grabCount, 0, "denied preflight → ScreenCaptureKit never entered (no re-prompt)")
+        XCTAssertTrue(denied, "permission-denied surfaced to the menu bar")
+        XCTAssertFalse(succeeded, "no capture success on a denied tick")
+        XCTAssertTrue(buffer.take(limit: 10).isEmpty, "nothing enqueued when permission is missing")
     }
 
     /// Regression (sign-out cross-user integrity race): a capture cycle suspended inside `grab()`
