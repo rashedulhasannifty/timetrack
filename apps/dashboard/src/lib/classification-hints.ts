@@ -73,16 +73,20 @@ export function appRuleToken(app: ObservedApp): string {
 }
 
 /**
- * Observed apps not already classified in `value` — an app counts as present if its name OR its
- * bundleId already appears (case-insensitive), so a name rule and its bundleId equivalent don't
- * both surface. Preserves input order (ranked by usage), capped at `limit`.
+ * Observed apps not already classified — an app counts as present if its name OR its bundleId
+ * already appears (case-insensitive), so a name rule and its bundleId equivalent don't both
+ * surface. `value` may be several textarea contents (e.g. the productive AND unproductive lists):
+ * an app classified in EITHER is excluded, so a suggestion can't offer a one-click move that
+ * silently reclassifies an already-categorised app (apps overlap → UNPRODUCTIVE wins). Preserves
+ * input order (ranked by usage), capped at `limit`.
  */
 export function availableSuggestions(
   suggestions: ObservedApp[],
-  value: string,
+  value: string | string[],
   limit = 15,
 ): ObservedApp[] {
-  const present = new Set(parseTerms(value).map((t) => t.toLowerCase()));
+  const values = Array.isArray(value) ? value : [value];
+  const present = new Set(values.flatMap((v) => parseTerms(v)).map((t) => t.toLowerCase()));
   const out: ObservedApp[] = [];
   for (const app of suggestions) {
     if (out.length >= limit) break;
