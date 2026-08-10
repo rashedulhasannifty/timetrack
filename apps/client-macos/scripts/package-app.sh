@@ -19,13 +19,20 @@ cp "$RELEASE_BIN" "$APP/Contents/MacOS/${APP_NAME}"
 cp Info.plist "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
-# Distribution knobs. Defaults match the committed Info.plist (dev/localhost), so a plain
-# build is unchanged; a distribution build sets these to the team's bundle id + the prod
-# deployment URLs. TCC (Screen Recording, etc.) keys off bundle id + signing identity, so the
-# bundle id must be the team's real reverse-DNS id before signing for real machines.
+# Distribution knobs. A packaged .app IS the artifact employees run, so these default to the
+# PRODUCTION deployment — shipping a build that silently talks to 127.0.0.1 is the worse
+# failure. Local development is unaffected: `swift run` has no bundle, so it falls back to
+# the localhost URLs hardcoded in AppDelegate.apiBaseURL()/dashboardURL().
+#
+# To package a build pointed at a local stack, override explicitly:
+#   API_BASE_URL=http://127.0.0.1:3001/v1 DASHBOARD_URL=http://127.0.0.1:3000 ./scripts/package-app.sh
+#
+# The API base MUST keep the /v1 suffix: the client pins that prefix and the deployment's
+# Caddy routes /v1/* to the API. TCC (Screen Recording, etc.) keys off bundle id + signing
+# identity, so the bundle id must be the team's real reverse-DNS id before signing.
 BUNDLE_ID="${BUNDLE_ID:-com.niftyitsolution.timetrack}"
-API_BASE_URL="${API_BASE_URL:-http://127.0.0.1:3001/v1}"
-DASHBOARD_URL="${DASHBOARD_URL:-http://127.0.0.1:3000}"
+API_BASE_URL="${API_BASE_URL:-https://timer.niftyitsolution.com/v1}"
+DASHBOARD_URL="${DASHBOARD_URL:-https://timer.niftyitsolution.com}"
 PB=/usr/libexec/PlistBuddy
 "$PB" -c "Set :CFBundleIdentifier ${BUNDLE_ID}" "$APP/Contents/Info.plist"
 "$PB" -c "Set :TimeTrackAPIBaseURL ${API_BASE_URL}" "$APP/Contents/Info.plist"

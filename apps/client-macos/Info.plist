@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Bundle metadata for the packaged .app. CFBundleIdentifier, TimeTrackAPIBaseURL and
-     TimeTrackDashboardURL are the committed dev defaults; scripts/package-app.sh overrides
-     them at package time from BUNDLE_ID / API_BASE_URL / DASHBOARD_URL for a distribution
-     build. LSUIElement=1 makes it a menu-bar agent with no Dock icon, matching the
-     .accessory activation policy in App/main.swift. -->
+<!-- Bundle metadata for the packaged .app. The TimeTrackAPIBaseURL / TimeTrackDashboardURL
+     values below are dev placeholders only: scripts/package-app.sh ALWAYS rewrites them at
+     package time, and it defaults to the production deployment. Editing them here does not
+     change what a packaged build talks to — set API_BASE_URL / DASHBOARD_URL when running
+     that script instead. LSUIElement=1 makes it a menu-bar agent with no Dock icon,
+     matching the .accessory activation policy in App/main.swift. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
