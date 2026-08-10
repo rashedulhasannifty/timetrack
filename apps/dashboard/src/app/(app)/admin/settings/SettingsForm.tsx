@@ -72,36 +72,46 @@ function Toggle({
 /**
  * A classification list (app or site) with live, non-blocking hints. The client Categorizer
  * matches silently, so a mistyped term just never matches; this surfaces likely mistakes as the
- * admin types without ever preventing a save. The textarea is controlled so hints stay live, but
- * keeps its `name` so the server action reads it from FormData unchanged.
+ * admin types without ever preventing a save. Controlled by the parent so hints stay live and the
+ * app suggestions can exclude siblings, but keeps its `name` so the server action reads it from
+ * FormData unchanged.
+ *
+ * `excludeValue` is the sibling list's value: an app already classified in it is dropped from the
+ * "Seen recently" chips, so a chip can't offer a one-click move that silently reclassifies an
+ * already-categorised app (apps overlap → UNPRODUCTIVE wins).
  */
 function ListField({
   name,
   label,
   hint,
   placeholder,
-  defaultValue,
+  value,
+  onValueChange,
   kind,
   suggestions,
+  excludeValue,
 }: {
   name: string;
   label: string;
   hint: string;
   placeholder: string;
-  defaultValue: string;
+  value: string;
+  onValueChange: (next: string) => void;
   kind: TermKind;
   suggestions?: ObservedApp[];
+  excludeValue?: string;
 }) {
-  const [value, setValue] = useState(defaultValue);
   const flagged = flaggedTerms(value, kind);
-  const picks = suggestions ? availableSuggestions(suggestions, value) : [];
+  const picks = suggestions
+    ? availableSuggestions(suggestions, excludeValue == null ? value : [value, excludeValue])
+    : [];
   return (
     <label className="flex flex-col gap-1">
       <span className="text-[13px] font-medium">{label}</span>
       <textarea
         name={name}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => onValueChange(e.target.value)}
         rows={3}
         placeholder={placeholder}
         className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
@@ -115,7 +125,7 @@ function ListField({
               key={appRuleToken(s)}
               type="button"
               title={s.bundleId ?? undefined}
-              onClick={() => setValue((v) => appendTerm(v, appRuleToken(s)))}
+              onClick={() => onValueChange(appendTerm(value, appRuleToken(s)))}
               className="border-separator text-text-secondary hover:border-accent hover:text-text rounded-full border px-2 py-0.5 text-[12px] transition-colors"
             >
               {s.name}
@@ -149,6 +159,13 @@ export function SettingsForm({
   observedApps: ObservedApp[];
 }) {
   const [state, formAction, pending] = useActionState(updateSettingsAction, INITIAL);
+
+  // Classification lists are controlled here so the app suggestions can exclude the sibling list
+  // (an already-productive app must not be offered as an unproductive suggestion, and vice versa).
+  const [productiveApps, setProductiveApps] = useState(settings.productiveApps.join('\n'));
+  const [unproductiveApps, setUnproductiveApps] = useState(settings.unproductiveApps.join('\n'));
+  const [productiveSites, setProductiveSites] = useState(settings.productiveSites.join('\n'));
+  const [unproductiveSites, setUnproductiveSites] = useState(settings.unproductiveSites.join('\n'));
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -263,18 +280,22 @@ export function SettingsForm({
           label="Productive apps"
           hint="One app name per line (or comma-separated)."
           placeholder="One app per line"
-          defaultValue={settings.productiveApps.join('\n')}
+          value={productiveApps}
+          onValueChange={setProductiveApps}
           kind="app"
           suggestions={observedApps}
+          excludeValue={unproductiveApps}
         />
         <ListField
           name="unproductiveApps"
           label="Unproductive apps"
           hint="A category label, not a judgement."
           placeholder="One app per line"
-          defaultValue={settings.unproductiveApps.join('\n')}
+          value={unproductiveApps}
+          onValueChange={setUnproductiveApps}
           kind="app"
           suggestions={observedApps}
+          excludeValue={productiveApps}
         />
       </Card>
 
@@ -292,7 +313,8 @@ export function SettingsForm({
           label="Productive sites"
           hint="One host per line (or comma-separated)."
           placeholder="One site host per line, e.g. docs.google.com"
-          defaultValue={settings.productiveSites.join('\n')}
+          value={productiveSites}
+          onValueChange={setProductiveSites}
           kind="site"
         />
         <ListField
@@ -300,7 +322,8 @@ export function SettingsForm({
           label="Unproductive sites"
           hint="A category label, not a judgement."
           placeholder="One site host per line, e.g. youtube.com"
-          defaultValue={settings.unproductiveSites.join('\n')}
+          value={unproductiveSites}
+          onValueChange={setUnproductiveSites}
           kind="site"
         />
       </Card>

@@ -89,6 +89,21 @@ describe('availableSuggestions', () => {
     const many = Array.from({ length: 30 }, (_, i) => ({ name: `App${i}`, bundleId: null }));
     expect(availableSuggestions(many, '', 5)).toHaveLength(5);
   });
+
+  it('excludes apps classified in a sibling list (own box empty)', () => {
+    // Unproductive box is empty, but Code is already in the Productive list → not suggested.
+    expect(availableSuggestions(apps, ['', 'Code'])).toEqual([
+      { name: 'Slack', bundleId: 'com.tinyspeck.slackmacgap' },
+      { name: 'Figma', bundleId: null },
+    ]);
+  });
+
+  it('matches a sibling entry by bundleId too', () => {
+    // Slack sits in the sibling list by its bundleId → excluded even though the name differs.
+    expect(availableSuggestions(apps, ['Figma', 'com.tinyspeck.slackmacgap'])).toEqual([
+      { name: 'Code', bundleId: 'com.microsoft.VSCode' },
+    ]);
+  });
 });
 
 describe('appRuleToken', () => {
