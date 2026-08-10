@@ -88,6 +88,17 @@ docker build -f infra/dashboard.Dockerfile -t timetrack/dashboard:$TAG .
 - **Secrets never enter the repo** (`CLAUDE.md §6`). Provide `.env.prod` on the host (root-owned, `chmod 600`) or via the orchestrator's secret store. Rotate `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `S3_*`, DB creds.
 - `.env.prod` must set (beyond `.env.example` defaults): strong 32+ char JWT secrets, real DB/Redis/MinIO creds, `NODE_ENV=production`, `API_URL`/dashboard origin, `PRESIGNED_URL_TTL_SECONDS`.
 - The dashboard reads `API_URL` **server-side** only; no credential in `NEXT_PUBLIC_*`.
+- **`APP_URL` is the public dashboard origin** and is what every invitation email's accept
+  link is built from. Boot **fails** if `NODE_ENV=production` and it is still the localhost
+  default — a wrong value would otherwise mail employees an unreachable link.
+- **Invitation email (`SES_*` + `MAIL_FROM`) is all-or-nothing**, like `OIDC_*`: set all four
+  or none. Unset, invites are created but never delivered, and in production the worker logs
+  an error. `SES_SECRET_ACCESS_KEY` is the **raw IAM secret access key** — the SES _SMTP_
+  password is a one-way derivation of it and does not authenticate against the SESv2 API.
+  Before go-live verify the `MAIL_FROM` identity in SES in `SES_REGION`, and confirm the
+  account has production access (a sandboxed account only delivers to verified recipients).
+- `INVITE_TTL_DAYS` (default 7) is stamped on each invite at create time; changing it never
+  extends invites already sent.
 
 ---
 
@@ -116,6 +127,9 @@ lives at the repo root, `chmod 600`.
    `docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm seed`
 6. Start the stack: `docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d` (datastores → `createbuckets` → apps → proxy, gated by healthchecks).
 7. Verify `/health` (liveness) and `/health/ready` (PG+Redis+MinIO reachable) via the public domain.
+8. Verify invitations end-to-end: invite a real address from **Admin → Users**, confirm the
+   email arrives, and that its link opens `/accept-invite` and signs the new user in. Nothing
+   before this step exercises the SES credential — the unit tests all mock the transport.
 
 **Upgrade:**
 

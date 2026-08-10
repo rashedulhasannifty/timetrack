@@ -7,11 +7,10 @@ import {
 import { createHash, randomBytes } from 'node:crypto';
 import * as argon2 from 'argon2';
 import type { InviteUser, Role } from '@timetrack/contracts';
+import { loadEnv } from '@timetrack/config';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { QueueService, QUEUES } from '../../infra/queue/queue.module.js';
 import { InvitesRepository, type AcceptedInvite } from './invites.repository.js';
-
-const INVITE_TTL_HOURS = 72;
 
 export interface CreatedInvite {
   invite: { id: string; email: string; role: Role; teamId: string; expiresAt: Date };
@@ -20,6 +19,10 @@ export interface CreatedInvite {
 
 @Injectable()
 export class InvitesService {
+  // Read once at construction. `expiresAt` is persisted per invite, so changing this only
+  // affects invites created after the restart — it never extends one already sent.
+  private readonly ttlDays = loadEnv().INVITE_TTL_DAYS;
+
   constructor(
     private readonly repo: InvitesRepository,
     private readonly queue: QueueService,
@@ -51,7 +54,7 @@ export class InvitesService {
     }
 
     const token = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + this.ttlDays * 24 * 60 * 60 * 1000);
     const created = await this.repo.createInvite({
       email: dto.email,
       name: dto.name,

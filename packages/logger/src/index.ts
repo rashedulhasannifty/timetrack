@@ -23,6 +23,8 @@ export const REDACT_PATHS = [
   'SEED_ADMIN_PASSWORD',
   '*.OIDC_CLIENT_SECRET',
   'OIDC_CLIENT_SECRET',
+  '*.SES_SECRET_ACCESS_KEY',
+  'SES_SECRET_ACCESS_KEY',
 ];
 
 export function pinoConfig(env: { NODE_ENV: string; LOG_LEVEL: string }): LoggerOptions {

@@ -3,6 +3,11 @@ import { ConflictException, ForbiddenException, UnauthorizedException } from '@n
 
 vi.mock('argon2', () => ({ hash: vi.fn().mockResolvedValue('hashed'), argon2id: 2 }));
 
+// The service reads INVITE_TTL_DAYS at construction; unit tests must not depend on a real
+// environment (CI sets only DATABASE_URL/REDIS_URL).
+const ttlDays = { value: 7 };
+vi.mock('@timetrack/config', () => ({ loadEnv: () => ({ INVITE_TTL_DAYS: ttlDays.value }) }));
+
 import { InvitesService } from './invites.service.js';
 import type { InvitesRepository } from './invites.repository.js';
 import type { QueueService } from '../../infra/queue/queue.module.js';
@@ -62,6 +67,20 @@ describe('InvitesService.create', () => {
       'invite',
       expect.objectContaining({ email: dto.email, inviteToken: result.token }),
     );
+  });
+
+  it('expires the invite INVITE_TTL_DAYS after creation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-10T00:00:00Z'));
+    try {
+      const { svc, repo } = makeService();
+      await svc.create(dto, admin);
+      expect(repo.createInvite).toHaveBeenCalledWith(
+        expect.objectContaining({ expiresAt: new Date('2026-08-17T00:00:00Z') }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
