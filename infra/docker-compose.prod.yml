@@ -86,7 +86,7 @@ services:
 
   # ---- App images (built from infra/*.Dockerfile, repo root as context) ------------------
   api:
-    image: timetrack/api:${TAG}
+    image: ${IMAGE_PREFIX:-timetrack}/api:${TAG}
     restart: unless-stopped
     env_file: ['../.env.prod']
     depends_on:
@@ -107,7 +107,7 @@ services:
   # NOT optional: the partition-provision job keeps activity_samples/screenshots insertable
   # past the seeded partition months, and screenshot/rollup processing runs here (deployment §4).
   worker:
-    image: timetrack/worker:${TAG}
+    image: ${IMAGE_PREFIX:-timetrack}/worker:${TAG}
     restart: unless-stopped
     env_file: ['../.env.prod']
     depends_on:
@@ -117,7 +117,7 @@ services:
       createbuckets: { condition: service_completed_successfully }
 
   dashboard:
-    image: timetrack/dashboard:${TAG}
+    image: ${IMAGE_PREFIX:-timetrack}/dashboard:${TAG}
     restart: unless-stopped
     env_file: ['../.env.prod']
     # The dashboard is a BFF: it calls the API server-side. Reach it over the internal
@@ -156,7 +156,7 @@ services:
   # migrate deploy is forward-only and non-interactive-safe (unlike migrate dev). Runs from
   # the repo root inside the api image, which carries the full workspace + Prisma CLI.
   migrate:
-    image: timetrack/api:${TAG}
+    image: ${IMAGE_PREFIX:-timetrack}/api:${TAG}
     profiles: ['setup']
     working_dir: /repo
     command: ['pnpm', 'db:deploy']
@@ -167,7 +167,7 @@ services:
   # First-deploy only: seeds the bootstrap ADMIN (needs SEED_ADMIN_EMAIL + SEED_ADMIN_PASSWORD
   # in .env.prod). Rotate that password on first login.
   seed:
-    image: timetrack/api:${TAG}
+    image: ${IMAGE_PREFIX:-timetrack}/api:${TAG}
     profiles: ['setup']
     working_dir: /repo
     command: ['pnpm', 'db:seed']
