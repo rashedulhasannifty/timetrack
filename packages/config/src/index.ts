@@ -24,6 +24,9 @@ function loadDotEnvOnce(): void {
   }
 }
 
+/** The dev-only APP_URL. Leaving this in place in production is rejected below. */
+const APP_URL_DEV_DEFAULT = 'http://localhost:3000';
+
 /**
  * PRD §7.2 — env is parsed through Zod at boot.
  * Missing or invalid env is a fail-fast startup error, never a runtime `undefined`.
@@ -65,8 +68,8 @@ const EnvSchema = z
     // The dashboard's PUBLIC origin — the base of the accept link in an invite email.
     // Distinct from API_URL (the API's own origin, which the dashboard reaches internally)
     // and from CORS_ORIGINS (a list). Defaults to the dev dashboard so a link is always
-    // buildable; production must set the real origin or invitees receive a localhost link.
-    APP_URL: z.url().default('http://localhost:3000'),
+    // buildable; production must set the real origin (enforced by the refinement below).
+    APP_URL: z.url().default(APP_URL_DEV_DEFAULT),
 
     // PRD §6.7 — invitation lifetime. `expiresAt` is computed at create time and persisted,
     // so changing this never extends invites that have already been sent.
@@ -110,6 +113,18 @@ const EnvSchema = z
       ),
   })
   .superRefine((env, ctx) => {
+    // A production deployment that never set APP_URL would boot healthy and mail every
+    // invitee a localhost link — a silent failure only a confused employee would surface.
+    // Fail at boot instead, consistent with every other required URL in this schema.
+    if (env.NODE_ENV === 'production' && env.APP_URL === APP_URL_DEV_DEFAULT) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['APP_URL'],
+        message:
+          "APP_URL must be the deployment's public dashboard origin in production, not the localhost default (invite links are built from it)",
+      });
+    }
+
     // SES is all-or-nothing for the same reason as OIDC: a half-set config is an operator
     // error. Fail fast at boot rather than have the invite job throw on the first send.
     const sesKeys = [

@@ -10,11 +10,13 @@
       "default": "./dist/index.js"
     }
   },
-  "dependencies": { "zod": "^4.4.3" },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "scripts": {
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.json",
-    "test": "echo noop"
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run"
   }
 }
