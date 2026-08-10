@@ -41,6 +41,28 @@ jobs:
       - run: pnpm --filter @timetrack/api test:coverage
       - run: pnpm --filter @timetrack/contracts test:coverage
 
+  # The images are built from the workspace with NO .env present (.dockerignore excludes it),
+  # which is a different environment from `pnpm build` in the verify job above — that one has
+  # DATABASE_URL in process.env. A Dockerfile can therefore break while verify stays green.
+  # That happened once (prisma.config.ts resolving env('DATABASE_URL') at generate time), and
+  # it was only caught after merge by the deploy workflow. Build here, on the PR, and push
+  # nothing — deploy.yml owns publishing.
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api, worker, dashboard]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/${{ matrix.service }}.Dockerfile
+          push: false
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
   security:
     runs-on: ubuntu-latest
     steps:
