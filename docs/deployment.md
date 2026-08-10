@@ -142,6 +142,55 @@ lives at the repo root, `chmod 600`.
 
 ---
 
+## 5b. Continuous deployment (GitHub Actions)
+
+`.github/workflows/deploy.yml` automates the **upgrade** path only: push to `main` (or run it
+manually via `workflow_dispatch`) → quality gate → build the three images and push them to
+GHCR → render `.env.prod` on the host → `migrate` → `up -d` → probe the API's `/health`.
+
+It deliberately does **not** do first-deploy work. These stay manual, once, per §5:
+
+1. NSG 80/443 open; public IP Static; DNS pointed at the host.
+2. Docker Engine + compose v2 installed.
+3. A **dedicated deploy user** with a purpose-generated SSH keypair — the private half becomes
+   the `SSH_KEY` secret. Never a personal key: that secret grants a shell on production.
+4. `mkdir -p <DEPLOY_PATH>/infra` — the workflow scp's `docker-compose.prod.yml` and
+   `Caddyfile` into `<DEPLOY_PATH>/infra/`, and renders `.env.prod` one level up at
+   `<DEPLOY_PATH>/.env.prod` (the compose file's `env_file` is `../.env.prod`).
+5. The `seed` one-shot. It is first-deploy-only and is **not** in the workflow.
+
+Because images come from GHCR, the host needs no source checkout, no repo deploy key, and no
+build capacity — it only pulls. Set `IMAGE_PREFIX` to switch registries; unset, compose falls
+back to the local `timetrack/*` names the `docker build` commands in §2 produce, so the manual
+path still works when CI is unavailable.
+
+**Repository secrets** (Settings → Secrets and variables → Actions):
+
+| Group    | Secrets                                                                                                                                                      |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| SSH      | `SSH_HOST`, `SSH_USER`, `SSH_KEY`, `SSH_PORT`, `DEPLOY_PATH`                                                                                                 |
+| Postgres | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_URL`                                                                                          |
+| Auth     | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `DASHBOARD_SESSION_SECRET`                                                                                        |
+| Storage  | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`                                                                      |
+| URLs     | `API_URL`, `APP_URL`, `CORS_ORIGINS`, `PUBLIC_DOMAIN`, `ACME_EMAIL`                                                                                          |
+| Optional | `INVITE_TTL_DAYS`; `SES_REGION` + `SES_ACCESS_KEY_ID` + `SES_SECRET_ACCESS_KEY` + `MAIL_FROM`; `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`; the five `OIDC_*` |
+
+`NODE_ENV`, `LOG_LEVEL`, `REDIS_URL`, `S3_ENDPOINT`, `S3_REGION` and `API_PORT` are **not**
+secrets — the workflow hardcodes them. `NODE_ENV=production` in particular must never be
+omitted: the schema defaults to `development`, and under `development` the API returns the raw
+invite token in its response and the `APP_URL` guard never fires.
+
+**Optional groups are emitted only when set.** `packages/config` treats an empty string as
+_present_, so writing `OIDC_ISSUER=` for an unused feature fails `z.url()` and the API refuses
+to boot. Leave a group's secrets unset and the workflow omits the whole block. Set them
+together — the all-or-nothing refinements still apply.
+
+`TAG` is rendered as the deployed commit SHA, so **rollback is re-running an earlier
+successful workflow** (Actions → that run → Re-run jobs). The `concurrency` group serialises
+deploys so two `migrate` runs can never race.
+
+---
+
 ## 6. Backups & DR
 
 - **Postgres:** nightly `pg_dump` (or WAL archiving/`pgBackRest` for PITR) to off-box storage; test restores quarterly. Time entries are the payroll record — never on a short retention.

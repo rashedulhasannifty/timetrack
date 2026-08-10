@@ -1,0 +1,273 @@
+name: Deploy
+
+# Push to main → quality gate → build & push the three images to GHCR → migrate → roll the stack.
+#
+# This does NOT do first-deploy work (NSG rules, DNS, Docker install, the deploy user, the
+# GitHub secrets, the `seed` one-shot). See docs/deployment.md §5 — the workflow takes over
+# only once the host is prepared and the first deploy has been done by hand.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Never run two deploys at the same host at once — concurrent `migrate` runs would race.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  # GHCR supports nested paths, so the three images live under one repo namespace.
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/timetrack
+
+jobs:
+  # ── 1. Quality gate ─────────────────────────────────────────────────────────
+  # Deliberately duplicated from ci.yml so a deploy is self-contained and can never ship
+  # a red commit. It does mean push-to-main runs the suite twice.
+  gate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: timetrack
+          POSTGRES_PASSWORD: timetrack
+          POSTGRES_DB: timetrack_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U timetrack" --health-interval=5s --health-retries=10
+      redis:
+        image: redis:8-alpine
+        ports: ['6379:6379']
+    env:
+      DATABASE_URL: postgresql://timetrack:timetrack@localhost:5432/timetrack_test?schema=public
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm db:deploy
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  # ── 2. Build the three images and push to GHCR (the artifacts) ──────────────
+  build-and-push:
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service: [api, worker, dashboard]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Build context is the repo root for all three (see infra/*.Dockerfile).
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/${{ matrix.service }}.Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # ── 3. Deploy ───────────────────────────────────────────────────────────────
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+
+      # The compose file resolves `env_file: ['../.env.prod']` relative to itself and mounts
+      # './Caddyfile', so both must land in <DEPLOY_PATH>/infra/ with .env.prod one level up.
+      # scp-action keeps the source path structure, so target is DEPLOY_PATH itself.
+      - name: Copy compose + Caddyfile to the host
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: 'infra/docker-compose.prod.yml,infra/Caddyfile'
+          target: ${{ secrets.DEPLOY_PATH }}
+
+      # Render .env.prod from secrets. Values arrive via `envs:` so they are masked in logs
+      # and never appear as literal text in this YAML. Written with umask 077 to a tmp file
+      # then mv'd, so a reader never sees a partial or world-readable file.
+      #
+      # CRITICAL: only REQUIRED vars are written unconditionally. packages/config treats an
+      # empty string as SET, not absent — `OIDC_ISSUER=` fails z.url() and the API refuses to
+      # boot, and an empty SES var makes the all-or-nothing refinement report four confusing
+      # errors. So every optional group is emitted only when its secret is non-empty.
+      - name: Render .env.prod from secrets
+        uses: appleboy/ssh-action@v1
+        env:
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
+          IMAGE_TAG: ${{ github.sha }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          MINIO_ROOT_USER: ${{ secrets.MINIO_ROOT_USER }}
+          MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          API_URL: ${{ secrets.API_URL }}
+          APP_URL: ${{ secrets.APP_URL }}
+          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
+          PUBLIC_DOMAIN: ${{ secrets.PUBLIC_DOMAIN }}
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+          DASHBOARD_SESSION_SECRET: ${{ secrets.DASHBOARD_SESSION_SECRET }}
+          INVITE_TTL_DAYS: ${{ secrets.INVITE_TTL_DAYS }}
+          SES_REGION: ${{ secrets.SES_REGION }}
+          SES_ACCESS_KEY_ID: ${{ secrets.SES_ACCESS_KEY_ID }}
+          SES_SECRET_ACCESS_KEY: ${{ secrets.SES_SECRET_ACCESS_KEY }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          SEED_ADMIN_EMAIL: ${{ secrets.SEED_ADMIN_EMAIL }}
+          SEED_ADMIN_PASSWORD: ${{ secrets.SEED_ADMIN_PASSWORD }}
+          OIDC_ISSUER: ${{ secrets.OIDC_ISSUER }}
+          OIDC_CLIENT_ID: ${{ secrets.OIDC_CLIENT_ID }}
+          OIDC_CLIENT_SECRET: ${{ secrets.OIDC_CLIENT_SECRET }}
+          OIDC_REDIRECT_URI: ${{ secrets.OIDC_REDIRECT_URI }}
+          OIDC_DEFAULT_TEAM_ID: ${{ secrets.OIDC_DEFAULT_TEAM_ID }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          envs: IMAGE_PREFIX,IMAGE_TAG,POSTGRES_USER,POSTGRES_PASSWORD,POSTGRES_DB,DATABASE_URL,JWT_ACCESS_SECRET,JWT_REFRESH_SECRET,MINIO_ROOT_USER,MINIO_ROOT_PASSWORD,S3_BUCKET,S3_ACCESS_KEY,S3_SECRET_KEY,API_URL,APP_URL,CORS_ORIGINS,PUBLIC_DOMAIN,ACME_EMAIL,DASHBOARD_SESSION_SECRET,INVITE_TTL_DAYS,SES_REGION,SES_ACCESS_KEY_ID,SES_SECRET_ACCESS_KEY,MAIL_FROM,SEED_ADMIN_EMAIL,SEED_ADMIN_PASSWORD,OIDC_ISSUER,OIDC_CLIENT_ID,OIDC_CLIENT_SECRET,OIDC_REDIRECT_URI,OIDC_DEFAULT_TEAM_ID
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            umask 077
+
+            # NODE_ENV is hardcoded, never a secret. The schema DEFAULTS to development, and
+            # under development the API returns the raw invite token in the API response
+            # (users.service.ts) and the APP_URL production guard never fires.
+            cat > .env.prod.tmp <<EOF
+            NODE_ENV=production
+            LOG_LEVEL=info
+
+            # Pinned to this commit so a rollback is "re-run the older workflow".
+            IMAGE_PREFIX=${IMAGE_PREFIX}
+            TAG=${IMAGE_TAG}
+
+            POSTGRES_USER=${POSTGRES_USER}
+            POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            POSTGRES_DB=${POSTGRES_DB}
+            DATABASE_URL=${DATABASE_URL}
+
+            # Internal service addresses — fixed by the compose network, not secrets.
+            REDIS_URL=redis://redis:6379
+            S3_ENDPOINT=http://minio:9000
+            S3_REGION=us-east-1
+
+            JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+            JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+
+            MINIO_ROOT_USER=${MINIO_ROOT_USER}
+            MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+            S3_BUCKET=${S3_BUCKET}
+            S3_ACCESS_KEY=${S3_ACCESS_KEY}
+            S3_SECRET_KEY=${S3_SECRET_KEY}
+
+            API_PORT=3001
+            API_URL=${API_URL}
+            APP_URL=${APP_URL}
+            CORS_ORIGINS=${CORS_ORIGINS}
+            PUBLIC_DOMAIN=${PUBLIC_DOMAIN}
+            ACME_EMAIL=${ACME_EMAIL}
+            DASHBOARD_SESSION_SECRET=${DASHBOARD_SESSION_SECRET}
+            EOF
+
+            # ---- Optional groups: emitted ONLY when set (empty != absent, see above) ----
+            if [ -n "${INVITE_TTL_DAYS:-}" ]; then
+              echo "INVITE_TTL_DAYS=${INVITE_TTL_DAYS}" >> .env.prod.tmp
+            fi
+
+            if [ -n "${SES_REGION:-}" ]; then
+              cat >> .env.prod.tmp <<EOF
+            SES_REGION=${SES_REGION}
+            SES_ACCESS_KEY_ID=${SES_ACCESS_KEY_ID}
+            SES_SECRET_ACCESS_KEY=${SES_SECRET_ACCESS_KEY}
+            MAIL_FROM=${MAIL_FROM}
+            EOF
+            fi
+
+            if [ -n "${SEED_ADMIN_EMAIL:-}" ]; then
+              cat >> .env.prod.tmp <<EOF
+            SEED_ADMIN_EMAIL=${SEED_ADMIN_EMAIL}
+            SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD}
+            EOF
+            fi
+
+            if [ -n "${OIDC_ISSUER:-}" ]; then
+              cat >> .env.prod.tmp <<EOF
+            OIDC_ISSUER=${OIDC_ISSUER}
+            OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
+            OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
+            OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI}
+            OIDC_DEFAULT_TEAM_ID=${OIDC_DEFAULT_TEAM_ID}
+            EOF
+            fi
+
+            mv .env.prod.tmp .env.prod
+            chmod 600 .env.prod
+
+      # Migrations are forward-only and must land BEFORE the new code rolls (deployment §4).
+      # `seed` is deliberately NOT here — it is first-deploy-only and stays a manual one-shot.
+      - name: Migrate, then roll the stack
+        uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          envs: GHCR_TOKEN,GHCR_USER
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+            COMPOSE="docker compose --env-file .env.prod -f infra/docker-compose.prod.yml"
+            $COMPOSE pull
+            $COMPOSE --profile setup run --rm migrate
+            $COMPOSE up -d --remove-orphans
+            docker logout ghcr.io
+
+            # Liveness, so a failed roll fails the workflow instead of waiting for someone
+            # to notice. Probe the api container directly rather than through the proxy:
+            # Caddy 308-redirects http://localhost to HTTPS and curl treats a 3xx as success,
+            # which would go green without the API being up at all.
+            for i in $(seq 1 30); do
+              if $COMPOSE exec -T api wget -qO- http://localhost:3001/health > /dev/null 2>&1; then
+                echo "✓ api /health responding"; exit 0
+              fi
+              sleep 5
+            done
+            echo "✖ api /health did not come up within 150s"
+            $COMPOSE ps
+            $COMPOSE logs --tail=50 api
+            exit 1
