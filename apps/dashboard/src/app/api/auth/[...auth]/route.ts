@@ -88,6 +88,33 @@ export async function POST(
     return res;
   }
 
+  // An invitee has no session yet: they arrive from the emailed link with a one-time token.
+  // On success the API returns a TokenPair, so this establishes the session like login does.
+  if (action === 'accept-invite') {
+    const form = await req.formData();
+    const tokenVal = form.get('token');
+    const passwordVal = form.get('password');
+    const confirmVal = form.get('confirm');
+    if (typeof tokenVal !== 'string' || tokenVal.length === 0) {
+      return redirect(req, '/accept-invite?error=invalid');
+    }
+    // Keep the token on every error redirect so the invitee can retry without re-opening
+    // the email. It is a URL parameter they already hold.
+    const back = (code: string): NextResponse =>
+      redirect(req, `/accept-invite?token=${encodeURIComponent(tokenVal)}&error=${code}`);
+
+    if (typeof passwordVal !== 'string' || passwordVal.length < 8) return back('weak');
+    if (passwordVal !== confirmVal) return back('mismatch');
+
+    const tokens = await api.acceptInvite(tokenVal, passwordVal);
+    // 401 → the token is invalid, expired, or already used. Re-showing the form would just
+    // fail again, so send them to /login without the token.
+    if (!tokens) return redirect(req, '/accept-invite?error=invalid');
+    const res = redirect(req, '/');
+    setSession(res, payloadFrom(tokens));
+    return res;
+  }
+
   if (action === 'logout') {
     const current = decryptSession(req.cookies.get(SESSION_COOKIE)?.value);
     if (current) await api.logout(current.refreshToken);

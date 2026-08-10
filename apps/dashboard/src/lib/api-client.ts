@@ -273,6 +273,10 @@ export const api = {
     authPost('/auth/login', { email, password }, TokenPairSchema),
   refresh: (refreshToken: string): Promise<TokenPair | null> =>
     authPost('/auth/refresh', { refreshToken }, TokenPairSchema),
+  // Accepting an invite auto-logs-in: the API returns a TokenPair, so the BFF establishes
+  // the session exactly as for login. Null on an invalid/expired/already-used token.
+  acceptInvite: (token: string, password: string): Promise<TokenPair | null> =>
+    authPost('/auth/accept-invite', { token, password }, TokenPairSchema),
 
   // SSO (OIDC). start() mints the flow (secrets stored in the tt_oidc cookie by the BFF);
   // callback() exchanges the IdP code for a TokenPair. Both return null on any API failure
