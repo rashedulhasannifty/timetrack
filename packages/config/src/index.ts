@@ -62,6 +62,29 @@ const EnvSchema = z
     API_PORT: z.coerce.number().int().default(3001),
     API_URL: z.url(),
 
+    // The dashboard's PUBLIC origin — the base of the accept link in an invite email.
+    // Distinct from API_URL (the API's own origin, which the dashboard reaches internally)
+    // and from CORS_ORIGINS (a list). Defaults to the dev dashboard so a link is always
+    // buildable; production must set the real origin or invitees receive a localhost link.
+    APP_URL: z.url().default('http://localhost:3000'),
+
+    // PRD §6.7 — invitation lifetime. `expiresAt` is computed at create time and persisted,
+    // so changing this never extends invites that have already been sent.
+    INVITE_TTL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+
+    // Outbound email via AWS SES v2. All four are OPTIONAL and all-or-nothing, exactly like
+    // OIDC below: set them together to enable sending, or leave every one unset to disable
+    // it (the refinement rejects a half-configured state at boot). When unset the worker
+    // logs the accept link instead of sending — a development path, never a production one.
+    // NOTE: SES_SECRET_ACCESS_KEY is the RAW IAM secret access key. The SES *SMTP* password
+    // is a one-way derivation of it and does NOT work with the SESv2 API.
+    SES_REGION: z.string().min(1).optional(),
+    SES_ACCESS_KEY_ID: z.string().min(1).optional(),
+    SES_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    // RFC 5322 From — `user@domain` or `Display Name <user@domain>`. The identity must be
+    // verified in SES in SES_REGION, or every send fails at the envelope.
+    MAIL_FROM: z.string().min(1).optional(),
+
     // PRD §6.8 — SSO (OIDC), slice 4.4. All five are OPTIONAL and all-or-nothing: set
     // together to enable SSO, or leave every one unset to disable it (the refinement below
     // rejects a half-configured state at boot). Secrets never enter the repo. When unset,
@@ -87,6 +110,28 @@ const EnvSchema = z
       ),
   })
   .superRefine((env, ctx) => {
+    // SES is all-or-nothing for the same reason as OIDC: a half-set config is an operator
+    // error. Fail fast at boot rather than have the invite job throw on the first send.
+    const sesKeys = [
+      'SES_REGION',
+      'SES_ACCESS_KEY_ID',
+      'SES_SECRET_ACCESS_KEY',
+      'MAIL_FROM',
+    ] as const;
+    const sesSetCount = sesKeys.filter((k) => env[k] !== undefined).length;
+    if (sesSetCount !== 0 && sesSetCount !== sesKeys.length) {
+      for (const k of sesKeys) {
+        if (env[k] === undefined) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [k],
+            message:
+              'Email config is all-or-nothing: set every SES_*/MAIL_FROM var or none of them',
+          });
+        }
+      }
+    }
+
     // SSO (OIDC) is all-or-nothing: a half-set config is an operator error, not a runtime
     // fallback. Fail fast at boot rather than 500 on the first SSO login.
     const oidcKeys = [
@@ -141,6 +186,35 @@ export function oidcConfig(env: Env): OidcConfig | null {
     clientSecret: env.OIDC_CLIENT_SECRET,
     redirectUri: env.OIDC_REDIRECT_URI,
     defaultTeamId: env.OIDC_DEFAULT_TEAM_ID,
+  };
+}
+
+/**
+ * The SES settings, present only when email is fully configured. `null` means sending is
+ * disabled — the single source of truth for "can we send mail?". The all-or-nothing
+ * refinement above guarantees these four are either all set or all undefined.
+ */
+export interface SesConfig {
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  from: string;
+}
+
+export function sesConfig(env: Env): SesConfig | null {
+  if (
+    env.SES_REGION === undefined ||
+    env.SES_ACCESS_KEY_ID === undefined ||
+    env.SES_SECRET_ACCESS_KEY === undefined ||
+    env.MAIL_FROM === undefined
+  ) {
+    return null;
+  }
+  return {
+    region: env.SES_REGION,
+    accessKeyId: env.SES_ACCESS_KEY_ID,
+    secretAccessKey: env.SES_SECRET_ACCESS_KEY,
+    from: env.MAIL_FROM,
   };
 }
 

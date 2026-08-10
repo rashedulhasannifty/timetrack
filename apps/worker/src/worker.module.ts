@@ -5,6 +5,7 @@ import { pinoConfig } from '@timetrack/logger';
 import { loadEnv } from '@timetrack/config';
 import { WorkerPrisma } from './infra/prisma.provider.js';
 import { WorkerS3 } from './infra/s3.provider.js';
+import { Mailer } from './infra/mailer.provider.js';
 import { RetentionCleanupProcessor } from './processors/retention-cleanup.processor.js';
 import { ScreenshotProcessProcessor } from './processors/screenshot-process.processor.js';
 import { RollupDailyProcessor } from './processors/rollup-daily.processor.js';
@@ -39,6 +40,7 @@ const connection = { host: redis.hostname, port: Number(redis.port) || 6379 };
   providers: [
     WorkerPrisma,
     WorkerS3,
+    Mailer,
     RetentionCleanupProcessor,
     ScreenshotProcessProcessor,
     RollupDailyProcessor,
