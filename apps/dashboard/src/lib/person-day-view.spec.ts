@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { personDayView, resolveDayDate } from './person-day-view';
-import type { TimeEntry, ActivitySample, Screenshot } from '@timetrack/contracts';
+import type { TimeEntry, ActivitySample, Screenshot, Project } from '@timetrack/contracts';
 
 const D = '2026-07-13';
 const iso = (h: number, m = 0) =>
@@ -172,6 +172,62 @@ describe('personDayView — ribbon', () => {
     });
     expect(vm.ribbon.captures).toHaveLength(1);
     expect(Math.round(vm.ribbon.captures[0]!.atPct)).toBe(50); // 11:00 is midpoint of 09–13
+  });
+});
+
+describe('personDayView — entry labels', () => {
+  // An auto/manual entry carries a projectId/taskId but no free-text note.
+  const tagged = (over: Partial<TimeEntry>): TimeEntry =>
+    ({
+      id: 'e1',
+      userId: 'u1',
+      projectId: null,
+      taskId: null,
+      startTime: iso(9),
+      endTime: iso(10),
+      source: 'AUTO',
+      note: undefined,
+      ...over,
+    }) as TimeEntry;
+  const projects = [
+    {
+      id: 'p1',
+      teamId: 't1',
+      name: 'Energy Reporting',
+      color: null,
+      archived: false,
+      tasks: [{ id: 'k1', projectId: 'p1', name: 'Fix Lighting Forms', archived: false }],
+    },
+  ] as Project[];
+  const label = (over: Partial<TimeEntry>): string =>
+    personDayView({ ...base, now: new Date(iso(20)), entries: [tagged(over)], projects })
+      .entries[0]!.label;
+
+  it('names a note-less entry by its project', () => {
+    expect(label({ projectId: 'p1' })).toBe('Energy Reporting');
+  });
+
+  it('appends the task when the entry has one ("Project · Task")', () => {
+    expect(label({ projectId: 'p1', taskId: 'k1' })).toBe('Energy Reporting · Fix Lighting Forms');
+  });
+
+  it('keeps a user-authored note in preference to the project name', () => {
+    expect(label({ projectId: 'p1', note: 'refactor' })).toBe('refactor');
+  });
+
+  it('falls back to "Untitled entry" when the project is unresolvable', () => {
+    expect(label({ projectId: 'gone' })).toBe('Untitled entry');
+    expect(label({})).toBe('Untitled entry');
+  });
+
+  it('propagates the resolved name to the ribbon block label too', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(20)),
+      entries: [tagged({ projectId: 'p1' })],
+      projects,
+    });
+    expect(vm.ribbon.tracked[0]!.label).toBe('Energy Reporting');
   });
 });
 

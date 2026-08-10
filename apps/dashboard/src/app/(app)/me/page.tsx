@@ -10,6 +10,7 @@ import { ApprovalsPanel } from './ApprovalsPanel';
 import { selfApprovals } from '../../../lib/approvals-view';
 import type {
   ActivitySample,
+  Project,
   Screenshot,
   TimeEntry,
   TimesheetApproval,
@@ -38,7 +39,7 @@ export default async function MyDataPage({
   });
 
   // Self-scoped; each read is independent — a failure in one degrades to an empty panel.
-  const [entries, samples, screenshots, approvals] = await Promise.all([
+  const [entries, samples, screenshots, approvals, projects] = await Promise.all([
     api.listTimeEntries(session.accessToken, todayParams).catch((): TimeEntry[] => []),
     api.listActivitySamples(session.accessToken, todayParams).catch((): ActivitySample[] => []),
     api.listScreenshots(session.accessToken, todayParams).catch((): Screenshot[] => []),
@@ -47,6 +48,9 @@ export default async function MyDataPage({
     api
       .listApprovals(session.accessToken, new URLSearchParams())
       .catch((): TimesheetApproval[] | null => null),
+    // Names for the entries: an entry carries a projectId/taskId, not names. includeArchived so a
+    // historical entry on a since-archived project still resolves instead of falling to "Untitled".
+    api.listProjects(session.accessToken, { includeArchived: true }).catch((): Project[] => []),
   ]);
 
   const myApprovals = selfApprovals(approvals, session.userId);
@@ -59,6 +63,7 @@ export default async function MyDataPage({
     entries,
     samples,
     screenshots,
+    projects,
   });
 
   return (

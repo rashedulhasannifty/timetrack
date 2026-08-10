@@ -1,4 +1,4 @@
-import type { TimeEntry, ActivitySample, Screenshot } from '@timetrack/contracts';
+import type { TimeEntry, ActivitySample, Screenshot, Project } from '@timetrack/contracts';
 
 export type DayCategory = 'PRODUCTIVE' | 'NEUTRAL' | 'UNPRODUCTIVE';
 
@@ -10,6 +10,13 @@ export interface PersonDayInput {
   entries: TimeEntry[];
   samples: ActivitySample[];
   screenshots: Screenshot[];
+  /**
+   * Team projects (with their tasks) used to name entries. Auto/manual entries carry a
+   * `projectId`/`taskId` but no free-text `note`, so without this an entry would render
+   * "Untitled entry" despite having a project selected. Optional: an unresolved id (archived,
+   * cross-team, or an empty list) simply falls back to "Untitled entry".
+   */
+  projects?: Project[];
 }
 
 export interface RibbonBlock {
@@ -173,8 +180,33 @@ function categorySegments(
   return merged;
 }
 
+/**
+ * Human label for an entry. A user-authored `note` wins (most specific, preserves existing
+ * behavior); otherwise name it by its project, appending the task when present ("Project · Task");
+ * an entry with neither a note nor a resolvable project stays "Untitled entry".
+ */
+function entryLabel(
+  entry: TimeEntry,
+  projectNames: Map<string, string>,
+  taskNames: Map<string, string>,
+): string {
+  if (entry.note) return entry.note;
+  const parts: string[] = [];
+  const projectName = entry.projectId ? projectNames.get(entry.projectId) : undefined;
+  if (projectName) parts.push(projectName);
+  const taskName = entry.taskId ? taskNames.get(entry.taskId) : undefined;
+  if (taskName) parts.push(taskName);
+  return parts.length > 0 ? parts.join(' · ') : 'Untitled entry';
+}
+
 export function personDayView(input: PersonDayInput): PersonDayViewModel {
   const { date, now, isSelf, subjectName, entries, samples } = input;
+
+  const projects = input.projects ?? [];
+  const projectNames = new Map(projects.map((p) => [p.id, p.name]));
+  const taskNames = new Map(
+    projects.flatMap((p) => (p.tasks ?? []).map((t) => [t.id, t.name] as const)),
+  );
 
   const isToday = date === now.toISOString().slice(0, 10);
   const dayStartMs = Date.parse(`${date}T00:00:00.000Z`);
@@ -255,7 +287,7 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
         id: p.entry.id,
         startMs: p.startMs,
         endMs: p.endMs,
-        label: p.entry.note ?? 'Untitled entry',
+        label: entryLabel(p.entry, projectNames, taskNames),
         durationSeconds,
         running: p.open && isToday,
       };
@@ -283,7 +315,7 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
           startPct,
           widthPct,
           category: seg.category,
-          label: p.entry.note ?? 'Untitled entry',
+          label: entryLabel(p.entry, projectNames, taskNames),
           startMs: seg.startMs,
           endMs: running ? null : seg.endMs,
           running,

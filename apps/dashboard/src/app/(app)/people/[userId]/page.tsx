@@ -8,7 +8,7 @@ import { api } from '../../../../lib/api-client';
 import { personDayView, resolveDayDate } from '../../../../lib/person-day-view';
 import { ScreenshotsPanel } from '../../me/ScreenshotsPanel';
 import { toScreenshotView } from '../../me/screenshot-view';
-import type { ActivitySample, Screenshot, TimeEntry } from '@timetrack/contracts';
+import type { ActivitySample, Project, Screenshot, TimeEntry } from '@timetrack/contracts';
 
 // Next 16 — route params are async.
 export default async function PersonPage({
@@ -41,9 +41,12 @@ export default async function PersonPage({
 
   // Same manager-owns-team authz applies to these reads, but a failure here shouldn't wall off
   // the whole page — it degrades the relevant panel to empty instead.
-  const [samples, screenshots] = await Promise.all([
+  const [samples, screenshots, projects] = await Promise.all([
     api.listActivitySamples(session.accessToken, search).catch((): ActivitySample[] => []),
     api.listScreenshots(session.accessToken, search).catch((): Screenshot[] => []),
+    // Names for the entries. Team-scoped to the caller, so this resolves for the common
+    // manager-owns-team view; a cross-team admin view degrades to "Untitled entry" per entry.
+    api.listProjects(session.accessToken, { includeArchived: true }).catch((): Project[] => []),
   ]);
 
   // Decorative header data only — never let a lookup failure crash the page.
@@ -67,6 +70,7 @@ export default async function PersonPage({
           entries,
           samples,
           screenshots,
+          projects,
         });
 
   return (
