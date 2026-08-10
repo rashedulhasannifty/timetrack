@@ -75,17 +75,19 @@ const EnvSchema = z
     // so changing this never extends invites that have already been sent.
     INVITE_TTL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
 
-    // Outbound email via AWS SES v2. All four are OPTIONAL and all-or-nothing, exactly like
-    // OIDC below: set them together to enable sending, or leave every one unset to disable
-    // it (the refinement rejects a half-configured state at boot). When unset the worker
-    // logs the accept link instead of sending — a development path, never a production one.
-    // NOTE: SES_SECRET_ACCESS_KEY is the RAW IAM secret access key. The SES *SMTP* password
-    // is a one-way derivation of it and does NOT work with the SESv2 API.
-    SES_REGION: z.string().min(1).optional(),
-    SES_ACCESS_KEY_ID: z.string().min(1).optional(),
-    SES_SECRET_ACCESS_KEY: z.string().min(1).optional(),
-    // RFC 5322 From — `user@domain` or `Display Name <user@domain>`. The identity must be
-    // verified in SES in SES_REGION, or every send fails at the envelope.
+    // Outbound email over SMTP. All five are OPTIONAL and all-or-nothing, exactly like OIDC
+    // below: set them together to enable sending, or leave every one unset to disable it
+    // (the refinement rejects a half-configured state at boot). When unset the worker logs
+    // the accept link instead of sending — a development path, never a production one.
+    // Any SMTP provider works; with SES use the SMTP endpoint + SMTP password (which is NOT
+    // the IAM secret access key — it is derived from it and only valid for SMTP).
+    SMTP_HOST: z.string().min(1).optional(),
+    // 587 = STARTTLS (the usual choice), 465 = implicit TLS.
+    SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+    SMTP_USER: z.string().min(1).optional(),
+    SMTP_PASS: z.string().min(1).optional(),
+    // RFC 5322 From — `user@domain` or `Display Name <user@domain>`. With SES the identity
+    // must be verified in the sending region, or every send fails at the envelope.
     MAIL_FROM: z.string().min(1).optional(),
 
     // PRD §6.8 — SSO (OIDC), slice 4.4. All five are OPTIONAL and all-or-nothing: set
@@ -125,23 +127,18 @@ const EnvSchema = z
       });
     }
 
-    // SES is all-or-nothing for the same reason as OIDC: a half-set config is an operator
+    // SMTP is all-or-nothing for the same reason as OIDC: a half-set config is an operator
     // error. Fail fast at boot rather than have the invite job throw on the first send.
-    const sesKeys = [
-      'SES_REGION',
-      'SES_ACCESS_KEY_ID',
-      'SES_SECRET_ACCESS_KEY',
-      'MAIL_FROM',
-    ] as const;
-    const sesSetCount = sesKeys.filter((k) => env[k] !== undefined).length;
-    if (sesSetCount !== 0 && sesSetCount !== sesKeys.length) {
-      for (const k of sesKeys) {
+    const smtpKeys = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'MAIL_FROM'] as const;
+    const smtpSetCount = smtpKeys.filter((k) => env[k] !== undefined).length;
+    if (smtpSetCount !== 0 && smtpSetCount !== smtpKeys.length) {
+      for (const k of smtpKeys) {
         if (env[k] === undefined) {
           ctx.addIssue({
             code: 'custom',
             path: [k],
             message:
-              'Email config is all-or-nothing: set every SES_*/MAIL_FROM var or none of them',
+              'Email config is all-or-nothing: set every SMTP_*/MAIL_FROM var or none of them',
           });
         }
       }
@@ -205,31 +202,37 @@ export function oidcConfig(env: Env): OidcConfig | null {
 }
 
 /**
- * The SES settings, present only when email is fully configured. `null` means sending is
+ * The SMTP settings, present only when email is fully configured. `null` means sending is
  * disabled — the single source of truth for "can we send mail?". The all-or-nothing
- * refinement above guarantees these four are either all set or all undefined.
+ * refinement above guarantees these five are either all set or all undefined.
  */
-export interface SesConfig {
-  region: string;
-  accessKeyId: string;
-  secretAccessKey: string;
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
   from: string;
+  /** Implicit TLS on 465; 587 and others use STARTTLS. */
+  secure: boolean;
 }
 
-export function sesConfig(env: Env): SesConfig | null {
+export function smtpConfig(env: Env): SmtpConfig | null {
   if (
-    env.SES_REGION === undefined ||
-    env.SES_ACCESS_KEY_ID === undefined ||
-    env.SES_SECRET_ACCESS_KEY === undefined ||
+    env.SMTP_HOST === undefined ||
+    env.SMTP_PORT === undefined ||
+    env.SMTP_USER === undefined ||
+    env.SMTP_PASS === undefined ||
     env.MAIL_FROM === undefined
   ) {
     return null;
   }
   return {
-    region: env.SES_REGION,
-    accessKeyId: env.SES_ACCESS_KEY_ID,
-    secretAccessKey: env.SES_SECRET_ACCESS_KEY,
+    host: env.SMTP_HOST,
+    port: env.SMTP_PORT,
+    user: env.SMTP_USER,
+    pass: env.SMTP_PASS,
     from: env.MAIL_FROM,
+    secure: env.SMTP_PORT === 465,
   };
 }
 

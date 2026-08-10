@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
-import { loadEnv, sesConfig } from '@timetrack/config';
+import { createTransport, type Transporter } from 'nodemailer';
+import { loadEnv, smtpConfig } from '@timetrack/config';
 
 export interface OutboundEmail {
   to: string;
@@ -11,53 +11,51 @@ export interface OutboundEmail {
 
 /**
  * Worker-side outbound email (CLAUDE.md §3 — the worker owns its infra; apps never import
- * each other). Mirrors WorkerS3's shape: env is read once, the client is built once.
+ * each other). Mirrors WorkerS3's shape: env is read once, the transport is built once.
  *
- * Sending is OPTIONAL. `sesConfig` returns null when SES is unconfigured, `enabled` is then
- * false, and callers fall back to logging the link — a development path. A half-configured
- * state cannot reach here: packages/config rejects it at boot.
+ * SMTP so any provider works and the credentials match the shape already used elsewhere in
+ * the estate. With SES this is the SMTP endpoint, whose password is derived from the IAM
+ * secret and is NOT the IAM secret itself.
+ *
+ * Sending is OPTIONAL. `smtpConfig` returns null when unconfigured, `enabled` is then false,
+ * and callers fall back to logging the link — a development path. A half-configured state
+ * cannot reach here: packages/config rejects it at boot.
  */
 @Injectable()
 export class Mailer {
-  private readonly ses = sesConfig(loadEnv());
-  private readonly client =
-    this.ses === null
+  private readonly smtp = smtpConfig(loadEnv());
+  private readonly transport: Transporter | null =
+    this.smtp === null
       ? null
-      : new SESv2Client({
-          region: this.ses.region,
-          credentials: {
-            accessKeyId: this.ses.accessKeyId,
-            secretAccessKey: this.ses.secretAccessKey,
-          },
+      : createTransport({
+          host: this.smtp.host,
+          port: this.smtp.port,
+          // 465 is implicit TLS; 587 upgrades via STARTTLS, which we require rather than
+          // allow — an opportunistic downgrade would send credentials in the clear.
+          secure: this.smtp.secure,
+          requireTLS: !this.smtp.secure,
+          auth: { user: this.smtp.user, pass: this.smtp.pass },
         });
 
-  /** Whether SES is configured. False → `send` throws; check this first. */
+  /** Whether SMTP is configured. False → `send` throws; check this first. */
   get enabled(): boolean {
-    return this.client !== null;
+    return this.transport !== null;
   }
 
   /**
-   * Send one message. Throws on any SES failure so BullMQ's retry/backoff (3 attempts,
+   * Send one message. Throws on any SMTP failure so BullMQ's retry/backoff (3 attempts,
    * exponential) applies — a dropped invite is worse than a retried one.
    */
   async send(mail: OutboundEmail): Promise<void> {
-    if (this.client === null || this.ses === null) {
-      throw new Error('Mailer.send called while SES is not configured');
+    if (this.transport === null || this.smtp === null) {
+      throw new Error('Mailer.send called while SMTP is not configured');
     }
-    await this.client.send(
-      new SendEmailCommand({
-        FromEmailAddress: this.ses.from,
-        Destination: { ToAddresses: [mail.to] },
-        Content: {
-          Simple: {
-            Subject: { Data: mail.subject, Charset: 'UTF-8' },
-            Body: {
-              Text: { Data: mail.text, Charset: 'UTF-8' },
-              Html: { Data: mail.html, Charset: 'UTF-8' },
-            },
-          },
-        },
-      }),
-    );
+    await this.transport.sendMail({
+      from: this.smtp.from,
+      to: mail.to,
+      subject: mail.subject,
+      text: mail.text,
+      html: mail.html,
+    });
   }
 }
