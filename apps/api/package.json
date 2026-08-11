@@ -28,7 +28,7 @@
     "@timetrack/contracts": "workspace:*",
     "@timetrack/db": "workspace:*",
     "@timetrack/logger": "workspace:*",
-    "argon2": "^0.44.0",
+    "argon2": "^0.45.1",
     "bullmq": "^6.0.9",
     "fastify": "^5.2.0",
     "nestjs-pino": "^4.4.0",
