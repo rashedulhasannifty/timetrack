@@ -5,14 +5,25 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
-    open-pull-requests-limit: 10
+    # Each open PR costs a full CI run. Ten at once consumed roughly 170 Actions minutes in
+    # a single afternoon, which is why this is 5 rather than 10.
+    open-pull-requests-limit: 5
     groups:
-      # Reduce PR noise: batch dev-tooling bumps together; app deps come individually.
-      # Minor/patch only — a grouped major would land several breaking upgrades in one
-      # PR (CLAUDE.md §2: majors get their own PR). Ungrouped majors still open, one
-      # each, so a TypeScript or ESLint jump is reviewed on its own merits.
+      # Batch minor/patch bumps into ONE PR per category. Previously only dev-tooling was
+      # grouped and every production dependency opened its own PR — and because a lockfile
+      # change on main re-triggers Dependabot for everything it tracks, a single merge
+      # fanned out into ten runs.
+      #
+      # Minor/patch only, in both groups: a grouped major would land several breaking
+      # upgrades in one PR. Majors stay UNGROUPED and open one each (CLAUDE.md §2), so a
+      # NestJS or TypeScript jump is still reviewed on its own merits.
       dev-dependencies:
         dependency-type: 'development'
+        update-types:
+          - 'minor'
+          - 'patch'
+      production-dependencies:
+        dependency-type: 'production'
         update-types:
           - 'minor'
           - 'patch'
@@ -22,3 +33,10 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
+    open-pull-requests-limit: 3
+    groups:
+      # Action bumps are almost always safe and land together; one PR, not five.
+      github-actions:
+        update-types:
+          - 'minor'
+          - 'patch'
