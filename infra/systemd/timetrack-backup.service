@@ -1,0 +1,24 @@
+[Unit]
+Description=TimeTrack backup (Postgres dump + MinIO mirror)
+Documentation=https://github.com/rashedulhasansojib/timetrack/blob/main/docs/deployment.md
+# Docker must be up; the script talks to the running stack, it does not start it.
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=deploy
+WorkingDirectory=/home/deploy/timetrack
+ExecStart=/home/deploy/timetrack/infra/backup.sh
+# Keep it off the CPU when the app is busy — a backup must never degrade tracking.
+Nice=10
+IOSchedulingClass=idle
+# A dump of a large database is not fast; do not let systemd kill it mid-stream.
+TimeoutStartSec=3600
+
+# Uncomment once you have somewhere to send failures. Without this, a failing backup is
+# silent until you need it — which is the worst possible moment to discover it.
+# OnFailure=status-email@%n.service
+
+[Install]
+WantedBy=multi-user.target
