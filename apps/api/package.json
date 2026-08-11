@@ -30,7 +30,7 @@
     "@timetrack/logger": "workspace:*",
     "argon2": "^0.44.0",
     "bullmq": "^6.0.9",
-    "fastify": "^5.2.0",
+    "fastify": "^5.11.3",
     "nestjs-pino": "^4.4.0",
     "openid-client": "^6.8.4",
     "pino-http": "^11.0.0",
