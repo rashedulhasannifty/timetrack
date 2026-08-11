@@ -41,6 +41,24 @@ jobs:
       - run: pnpm --filter @timetrack/api test:coverage
       - run: pnpm --filter @timetrack/contracts test:coverage
 
+  # The apps bind host '0.0.0.0' — IPv4 only — but `localhost` inside an Alpine container
+  # also resolves to ::1, and busybox wget tries IPv6 first. A probe aimed at localhost
+  # therefore fails against a perfectly healthy process. That shipped once: the API sat
+  # `unhealthy` with a FailingStreak of 65 while serving fine, which blocked the dashboard
+  # (depends_on: service_healthy) and left the proxy — and so TLS — never started.
+  infra-probes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Container probes must use 127.0.0.1, never localhost
+        run: |
+          if grep -nE '(wget|curl)[^|]*http://localhost' \
+               infra/docker-compose.prod.yml infra/docker-compose.yml .github/workflows/deploy.yml; then
+            echo "✖ Use 127.0.0.1 — the apps bind 0.0.0.0 (IPv4 only) and localhost may resolve to ::1 first."
+            exit 1
+          fi
+          echo "✓ no localhost probes"
+
   # The images are built from the workspace with NO .env present (.dockerignore excludes it),
   # which is a different environment from `pnpm build` in the verify job above — that one has
   # DATABASE_URL in process.env. A Dockerfile can therefore break while verify stays green.

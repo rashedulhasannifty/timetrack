@@ -262,9 +262,10 @@ jobs:
             # Liveness, so a failed roll fails the workflow instead of waiting for someone
             # to notice. Probe the api container directly rather than through the proxy:
             # Caddy 308-redirects http://localhost to HTTPS and curl treats a 3xx as success,
-            # which would go green without the API being up at all.
+            # which would go green without the API being up at all. 127.0.0.1 rather than
+            # localhost: the API binds IPv4-only, and localhost may resolve to ::1 first.
             for i in $(seq 1 30); do
-              if $COMPOSE exec -T api wget -qO- http://localhost:3001/health > /dev/null 2>&1; then
+              if $COMPOSE exec -T api wget -qO- http://127.0.0.1:3001/health > /dev/null 2>&1; then
                 echo "✓ api /health responding"; exit 0
               fi
               sleep 5
