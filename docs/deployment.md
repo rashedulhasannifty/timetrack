@@ -199,11 +199,51 @@ deploys so two `migrate` runs can never race.
 - **Redis:** ephemeral (BullMQ queues) — no backup needed; jobs are idempotent and retried.
 - Document RPO/RTO with the customer; encrypt backups at rest and in transit.
 
+### Shipped: `infra/backup.sh` + a systemd timer
+
+`infra/backup.sh` dumps Postgres and mirrors the MinIO bucket. `pg_dump` runs **inside** the
+container reading its own `POSTGRES_*`, so no credential appears on the host command line or
+in `ps`. The dump is verified twice — `gzip -t`, then a grep for pg_dump's own
+`PostgreSQL database dump complete` marker, because a dump killed mid-stream still produces a
+structurally valid gzip and that is the classic silent backup failure.
+
+Install on the host (as the deploy user, from the deploy directory):
+
+```bash
+chmod +x infra/backup.sh
+sudo cp infra/systemd/timetrack-backup.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now timetrack-backup.timer
+
+./infra/backup.sh          # run once by hand first — do not wait for 02:30 to find out
+systemctl list-timers timetrack-backup.timer
+journalctl -u timetrack-backup.service -n 50
+```
+
+Knobs: `BACKUP_DIR` (default `<deploy>/backups`), `KEEP_DAYS` (default 14). Retention prunes
+dumps only; the MinIO mirror is a mirror, not a history, and tracks deletions via `--remove`.
+
+**Restore** — the dump is `--clean --if-exists`, so it drops and recreates its own objects:
+
+```bash
+gunzip -c backups/postgres/timetrack-<stamp>.sql.gz | \
+  docker compose --env-file .env.prod -f infra/docker-compose.prod.yml exec -T postgres \
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+```
+
+Test a restore into a scratch database quarterly. **A backup you have never restored is a
+hypothesis, not a backup.**
+
+> ⚠️ **Not yet disaster recovery.** These backups land on the **same disk** as the data they
+> protect. That covers a bad migration, an accidental delete, or a corrupted table — it does
+> not cover losing the VM. Copying `$BACKUP_DIR` off-box (Azure Blob, another host) is the
+> remaining step and is not automated here.
+
 ---
 
 ## 7. Observability
 
-- **Health:** proxy/orchestrator probes `/health` (liveness) and `/health/ready` (dependencies). Unready → pulled from rotation.
+- **Health:** proxy/orchestrator probes `/health` (liveness) and `/health/ready` (dependencies). Unready → pulled from rotation. `/health/ready` checks Postgres, Redis **and** MinIO concurrently, each with a 2s timeout so a black-holed dependency cannot hang the probe, and returns `{"status":"ok","checks":{"database":"up","redis":"up","storage":"up"}}`. On failure it is a 503 naming which dependency is down — with no driver text or connection string in the body. The **container** healthcheck deliberately uses `/health`, never this route: a transient dependency blip must not make Docker restart an otherwise-healthy process.
 - **Logs:** Pino JSON to stdout → shipped to the org's sink (Loki/ELK/CloudWatch). `requestId` on every line; redaction enforced (`authorization`, `cookie`, `*.password`, `*.refreshToken`, `*.windowTitle`, raw bytes) — verify redaction in prod config.
 - **Alerts:** partition-provision failures, retention-job failures, `/health/ready` failing, queue depth/backlog, disk usage on the PG/MinIO volumes.
 - **Rate limiting:** `@nestjs/throttler` on auth + batch ingest (already wired) — confirm limits for the deployment size.

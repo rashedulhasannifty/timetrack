@@ -38,6 +38,14 @@ export class MinioService implements OnModuleInit {
     }
   }
 
+  /**
+   * Readiness probe (PRD §8): the bucket exists and our credentials can see it. HeadBucket
+   * is a metadata call — no object listing, no data transfer.
+   */
+  async ping(): Promise<void> {
+    await this.client.send(new HeadBucketCommand({ Bucket: this.env.S3_BUCKET }));
+  }
+
   putObject(key: string, body: Readable | Buffer, contentType: string): Promise<unknown> {
     return this.client.send(
       new PutObjectCommand({

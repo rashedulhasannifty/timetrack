@@ -1,0 +1,14 @@
+[Unit]
+Description=Nightly TimeTrack backup
+Documentation=https://github.com/rashedulhasansojib/timetrack/blob/main/docs/deployment.md
+
+[Timer]
+# 02:30 UTC daily. RandomizedDelay spreads load if this VM ever hosts more than one stack.
+OnCalendar=*-*-* 02:30:00 UTC
+RandomizedDelaySec=15m
+# If the VM was off at 02:30, run once it comes back rather than skipping the night.
+Persistent=true
+Unit=timetrack-backup.service
+
+[Install]
+WantedBy=timers.target
