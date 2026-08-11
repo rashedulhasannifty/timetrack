@@ -1,0 +1,47 @@
+name: Images
+
+# Builds the three container images WITHOUT pushing, to catch breakage that `pnpm build` in
+# CI structurally cannot: the image build runs with no .env present (.dockerignore excludes
+# it), which is how `prisma generate` failing on an unresolvable DATABASE_URL reached main.
+#
+# Path-filtered, because that failure mode only appears when the build inputs change. A PR
+# touching application code is already covered by CI's verify job, and paying ~6 Actions
+# minutes to rebuild three identical images for a component rename is waste.
+#
+# NOT run on push to main: deploy.yml builds and pushes the same images there, sharing this
+# workflow's buildx cache scopes. Running both would pay for the same work twice.
+on:
+  pull_request:
+    paths:
+      - 'infra/**'
+      - '**/package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/images.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      # Sequential, deliberately. The three Dockerfiles share a byte-identical build stage,
+      # so run in parallel all three miss the cache and each pays the full ~4 minutes. Run in
+      # order, the first populates the shared scope and the other two are near-instant:
+      # ~11 billable minutes becomes ~6.
+      max-parallel: 1
+      matrix:
+        service: [api, worker, dashboard]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/${{ matrix.service }}.Dockerfile
+          push: false
+          # One shared scope, not one per service — the expensive layers are identical.
+          cache-from: type=gha,scope=workspace
+          cache-to: type=gha,mode=max,scope=workspace
