@@ -91,12 +91,13 @@ docker build -f infra/dashboard.Dockerfile -t timetrack/dashboard:$TAG .
 - **`APP_URL` is the public dashboard origin** and is what every invitation email's accept
   link is built from. Boot **fails** if `NODE_ENV=production` and it is still the localhost
   default — a wrong value would otherwise mail employees an unreachable link.
-- **Invitation email (`SES_*` + `MAIL_FROM`) is all-or-nothing**, like `OIDC_*`: set all four
+- **Invitation email (`SMTP_*` + `MAIL_FROM`) is all-or-nothing**, like `OIDC_*`: set all five
   or none. Unset, invites are created but never delivered, and in production the worker logs
-  an error. `SES_SECRET_ACCESS_KEY` is the **raw IAM secret access key** — the SES _SMTP_
-  password is a one-way derivation of it and does not authenticate against the SESv2 API.
-  Before go-live verify the `MAIL_FROM` identity in SES in `SES_REGION`, and confirm the
-  account has production access (a sandboxed account only delivers to verified recipients).
+  an error. Port 587 uses STARTTLS (required, not opportunistic); 465 uses implicit TLS. With
+  AWS SES, `SMTP_PASS` is the SES **SMTP password** — derived from an IAM secret access key,
+  not the secret itself. Before go-live verify the `MAIL_FROM` identity with the provider,
+  and on SES confirm the account has production access (a sandboxed account only delivers to
+  individually verified recipients).
 - `INVITE_TTL_DAYS` (default 7) is stamped on each invite at create time; changing it never
   extends invites already sent.
 
@@ -166,14 +167,14 @@ path still works when CI is unavailable.
 
 **Repository secrets** (Settings → Secrets and variables → Actions):
 
-| Group    | Secrets                                                                                                                                                      |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| SSH      | `SSH_HOST`, `SSH_USER`, `SSH_KEY`, `SSH_PORT`, `DEPLOY_PATH`                                                                                                 |
-| Postgres | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_URL`                                                                                          |
-| Auth     | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `DASHBOARD_SESSION_SECRET`                                                                                        |
-| Storage  | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`                                                                      |
-| URLs     | `API_URL`, `APP_URL`, `CORS_ORIGINS`, `PUBLIC_DOMAIN`, `ACME_EMAIL`                                                                                          |
-| Optional | `INVITE_TTL_DAYS`; `SES_REGION` + `SES_ACCESS_KEY_ID` + `SES_SECRET_ACCESS_KEY` + `MAIL_FROM`; `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`; the five `OIDC_*` |
+| Group    | Secrets                                                                                                                                               |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SSH      | `SSH_HOST`, `SSH_USER`, `SSH_KEY`, `SSH_PORT`, `DEPLOY_PATH`                                                                                          |
+| Postgres | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_URL`                                                                                   |
+| Auth     | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `DASHBOARD_SESSION_SECRET`                                                                                 |
+| Storage  | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`                                                               |
+| URLs     | `API_URL`, `APP_URL`, `CORS_ORIGINS`, `PUBLIC_DOMAIN`, `ACME_EMAIL`                                                                                   |
+| Optional | `INVITE_TTL_DAYS`; `SMTP_HOST` + `SMTP_PORT` + `SMTP_USER` + `SMTP_PASS` + `MAIL_FROM`; `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`; the five `OIDC_*` |
 
 `NODE_ENV`, `LOG_LEVEL`, `REDIS_URL`, `S3_ENDPOINT`, `S3_REGION` and `API_PORT` are **not**
 secrets — the workflow hardcodes them. `NODE_ENV=production` in particular must never be
