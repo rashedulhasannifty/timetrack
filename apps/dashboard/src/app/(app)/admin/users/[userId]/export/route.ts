@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { api } from '../../../../../../lib/api-client';
 import { getSession } from '../../../../../../lib/session';
+import { seeOther } from '../../../../../../lib/redirect';
 
 /**
  * PRD §4.4 — a user's data export downloads through this Route Handler, never the API directly,
@@ -13,7 +14,7 @@ export async function GET(
   { params }: { params: Promise<{ userId: string }> },
 ): Promise<Response> {
   const session = await getSession();
-  if (!session) return NextResponse.redirect(new URL('/api/auth/refresh', req.url), 303);
+  if (!session) return seeOther('/api/auth/refresh');
   if (session.role !== 'ADMIN') return new NextResponse('Forbidden', { status: 403 });
 
   const { userId } = await params;

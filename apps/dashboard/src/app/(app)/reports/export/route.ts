@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { api } from '../../../../lib/api-client';
 import { getSession } from '../../../../lib/session';
+import { seeOther } from '../../../../lib/redirect';
 
 /**
  * PRD §6.5 / slice 3.2 — streaming CSV download. The browser hits this Route Handler
@@ -16,7 +17,7 @@ const FILTER_KEYS = ['from', 'to', 'userId', 'projectId', 'teamId'] as const;
 export async function GET(req: NextRequest): Promise<Response> {
   const session = await getSession();
   if (!session) {
-    return NextResponse.redirect(new URL('/api/auth/refresh', req.url), 303);
+    return seeOther('/api/auth/refresh');
   }
 
   const src = req.nextUrl.searchParams;

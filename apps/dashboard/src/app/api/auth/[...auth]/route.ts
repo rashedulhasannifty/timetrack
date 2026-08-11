@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { api } from '../../../../lib/api-client';
 import { decodeClaims } from '../../../../lib/session';
+import { seeOther } from '../../../../lib/redirect';
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
@@ -36,8 +37,10 @@ function payloadFrom(tokens: {
   };
 }
 
-function redirect(req: NextRequest, path: string): NextResponse {
-  return NextResponse.redirect(new URL(path, req.url), 303);
+// Relative Location — see lib/redirect.ts. `req` is intentionally unused: deriving the
+// origin from it is what sent production browsers to https://localhost:3000.
+function redirect(_req: NextRequest, path: string): NextResponse {
+  return seeOther(path);
 }
 
 function setSession(res: NextResponse, payload: SessionPayload): void {
