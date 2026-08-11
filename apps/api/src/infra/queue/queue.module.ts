@@ -49,6 +49,19 @@ export class QueueService implements OnModuleDestroy {
     });
   }
 
+  /**
+   * Readiness probe (PRD §8): a real Redis round-trip on the queue's OWN connection, so the
+   * check exercises the exact client the producers use rather than a second connection that
+   * could succeed while theirs is broken. Throws when Redis is unreachable.
+   *
+   * `count()` rather than a raw PING: bullmq's IRedisClient type does not expose ping, and
+   * reaching past it would need an unsafe cast. count() is typed, issues real commands, and
+   * fails the same way. The value is discarded — only reachability matters here.
+   */
+  async ping(): Promise<void> {
+    await this.queue(QUEUES.email).count();
+  }
+
   async onModuleDestroy(): Promise<void> {
     await Promise.all([...this.queues.values()].map((q) => q.close()));
   }

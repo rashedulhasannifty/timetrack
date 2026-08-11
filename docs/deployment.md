@@ -203,7 +203,7 @@ deploys so two `migrate` runs can never race.
 
 ## 7. Observability
 
-- **Health:** proxy/orchestrator probes `/health` (liveness) and `/health/ready` (dependencies). Unready → pulled from rotation.
+- **Health:** proxy/orchestrator probes `/health` (liveness) and `/health/ready` (dependencies). Unready → pulled from rotation. `/health/ready` checks Postgres, Redis **and** MinIO concurrently, each with a 2s timeout so a black-holed dependency cannot hang the probe, and returns `{"status":"ok","checks":{"database":"up","redis":"up","storage":"up"}}`. On failure it is a 503 naming which dependency is down — with no driver text or connection string in the body. The **container** healthcheck deliberately uses `/health`, never this route: a transient dependency blip must not make Docker restart an otherwise-healthy process.
 - **Logs:** Pino JSON to stdout → shipped to the org's sink (Loki/ELK/CloudWatch). `requestId` on every line; redaction enforced (`authorization`, `cookie`, `*.password`, `*.refreshToken`, `*.windowTitle`, raw bytes) — verify redaction in prod config.
 - **Alerts:** partition-provision failures, retention-job failures, `/health/ready` failing, queue depth/backlog, disk usage on the PG/MinIO volumes.
 - **Rate limiting:** `@nestjs/throttler` on auth + batch ingest (already wired) — confirm limits for the deployment size.
