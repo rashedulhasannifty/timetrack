@@ -46,7 +46,7 @@ describe('GET /api/auth/refresh loop-breaker', () => {
       expiresIn: 900,
     });
     const res = await GET(refreshRequest(), ctx);
-    expect(res.headers.get('location')).toBe('http://localhost:3000/');
+    expect(res.headers.get('location')).toBe('/');
   });
 
   it('falls through to /login when the reissued token still fails to decode', async () => {
@@ -56,7 +56,7 @@ describe('GET /api/auth/refresh loop-breaker', () => {
       expiresIn: 900,
     });
     const res = await GET(refreshRequest(), ctx);
-    expect(res.headers.get('location')).toBe('http://localhost:3000/login');
+    expect(res.headers.get('location')).toBe('/login');
   });
 });
 
@@ -83,7 +83,7 @@ describe('GET /api/auth/sso/start', () => {
     vi.mocked(api.oidcAuthorize).mockResolvedValue(null);
     const req = new NextRequest('http://localhost:3000/api/auth/sso/start');
     const res = await GET(req, startCtx);
-    expect(res.headers.get('location')).toBe('http://localhost:3000/login?error=sso');
+    expect(res.headers.get('location')).toBe('/login?error=sso');
   });
 });
 
@@ -102,7 +102,7 @@ describe('GET /api/auth/sso/callback', () => {
       expiresIn: 900,
     });
     const res = await GET(callbackRequest('?code=abc&state=st'), callbackCtx);
-    expect(res.headers.get('location')).toBe('http://localhost:3000/');
+    expect(res.headers.get('location')).toBe('/');
     expect(api.oidcCallback).toHaveBeenCalledWith({
       code: 'abc',
       state: 'st',
@@ -121,13 +121,13 @@ describe('GET /api/auth/sso/callback', () => {
 
   it('rejects a state mismatch (CSRF) without calling the API', async () => {
     const res = await GET(callbackRequest('?code=abc&state=EVIL', 'st'), callbackCtx);
-    expect(res.headers.get('location')).toBe('http://localhost:3000/login?error=sso');
+    expect(res.headers.get('location')).toBe('/login?error=sso');
     expect(api.oidcCallback).not.toHaveBeenCalled();
   });
 
   it('bounces to /login?error=sso when the API rejects the callback', async () => {
     vi.mocked(api.oidcCallback).mockResolvedValue(null);
     const res = await GET(callbackRequest('?code=abc&state=st'), callbackCtx);
-    expect(res.headers.get('location')).toBe('http://localhost:3000/login?error=sso');
+    expect(res.headers.get('location')).toBe('/login?error=sso');
   });
 });
