@@ -209,8 +209,11 @@ structurally valid gzip and that is the classic silent backup failure.
 
 Install on the host (as the deploy user, from the deploy directory):
 
+The deploy ships `backup.sh` and the unit files to `<DEPLOY_PATH>/infra/` and makes the
+script executable, so they are already on the host after any successful deploy. Installing
+the timer is the one-time manual step:
+
 ```bash
-chmod +x infra/backup.sh
 sudo cp infra/systemd/timetrack-backup.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now timetrack-backup.timer
