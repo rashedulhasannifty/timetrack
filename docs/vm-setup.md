@@ -385,9 +385,12 @@ from an unverified `MAIL_FROM` identity.
 
 Not automatic. Install the timer (details in `docs/deployment.md` §6):
 
+The deploy copies `infra/backup.sh` and the systemd units to `<DEPLOY_PATH>/infra/` and marks
+the script executable, so they are on the host after any successful deploy. Installing the
+timer is manual:
+
 ```bash
 cd <DEPLOY_PATH>
-chmod +x infra/backup.sh
 ./infra/backup.sh                       # run once by hand — do not wait for 02:30 to find out
 sudo cp infra/systemd/timetrack-backup.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
