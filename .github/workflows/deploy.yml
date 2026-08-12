@@ -104,7 +104,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          source: 'infra/docker-compose.prod.yml,infra/Caddyfile'
+          source: 'infra/docker-compose.prod.yml,infra/Caddyfile,infra/backup.sh,infra/systemd/timetrack-backup.service,infra/systemd/timetrack-backup.timer'
           target: ${{ secrets.DEPLOY_PATH }}
 
       # Render .env.prod from secrets. Values arrive via `envs:` so they are masked in logs
@@ -252,6 +252,10 @@ jobs:
             set -euo pipefail
             cd "${{ secrets.DEPLOY_PATH }}"
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+            # scp via tar preserves the mode, but re-assert it: a non-executable backup.sh
+            # fails only at 02:30, in a systemd unit nobody is watching.
+            chmod +x infra/backup.sh
 
             COMPOSE="docker compose --env-file .env.prod -f infra/docker-compose.prod.yml"
             $COMPOSE pull
