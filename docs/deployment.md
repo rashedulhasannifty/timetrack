@@ -4,6 +4,9 @@ Target (`PRD §8`): **50 users on one small VM.** Postgres, Redis, and MinIO run
 
 This is the operations runbook. The app images are built from `infra/{api,worker,dashboard}.Dockerfile` (repo root as build context).
 
+Provisioning a VM from scratch — network rules, deploy user, SSH keys, the 29 Actions
+secrets, first deploy and seeding — is a separate one-time runbook: **[`vm-setup.md`](./vm-setup.md)**.
+
 ---
 
 ## 1. Topology
