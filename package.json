@@ -66,7 +66,9 @@
       "postcss@<8.5.18": ">=8.5.18",
       "sharp@<0.35.0": ">=0.35.0",
       "find-my-way@<9.7.0": ">=9.7.0",
-      "fast-uri": ">=4.1.2"
-    }
+      "fast-uri": ">=4.1.2",
+      "fastify": "^5.11.3"
+    },
+    "//overrides-fastify": "Deduplication, not a CVE patch: @nestjs/platform-fastify bundles its own fastify, so a direct fastify bump in apps/api produces TWO copies and two incompatible FastifyInstance types \u2014 the @fastify/* plugins then fail to typecheck against the app's instance. Forcing one version keeps them in lockstep. Stay within the 5.x line NestJS supports."
   }
 }
