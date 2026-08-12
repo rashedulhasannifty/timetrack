@@ -12,9 +12,9 @@
     "test:coverage": "RUN_E2E=1 vitest run --config vitest.coverage.config.ts --coverage"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1101.0",
+    "@aws-sdk/client-s3": "^3.1106.0",
     "@aws-sdk/lib-storage": "^3.1106.0",
-    "@aws-sdk/s3-request-presigner": "^3.1101.0",
+    "@aws-sdk/s3-request-presigner": "^3.1106.0",
     "@fastify/cors": "^11.3.0",
     "@fastify/helmet": "^13.1.0",
     "@fastify/multipart": "^10.1.0",
@@ -28,9 +28,9 @@
     "@timetrack/contracts": "workspace:*",
     "@timetrack/db": "workspace:*",
     "@timetrack/logger": "workspace:*",
-    "argon2": "^0.44.0",
+    "argon2": "^0.45.1",
     "bullmq": "^6.0.9",
-    "fastify": "^5.2.0",
+    "fastify": "^5.11.3",
     "nestjs-pino": "^4.4.0",
     "openid-client": "^6.8.4",
     "pino-http": "^11.0.0",
