@@ -45,6 +45,7 @@ export async function updateSettingsAction(
     autoStartOnLogin: formData.get('autoStartOnLogin') === 'on',
     distractionAlertsEnabled: formData.get('distractionAlertsEnabled') === 'on',
     distractionRepeatMinutes: Number(formData.get('distractionRepeatMinutes')),
+    timesheetReminderHours: Number(formData.get('timesheetReminderHours')),
     unproductiveApps: parseAppList(formData.get('unproductiveApps')),
     productiveApps: parseAppList(formData.get('productiveApps')),
     unproductiveSites: parseAppList(formData.get('unproductiveSites')),

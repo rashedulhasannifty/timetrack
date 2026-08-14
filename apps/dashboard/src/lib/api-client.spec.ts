@@ -130,6 +130,7 @@ describe('api.updateTeamSettings', () => {
       autoStartOnLogin: false,
       distractionAlertsEnabled: false,
       distractionRepeatMinutes: 5,
+      timesheetReminderHours: 0,
       unproductiveApps: [],
       productiveApps: [],
       unproductiveSites: [],
