@@ -29,19 +29,26 @@ export const AckMonitoringSchema = z.object({
 });
 
 /**
- * PATCH /v1/users/:id — an ADMIN mutates another user: deactivate/reactivate (`deactivated`)
- * and/or change their role (`role`). Both are optional but at least one must be present, so an
- * empty body is a 422 rather than a silent no-op. `.strict()` is baked in (the pipe can't add
- * it once `.refine` wraps this in a ZodEffects) so an unexpected field is still rejected.
+ * PATCH /v1/users/:id — an ADMIN mutates another user: deactivate/reactivate (`deactivated`),
+ * change their role (`role`), and/or move them to another team (`teamId`). All optional but at
+ * least one must be present, so an empty body is a 422 rather than a silent no-op. `.strict()`
+ * is baked in (the pipe can't add it once `.refine` wraps this in a ZodEffects) so an
+ * unexpected field is still rejected.
+ *
+ * `teamId` is how an employee is assigned to a manager: a MANAGER manages their own team, so
+ * moving someone's team IS reassigning who manages them. That makes it a permissions change,
+ * not a field edit — the old team's manager loses sight of that person's history and the new
+ * one gains it — so it is audited like `role`.
  */
 export const UpdateUserSchema = z
   .object({
     deactivated: z.boolean().optional(),
     role: Role.optional(),
+    teamId: z.uuid().optional(),
   })
   .strict()
-  .refine((v) => v.deactivated !== undefined || v.role !== undefined, {
-    message: 'Provide at least one of: deactivated, role',
+  .refine((v) => v.deactivated !== undefined || v.role !== undefined || v.teamId !== undefined, {
+    message: 'Provide at least one of: deactivated, role, teamId',
   });
 
 /**
