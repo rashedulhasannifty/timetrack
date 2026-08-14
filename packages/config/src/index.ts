@@ -54,7 +54,20 @@ const EnvSchema = z
     // concurrent dashboard tabs don't spuriously log each other out. Logout is never graced.
     REFRESH_GRACE_SECONDS: z.coerce.number().int().min(0).max(300).default(10),
 
+    // Where the API itself reaches object storage. In production this is the compose service
+    // name (http://minio:9000), resolvable only inside the container network.
     S3_ENDPOINT: z.url(),
+    /**
+     * The BROWSER-reachable origin for presigned screenshot URLs. Optional; falls back to
+     * S3_ENDPOINT, which is correct in local dev where both are http://localhost:9000.
+     *
+     * It must be a separate setting because a presigned URL carries its host inside the SigV4
+     * signature: the URL has to be *signed for* the origin the browser will actually request,
+     * so it cannot be rewritten after signing. With S3_ENDPOINT alone, production handed the
+     * browser `http://minio:9000/...` — a name only the containers resolve — and every
+     * screenshot rendered broken.
+     */
+    S3_PUBLIC_ENDPOINT: z.url().optional(),
     S3_REGION: z.string().default('us-east-1'),
     S3_BUCKET: z.string(),
     S3_ACCESS_KEY: z.string(),

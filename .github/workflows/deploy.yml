@@ -181,6 +181,11 @@ jobs:
             REDIS_URL=redis://redis:6379
             S3_ENDPOINT=http://minio:9000
             S3_REGION=us-east-1
+            # Browser-facing origin for presigned screenshot URLs — deliberately NOT
+            # S3_ENDPOINT. That is the container-network name, which no browser can resolve,
+            # and SigV4 signs the host, so the URL must be signed for the origin the browser
+            # will actually request. Caddy routes /$S3_BUCKET/* to minio (infra/Caddyfile).
+            S3_PUBLIC_ENDPOINT=https://${PUBLIC_DOMAIN}
 
             JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
             JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}

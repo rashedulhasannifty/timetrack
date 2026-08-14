@@ -4,6 +4,7 @@
 # Routing is by path on a single public host:
 #   /v1/*, /health*  -> api (NestJS, port 3001). The shipped Mac client pins /v1 and the
 #                       infra health probes hit /health — these MUST reach the API unmodified.
+#   /$S3_BUCKET/*    -> minio (port 9000). Presigned screenshot URLs the browser loads.
 #   everything else  -> dashboard (Next, port 3000), INCLUDING its own /api/* BFF routes
 #                       (e.g. /api/auth/... — those are Next routes, not the Nest API).
 # Do not route /api/* to the API: that would break the dashboard's server-side auth/SSO.
@@ -23,6 +24,23 @@
 	@api path /v1 /v1/* /health /health/*
 	handle @api {
 		reverse_proxy api:3001
+	}
+
+	# MinIO, for presigned screenshot URLs ONLY. The dashboard renders screenshots from
+	# presigned URLs (PRD §7.4), so the BROWSER has to be able to reach object storage. It
+	# previously could not — the API signed URLs for http://minio:9000, a name only the
+	# container network resolves — and every screenshot rendered broken.
+	#
+	# Path-style addressing puts the bucket first, so matching the bucket name routes exactly
+	# the screenshot objects and nothing else. The path is NOT rewritten and the Host is passed
+	# through unchanged: SigV4 covers both, so stripping a prefix here would invalidate every
+	# signature the API issues.
+	#
+	# This publishes no data. Objects are private — without a valid, unexpired signature MinIO
+	# answers 403, and anonymous bucket listing is denied.
+	@s3 path /{$S3_BUCKET}/*
+	handle @s3 {
+		reverse_proxy minio:9000
 	}
 
 	# Browser UI + the dashboard's own Next /api/* BFF routes.

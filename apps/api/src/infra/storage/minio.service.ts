@@ -29,6 +29,32 @@ export class MinioService implements OnModuleInit {
     credentials: { accessKeyId: this.env.S3_ACCESS_KEY, secretAccessKey: this.env.S3_SECRET_KEY },
   });
 
+  /**
+   * A second client that exists ONLY to sign browser-bound URLs, bound to the public origin.
+   *
+   * SigV4 signs the host, so a presigned URL is valid only at the origin it was signed for —
+   * rewriting the host afterwards invalidates the signature. Signing with `this.client` therefore
+   * produced URLs pointing at S3_ENDPOINT, which in production is the compose service name
+   * `http://minio:9000`: right for the API, unreachable for the browser, and every screenshot
+   * rendered broken. This client issues no requests of its own, so it never dials that origin.
+   *
+   * Falls back to the same client when S3_PUBLIC_ENDPOINT is unset (local dev, where both are
+   * http://localhost:9000).
+   */
+  private readonly presignClient =
+    this.env.S3_PUBLIC_ENDPOINT === undefined ||
+    this.env.S3_PUBLIC_ENDPOINT === this.env.S3_ENDPOINT
+      ? this.client
+      : new S3Client({
+          endpoint: this.env.S3_PUBLIC_ENDPOINT,
+          region: this.env.S3_REGION,
+          forcePathStyle: true,
+          credentials: {
+            accessKeyId: this.env.S3_ACCESS_KEY,
+            secretAccessKey: this.env.S3_SECRET_KEY,
+          },
+        });
+
   /** Create the screenshots bucket on boot if it does not yet exist. */
   async onModuleInit(): Promise<void> {
     try {
@@ -69,10 +95,13 @@ export class MinioService implements OnModuleInit {
     await upload.done();
   }
 
-  /** Short-lived presigned GET — never a public bucket (PRD §8). */
+  /**
+   * Short-lived presigned GET — never a public bucket (PRD §8). Signed against the PUBLIC
+   * origin, because the browser is what follows this URL.
+   */
   presignGet(key: string): Promise<string> {
     return getSignedUrl(
-      this.client,
+      this.presignClient,
       new GetObjectCommand({ Bucket: this.env.S3_BUCKET, Key: key }),
       {
         expiresIn: this.env.PRESIGNED_URL_TTL_SECONDS,

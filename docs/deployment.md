@@ -179,10 +179,22 @@ path still works when CI is unavailable.
 | URLs     | `API_URL`, `APP_URL`, `CORS_ORIGINS`, `PUBLIC_DOMAIN`, `ACME_EMAIL`                                                                                   |
 | Optional | `INVITE_TTL_DAYS`; `SMTP_HOST` + `SMTP_PORT` + `SMTP_USER` + `SMTP_PASS` + `MAIL_FROM`; `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`; the five `OIDC_*` |
 
-`NODE_ENV`, `LOG_LEVEL`, `REDIS_URL`, `S3_ENDPOINT`, `S3_REGION` and `API_PORT` are **not**
-secrets — the workflow hardcodes them. `NODE_ENV=production` in particular must never be
-omitted: the schema defaults to `development`, and under `development` the API returns the raw
-invite token in its response and the `APP_URL` guard never fires.
+`NODE_ENV`, `LOG_LEVEL`, `REDIS_URL`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_REGION` and
+`API_PORT` are **not** secrets — the workflow hardcodes them (`S3_PUBLIC_ENDPOINT` is derived
+from `PUBLIC_DOMAIN`). `NODE_ENV=production` in particular must never be omitted: the schema
+defaults to `development`, and under `development` the API returns the raw invite token in its
+response and the `APP_URL` guard never fires.
+
+**`S3_ENDPOINT` vs `S3_PUBLIC_ENDPOINT`.** The API reaches MinIO over the container network
+(`http://minio:9000`), but the dashboard renders screenshots from **presigned URLs the browser
+fetches directly** (PRD §7.4) — so those URLs must name an origin the browser can resolve.
+SigV4 signs the host, so the URL has to be _signed for_ that origin; rewriting it afterwards
+yields `SignatureDoesNotMatch`. Hence two settings: `S3_ENDPOINT` for the API's own calls, and
+`S3_PUBLIC_ENDPOINT` (`https://$PUBLIC_DOMAIN`) for signing browser-bound URLs, with Caddy
+routing `/$S3_BUCKET/*` to minio (`infra/Caddyfile`, and `S3_BUCKET` must be in the proxy's
+environment for that matcher). Get this wrong and every screenshot renders as a broken image
+while the rest of the page works — that is the symptom to recognise. The bucket stays private:
+without a valid, unexpired signature MinIO answers 403.
 
 **Optional groups are emitted only when set.** `packages/config` treats an empty string as
 _present_, so writing `OIDC_ISSUER=` for an unused feature fails `z.url()` and the API refuses
