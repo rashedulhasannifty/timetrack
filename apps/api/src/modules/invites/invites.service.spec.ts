@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ConflictException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  UnauthorizedException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 
 vi.mock('argon2', () => ({ hash: vi.fn().mockResolvedValue('hashed'), argon2id: 2 }));
 
@@ -23,6 +28,7 @@ function makeService(repo: Partial<InvitesRepository> = {}) {
       .mockResolvedValue({ id: 'inv1', expiresAt: new Date('2026-07-15T00:00:00Z') }),
     emailExistsAsUser: vi.fn().mockResolvedValue(false),
     hasActivePendingInvite: vi.fn().mockResolvedValue(false),
+    teamExists: vi.fn().mockResolvedValue(true),
     acceptInTransaction: vi.fn(),
     ...repo,
   } as unknown as InvitesRepository;
@@ -40,11 +46,17 @@ describe('InvitesService.create', () => {
     );
   });
 
-  it('rejects inviting into another team', async () => {
-    const { svc } = makeService();
-    await expect(svc.create(dto, { ...admin, teamId: 'other' })).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+  it('allows an admin to invite into a team that is not their own', async () => {
+    // Teams are the unit of management, so hiring into a manager's team is the normal case;
+    // requiring the admin's own team would mean every hire lands wrong and needs a move.
+    const { svc, repo } = makeService();
+    await expect(svc.create(dto, { ...admin, teamId: 'other' })).resolves.toBeDefined();
+    expect(vi.mocked(repo.createInvite).mock.calls[0]![0]).toMatchObject({ teamId: 'team1' });
+  });
+
+  it('rejects an unknown destination team with a 422, not an FK error', async () => {
+    const { svc } = makeService({ teamExists: vi.fn().mockResolvedValue(false) });
+    await expect(svc.create(dto, admin)).rejects.toBeInstanceOf(UnprocessableEntityException);
   });
 
   it('rejects an email that already belongs to a user', async () => {

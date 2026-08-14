@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { loadEnv } from '@timetrack/config';
 import type {
@@ -24,9 +25,13 @@ export class UsersService {
     private readonly invites: InvitesService,
   ) {}
 
-  /** Managers and admins list their own team; the controller gates the role. */
+  /**
+   * A MANAGER lists their own team. An ADMIN lists the whole deployment: they assign people to
+   * managers by moving them between teams, which is impossible from a roster that only ever
+   * shows the admin's own team. The controller gates the role; this decides the scope.
+   */
   list(user: SessionUser): Promise<User[]> {
-    return this.repo.listByTeam(user.teamId);
+    return user.role === 'ADMIN' ? this.repo.listAll() : this.repo.listByTeam(user.teamId);
   }
 
   /** Self-read: any authenticated user fetches their own record. */
@@ -43,10 +48,17 @@ export class UsersService {
   }
 
   /**
-   * ADMIN-gated user mutation: change role and/or active state. Same-team is enforced once
-   * here; the last-active-admin guard is authoritative inside each repo transaction (a locked
-   * re-check) — we translate its LAST_ADMIN sentinel to a 409. When both fields are present,
-   * the role change is applied first, then the active change; the final User is returned.
+   * ADMIN-gated user mutation: change role, team and/or active state.
+   *
+   * Scope is org-wide. This deliberately replaced a same-team check: teams are the unit of
+   * management (a MANAGER manages their own team), so assigning an employee to a manager means
+   * moving them between teams — and a team-scoped admin could neither see the destination's
+   * people nor pull anyone into their own team. A second team would have had no admin able to
+   * manage it at all. MANAGER scope is untouched and remains strictly own-team.
+   *
+   * The last-active-admin guard is authoritative inside each repo transaction (a locked
+   * re-check) — we translate its LAST_ADMIN sentinel to a 409. Fields are applied role → team →
+   * active; the final User is returned.
    */
   async update(id: string, dto: UpdateUser, actor: SessionUser): Promise<User> {
     const target = await this.repo.findForAdmin(id);
@@ -57,23 +69,45 @@ export class UsersService {
         status: 404,
       });
     }
-    if (target.teamId !== actor.teamId) {
-      throw new ForbiddenException({
-        type: 'https://timetrack.internal/errors/forbidden',
-        title: 'Cannot manage a user in another team',
-        status: 403,
-      });
-    }
 
     let user: User | undefined;
     if (dto.role !== undefined) {
       user = await this.applyRole(id, dto.role, target.role, actor);
+    }
+    if (dto.teamId !== undefined) {
+      user = await this.applyTeam(id, dto.teamId, target.teamId, actor);
     }
     if (dto.deactivated !== undefined) {
       user = await this.applyActive(id, dto.deactivated, actor);
     }
     // UpdateUserSchema's refine guarantees at least one field was present.
     return user as User;
+  }
+
+  /**
+   * Move a user to another team — i.e. hand them to a different manager. The destination is
+   * checked to exist first: the FK would reject a bad id anyway, but as a raw Prisma error
+   * rather than the 422 an admin who mistyped an id deserves.
+   */
+  private async applyTeam(
+    id: string,
+    teamId: string,
+    currentTeamId: string,
+    actor: SessionUser,
+  ): Promise<User> {
+    // No-op: already on that team. Return the record unchanged, with no spurious audit row.
+    if (teamId === currentTeamId) {
+      const current = await this.repo.findUser(id);
+      return current as User; // existence already established by findForAdmin
+    }
+    if (!(await this.repo.teamExists(teamId))) {
+      throw new UnprocessableEntityException({
+        type: 'https://timetrack.internal/errors/unprocessable',
+        title: 'Team not found',
+        status: 422,
+      });
+    }
+    return this.repo.setTeam(id, teamId, actor.id);
   }
 
   private async applyRole(
