@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { InviteUserSchema, EraseUserSchema, Role } from '@timetrack/contracts';
+import { InviteUserSchema, EraseUserSchema, CreateTeamSchema, Role } from '@timetrack/contracts';
 import { getSession } from '../../../../lib/session';
 import { api, ApiError } from '../../../../lib/api-client';
 
@@ -20,9 +20,11 @@ export interface RowState {
 }
 
 /**
- * Invite a user into the admin's OWN team. The token stays server-side (getSession); teamId is
- * taken from the admin's current team, never from the form, so the form can't target another
- * team (the API re-enforces this with a 403 regardless).
+ * Invite a user into a chosen team. The token stays server-side (getSession). The team comes
+ * from the form now: teams are the unit of management, so hiring straight into a manager's team
+ * is the normal case — the alternative was inviting into the admin's own team and immediately
+ * moving the person out. Falls back to the admin's own team if the field is absent. The API
+ * re-checks ADMIN and that the destination team exists.
  */
 export async function inviteUserAction(
   _prev: InviteState,
@@ -31,14 +33,20 @@ export async function inviteUserAction(
   const session = await getSession();
   if (!session || session.role !== 'ADMIN') return { ok: false, message: 'Not authorized.' };
 
-  const team = await api.getCurrentTeam(session.accessToken);
+  const rawTeam = formData.get('teamId');
+  const teamId =
+    typeof rawTeam === 'string' && rawTeam.length > 0
+      ? rawTeam
+      : (await api.getCurrentTeam(session.accessToken)).id;
   const parsed = InviteUserSchema.safeParse({
     email: formData.get('email'),
     name: formData.get('name'),
     role: formData.get('role'),
-    teamId: team.id,
+    teamId,
   });
-  if (!parsed.success) return { ok: false, message: 'Enter a name, a valid email, and a role.' };
+  if (!parsed.success) {
+    return { ok: false, message: 'Enter a name, a valid email, a role, and a team.' };
+  }
 
   try {
     const result = await api.inviteUser(session.accessToken, parsed.data);
@@ -94,6 +102,51 @@ export async function setUserRoleAction(_prev: RowState, formData: FormData): Pr
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
+  }
+}
+
+/**
+ * Move a user to another team — i.e. hand them to a different manager. This is a permissions
+ * change, not a field edit: the old team's managers lose sight of that person's history and the
+ * new team's gain it. The API audits it (`user.team_change`) and 422s an unknown team.
+ */
+export async function setUserTeamAction(_prev: RowState, formData: FormData): Promise<RowState> {
+  const session = await getSession();
+  if (!session || session.role !== 'ADMIN') return { ok: false, message: 'Not authorized.' };
+
+  const rawId = formData.get('userId');
+  const rawTeam = formData.get('teamId');
+  const id = typeof rawId === 'string' ? rawId : '';
+  if (typeof rawTeam !== 'string' || rawTeam.length === 0) {
+    return { ok: false, message: 'Pick a team.' };
+  }
+
+  try {
+    await api.setUserTeam(session.accessToken, id, rawTeam);
+    revalidatePath('/admin/users');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
+  }
+}
+
+/**
+ * Create a team. A team is a manager's group, so this is how a new manager's roster comes into
+ * existence — settings are left at their defaults and edited from Admin → Settings.
+ */
+export async function createTeamAction(_prev: RowState, formData: FormData): Promise<RowState> {
+  const session = await getSession();
+  if (!session || session.role !== 'ADMIN') return { ok: false, message: 'Not authorized.' };
+
+  const parsed = CreateTeamSchema.safeParse({ name: formData.get('name') });
+  if (!parsed.success) return { ok: false, message: 'Enter a team name (1–200 characters).' };
+
+  try {
+    await api.createTeam(session.accessToken, parsed.data);
+    revalidatePath('/admin/users');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof ApiError ? e.message : 'Could not create the team.' };
   }
 }
 
