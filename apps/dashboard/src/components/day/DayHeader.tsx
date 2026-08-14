@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Card } from '../ui/Card';
+import { DayPicker } from './DayPicker';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -21,9 +22,13 @@ function formatDayLabel(date: string): string {
 }
 
 /**
- * Day-view chrome shared by `/me` and `people/[userId]`: date navigation (prev / today / next
- * as query-string `<Link>`s — the URL is the state, no client component needed), the
- * "Recording now" pill (today + an open entry), and the self-only reassurance banner.
+ * Day-view chrome shared by `/me` and `people/[userId]`: a date picker plus prev / today / next
+ * navigation (query-string `<Link>`s — the URL is the state), the "Recording now" pill (today +
+ * an open entry), and the self-only reassurance banner.
+ *
+ * The arrows alone made this look like a filter permanently stuck on today: the middle control
+ * is a fixed "Today" action, not a label, and reaching a date weeks back meant clicking ‹ dozens
+ * of times. DayPicker is the only client component here; the rest stays server-rendered.
  */
 export function DayHeader({
   date,
@@ -64,6 +69,7 @@ export function DayHeader({
               Recording now
             </span>
           ) : null}
+          <DayPicker date={date} today={today} />
           <nav
             className="border-separator flex items-center gap-1 rounded-md border p-0.5"
             aria-label="Day navigation"
