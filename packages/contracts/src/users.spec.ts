@@ -13,7 +13,19 @@ describe('UpdateUserSchema', () => {
   });
 
   it('rejects an unknown field (strict survives the refine wrap — no mass assignment)', () => {
-    expect(UpdateUserSchema.safeParse({ role: 'MANAGER', teamId: 'x' }).success).toBe(false);
+    // Deliberately a field that is NOT in the schema. `teamId` served as the unknown key here
+    // until it became a real field; leaving it would have passed for the wrong reason (bad uuid).
+    expect(UpdateUserSchema.safeParse({ role: 'MANAGER', email: 'a@b.co' }).success).toBe(false);
+  });
+
+  it('accepts a teamId-only update — this is how a user is reassigned to a manager', () => {
+    expect(
+      UpdateUserSchema.safeParse({ teamId: '019797a0-0000-7000-8000-000000000001' }).success,
+    ).toBe(true);
+  });
+
+  it('rejects a teamId that is not a uuid', () => {
+    expect(UpdateUserSchema.safeParse({ teamId: 'team-1' }).success).toBe(false);
   });
 
   it('accepts a role-only update', () => {

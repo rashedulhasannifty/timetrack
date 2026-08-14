@@ -16,6 +16,7 @@ import {
   ScreenshotSchema,
   RedactScreenshotSchema,
   TeamSettingsSchema,
+  CreateTeamSchema,
   EffectivePolicySchema,
   InviteUserSchema,
   CreateProjectSchema,
@@ -200,6 +201,25 @@ describe('team-settings + policy', () => {
     expect(TeamSettingsSchema.safeParse({ timesheetReminderHours: -1 }).success).toBe(false);
     expect(TeamSettingsSchema.safeParse({ timesheetReminderHours: 81 }).success).toBe(false);
     expect(TeamSettingsSchema.safeParse({ timesheetReminderHours: 7.5 }).success).toBe(false);
+  });
+
+  it('CreateTeamSchema keeps settings default-free, so a partial stays partial', () => {
+    // Zod 4's .partial() KEEPS each field's .default(), so the old
+    // `TeamSettingsSchema.partial()` turned `{ screenshotsEnabled: false }` into a fully
+    // materialized object — the service could no longer tell an omitted key from a chosen one.
+    const parsed = CreateTeamSchema.parse({
+      name: 'Support',
+      settings: { screenshotsEnabled: false },
+    });
+    expect(parsed.settings).toEqual({ screenshotsEnabled: false });
+    expect(Object.keys(parsed.settings!)).toEqual(['screenshotsEnabled']);
+    // Range validation still applies to the keys that ARE sent.
+    expect(
+      CreateTeamSchema.safeParse({ name: 'X', settings: { screenshotIntervalMinutes: 999 } })
+        .success,
+    ).toBe(false);
+    // And settings stay optional entirely.
+    expect(CreateTeamSchema.parse({ name: 'X' }).settings).toBeUndefined();
   });
 
   it('parses an effective policy with nested settings', () => {

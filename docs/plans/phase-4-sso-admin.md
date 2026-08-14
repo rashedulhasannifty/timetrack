@@ -91,5 +91,38 @@
 - [x] 4.5 Advanced admin controls. Policy editor + app lists already shipped; this slice
       added separate productive/unproductive SITE lists (client host-categorization split)
       and admin role management (audited, last-active-admin + self-lockout guards).
+- [x] 4.6 Manager assignment (post-phase follow-up). "Which manager manages which employee" had
+      no representation anywhere: `User.teamId` + `role` derive it (a MANAGER manages their own
+      team, via `ResourceAccessService`), but nothing could create a second team or move anyone
+      between teams — `CreateTeamSchema` was unwired and the only route was `GET /teams/current`.
+      Ships `GET /v1/teams` + `POST /v1/teams` (both ADMIN-only, creation audited as
+      `team.create`) and `teamId` on `UpdateUserSchema`, so assigning an employee to a manager is
+      a team move, audited as `user.team_change` with `{from, to}` — a permissions change, not a
+      field edit, because manager-scoped queries resolve membership at read time: the new team's
+      managers gain that person's history and the old team's lose it. `CreateTeamSchema.settings`
+      was rebuilt on the DEFAULT-FREE field shape (Zod 4's `.partial()` keeps each `.default()`,
+      so the old version materialized every key and hid what the admin actually chose) — the
+      known landmine, closed now that a create endpoint exists. Dashboard: per-row team picker,
+      create-team form, team column, and a team selector on the invite form so a hire lands under
+      the right manager on day one.
+      **Authorization change, deliberate and load-bearing:** ADMIN is now org-wide for user and
+      team management. It was same-team (`users.service` 403, `GET /users` scoped to own team,
+      invite restricted to own team), which cannot work once teams are the unit of management —
+      a second team would have had no admin able to see or move its people. The last-admin guards
+      in `setRole`/`setActive` moved from per-team to org-wide with it, so the deployment's final
+      admin is still protected while a team's only admin can now be demoted provided another team
+      has one. MANAGER scope is untouched and remains strictly own-team.
+      Gate green: `pnpm lint`, `typecheck`, `build`; `pnpm test` — api 33 files / 248 tests,
+      contracts 7 / 90, dashboard 21 / 198, worker 13 / 65; `apps/api` `test:e2e` (`RUN_E2E=1`,
+      19 files / 151 tests) including 12 net-new against real Postgres covering the move + audit,
+      a cross-team move, 422 on an unknown team, the silent no-op, history following the person,
+      both org-wide last-admin guards, and roster scope per role.
+      **Live-driven over HTTP** against the running API with real HS256 tokens, because
+      service-level e2e bypasses the guards entirely: `GET /v1/teams` → 401 unauthenticated, 403
+      as MANAGER, 200 as ADMIN; `POST /v1/teams` → 403 as MANAGER, 201 as ADMIN returning a
+      complete default policy; `PATCH /v1/users/:id {teamId}` → 403 as MANAGER, 422 on an unknown
+      team, 422 on an unknown field (strict body), 200 as ADMIN — the roster then read
+      `admin:Eng, mgr:Eng, ada:Support` with exactly one `user.team_change` audit row carrying
+      `{from, to}` and the admin's id. Fixture removed afterwards.
 - [x] Green gate; compliance paths (retention, erasure) integration-tested; SSO validated
       end-to-end against a real Keycloak IdP (surfaced + fixed the RFC 9207 `iss` bug).

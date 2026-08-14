@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   UnauthorizedException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import * as argon2 from 'argon2';
@@ -29,13 +30,23 @@ export class InvitesService {
   ) {}
 
   async create(dto: InviteUser, actor: SessionUser): Promise<CreatedInvite> {
-    // Defence beyond the controller's @Roles('ADMIN'): an admin may only invite into
-    // their own team (resource authorization, not just role).
-    if (actor.role !== 'ADMIN' || actor.teamId !== dto.teamId) {
+    // Defence beyond the controller's @Roles('ADMIN'): only an admin may invite at all.
+    // The destination is no longer required to be the actor's OWN team — teams are the unit of
+    // management, so an admin hiring into a manager's team must be able to name that team
+    // directly rather than invite into their own and immediately move the person out.
+    if (actor.role !== 'ADMIN') {
       throw new ForbiddenException({
         type: 'https://timetrack.internal/errors/forbidden',
-        title: 'Cannot invite a user into another team',
+        title: 'Only an admin can invite a user',
         status: 403,
+      });
+    }
+    // Checked explicitly so a mistyped team id is a 422, not a raw FK violation at insert.
+    if (!(await this.repo.teamExists(dto.teamId))) {
+      throw new UnprocessableEntityException({
+        type: 'https://timetrack.internal/errors/unprocessable',
+        title: 'Team not found',
+        status: 422,
       });
     }
     if (await this.repo.emailExistsAsUser(dto.email)) {

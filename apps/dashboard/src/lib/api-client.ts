@@ -19,7 +19,9 @@ import {
   UserSchema,
   type User,
   TeamSchema,
+  TeamListSchema,
   type Team,
+  type CreateTeam,
   ObservedAppsSchema,
   type ObservedApps,
   TokenPairSchema,
@@ -210,6 +212,8 @@ export const api = {
   listUsers: (token: string): Promise<User[]> => get('/users', z.array(UserSchema), token),
   getCurrentUser: (token: string): Promise<User> => get('/users/me', UserSchema, token),
   getCurrentTeam: (token: string): Promise<Team> => get('/teams/current', TeamSchema, token),
+  /** ADMIN-only. Backs the team pickers on the admin users page. */
+  listTeams: (token: string): Promise<Team[]> => get('/teams', TeamListSchema, token),
   getObservedApps: (token: string): Promise<ObservedApps> =>
     get('/admin/observed-apps', ObservedAppsSchema, token),
   teamOverview: (token: string, date?: string): Promise<TeamOverview> =>
@@ -254,6 +258,11 @@ export const api = {
     send('PATCH', `/users/${id}`, { deactivated }, UserSchema, token),
   setUserRole: (token: string, id: string, role: Role): Promise<User> =>
     send('PATCH', `/users/${id}`, { role }, UserSchema, token),
+  /** Moving a user's team reassigns who manages them; the API audits it. */
+  setUserTeam: (token: string, id: string, teamId: string): Promise<User> =>
+    send('PATCH', `/users/${id}`, { teamId }, UserSchema, token),
+  createTeam: (token: string, dto: CreateTeam): Promise<Team> =>
+    send('POST', '/teams', dto, TeamSchema, token),
   updateTeamSettings: (token: string, patch: UpdateSettings): Promise<TeamSettings> =>
     send('PATCH', '/admin/settings', patch, TeamSettingsSchema, token),
   listAudit: (token: string, params: URLSearchParams): Promise<AuditLogPage> =>

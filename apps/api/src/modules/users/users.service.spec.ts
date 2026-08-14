@@ -5,7 +5,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { nodeEnv } = vi.hoisted(() => ({ nodeEnv: { value: 'development' } }));
 vi.mock('@timetrack/config', () => ({ loadEnv: () => ({ NODE_ENV: nodeEnv.value }) }));
 
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { UsersService } from './users.service.js';
 import type { UsersRepository } from './users.repository.js';
 import type { InvitesService } from '../invites/invites.service.js';
@@ -58,6 +63,10 @@ function makeSetActiveService(repoOverrides: Partial<UsersRepository>) {
     findUser: vi.fn(),
     setActive: vi.fn(),
     setRole: vi.fn(),
+    setTeam: vi.fn(),
+    teamExists: vi.fn().mockResolvedValue(true),
+    listAll: vi.fn(),
+    listByTeam: vi.fn(),
     ackMonitoring: vi.fn(),
     ...repoOverrides,
   } as unknown as UsersRepository;
@@ -73,13 +82,15 @@ describe('UsersService.update — active-state guards', () => {
     );
   });
 
-  it('403 when the target is on another team', async () => {
-    const { svc } = makeSetActiveService({
+  it('acts on a target in another team — an ADMIN is org-wide, not team-scoped', async () => {
+    // Was a 403. Teams are the unit of management, so a team-scoped admin could never manage a
+    // second team's people; MANAGER scope is unchanged and still strictly own-team.
+    const { svc, repo } = makeSetActiveService({
       findForAdmin: vi.fn().mockResolvedValue({ ...activeEmployee, teamId: 'other' }),
+      setActive: vi.fn().mockResolvedValue({ status: 'OK', user: {} as User }),
     });
-    await expect(svc.update('u2', { deactivated: true }, admin)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(svc.update('u2', { deactivated: true }, admin)).resolves.toBeDefined();
+    expect(repo.setActive).toHaveBeenCalledWith('u2', true, 'a1');
   });
 
   it('409 when an admin deactivates their own account', async () => {
@@ -173,13 +184,13 @@ describe('UsersService.update — role guards', () => {
     );
   });
 
-  it('403 when the target is on another team', async () => {
-    const { svc } = makeSetActiveService({
+  it('promotes a target in another team — an ADMIN is org-wide, not team-scoped', async () => {
+    const { svc, repo } = makeSetActiveService({
       findForAdmin: vi.fn().mockResolvedValue({ ...activeEmployee, teamId: 'other' }),
+      setRole: vi.fn().mockResolvedValue({ status: 'OK', user: {} as User }),
     });
-    await expect(svc.update('u2', { role: 'MANAGER' }, admin)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(svc.update('u2', { role: 'MANAGER' }, admin)).resolves.toBeDefined();
+    expect(repo.setRole).toHaveBeenCalledWith('u2', 'MANAGER', 'a1');
   });
 });
 
@@ -201,6 +212,83 @@ describe('UsersService.me', () => {
     await expect(svc.me({ id: 'x', role: 'EMPLOYEE', teamId: 't1' })).rejects.toThrow(
       NotFoundException,
     );
+  });
+});
+
+describe('UsersService.update — team assignment', () => {
+  // Moving a user's team IS assigning them to a different manager: a MANAGER manages their own
+  // team, so this is a permissions change and every path below is about not doing it by accident.
+  it('moves the user and passes the actor through for the audit row', async () => {
+    const moved = { id: 'u2', teamId: 't2' } as User;
+    const setTeam = vi.fn().mockResolvedValue(moved);
+    const { svc } = makeSetActiveService({
+      findForAdmin: vi.fn().mockResolvedValue(activeEmployee),
+      setTeam,
+    });
+    await expect(svc.update('u2', { teamId: 't2' }, admin)).resolves.toBe(moved);
+    expect(setTeam).toHaveBeenCalledWith('u2', 't2', 'a1');
+  });
+
+  it('422 on an unknown destination team, without touching the user', async () => {
+    const setTeam = vi.fn();
+    const { svc } = makeSetActiveService({
+      findForAdmin: vi.fn().mockResolvedValue(activeEmployee),
+      teamExists: vi.fn().mockResolvedValue(false),
+      setTeam,
+    });
+    await expect(svc.update('u2', { teamId: 'ghost' }, admin)).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    expect(setTeam).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when the user is already on that team', async () => {
+    // A no-op must not emit an audit row — the log is the record that a visibility boundary
+    // moved, and a row saying "moved from t1 to t1" makes it lie.
+    const current = { id: 'u2', teamId: 't1' } as User;
+    const setTeam = vi.fn();
+    const { svc } = makeSetActiveService({
+      findForAdmin: vi.fn().mockResolvedValue(activeEmployee),
+      findUser: vi.fn().mockResolvedValue(current),
+      setTeam,
+    });
+    await expect(svc.update('u2', { teamId: 't1' }, admin)).resolves.toBe(current);
+    expect(setTeam).not.toHaveBeenCalled();
+  });
+
+  it('applies a combined promote-and-move in role-then-team order', async () => {
+    const promoted = { id: 'u2', role: 'MANAGER', teamId: 't1' } as User;
+    const moved = { id: 'u2', role: 'MANAGER', teamId: 't2' } as User;
+    const setRole = vi.fn().mockResolvedValue({ status: 'OK', user: promoted });
+    const setTeam = vi.fn().mockResolvedValue(moved);
+    const { svc } = makeSetActiveService({
+      findForAdmin: vi.fn().mockResolvedValue(activeEmployee),
+      setRole,
+      setTeam,
+    });
+    // The final record must reflect BOTH changes, so the team result is the one returned.
+    await expect(svc.update('u2', { role: 'MANAGER', teamId: 't2' }, admin)).resolves.toBe(moved);
+    expect(setRole).toHaveBeenCalledBefore(setTeam);
+  });
+});
+
+describe('UsersService.list scope', () => {
+  it('gives an ADMIN the whole deployment', async () => {
+    const listAll = vi.fn().mockResolvedValue([]);
+    const listByTeam = vi.fn();
+    const { svc } = makeSetActiveService({ listAll, listByTeam });
+    await svc.list(admin);
+    expect(listAll).toHaveBeenCalledOnce();
+    expect(listByTeam).not.toHaveBeenCalled();
+  });
+
+  it('keeps a MANAGER to their own team', async () => {
+    const listAll = vi.fn();
+    const listByTeam = vi.fn().mockResolvedValue([]);
+    const { svc } = makeSetActiveService({ listAll, listByTeam });
+    await svc.list({ id: 'm1', role: 'MANAGER', teamId: 't9' });
+    expect(listByTeam).toHaveBeenCalledWith('t9');
+    expect(listAll).not.toHaveBeenCalled();
   });
 });
 

@@ -27,6 +27,12 @@ export class InvitesRepository {
     return this.prisma.invite.create({ data: input, select: { id: true, expiresAt: true } });
   }
 
+  /** Destination check for an invite, so a mistyped team id is a 422 and not an FK error. */
+  async teamExists(teamId: string): Promise<boolean> {
+    const count = await this.prisma.team.count({ where: { id: teamId } });
+    return count > 0;
+  }
+
   async emailExistsAsUser(email: string): Promise<boolean> {
     const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
     return user !== null;

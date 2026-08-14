@@ -11,18 +11,26 @@ import { formatDate } from '../../../../lib/format';
 import { InviteForm } from './InviteForm';
 import { UserRowActions } from './UserRowActions';
 import { RoleSelect } from './RoleSelect';
+import { TeamSelect } from './TeamSelect';
+import { CreateTeamForm } from './CreateTeamForm';
 
 /**
- * Slice 1.2 — the admin's workforce screen: list the team, invite new members, and
- * deactivate/reactivate. ADMIN-only; a non-admin sees the Forbidden view (the API would 403
- * on GET /users anyway). Server Component — the API scopes the list to the caller's team.
+ * The admin's workforce screen: list everyone, invite new members, assign them to a manager by
+ * setting their team, and deactivate/reactivate. ADMIN-only; a non-admin sees the Forbidden view
+ * (the API would 403 on GET /users anyway).
+ *
+ * Server Component. For an ADMIN the API returns every user in the deployment, not just their
+ * own team — assigning people to managers is impossible from a single-team roster.
  */
 export default async function AdminUsersPage() {
   const session = await getSession();
   if (!session) return null; // the layout already gated; this satisfies type-narrowing.
   if (session.role !== 'ADMIN') return <Forbidden />;
 
-  const users = await api.listUsers(session.accessToken);
+  const [users, teams] = await Promise.all([
+    api.listUsers(session.accessToken),
+    api.listTeams(session.accessToken),
+  ]);
   const activeCount = users.filter((u) => u.deactivatedAt === null).length;
 
   return (
@@ -33,10 +41,12 @@ export default async function AdminUsersPage() {
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-3">
           <span className="text-label text-text-secondary tt-numeric flex-1">
-            {users.length} users · {activeCount} active
+            {users.length} users · {activeCount} active · {teams.length}{' '}
+            {teams.length === 1 ? 'team' : 'teams'}
           </span>
         </div>
-        <InviteForm />
+        <InviteForm teams={teams} />
+        <CreateTeamForm />
 
         {users.length === 0 ? (
           <p className="text-text-secondary text-body">
@@ -50,6 +60,7 @@ export default async function AdminUsersPage() {
                   <Th>Name</Th>
                   <Th>Email</Th>
                   <Th>Role</Th>
+                  <Th>Team</Th>
                   <Th>Monitoring</Th>
                   <Th>Status</Th>
                   <Th align="right">Actions</Th>
@@ -69,6 +80,9 @@ export default async function AdminUsersPage() {
                       <Td className="text-text-secondary">{u.email}</Td>
                       <Td>
                         <RoleSelect userId={u.id} role={u.role} />
+                      </Td>
+                      <Td>
+                        <TeamSelect userId={u.id} teamId={u.teamId} teams={teams} />
                       </Td>
                       <Td className="text-text-secondary">
                         {u.monitoringAckAt ? (
