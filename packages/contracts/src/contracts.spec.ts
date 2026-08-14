@@ -190,6 +190,18 @@ describe('team-settings + policy', () => {
     expect(s.productiveSites.some((t) => t.endsWith('.*'))).toBe(false);
   });
 
+  it('ships the missing-timesheet reminder OFF, so no deploy starts emailing employees', () => {
+    // 0 means "no reminder" (nothing is < 0). A legacy settings row with no such key must
+    // resolve to off, not to some default that mails everyone the Monday after an upgrade.
+    expect(TeamSettingsSchema.parse({}).timesheetReminderHours).toBe(0);
+    expect(TeamSettingsSchema.parse({ timesheetReminderHours: 20 }).timesheetReminderHours).toBe(
+      20,
+    );
+    expect(TeamSettingsSchema.safeParse({ timesheetReminderHours: -1 }).success).toBe(false);
+    expect(TeamSettingsSchema.safeParse({ timesheetReminderHours: 81 }).success).toBe(false);
+    expect(TeamSettingsSchema.safeParse({ timesheetReminderHours: 7.5 }).success).toBe(false);
+  });
+
   it('parses an effective policy with nested settings', () => {
     expect(
       EffectivePolicySchema.safeParse({

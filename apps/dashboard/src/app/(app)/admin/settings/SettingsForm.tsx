@@ -270,6 +270,23 @@ export function SettingsForm({
 
       <Card padding="md" className="flex flex-col gap-4">
         <div>
+          <h2 className="text-text text-[15px] font-semibold">Email reminders</h2>
+          <p className="text-text-secondary text-caption">
+            Sent by the server on Monday mornings, not by the app.
+          </p>
+        </div>
+        <NumberField
+          name="timesheetReminderHours"
+          label="Missing-timesheet reminder"
+          hint="Email an employee when they tracked fewer hours than this last week. 0 turns the reminder off."
+          value={settings.timesheetReminderHours}
+          min={0}
+          max={80}
+        />
+      </Card>
+
+      <Card padding="md" className="flex flex-col gap-4">
+        <div>
           <h2 className="text-text text-[15px] font-semibold">App categories</h2>
           <p className="text-text-secondary text-caption">
             Classify apps as productive or unproductive for reporting.

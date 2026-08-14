@@ -20,6 +20,12 @@ const teamSettingsFields = {
   // Minutes of continued distraction between re-nudges while a streak keeps going (client
   // DistractionMonitor). Lower = more frequent reminders.
   distractionRepeatMinutes: z.number().int().min(1).max(60),
+  // PRD §6.7 — the worker emails an EMPLOYEE when their tracked hours for the just-closed ISO
+  // week fall BELOW this. 0 disables the reminder (nothing is < 0) and is the default: employee-
+  // facing email is a deliberate, opt-in admin decision, like the unproductive lists below.
+  // Server-side only. It rides EffectivePolicy to the macOS client because that schema embeds
+  // TeamSettings wholesale (policy.ts) — the client has no use for it and must not act on it.
+  timesheetReminderHours: z.number().int().min(0).max(80),
   // App-name lists — matched against the frontmost app name (client Categorizer).
   unproductiveApps: z.array(z.string()),
   productiveApps: z.array(z.string()),
@@ -50,6 +56,8 @@ export const TeamSettingsSchema = z.object({
   autoStartOnLogin: teamSettingsFields.autoStartOnLogin.default(false),
   distractionAlertsEnabled: teamSettingsFields.distractionAlertsEnabled.default(false),
   distractionRepeatMinutes: teamSettingsFields.distractionRepeatMinutes.default(5),
+  // OFF by default — see the field comment. A deploy must not start emailing employees.
+  timesheetReminderHours: teamSettingsFields.timesheetReminderHours.default(0),
   // Unproductive lists ship EMPTY — the product stays neutral until an admin classifies
   // (distraction lists are a deliberate, opt-in admin decision, not a shipped judgment).
   unproductiveApps: teamSettingsFields.unproductiveApps.default([]),

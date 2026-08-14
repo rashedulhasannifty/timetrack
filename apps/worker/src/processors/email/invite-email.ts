@@ -4,6 +4,8 @@
  * dashboard's /accept-invite page, which POSTs it to the API's /v1/auth/accept-invite.
  */
 
+import { escapeHtml } from './render.js';
+
 export interface InviteEmailInput {
   /** The invited person's name, as the admin typed it. Untrusted — escaped for HTML. */
   name: string;
@@ -21,16 +23,6 @@ export interface RenderedEmail {
   html: string;
   /** Exposed separately so the unconfigured-SES path can log it in development. */
   acceptUrl: string;
-}
-
-/** Minimal HTML entity escaping — the name is operator-supplied free text. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 export function buildAcceptUrl(appUrl: string, inviteToken: string): string {
