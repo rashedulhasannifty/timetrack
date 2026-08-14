@@ -113,7 +113,10 @@ export class EmailProcessor extends WorkerHost {
             jobId: job.id,
             jobName: job.name,
             to: message.to,
-            err: e instanceof Error ? e.message : String(e),
+            // `reason`, not `err`: pino reserves `err` for its Error serializer, which silently
+            // dropped a plain string here — the dropped message's cause vanished from the log,
+            // and this log line is the only record that it was dropped at all.
+            reason: e instanceof Error ? e.message : String(e),
           },
           'scheduled email failed to send',
         );

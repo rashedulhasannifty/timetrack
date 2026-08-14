@@ -195,8 +195,18 @@ describe('EmailProcessor weekly-summary job', () => {
     await expect(makeProcessor(logger, mailer).process(summaryJob)).resolves.toBeUndefined();
     // Every recipient was attempted, including the ones after the failure.
     expect(sentTo(mailer)).toEqual(['ok-1@ex.co', 'broken@ex.co', 'ok-2@ex.co']);
-    expect(JSON.stringify(vi.mocked(logger.error).mock.calls)).toContain('broken@ex.co');
     expect(JSON.stringify(vi.mocked(logger.log).mock.calls)).toContain('"sent":2');
+
+    // The reason travels under `reason`, never `err`: pino reserves `err` for its Error
+    // serializer, which dropped a plain string outright — a live drive showed the log line
+    // arriving with the recipient but no cause at all.
+    // Logger.error is typed (message: any, ...), so the logged object needs narrowing.
+    const failure = vi.mocked(logger.error).mock.calls[0]![0] as Record<string, unknown>;
+    expect(failure).toMatchObject({
+      to: 'broken@ex.co',
+      reason: '550 mailbox unavailable',
+    });
+    expect(failure).not.toHaveProperty('err');
   });
 
   it('never touches the database when email is unconfigured', async () => {
