@@ -15,6 +15,7 @@ import { TimesheetGenerateProcessor } from './processors/timesheet-generate.proc
 import { RollupScheduler } from './schedulers/rollup.scheduler.js';
 import { TimesheetScheduler } from './schedulers/timesheet.scheduler.js';
 import { RetentionScheduler } from './schedulers/retention.scheduler.js';
+import { EmailScheduler } from './schedulers/email.scheduler.js';
 
 const env = loadEnv();
 const redis = new URL(env.REDIS_URL);
@@ -50,6 +51,7 @@ const connection = { host: redis.hostname, port: Number(redis.port) || 6379 };
     RollupScheduler,
     TimesheetScheduler,
     RetentionScheduler,
+    EmailScheduler,
   ],
 })
 export class WorkerModule {}
