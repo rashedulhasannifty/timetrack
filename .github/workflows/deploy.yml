@@ -83,6 +83,15 @@ jobs:
       contents: read
       packages: write
     strategy:
+      # Sequential, sharing ONE cache scope — the same arrangement images.yml already uses,
+      # and for the same reason: the three Dockerfiles have a byte-identical build stage
+      # (node:24-alpine → COPY . . → pnpm install && pnpm build), which is nearly all of the
+      # ~4 minutes. Run in parallel with a scope each, as this job did, all three miss and
+      # all three build it — the last deploy spent 14 billable minutes on one piece of work.
+      # Run in order against a shared scope and the first populates it while the other two
+      # replay, for the same wall-clock: those parallel jobs each took ~4.5min anyway, so
+      # the job was already 5min wide.
+      max-parallel: 1
       matrix:
         service: [api, worker, dashboard]
     steps:
@@ -102,8 +111,11 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
             ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          # `workspace`, not a scope per service — this is the scope images.yml writes, and
+          # its header already claimed the two workflows shared it. They did not: this job
+          # used scope=api|worker|dashboard, so nothing was ever reused between them.
+          cache-from: type=gha,scope=workspace
+          cache-to: type=gha,mode=max,scope=workspace
 
   # ── 3. Deploy ───────────────────────────────────────────────────────────────
   deploy:
