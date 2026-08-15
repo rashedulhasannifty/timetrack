@@ -10,10 +10,128 @@ The client is distributed outside the App Store as a **Developer ID**, **notariz
 Team: **Nifty IT Solution** — Team ID **`4XCMVF4S5P`**. Bundle id **`com.niftyitsolution.timetrack`**
 (the committed default in `Info.plist`; overridable at package time via `BUNDLE_ID`).
 
+> **We are not there yet.** The membership is not currently active, so the pilot ships
+> **unnotarized**, signed with the team's Apple Development certificate. See
+> **[Pilot distribution](#pilot-distribution--current-mode)** below — that is the section to
+> follow today. Everything from "Prerequisites" onward is the post-renewal path.
+
 > **Account status:** signing + notarization require an **active** Apple Developer Program
 > membership. If the membership has lapsed, **renew it first** — an expired account cannot
 > issue a Developer ID certificate or notarize. Everything _below the certificate_ (bundle id,
 > URLs, the package/sign scripts, entitlements) is already wired and needs no account.
+
+## Pilot distribution — current mode
+
+Testing on ~10–20 internal Macs before committing to the membership renewal. The pilot build is
+signed with the team's **Apple Development** certificate and is **not notarized**.
+
+### What that signature does and does not buy
+
+|                                           | Apple Development (pilot) | Developer ID + notarized (later) |
+| ----------------------------------------- | ------------------------- | -------------------------------- |
+| App runs                                  | ✅                        | ✅                               |
+| Screen Recording grant survives a rebuild | ✅ stable identity        | ✅                               |
+| First launch after a download             | ⚠️ blocked once           | ✅ silent                        |
+
+The block is Gatekeeper, and **only notarization clears it** — self-signing does not, and neither
+does adding a self-signed root to the System keychain as "Always Trust". `spctl --add`
+allowlisting is Recovery-gated and not an option either. The workaround is the one-time step in
+[Installing on a pilot Mac](#installing-on-a-pilot-mac-send-this-to-the-tester).
+
+### The cutover costs one re-grant per Mac
+
+TCC stores the app's _designated requirement_, which pins the signing identity — not just the
+bundle id:
+
+```bash
+$ codesign -d -r- dist/TimeTrack.app
+designated => identifier "com.niftyitsolution.timetrack" and anchor apple generic
+  and certificate leaf[subject.CN] = "Apple Development: developers@niftyitsolution.com (DUGT7JB37J)"
+  and certificate 1[field.1.2.840.113635.100.6.2.1]
+```
+
+Re-signing with Developer ID changes that leaf CN, so **every pilot Mac re-grants Screen
+Recording when the notarized build lands**. That is accepted here: the cutover coincides with
+starting on a fresh production database, so pilot machines are being reset anyway.
+
+The rule that follows: **do not change signing identity mid-pilot.** Swapping certs (or letting
+the auto-pick drift) spends that same re-grant for nothing.
+
+### Build the pilot artifact
+
+Pin the identity by fingerprint. `package-app.sh` auto-picks deterministically, but the pick
+changes if a certificate is added to or removed from the signing host's keychain — and a changed
+identity re-prompts every tester.
+
+```bash
+cd apps/client-macos
+
+# Sign with "Apple Development: developers@niftyitsolution.com (DUGT7JB37J)".
+# Confirm the fingerprint still matches: security find-identity -v -p codesigning
+CODESIGN_IDENTITY=18FCAD844204EED21C099C0A90E762106D55264F ./scripts/package-app.sh
+
+# ditto, not zip — it preserves the bundle's signature
+( cd dist && ditto -c -k --keepParent TimeTrack.app TimeTrack-pilot.zip )
+```
+
+The packaging defaults already point at the pilot deployment
+(`https://timer.niftyitsolution.com/v1`); override `API_BASE_URL` / `DASHBOARD_URL` only to aim a
+build at a local stack.
+
+Verify before you send it out:
+
+```bash
+codesign --verify --deep --strict dist/TimeTrack.app   # → valid on disk
+codesign -dvv dist/TimeTrack.app 2>&1 | grep Timestamp # → secure timestamp present
+```
+
+`spctl -a -vvv --type exec` reports **`rejected`** on a pilot build. That is expected, not a
+defect — it is the notarization check, and it is exactly what the tester's one-time step clears.
+
+Then actually launch it — `codesign` only proves the bundle is _signed_, not that it _runs_.
+This matters more than it looks: `package-app.sh` hand-assembles the bundle from a SwiftPM
+binary, and a real bundle exercises code paths `swift run` and `swift test` never reach (a
+bundle id exists, so `UNUserNotificationCenter` behaves differently). Smoke-test before sending:
+
+```bash
+open dist/TimeTrack.app && sleep 5 && pgrep -lf TimeTrack.app   # → still running, menu bar item visible
+log show --last 1m --predicate 'process == "TimeTrack"' | grep -iE 'error|fault|abort'
+```
+
+### Installing on a pilot Mac (send this to the tester)
+
+1. Unzip the file — but **don't open the app yet**.
+2. Clear the download quarantine flag _before_ moving or launching it:
+   ```bash
+   xattr -dr com.apple.quarantine ~/Downloads/TimeTrack.app
+   ```
+   Adjust the path to wherever you unzipped it. Harmless if the flag was never set.
+3. Drag **TimeTrack.app** into **/Applications** and launch it.
+4. **If you see "TimeTrack cannot be opened because the developer cannot be verified"** — the
+   flag was still set. Open **System Settings → Privacy & Security**, scroll to the Security
+   section, click **Open Anyway** next to TimeTrack, and launch again. On macOS 15+ the old
+   Ctrl-click → Open shortcut no longer works. Once per machine.
+5. Sign in, then **acknowledge the monitoring policy**. Nothing is captured until you do — that
+   gate has no admin override (`Policy/AckGate`).
+6. Grant **Screen Recording** when prompted. This is the only permission the app asks for; it
+   does not use Accessibility or Input Monitoring. Until it is granted the menu bar item shows a
+   visible warning and time tracking continues without screenshots.
+
+Shipping the zip over Slack/Drive/Mail sets the quarantine flag, which is what step 2 removes.
+`scp`/`rsync` does not set it.
+
+### At cutover (membership renewed)
+
+1. Check which team the renewed membership is under. The certs installed today are team
+   `S38GJ3X9AR` (`O=AHMAD SYED ANWAR`) — **not** the `4XCMVF4S5P` recorded at the top of this
+   file. Reconcile that before issuing the certificate, and correct this file to match.
+2. Issue the **Developer ID Application** certificate and run the full
+   `package-app.sh` → `sign-and-notarize.sh` path below.
+3. Keep the bundle id `com.niftyitsolution.timetrack` unchanged.
+4. Warn testers to expect one Screen Recording re-prompt, and to delete any stale TimeTrack row
+   left behind in System Settings → Privacy & Security → Screen Recording.
+
+---
 
 ## Prerequisites (yours to provide — never committed)
 
@@ -63,17 +181,22 @@ codesign --verify --deep --strict --verbose=2 dist/TimeTrack.app
 ```
 
 The bundle id is baked into TCC permission grants, so keep it fixed once employees have
-granted Screen Recording / Accessibility — changing it later re-prompts everyone.
+granted Screen Recording — changing it later re-prompts everyone. So does changing the signing
+identity; see [the cutover cost](#the-cutover-costs-one-re-grant-per-mac).
 
 ## Why these choices
 
 - **Hardened Runtime** (`codesign --options runtime`) is required for notarization.
 - **Not App-Sandboxed** (`TimeTrack.entitlements`): the sandbox would block ScreenCaptureKit
-  and the Accessibility API. Developer ID distribution does not require the sandbox.
+  and `CGWindowListCopyWindowInfo`. Developer ID distribution does not require the sandbox.
 - **`--timestamp`**: a secure timestamp so signatures remain valid after the cert expires.
-- **Screen Recording / Accessibility** are TCC permissions the user grants in System
-  Settings at first use — not Info.plist strings. Capture never starts until granted **and**
-  the policy is acknowledged (`Policy/AckGate`).
+  Both `package-app.sh` and `sign-and-notarize.sh` pass it (ad-hoc signing skips it — no cert).
+- **Screen Recording** is the _only_ TCC permission the client needs — granted in System
+  Settings at first use, not an Info.plist string. It does **not** use Accessibility or Input
+  Monitoring: `Activity/EventCounter` reads `CGEventSource.counterForEventType` (passive
+  counters, no event tap), which is why counts-not-content is enforced by the API choice and not
+  just by policy. Capture never starts until Screen Recording is granted **and** the policy is
+  acknowledged (`Policy/AckGate`).
 
 ## What has been verified here vs. what needs your account
 
