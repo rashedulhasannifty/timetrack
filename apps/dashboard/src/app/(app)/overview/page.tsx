@@ -6,25 +6,25 @@ import type {
   TeamSummary,
   TeamTrends,
 } from '@timetrack/contracts';
-import { SetPageTitle } from '../../components/ui/PageTitleContext';
-import { SectionHeader } from '../../components/ui/SectionHeader';
-import { StatCard } from '../../components/ui/StatCard';
-import { Card } from '../../components/ui/Card';
-import { Avatar } from '../../components/ui/Avatar';
-import { DonutChart } from '../../components/charts/DonutChart';
-import { Gauge } from '../../components/charts/Gauge';
-import { BarMeter } from '../../components/charts/BarMeter';
-import { LineChart } from '../../components/charts/LineChart';
-import { StackedDayBars } from '../../components/charts/StackedDayBars';
-import { ReportRangePicker } from '../../components/reports/ReportRangePicker';
-import { AppUsageList } from '../../components/overview/AppUsageList';
-import { WidgetVisibilityProvider } from '../../components/overview/WidgetVisibilityProvider';
-import { Widget } from '../../components/overview/Widget';
-import { WidgetsDrawer, type WidgetGroup } from '../../components/overview/WidgetsDrawer';
-import { getSession } from '../../lib/session';
-import { api, ApiError } from '../../lib/api-client';
-import { defaultReportRange } from '../../lib/reports-view';
-import { formatDuration } from '../../lib/format';
+import { SetPageTitle } from '../../../components/ui/PageTitleContext';
+import { SectionHeader } from '../../../components/ui/SectionHeader';
+import { StatCard } from '../../../components/ui/StatCard';
+import { Card } from '../../../components/ui/Card';
+import { Avatar } from '../../../components/ui/Avatar';
+import { DonutChart } from '../../../components/charts/DonutChart';
+import { Gauge } from '../../../components/charts/Gauge';
+import { BarMeter } from '../../../components/charts/BarMeter';
+import { LineChart } from '../../../components/charts/LineChart';
+import { StackedDayBars } from '../../../components/charts/StackedDayBars';
+import { ReportRangePicker } from '../../../components/reports/ReportRangePicker';
+import { AppUsageList } from '../../../components/overview/AppUsageList';
+import { WidgetVisibilityProvider } from '../../../components/overview/WidgetVisibilityProvider';
+import { Widget } from '../../../components/overview/Widget';
+import { WidgetsDrawer, type WidgetGroup } from '../../../components/overview/WidgetsDrawer';
+import { getSession } from '../../../lib/session';
+import { api, ApiError } from '../../../lib/api-client';
+import { defaultReportRange } from '../../../lib/reports-view';
+import { formatDuration } from '../../../lib/format';
 import {
   appUsageByCategory,
   donutFromProjects,
@@ -39,7 +39,7 @@ import {
   topByUnproductive,
   trendsToHoursLine,
   trendsToProductivityBars,
-} from '../../lib/overview-view';
+} from '../../../lib/overview-view';
 
 const GROUPS: WidgetGroup[] = [
   { label: 'Overview', items: [{ id: 'kpis', label: 'KPI tiles' }] },

@@ -39,14 +39,14 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('GET /api/auth/refresh loop-breaker', () => {
-  it('redirects to / when the reissued token has valid claims', async () => {
+  it('redirects to /overview when the reissued token has valid claims', async () => {
     vi.mocked(api.refresh).mockResolvedValue({
       accessToken: makeJwt(VALID_CLAIMS),
       refreshToken: 'r2',
       expiresIn: 900,
     });
     const res = await GET(refreshRequest(), ctx);
-    expect(res.headers.get('location')).toBe('/');
+    expect(res.headers.get('location')).toBe('/overview');
   });
 
   it('falls through to /login when the reissued token still fails to decode', async () => {
@@ -95,14 +95,14 @@ describe('GET /api/auth/sso/callback', () => {
     });
   }
 
-  it('exchanges the code, sets the session, clears tt_oidc, and redirects to /', async () => {
+  it('exchanges the code, sets the session, clears tt_oidc, and redirects to /overview', async () => {
     vi.mocked(api.oidcCallback).mockResolvedValue({
       accessToken: makeJwt(VALID_CLAIMS),
       refreshToken: 'r',
       expiresIn: 900,
     });
     const res = await GET(callbackRequest('?code=abc&state=st'), callbackCtx);
-    expect(res.headers.get('location')).toBe('/');
+    expect(res.headers.get('location')).toBe('/overview');
     expect(api.oidcCallback).toHaveBeenCalledWith({
       code: 'abc',
       state: 'st',

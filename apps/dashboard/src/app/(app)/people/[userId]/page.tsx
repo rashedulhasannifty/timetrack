@@ -81,7 +81,7 @@ export default async function PersonPage({
       ) : (
         <div className="flex flex-col gap-5">
           <div>
-            <Link href="/" className={buttonClasses('secondary', 'sm')}>
+            <Link href="/overview" className={buttonClasses('secondary', 'sm')}>
               ← Back
             </Link>
           </div>

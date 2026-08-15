@@ -20,7 +20,7 @@ type SidebarProps = {
 };
 
 const PRIMARY: Item[] = [
-  { href: '/', label: 'Overview', Icon: IconTeam, exact: true },
+  { href: '/overview', label: 'Overview', Icon: IconTeam, exact: true },
   { href: '/projects', label: 'Projects', Icon: IconProjects },
   { href: '/reports', label: 'Reports', Icon: IconReports },
   { href: '/approvals', label: 'Approvals', Icon: IconApprovals },
