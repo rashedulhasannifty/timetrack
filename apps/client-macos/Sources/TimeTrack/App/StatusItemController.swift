@@ -6,12 +6,15 @@ import SwiftUI
 /// STATES"): idle, tracking (with a live elapsed count), and capturing (a camera glyph shown
 /// briefly while a screenshot is taken). Clicking it toggles the dropdown popover.
 final class StatusItemController: NSObject {
-    enum State { case idle, tracking, capturing }
+    enum State: Hashable { case idle, tracking, capturing }
 
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private var currentState: State = .idle
     private var screenRecordingDenied = false
+    /// refresh() runs once a second while tracking; build each status image once
+    /// rather than re-reading it from the bundle on every tick.
+    private var statusImages: [State: NSImage] = [:]
 
     /// The tracking start, so the menu bar can show a live elapsed count (the dropdown's
     /// TimelineView can't drive the AppKit status item — it needs its own timer).
@@ -141,10 +144,7 @@ final class StatusItemController: NSObject {
 
     private func refresh() {
         guard let button = item.button else { return }
-        let symbol = symbolName(for: currentState)
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: accessibilityLabel(for: currentState))
-        image?.isTemplate = true   // adopt the menu-bar's monochrome light/dark tint
-        button.image = image
+        button.image = statusImage(for: currentState)
 
         var title = ""
         if currentState != .idle, let startedAt {
@@ -154,6 +154,43 @@ final class StatusItemController: NSObject {
             title = " ⚠️" + title
         }
         button.title = title
+    }
+
+    /// The brand glyph when running from a packaged .app, else the SF Symbol.
+    ///
+    /// The PNGs are copied into Contents/Resources by scripts/package-app.sh and read
+    /// through `Bundle.main` — SwiftPM's `Bundle.module` is deliberately not used, since
+    /// that script assembles the bundle by hand and never copies SwiftPM's resource
+    /// bundle out of .build. The SF Symbol fallback keeps `swift run` (no bundle, so no
+    /// resources) working in development, and keeps the indicator present either way.
+    private func statusImage(for state: State) -> NSImage? {
+        if let cached = statusImages[state] { return cached }
+        let image = makeStatusImage(for: state)
+        statusImages[state] = image
+        return image
+    }
+
+    private func makeStatusImage(for state: State) -> NSImage? {
+        if let image = Bundle.main.image(forResource: imageName(for: state)) {
+            // The @2x rep is 32px; without this NSImage reports a 32pt image and the
+            // menu bar renders it at double size.
+            image.size = NSSize(width: 16, height: 16)
+            image.isTemplate = true   // adopt the menu-bar's monochrome light/dark tint
+            image.accessibilityDescription = accessibilityLabel(for: state)
+            return image
+        }
+        let image = NSImage(systemSymbolName: symbolName(for: state),
+                            accessibilityDescription: accessibilityLabel(for: state))
+        image?.isTemplate = true
+        return image
+    }
+
+    private func imageName(for state: State) -> String {
+        switch state {
+        case .idle: return "menubar_idle"
+        case .tracking: return "menubar_tracking"
+        case .capturing: return "menubar_capturing"
+        }
     }
 
     private func symbolName(for state: State) -> String {

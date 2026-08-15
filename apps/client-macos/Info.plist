@@ -16,6 +16,11 @@
   <string>com.niftyitsolution.timetrack</string>
   <key>CFBundleExecutable</key>
   <string>TimeTrack</string>
+  <!-- LSUIElement=1 means there is no Dock tile, so this icon surfaces in Finder,
+       notification banners, Login Items, and the Screen Recording / Accessibility
+       panes in Privacy & Security. scripts/package-app.sh copies the .icns in. -->
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
