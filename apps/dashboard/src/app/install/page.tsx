@@ -50,7 +50,7 @@ function Aside({ children }: { children: ReactNode }) {
 
 export default function InstallPage() {
   return (
-    <MarketingChrome>
+    <MarketingChrome width="reading">
       <header className="flex flex-col gap-5 pt-14 pb-10">
         <p className="text-caption text-accent font-mono tracking-[0.14em] uppercase">
           Install guide · macOS
@@ -82,7 +82,7 @@ export default function InstallPage() {
         </div>
       </header>
 
-      <Section eyebrow="Read this first" title="What the app records">
+      <Section layout="stacked" eyebrow="Read this first" title="What the app records">
         <p className="text-text-secondary mb-7">
           This is monitoring software and you should know what it does before installing it. The app
           shows you this list again on first launch, generated from the settings your organization
@@ -98,7 +98,7 @@ export default function InstallPage() {
         </p>
       </Section>
 
-      <Section eyebrow="Install" title="Six steps, in order">
+      <Section layout="stacked" eyebrow="Install" title="Six steps, in order">
         <p className="text-text-secondary mb-7">
           Step 2 is the one people skip, and skipping it is what triggers step 4.
         </p>
@@ -191,7 +191,7 @@ export default function InstallPage() {
         </ol>
       </Section>
 
-      <Section eyebrow="Troubleshooting" title="If something goes wrong">
+      <Section layout="stacked" eyebrow="Troubleshooting" title="If something goes wrong">
         <div className="flex flex-col">
           <Trouble summary="“The developer cannot be verified”">
             <p>
