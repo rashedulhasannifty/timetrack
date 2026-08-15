@@ -7,18 +7,26 @@ The client is distributed outside the App Store as a **Developer ID**, **notariz
 > **auto-update channel (Sparkle + EdDSA appcast) is deferred** to a later slice. See the
 > "Deferred" section for where it plugs in.
 
-Team: **Nifty IT Solution** — Team ID **`4XCMVF4S5P`**. Bundle id **`com.niftyitsolution.timetrack`**
-(the committed default in `Info.plist`; overridable at package time via `BUNDLE_ID`).
+Team: **Nifty IT Solution Ltd.** — Team ID **`4XCMVF4S5P`**, enrolled as an **Organization**
+(account holder: AHMAD SYED ANWAR). Bundle id **`com.niftyitsolution.timetrack`** (the committed
+default in `Info.plist`; overridable at package time via `BUNDLE_ID`).
 
-> **We are not there yet.** The membership is not currently active, so the pilot ships
-> **unnotarized**, signed with the team's Apple Development certificate. See
-> **[Pilot distribution](#pilot-distribution--current-mode)** below — that is the section to
-> follow today. Everything from "Prerequisites" onward is the post-renewal path.
+> **Account status — the membership is EXPIRED.** Its renewal date was **28 August 2023**. An
+> expired membership cannot issue a Developer ID certificate and cannot notarize, so everything
+> from "Prerequisites" onward is blocked until it is renewed (US$99/yr).
+>
+> Until then the pilot ships **unnotarized** — follow
+> **[Pilot distribution](#pilot-distribution--current-mode)** below. Everything _except_ the
+> certificate (bundle id, URLs, the package/sign scripts, entitlements) is already wired and
+> needs no account.
 
-> **Account status:** signing + notarization require an **active** Apple Developer Program
-> membership. If the membership has lapsed, **renew it first** — an expired account cannot
-> issue a Developer ID certificate or notarize. Everything _below the certificate_ (bundle id,
-> URLs, the package/sign scripts, entitlements) is already wired and needs no account.
+> **Two different teams — don't mix them up.** The org membership above (`4XCMVF4S5P`) is the
+> one that matters for distribution, and it is currently dormant. The **Apple Development**
+> certificates installed on the dev Macs are a separate personal team, **`S38GJ3X9AR`**
+> (`O=AHMAD SYED ANWAR`), on the account holder's individual Apple ID. The pilot is signed with
+> that personal team; production will be signed with the org team. They are unrelated
+> identities, which is exactly why the cutover re-prompts every machine — see
+> [The cutover costs one re-grant per Mac](#the-cutover-costs-one-re-grant-per-mac).
 
 ## Pilot distribution — current mode
 
@@ -122,11 +130,13 @@ Shipping the zip over Slack/Drive/Mail sets the quarantine flag, which is what s
 
 ### At cutover (membership renewed)
 
-1. Check which team the renewed membership is under. The certs installed today are team
-   `S38GJ3X9AR` (`O=AHMAD SYED ANWAR`) — **not** the `4XCMVF4S5P` recorded at the top of this
-   file. Reconcile that before issuing the certificate, and correct this file to match.
-2. Issue the **Developer ID Application** certificate and run the full
-   `package-app.sh` → `sign-and-notarize.sh` path below.
+1. **Renew the membership** — it lapsed on 28 August 2023. Renew the **organization** account
+   (Nifty IT Solution Ltd., `4XCMVF4S5P`), not the account holder's personal team; a Developer ID
+   certificate can only be issued under the org enrollment.
+2. Issue the **Developer ID Application** certificate under `4XCMVF4S5P` and run the full
+   `package-app.sh` → `sign-and-notarize.sh` path below. Its identity string will carry the legal
+   entity name, i.e. `Nifty IT Solution Ltd.` — copy it verbatim from `security find-identity`
+   rather than typing it, since `codesign` matches the CN exactly.
 3. Keep the bundle id `com.niftyitsolution.timetrack` unchanged.
 4. Warn testers to expect one Screen Recording re-prompt, and to delete any stale TimeTrack row
    left behind in System Settings → Privacy & Security → Screen Recording.
@@ -135,14 +145,15 @@ Shipping the zip over Slack/Drive/Mail sets the quarantine flag, which is what s
 
 ## Prerequisites (yours to provide — never committed)
 
-1. **Active Apple Developer Program** membership (see the note above).
+1. **Active Apple Developer Program** membership — currently **expired**, see the note above.
 2. A **Developer ID Application** certificate created in the Apple Developer portal and
    installed in your login keychain. Find its identity string with:
    ```bash
    security find-identity -v -p codesigning
-   # → "Developer ID Application: Nifty IT Solution (4XCMVF4S5P)"
+   # → "Developer ID Application: Nifty IT Solution Ltd. (4XCMVF4S5P)"
    ```
-   (The org name must match the certificate exactly — copy it from the command's output.)
+   (The org name must match the certificate exactly — copy it from the command's output. Note
+   the legal entity is `Nifty IT Solution Ltd.`, with the `Ltd.`)
 3. **Xcode command line tools** (`codesign`, `xcrun notarytool`, `stapler`).
 4. A **notarytool keychain profile** (store your Apple ID + team + app-specific password
    once, so the script never sees a raw secret):
@@ -171,7 +182,7 @@ DASHBOARD_URL=https://<your-prod-domain> \
 ./scripts/package-app.sh
 
 # 2. Sign (Developer ID + hardened runtime + entitlements), notarize, staple
-DEVELOPER_ID_APP="Developer ID Application: Nifty IT Solution (4XCMVF4S5P)" \
+DEVELOPER_ID_APP="Developer ID Application: Nifty IT Solution Ltd. (4XCMVF4S5P)" \
 NOTARY_PROFILE=timetrack \
 ./scripts/sign-and-notarize.sh
 
