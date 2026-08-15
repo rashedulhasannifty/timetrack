@@ -12,6 +12,7 @@ final class StatusItemController: NSObject {
     private let popover = NSPopover()
     private var currentState: State = .idle
     private var screenRecordingDenied = false
+    private var updateOverdue = false
     /// refresh() runs once a second while tracking; build each status image once
     /// rather than re-reading it from the bundle on every tick.
     private var statusImages: [State: NSImage] = [:]
@@ -129,6 +130,21 @@ final class StatusItemController: NSObject {
         refresh()
     }
 
+    /// A newer build has been available past the grace period. Advisory only — tracking is
+    /// unaffected, and this never gates capture (CLAUDE.md §1). Screen Recording takes tooltip
+    /// precedence because it is the one the person can act on immediately.
+    func setUpdateOverdue(_ overdue: Bool, version: String? = nil) {
+        guard updateOverdue != overdue else { return }
+        updateOverdue = overdue
+        if overdue, !screenRecordingDenied {
+            let v = version.map { " \($0)" } ?? ""
+            item.button?.toolTip = "TimeTrack\(v) is available — open the menu to update."
+        } else if !overdue, !screenRecordingDenied {
+            item.button?.toolTip = nil
+        }
+        refresh()
+    }
+
     private func startTicking() {
         ticker?.invalidate()
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
@@ -150,7 +166,9 @@ final class StatusItemController: NSObject {
         if currentState != .idle, let startedAt {
             title = " " + compactElapsed(since: startedAt)
         }
-        if screenRecordingDenied {
+        // One marker covers both conditions — two warning glyphs in the menu bar would be
+        // noise, and the tooltip says which it is.
+        if screenRecordingDenied || updateOverdue {
             title = " ⚠️" + title
         }
         button.title = title

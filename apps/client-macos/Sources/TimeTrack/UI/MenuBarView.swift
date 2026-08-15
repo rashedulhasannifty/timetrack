@@ -5,6 +5,7 @@ import SwiftUI
 /// always disclosed and Start is inert until the policy is acknowledged (PRD §4.1/§4.2).
 struct MenuBarView: View {
     @ObservedObject var viewModel: MenuViewModel
+    @ObservedObject var updates: UpdateCoordinator
 
     var body: some View {
         Group {
@@ -185,8 +186,33 @@ struct MenuBarView: View {
 
     // MARK: Footer — my data / sign out / quit
 
+    /// Update row. Present only when there is genuinely something newer — a failed or
+    /// rate-limited check shows nothing, because it is not something the reader can act on.
+    @ViewBuilder private var updateRow: some View {
+        if let manifest = updates.status.manifest {
+            VStack(alignment: .leading, spacing: TT.Space.x1) {
+                if updates.isInstalling {
+                    Text("Updating to \(manifest.version.description)…")
+                        .foregroundStyle(TT.Palette.textSecondary)
+                } else {
+                    Button(updates.canInstallInPlace
+                           ? "Update to \(manifest.version.description)"
+                           : "Download \(manifest.version.description)") {
+                        updates.canInstallInPlace ? updates.installNow() : updates.openReleasesPage()
+                    }
+                    .buttonStyle(.link)
+                    .foregroundStyle(updates.status.isOverdue ? TT.Palette.destructive : TT.Palette.accent)
+                }
+                if let error = updates.lastInstallError {
+                    Text(error).foregroundStyle(TT.Palette.destructive)
+                }
+            }
+        }
+    }
+
     @ViewBuilder private var footer: some View {
         VStack(alignment: .leading, spacing: TT.Space.x2) {
+            updateRow
             Button("My Data", action: viewModel.openMyData)
                 .buttonStyle(.link)
             HStack {
