@@ -19,6 +19,20 @@ cp "$RELEASE_BIN" "$APP/Contents/MacOS/${APP_NAME}"
 cp Info.plist "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
+# Brand assets. These are loaded through Bundle.main, NOT SwiftPM's Bundle.module:
+# this script assembles the bundle by hand and never copies SwiftPM's generated
+# resource bundle out of .build/release, so Bundle.module would work under
+# `swift run` and then trap at runtime in a packaged build.
+#
+# Copied by explicit name, not a glob: a glob still succeeds when one file has been
+# renamed or dropped, and the missing state would then silently fall back to its SF
+# Symbol forever. Naming them makes that a build failure instead.
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+for state in idle tracking capturing; do
+  cp "Resources/menubar_${state}@1x.png" "$APP/Contents/Resources/menubar_${state}@1x.png"
+  cp "Resources/menubar_${state}@2x.png" "$APP/Contents/Resources/menubar_${state}@2x.png"
+done
+
 # Distribution knobs. A packaged .app IS the artifact employees run, so these default to the
 # PRODUCTION deployment — shipping a build that silently talks to 127.0.0.1 is the worse
 # failure. Local development is unaffected: `swift run` has no bundle, so it falls back to
