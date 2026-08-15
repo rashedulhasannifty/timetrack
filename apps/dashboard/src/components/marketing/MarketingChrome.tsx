@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { ThemeToggle } from '../ui/ThemeToggle';
+import { BrandMark } from '../ui/BrandMark';
 
 /**
  * Layout primitives for the two public pages (/ and /install). These render without a
@@ -28,10 +29,7 @@ export function MarketingChrome({
           href="/"
           className="flex items-center gap-2.5 font-mono text-[0.9375rem] font-medium tracking-[-0.02em]"
         >
-          <span
-            aria-hidden="true"
-            className="border-accent inline-block h-2.5 w-2.5 rotate-[-45deg] rounded-full border-[1.5px] border-t-transparent"
-          />
+          <BrandMark />
           TimeTrack
         </Link>
         <div className="text-label text-text-secondary flex items-center gap-5">
