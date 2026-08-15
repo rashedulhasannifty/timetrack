@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ComponentType, ReactNode, SVGProps } from 'react';
 import { IconClock, IconTeam, IconProjects, IconReports, IconApprovals, IconAdmin } from './icons';
+import { BrandMark } from './BrandMark';
 
 type Item = {
   href: string;
@@ -76,9 +77,7 @@ export function Sidebar({ narrow, open, onNavigate, footer }: SidebarProps) {
       aria-label="Primary"
     >
       <div className="mb-7 flex items-center gap-2.5 px-2">
-        <span className="bg-accent grid h-8 w-8 place-items-center rounded-[10px] text-white">
-          <IconClock width={18} height={18} />
-        </span>
+        <BrandMark size={26} />
         <span className="text-text font-display text-[17px] font-semibold tracking-tight">
           TimeTrack
         </span>

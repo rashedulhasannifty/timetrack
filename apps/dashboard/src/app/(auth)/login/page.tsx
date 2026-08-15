@@ -1,4 +1,4 @@
-import { IconClock } from '../../../components/ui/icons';
+import { BrandMark } from '../../../components/ui/BrandMark';
 
 export default async function LoginPage({
   searchParams,
@@ -23,9 +23,7 @@ export default async function LoginPage({
     <main className="flex min-h-screen items-center justify-center p-8">
       <div className="bg-surface-raised border-separator w-full max-w-sm rounded-2xl border p-7 shadow-e2">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <span className="bg-accent grid h-11 w-11 place-items-center rounded-[13px] text-white">
-            <IconClock width={24} height={24} />
-          </span>
+          <BrandMark size={34} />
           <div>
             <h1 className="text-text font-display text-h2 font-semibold tracking-tight">
               Sign in to TimeTrack

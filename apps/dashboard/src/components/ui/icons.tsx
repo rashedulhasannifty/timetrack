@@ -33,9 +33,12 @@ export const IconClock = (p: SVGProps<SVGSVGElement>) => (
 
 export const IconTeam = (p: SVGProps<SVGSVGElement>) => (
   <Base {...p}>
-    <circle cx="9" cy="8" r="3" />
-    <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
-    <path d="M16 5.2a3 3 0 0 1 0 5.6M17.5 19a5.5 5.5 0 0 0-2.7-4.7" />
+    <circle cx="9" cy="8.5" r="3.1" />
+    <path d="M3.6 19.5a5.4 5.4 0 0 1 10.8 0" />
+    {/* The second figure is a smaller full circle set back, not a half-arc: an open arc
+        reads as a stray bracket floating beside the first head at 18-20px. */}
+    <circle cx="17" cy="9.8" r="2.2" />
+    <path d="M15.6 14.9a4.6 4.6 0 0 1 4.8 4.6" />
   </Base>
 );
 
@@ -65,9 +68,11 @@ export const IconAdmin = (p: SVGProps<SVGSVGElement>) => (
 
 export const IconProjects = (p: SVGProps<SVGSVGElement>) => (
   <Base {...p}>
-    <path d="M12 3.5 20 7.5 12 11.5 4 7.5Z" />
-    <path d="M4 12l8 4 8-4" />
-    <path d="M4 16.5l8 4 8-4" />
+    <path d="M12 3.8 20.2 8 12 12.2 3.8 8Z" />
+    {/* The lower strokes run parallel to the diamond's bottom edges (slope 0.5). The previous
+        deeper V's read as two stacked down-arrows rather than as layers under a sheet. */}
+    <path d="M4.6 11.4 12 15.1l7.4-3.7" />
+    <path d="M4.6 15.2 12 18.9l7.4-3.7" />
   </Base>
 );
 
