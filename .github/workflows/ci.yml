@@ -20,8 +20,13 @@ jobs:
           POSTGRES_PASSWORD: timetrack
           POSTGRES_DB: timetrack_test
         ports: ['5432:5432']
+        # -d is not optional: pg_isready defaults the database name to the user, so without
+        # it the probe asks for a `timetrack` database that was never created and Postgres
+        # logs `FATAL: database "timetrack" does not exist` every 5s for the whole job. The
+        # probe still passes (the server answers), so this is pure noise — but it buried the
+        # real output when we last read this log.
         options: >-
-          --health-cmd="pg_isready -U timetrack" --health-interval=5s --health-retries=10
+          --health-cmd="pg_isready -U timetrack -d timetrack_test" --health-interval=5s --health-retries=10
       redis:
         image: redis:8-alpine
         ports: ['6379:6379']
@@ -33,6 +38,38 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with: { node-version: 24, cache: pnpm }
+
+      # Turbo's cache is per-machine, so on a fresh runner every task is a `cache miss`
+      # and lint/typecheck/test/build all execute in full (~2min of the run). Restoring
+      # it makes any package whose inputs didn't change replay instead of re-run — on a
+      # PR touching one app, that is most of them.
+      #
+      # The key carries the SHA so each run writes a fresh entry (a fixed key is
+      # write-once and would go stale immediately); restore-keys then falls back to the
+      # newest prefix match. Actions cache is branch-scoped with read-through to the base
+      # branch, so a new PR restores main's cache. Entries are content-addressed, so a
+      # stale restore is never wrong — it just misses.
+      - name: Restore turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      # Separate from turbo's cache on purpose: turbo.json excludes `.next/cache` from the
+      # build outputs (caching it there would balloon the artifact), so Next reports
+      # "No build cache found" on every run and recompiles from cold. This restores it for
+      # the case that actually matters — a dashboard change, where the turbo build is a
+      # miss and Next has to compile.
+      - name: Restore Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: apps/dashboard/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            next-${{ runner.os }}-
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm db:deploy
