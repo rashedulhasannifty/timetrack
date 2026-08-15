@@ -1,6 +1,6 @@
 [Unit]
 Description=TimeTrack backup (Postgres dump + MinIO mirror)
-Documentation=https://github.com/rashedulhasansojib/timetrack/blob/main/docs/deployment.md
+Documentation=https://github.com/rashedulhasannifty/timetrack/blob/main/docs/deployment.md
 # Docker must be up; the script talks to the running stack, it does not start it.
 After=docker.service
 Requires=docker.service

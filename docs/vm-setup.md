@@ -16,7 +16,7 @@ Substitute throughout:
 | `<DOMAIN>`       | `timer.niftyitsolution.com`    |
 | `<DEPLOY_USER>`  | `deploy`                       |
 | `<DEPLOY_PATH>`  | `/home/deploy/timetrack`       |
-| `<OWNER>/<REPO>` | `rashedulhasansojib/timetrack` |
+| `<OWNER>/<REPO>` | `rashedulhasannifty/timetrack` |
 
 ---
 
