@@ -88,21 +88,32 @@ codesign -dvv dist/TimeTrack.app 2>&1 | grep Timestamp # → secure timestamp pr
 `spctl -a -vvv --type exec` reports **`rejected`** on a pilot build. That is expected, not a
 defect — it is the notarization check, and it is exactly what the tester's one-time step clears.
 
+Then actually launch it — `codesign` only proves the bundle is _signed_, not that it _runs_.
+This matters more than it looks: `package-app.sh` hand-assembles the bundle from a SwiftPM
+binary, and a real bundle exercises code paths `swift run` and `swift test` never reach (a
+bundle id exists, so `UNUserNotificationCenter` behaves differently). Smoke-test before sending:
+
+```bash
+open dist/TimeTrack.app && sleep 5 && pgrep -lf TimeTrack.app   # → still running, menu bar item visible
+log show --last 1m --predicate 'process == "TimeTrack"' | grep -iE 'error|fault|abort'
+```
+
 ### Installing on a pilot Mac (send this to the tester)
 
-1. Unzip and drag **TimeTrack.app** into **/Applications**.
-2. Clear the download quarantine flag:
+1. Unzip the file — but **don't open the app yet**.
+2. Clear the download quarantine flag _before_ moving or launching it:
    ```bash
-   xattr -dr com.apple.quarantine /Applications/TimeTrack.app
+   xattr -dr com.apple.quarantine ~/Downloads/TimeTrack.app
    ```
-   Harmless if the flag was never set. Doing this means you can skip step 3.
-3. _Only if you skipped step 2_ — launch fails with "cannot be opened because the developer
-   cannot be verified". Open **System Settings → Privacy & Security**, scroll to the Security
-   section, and click **Open Anyway** next to TimeTrack. On macOS 15+ the old Ctrl-click → Open
-   shortcut no longer works. Once per machine.
-4. Launch it, sign in, and **acknowledge the monitoring policy**. Nothing is captured until you
-   do — that gate has no admin override (`Policy/AckGate`).
-5. Grant **Screen Recording** when prompted. This is the only permission the app asks for; it
+   Adjust the path to wherever you unzipped it. Harmless if the flag was never set.
+3. Drag **TimeTrack.app** into **/Applications** and launch it.
+4. **If you see "TimeTrack cannot be opened because the developer cannot be verified"** — the
+   flag was still set. Open **System Settings → Privacy & Security**, scroll to the Security
+   section, click **Open Anyway** next to TimeTrack, and launch again. On macOS 15+ the old
+   Ctrl-click → Open shortcut no longer works. Once per machine.
+5. Sign in, then **acknowledge the monitoring policy**. Nothing is captured until you do — that
+   gate has no admin override (`Policy/AckGate`).
+6. Grant **Screen Recording** when prompted. This is the only permission the app asks for; it
    does not use Accessibility or Input Monitoring. Until it is granted the menu bar item shows a
    visible warning and time tracking continues without screenshots.
 
