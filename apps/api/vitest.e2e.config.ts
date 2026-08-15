@@ -12,5 +12,7 @@ export default defineConfig({
     hookTimeout: 180_000,
     testTimeout: 120_000,
     fileParallelism: false,
+    // One shared Postgres for the run, migrated once — see test/global-setup.ts.
+    globalSetup: ['test/global-setup.ts'],
   },
 });

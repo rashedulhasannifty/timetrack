@@ -1,8 +1,7 @@
-import { execSync } from 'node:child_process';
 import { MinioContainer } from '@testcontainers/minio';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer } from '@testcontainers/redis';
 import { PrismaClient, pgAdapter } from '@timetrack/db';
+import { inject } from 'vitest';
 
 export interface StartTestDbOptions {
   redis?: boolean;
@@ -17,16 +16,52 @@ export interface TestDb {
   close(): Promise<void>;
 }
 
+/** Swap the database name in a connection URL, keeping credentials, host and port. */
+function withDatabase(url: string, database: string): string {
+  const u = new URL(url);
+  u.pathname = `/${database}`;
+  return u.toString();
+}
+
+// Unique per calling process, so names cannot collide if these ever run concurrently.
+let seq = 0;
+
+/**
+ * A fresh, fully-migrated database for one describe block.
+ *
+ * The container and the schema come from test/global-setup.ts — started and migrated ONCE
+ * per run. All this does is `CREATE DATABASE … TEMPLATE`, a file-level copy inside
+ * Postgres: milliseconds, against the ~5s a container start plus a `prisma migrate deploy`
+ * CLI spawn used to cost on each of the 27 call sites.
+ *
+ * Redis and MinIO stay per-call. Only four call sites ask for them, so sharing them would
+ * add coupling for almost no time.
+ */
 export async function startTestDb(opts: StartTestDbOptions = {}): Promise<TestDb> {
-  const pg = await new PostgreSqlContainer('postgres:18-alpine').start();
-  const url = pg.getConnectionUri();
-  process.env.DATABASE_URL = url;
+  const testPg = inject('testPg');
+  if (!testPg) {
+    throw new Error(
+      'startTestDb() needs the shared Postgres from test/global-setup.ts — run with RUN_E2E=1 ' +
+        'under a vitest config that wires globalSetup.',
+    );
+  }
 
-  execSync('pnpm --filter @timetrack/db exec prisma migrate deploy', {
-    env: { ...process.env, DATABASE_URL: url },
-    stdio: 'inherit',
+  const name = `tt_${process.pid}_${seq++}`;
+
+  // CREATE DATABASE cannot run inside a transaction, and a template must have no other
+  // sessions while it is copied — so issue it from `postgres` on a throwaway connection
+  // rather than from the template itself.
+  const admin = new PrismaClient({
+    adapter: pgAdapter(withDatabase(testPg.templateUrl, 'postgres')),
   });
+  try {
+    await admin.$executeRawUnsafe(`CREATE DATABASE "${name}" TEMPLATE "${testPg.templateDb}"`);
+  } finally {
+    await admin.$disconnect();
+  }
 
+  const url = withDatabase(testPg.templateUrl, name);
+  process.env.DATABASE_URL = url;
   const prisma = new PrismaClient({ adapter: pgAdapter(url) });
 
   const redis = opts.redis ? await new RedisContainer('redis:8-alpine').start() : undefined;
@@ -51,7 +86,9 @@ export async function startTestDb(opts: StartTestDbOptions = {}): Promise<TestDb
     s3Url,
     async close() {
       await prisma.$disconnect();
-      await pg.stop();
+      // The database is left behind deliberately: global-setup stops the container at the
+      // end of the run, which takes every copy with it, so DROP would only buy a second
+      // admin connection per call.
       if (redis) await redis.stop();
       if (minio) await minio.stop();
     },
