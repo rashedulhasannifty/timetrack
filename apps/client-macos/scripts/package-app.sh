@@ -64,11 +64,19 @@ if [[ -z "$IDENTITY" ]]; then
   fi
 fi
 IDENTITY="${IDENTITY:--}"
+# A secure timestamp keeps the signature valid after the signing certificate expires. Without it,
+# a bundle already installed on an employee machine stops validating on the cert's expiry date —
+# which matters for a pilot signed with a 1-year "Apple Development" cert. Ad-hoc has no cert and
+# rejects the flag, so only pass it for a real identity. Requires network (Apple's TSA).
+TS_FLAG=(--timestamp)
 if [[ "$IDENTITY" == "-" ]]; then
   echo "→ codesign (ad-hoc — no signing identity installed; permissions WILL re-prompt each rebuild)"
+  TS_FLAG=()
 else
   echo "→ codesign (identity: ${IDENTITY})"
 fi
-codesign --force --sign "$IDENTITY" "$APP"
+# ${a[@]+"${a[@]}"} — bash 3.2 (the /bin/bash macOS ships) treats an empty array as unbound
+# under `set -u`; this expands to nothing instead of aborting.
+codesign --force ${TS_FLAG[@]+"${TS_FLAG[@]}"} --sign "$IDENTITY" "$APP"
 
 echo "✓ built ${APP}"
