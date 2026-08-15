@@ -112,12 +112,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-a {
-  color: var(--tt-accent);
-  text-decoration: none;
-}
-a:hover {
-  color: var(--tt-accent-hover);
+/* In @layer base, not bare, so a Tailwind text-colour utility on a link actually wins.
+   Unlayered CSS beats every layered rule regardless of specificity, so while these sat
+   outside a layer they overrode `.text-white` (which lives in @layer utilities) on any
+   <a>: the two primary buttons on / rendered as blue text on a blue background, and
+   `hover:text-text` on the marketing nav was silently swallowed. buttonClasses('primary')
+   would have hit the same thing the first time it was used on a Link rather than a button.
+   Links with no colour utility are unaffected — they still take the accent from here. */
+@layer base {
+  a {
+    color: var(--tt-accent);
+    text-decoration: none;
+  }
+  a:hover {
+    color: var(--tt-accent-hover);
+  }
 }
 
 /* The numeric role: durations, %, timestamps, date ranges — tabular so digits
