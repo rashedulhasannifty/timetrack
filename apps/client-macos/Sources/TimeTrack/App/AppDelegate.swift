@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import UserNotifications
 
 /// A callback holder for `onSignOut`'s forward reference to `presentLogin()` (see
@@ -55,6 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activitySync: ActivityBatchSyncEngine?
     private var heartbeatTimer: Timer?
     private var hasAttemptedRecovery = false
+    private var updateCoordinator: UpdateCoordinator?
+    private var updateStatusObserver: AnyCancellable?
     /// Rate-limits the menu-open project re-fetch so opening the dropdown repeatedly doesn't
     /// hammer GET /v1/projects. First open always refreshes.
     private let projectRefreshThrottle = RefreshThrottle(minInterval: 60)
@@ -159,7 +162,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuViewModel.onPhaseChanged = { [weak self] isTracking, startedAt in
             self?.statusItem.setState(isTracking ? .tracking : .idle, startedAt: startedAt)
         }
-        statusItem.install(content: MenuBarView(viewModel: menuViewModel))
+        let updates = UpdateCoordinator(
+            openReleases: { NSWorkspace.shared.open($0) },
+            onQuit: { NSApp.terminate(nil) }
+        )
+        updateCoordinator = updates
+        // Escalate to the status item only once the grace period has elapsed; the menu row
+        // carries the advisory case on its own.
+        updateStatusObserver = updates.$status.sink { [weak self] status in
+            self?.statusItem.setUpdateOverdue(status.isOverdue,
+                                              version: status.manifest?.version.description)
+        }
+        updates.start()
+
+        statusItem.install(content: MenuBarView(viewModel: menuViewModel, updates: updates))
         statusItem.onOpen = { [weak self] in self?.refreshProjectsOnMenuOpen() }
         startHeartbeat()
         Task { await start() }
