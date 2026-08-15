@@ -148,6 +148,9 @@ services:
     environment:
       PUBLIC_DOMAIN: ${PUBLIC_DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL}
+      # The Caddyfile routes presigned screenshot URLs by their bucket path prefix, so the
+      # proxy needs the same bucket name the API signs with.
+      S3_BUCKET: ${S3_BUCKET}
     volumes:
       - './Caddyfile:/etc/caddy/Caddyfile:ro'
       - 'caddydata:/data' # issued certificates — persist across restarts
