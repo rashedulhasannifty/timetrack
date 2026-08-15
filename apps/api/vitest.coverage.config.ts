@@ -30,10 +30,13 @@ export default defineConfig({
     // isMainThread=true under the default pool, i.e. a process, not a worker_thread. Do not
     // switch this to pool:'threads' — that sharing WOULD make the harness cross-contaminate.)
     //
-    // maxWorkers is the real constraint: unbounded, 19 Postgres containers plus the Redis
-    // and MinIO some specs add would land at once on a 2-core CI runner. Four keeps peak
-    // container count near what a developer machine runs anyway.
-    maxWorkers: 4,
+    // maxWorkers is the real constraint, and it is tuned for CI, not for a laptop. Four
+    // workers measured ~2x faster locally (8 cores) but 33s SLOWER on a 2-core runner:
+    // per-file setup is CPU-bound — each file spawns a full pnpm+prisma CLI for `migrate
+    // deploy` — so oversubscribing cores makes the setup contend instead of overlap.
+    // Two matches the runner. Raising this because it is faster on your machine is the
+    // trap; measure on CI.
+    maxWorkers: 2,
     coverage: {
       provider: 'v8',
       include: ['src/**'],
