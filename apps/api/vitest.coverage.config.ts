@@ -18,7 +18,22 @@ export default defineConfig({
     environment: 'node',
     hookTimeout: 180_000,
     testTimeout: 120_000,
-    fileParallelism: false,
+
+    // Files run concurrently, bounded. Serially this step was ~196s of CI, and most of it
+    // was setup, not assertions: startTestDb() gives every e2e file its own Postgres
+    // container and shells out to `prisma migrate deploy` for it, so a file with three
+    // tests still costs ~5s. There are 19 of them.
+    //
+    // Concurrency is safe because each file already owns its own containers and vitest's
+    // default pool is `forks` — a separate child process per file, so db-harness assigning
+    // process.env.DATABASE_URL cannot leak across files. (Verified: a probe spec reports
+    // isMainThread=true under the default pool, i.e. a process, not a worker_thread. Do not
+    // switch this to pool:'threads' — that sharing WOULD make the harness cross-contaminate.)
+    //
+    // maxWorkers is the real constraint: unbounded, 19 Postgres containers plus the Redis
+    // and MinIO some specs add would land at once on a 2-core CI runner. Four keeps peak
+    // container count near what a developer machine runs anyway.
+    maxWorkers: 4,
     coverage: {
       provider: 'v8',
       include: ['src/**'],
