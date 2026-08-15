@@ -3,7 +3,12 @@ import type { ReactNode } from 'react';
 import { DOWNLOAD_URL } from '../../components/marketing/MacDownloadPlate';
 import { RecordsTable } from '../../components/marketing/RecordsTable';
 import { CopyCommand } from '../../components/marketing/CopyCommand';
-import { MarketingChrome, Section, SpecPlate } from '../../components/marketing/MarketingChrome';
+import {
+  MarketingChrome,
+  Section,
+  SpecPlate,
+  Prose,
+} from '../../components/marketing/MarketingChrome';
 
 export const metadata: Metadata = {
   title: 'Install TimeTrack for Mac',
@@ -50,60 +55,66 @@ function Aside({ children }: { children: ReactNode }) {
 
 export default function InstallPage() {
   return (
-    <MarketingChrome width="reading">
-      <header className="flex flex-col gap-5 pt-14 pb-10">
-        <p className="text-caption text-accent font-mono tracking-[0.14em] uppercase">
-          Install guide · macOS
-        </p>
-        <h1 className="text-h1 font-display font-semibold tracking-[-0.025em] text-balance">
-          Installing TimeTrack
-        </h1>
-        <p className="text-text-secondary max-w-[58ch] text-[1.0625rem] leading-relaxed text-pretty">
-          Download it, grant one permission, and you’re done. About five minutes, most of it waiting
-          for macOS.
-        </p>
-        <div className="pt-1">
-          <a
-            href={DOWNLOAD_URL}
-            className="bg-accent hover:bg-accent-hover inline-block rounded-md px-5 py-2.5 text-[0.9375rem] font-medium text-white transition-colors"
-          >
-            Download TimeTrack for Mac
-          </a>
+    <MarketingChrome>
+      <header className="grid items-start gap-x-16 gap-y-10 py-16 lg:grid-cols-[minmax(0,1fr)_24rem] lg:py-24">
+        <div className="flex flex-col gap-5">
+          <p className="text-caption text-accent font-mono tracking-[0.14em] uppercase">
+            Install guide · macOS
+          </p>
+          <h1 className="text-h1 font-display font-semibold tracking-[-0.025em] text-balance">
+            Installing TimeTrack
+          </h1>
+          <p className="text-text-secondary max-w-[58ch] text-[1.0625rem] leading-relaxed text-pretty">
+            Download it, grant one permission, and you’re done. About five minutes, most of it
+            waiting for macOS.
+          </p>
+          <div className="pt-1">
+            <a
+              href={DOWNLOAD_URL}
+              className="bg-accent hover:bg-accent-hover inline-block rounded-md px-5 py-2.5 text-[0.9375rem] font-medium text-white transition-colors"
+            >
+              Download TimeTrack for Mac
+            </a>
+          </div>
         </div>
-        <div className="pt-3">
-          <SpecPlate
-            rows={[
-              ['Works on', 'macOS 14 Sonoma or newer, Apple Silicon'],
-              ['Signed by', 'Nifty IT Solution — verified before publishing'],
-              ['Apple check', 'Not notarized yet — this is why step 4 exists'],
-              ['Permission', 'Screen Recording, and nothing else'],
-            ]}
-          />
-        </div>
+        <SpecPlate
+          rows={[
+            ['Works on', 'macOS 14 Sonoma or newer, Apple Silicon'],
+            ['Signed by', 'Nifty IT Solution — verified before publishing'],
+            ['Apple check', 'Not notarized yet — this is why step 4 exists'],
+            ['Permission', 'Screen Recording, and nothing else'],
+          ]}
+        />
       </header>
 
-      <Section layout="stacked" eyebrow="Read this first" title="What the app records">
-        <p className="text-text-secondary mb-7">
-          This is monitoring software and you should know what it does before installing it. The app
-          shows you this list again on first launch, generated from the settings your organization
-          actually has switched on — trust that screen over this page.
-        </p>
+      <Section eyebrow="Read this first" title="What the app records">
+        <Prose>
+          <p className="text-text-secondary mb-7">
+            This is monitoring software and you should know what it does before installing it. The
+            app shows you this list again on first launch, generated from the settings your
+            organization actually has switched on — trust that screen over this page.
+          </p>
+        </Prose>
         <RecordsTable />
-        <p className="border-separator text-text-secondary mt-5 border-l-2 pl-4">
-          The activity percentage is counted, not read: the app asks macOS how many key and mouse
-          events happened, never which ones. Nothing is captured until you sign in <em>and</em> tick
-          the acknowledgement. The menu bar icon is always visible and cannot be switched off — not
-          by you, not by an administrator. You can view everything recorded about you in the
-          dashboard, and redact any screenshot.
-        </p>
+        <Prose>
+          <p className="border-separator text-text-secondary mt-5 border-l-2 pl-4">
+            The activity percentage is counted, not read: the app asks macOS how many key and mouse
+            events happened, never which ones. Nothing is captured until you sign in <em>and</em>{' '}
+            tick the acknowledgement. The menu bar icon is always visible and cannot be switched off
+            — not by you, not by an administrator. You can view everything recorded about you in the
+            dashboard, and redact any screenshot.
+          </p>
+        </Prose>
       </Section>
 
-      <Section layout="stacked" eyebrow="Install" title="Six steps, in order">
-        <p className="text-text-secondary mb-7">
-          Step 2 is the one people skip, and skipping it is what triggers step 4.
-        </p>
+      <Section eyebrow="Install" title="Six steps, in order">
+        <Prose>
+          <p className="text-text-secondary mb-7">
+            Step 2 is the one people skip, and skipping it is what triggers step 4.
+          </p>
+        </Prose>
 
-        <ol className="flex flex-col">
+        <ol className="flex max-w-[64ch] flex-col">
           <Step n={1} title="Unzip the download — but don’t open the app yet">
             <p>
               Double-click <strong>TimeTrack-pilot.zip</strong> in your Downloads folder. You’ll get{' '}
@@ -191,8 +202,8 @@ export default function InstallPage() {
         </ol>
       </Section>
 
-      <Section layout="stacked" eyebrow="Troubleshooting" title="If something goes wrong">
-        <div className="flex flex-col">
+      <Section eyebrow="Troubleshooting" title="If something goes wrong">
+        <div className="flex max-w-[64ch] flex-col">
           <Trouble summary="“The developer cannot be verified”">
             <p>
               Expected on this build — go to step 4 above. It’s a one-time confirmation per Mac, not
