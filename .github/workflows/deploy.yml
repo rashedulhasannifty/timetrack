@@ -82,18 +82,19 @@ jobs:
     permissions:
       contents: read
       packages: write
-    strategy:
-      # Sequential, sharing ONE cache scope — the same arrangement images.yml already uses,
-      # and for the same reason: the three Dockerfiles have a byte-identical build stage
-      # (node:24-alpine → COPY . . → pnpm install && pnpm build), which is nearly all of the
-      # ~4 minutes. Run in parallel with a scope each, as this job did, all three miss and
-      # all three build it — the last deploy spent 14 billable minutes on one piece of work.
-      # Run in order against a shared scope and the first populates it while the other two
-      # replay, for the same wall-clock: those parallel jobs each took ~4.5min anyway, so
-      # the job was already 5min wide.
-      max-parallel: 1
-      matrix:
-        service: [api, worker, dashboard]
+    # ONE job with three build steps, not a matrix. The three Dockerfiles share a
+    # byte-identical build stage (node:24-alpine → COPY . . → pnpm install && pnpm build)
+    # which is nearly the whole cost, so the only question is how the other two get to
+    # reuse it. Measured on this repo:
+    #
+    #   matrix, parallel, scope per service   5m02s wall  14m03s billable  (nothing shared)
+    #   matrix, max-parallel: 1, one scope    7m01s wall   7m01s billable
+    #   one job, three steps                     ↓ both — this
+    #
+    # A matrix pays per-service job setup (checkout, buildx, GHCR login, then pulling the
+    # shared stage back out of the gha cache) before it can reuse anything: the replaying
+    # services still took ~1m25s each. In one job that setup happens once and steps 2-3 hit
+    # the builder's LOCAL cache, with no export/import round-trip between them.
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -102,20 +103,50 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       # Build context is the repo root for all three (see infra/*.Dockerfile).
-      - uses: docker/build-push-action@v7
+      #
+      # Only this first step writes the gha cache. It builds the shared stage from cold, so
+      # its export already contains what every later run needs; having all three export the
+      # same layers under `mode=max` would just pay the export three times. `workspace` is
+      # the scope images.yml writes too — its header always claimed the two workflows shared
+      # a scope, which only became true when deploy stopped using scope=<service>.
+      - name: api
+        uses: docker/build-push-action@v7
         with:
           context: .
-          file: infra/${{ matrix.service }}.Dockerfile
+          file: infra/api.Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
-            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
-          # `workspace`, not a scope per service — this is the scope images.yml writes, and
-          # its header already claimed the two workflows shared it. They did not: this job
-          # used scope=api|worker|dashboard, so nothing was ever reused between them.
+            ${{ env.IMAGE_PREFIX }}/api:latest
+            ${{ env.IMAGE_PREFIX }}/api:${{ github.sha }}
           cache-from: type=gha,scope=workspace
           cache-to: type=gha,mode=max,scope=workspace
+
+      # No cache-to below: the build stage is already in this builder's local cache from the
+      # step above, and each runtime stage is a COPY plus a CMD — cheap enough that exporting
+      # it costs more than rebuilding it.
+      - name: worker
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/worker.Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/worker:latest
+            ${{ env.IMAGE_PREFIX }}/worker:${{ github.sha }}
+          cache-from: type=gha,scope=workspace
+
+      - name: dashboard
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: infra/dashboard.Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/dashboard:latest
+            ${{ env.IMAGE_PREFIX }}/dashboard:${{ github.sha }}
+          cache-from: type=gha,scope=workspace
 
   # ── 3. Deploy ───────────────────────────────────────────────────────────────
   deploy:
