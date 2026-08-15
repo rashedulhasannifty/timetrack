@@ -86,7 +86,7 @@ export async function POST(
     }
     const tokens = await api.login(emailVal, passwordVal);
     if (!tokens) return redirect(req, '/login?error=1');
-    const res = redirect(req, '/');
+    const res = redirect(req, '/overview');
     setSession(res, payloadFrom(tokens));
     return res;
   }
@@ -113,7 +113,7 @@ export async function POST(
     // 401 → the token is invalid, expired, or already used. Re-showing the form would just
     // fail again, so send them to /login without the token.
     if (!tokens) return redirect(req, '/accept-invite?error=invalid');
-    const res = redirect(req, '/');
+    const res = redirect(req, '/overview');
     setSession(res, payloadFrom(tokens));
     return res;
   }
@@ -171,7 +171,7 @@ export async function GET(
     });
     // Loop-breaker (mirrors refresh): a token we can't decode would bounce forever.
     if (!tokens || !decodeClaims(tokens.accessToken)) return ssoFailure(req);
-    const res = redirect(req, '/');
+    const res = redirect(req, '/overview');
     setSession(res, payloadFrom(tokens));
     clearOidc(res);
     return res;
@@ -197,7 +197,7 @@ export async function GET(
       clearSession(res);
       return res;
     }
-    const res = redirect(req, '/');
+    const res = redirect(req, '/overview');
     setSession(res, payloadFrom(tokens));
     return res;
   }
