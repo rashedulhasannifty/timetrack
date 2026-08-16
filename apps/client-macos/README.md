@@ -28,5 +28,16 @@ UI/ MenuBarView · MyDataView (employee self-view) · SettingsView
 
 ## Permissions required
 
-Screen Recording, Accessibility (window titles + idle detection).
+**Screen Recording — the only TCC grant.** It covers screenshot capture and window
+titles (`kCGWindowName` comes back empty without it; `Activity/AppSampler` degrades to
+nil rather than blocking). Capture also needs the policy acknowledged — see `AckGate`.
+
+Not Accessibility, not Input Monitoring. `Activity/EventCounter` reads
+`CGEventSource.counterForEventType` and idle detection reads
+`secondsSinceLastEventType` — passive counters, no event tap, which is why
+counts-not-content is enforced by the API choice and not just by policy.
+
+Local notifications ask separately at first launch; denied is a silent no-op
+(`Notifications/LocalNotifier`), so the nudges just don't fire.
+
 Ship as a LaunchAgent for auto-start on login (default OFF).
