@@ -1,4 +1,4 @@
-# TimeTrack macOS client
+# Nifty Timer macOS client
 
 Swift 6 / SwiftUI + AppKit. Outside the pnpm graph — built with Xcode.
 
