@@ -39,9 +39,14 @@ loadRootEnv();
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // The dashboard is linted via the repo-root eslint.config.mjs in CI, not by Next's
-  // own lint step (which would need eslint-config-next). Keep them from doubling up.
-  eslint: { ignoreDuringBuilds: true },
+  // Next otherwise writes apps/dashboard/AGENTS.md + CLAUDE.md on every dev run. They are
+  // unreviewed, regenerate constantly, and a dashboard-local CLAUDE.md competes with the
+  // repo-root one that actually governs work here.
+  agentRules: false,
+  // NOTE: `eslint: { ignoreDuringBuilds: true }` used to sit here. Next 16 removed the key
+  // (and `next lint` with it) and warned "Unrecognized key(s) in object: 'eslint'" on every
+  // build, so it was dead config. The dashboard is linted by the repo-root
+  // eslint.config.mjs in CI, which is what the removed key was there to defer to.
 };
 
 export default nextConfig;

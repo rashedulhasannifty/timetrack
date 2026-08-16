@@ -9,10 +9,14 @@
 #                                 published without this file is invisible to the updater
 #                                 rather than installable-but-unverified. That is deliberate.
 #
-# The release tag must be the version, e.g. `v0.2.0`, matching CFBundleShortVersionString —
-# AppVersion parses the tag and compares it against the running build.
+# The release tag must carry the version, matching CFBundleShortVersionString — AppVersion
+# parses the tag and compares it against the running build. Pilot builds are tagged
+# `vX.Y.Z-pilot`; AppVersion strips a pre-release suffix, so `v0.2.0-pilot` compares as 0.2.0.
+# At general availability, drop the suffix with TAG_SUFFIX= ./scripts/release-assets.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+TAG_SUFFIX="${TAG_SUFFIX--pilot}"
 
 APP="dist/TimeTrack.app"
 ZIP="dist/TimeTrack-pilot.zip"
@@ -35,5 +39,6 @@ echo "✓ version $VERSION (build $BUILD)"
 echo "  $ZIP"
 echo "  $ZIP.sha256  $(cut -d' ' -f1 < "$ZIP.sha256")"
 echo
-echo "Publish both as assets on a release tagged v$VERSION:"
-echo "  gh release create v$VERSION \"$ZIP\" \"$ZIP.sha256\" --repo rashedulhasansojib/timetrack-app"
+echo "Publish both as assets on a release tagged v$VERSION$TAG_SUFFIX:"
+echo "  gh release create v$VERSION$TAG_SUFFIX \"$ZIP\" \"$ZIP.sha256\" \\"
+echo "    --repo rashedulhasansojib/timetrack-app --title \"v$VERSION${TAG_SUFFIX:+ — pilot}\""
