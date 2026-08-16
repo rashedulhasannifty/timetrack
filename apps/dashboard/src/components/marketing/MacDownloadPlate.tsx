@@ -8,7 +8,7 @@ import { SpecPlate } from './MarketingChrome';
  * this link never needs updating; keep the asset filename stable when publishing.
  */
 export const DOWNLOAD_URL =
-  'https://github.com/rashedulhasansojib/timetrack-app/releases/latest/download/TimeTrack-pilot.zip';
+  'https://github.com/rashedulhasansojib/timetrack-app/releases/latest/download/NiftyTimer-pilot.zip';
 
 export const RELEASES_URL = 'https://github.com/rashedulhasansojib/timetrack-app/releases';
 
@@ -28,7 +28,7 @@ export function MacDownloadPlate() {
         <p className="mt-2">
           The server address is compiled into the app, pointing at this deployment, and cannot be
           changed after the fact. It is published openly so testers can install it without a login —
-          but it is only useful with an account we issued. Running TimeTrack for your own
+          but it is only useful with an account we issued. Running Nifty Timer for your own
           organization needs a build pointed at <em>your</em> server.
         </p>
       </div>
@@ -38,7 +38,7 @@ export function MacDownloadPlate() {
           href={DOWNLOAD_URL}
           className="bg-accent hover:bg-accent-hover rounded-md px-5 py-2.5 text-[0.9375rem] font-medium text-white transition-colors"
         >
-          Download TimeTrack for Mac
+          Download Nifty Timer for Mac
         </a>
         <Link
           href="/install"

@@ -9,7 +9,7 @@ import { TrackingFooter } from '../../components/ui/TrackingFooter';
  * The authenticated app shell. Server Component (PRD §7.6) — the session is resolved
  * server-side; the browser never holds a long-lived API credential. A null session goes
  * to /api/auth/refresh, which reissues it or falls through to /login (see the auth route).
- * Chrome (AppShell -> Sidebar/TopBar) follows the TimeTrack design system (tokens in globals.css).
+ * Chrome (AppShell -> Sidebar/TopBar) follows the Nifty Timer design system (tokens in globals.css).
  */
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const session = await getSession();

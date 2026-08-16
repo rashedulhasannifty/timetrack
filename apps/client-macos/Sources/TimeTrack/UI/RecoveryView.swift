@@ -14,7 +14,7 @@ struct RecoveryView: View {
         VStack(alignment: .leading, spacing: TT.Space.x4) {
             Text("Recover interrupted time?")
                 .font(.ttH2)
-            Text("TimeTrack was tracking for about \(minutes) minute\(minutes == 1 ? "" : "s") when it last closed. Keep this time or discard it?")
+            Text("Nifty Timer was tracking for about \(minutes) minute\(minutes == 1 ? "" : "s") when it last closed. Keep this time or discard it?")
                 .font(.ttBody)
                 .foregroundStyle(TT.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

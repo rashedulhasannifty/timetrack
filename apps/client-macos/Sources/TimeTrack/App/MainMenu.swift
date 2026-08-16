@@ -14,7 +14,7 @@ func makeMainMenu() -> NSMenu {
     let appMenu = NSMenu()
     appItem.submenu = appMenu
     appMenu.addItem(
-        withTitle: "Quit TimeTrack",
+        withTitle: "Quit Nifty Timer",
         action: #selector(NSApplication.terminate(_:)),
         keyEquivalent: "q")
 

@@ -33,7 +33,7 @@ enum UpdateFeedError: Error, Equatable {
 /// release can quietly break.
 struct GitHubReleaseFeed: UpdateFeed {
     static let defaultRepo = "rashedulhasansojib/timetrack-app"
-    static let assetName = "TimeTrack-pilot.zip"
+    static let assetName = "NiftyTimer-pilot.zip"
 
     let repo: String
     let session: URLSession

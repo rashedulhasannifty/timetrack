@@ -5,9 +5,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP_NAME="TimeTrack"
-RELEASE_BIN=".build/release/${APP_NAME}"
-APP="dist/${APP_NAME}.app"
+# The .app is user-visible and carries the product name; the executable inside keeps the
+# SwiftPM target's name, which nobody sees. CFBundleExecutable must match EXEC_NAME.
+BUNDLE_NAME="Nifty Timer"
+EXEC_NAME="TimeTrack"
+RELEASE_BIN=".build/release/${EXEC_NAME}"
+APP="dist/${BUNDLE_NAME}.app"
 
 echo "→ swift build -c release"
 swift build -c release
@@ -15,7 +18,7 @@ swift build -c release
 echo "→ assembling ${APP}"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$RELEASE_BIN" "$APP/Contents/MacOS/${APP_NAME}"
+cp "$RELEASE_BIN" "$APP/Contents/MacOS/${EXEC_NAME}"
 cp Info.plist "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
@@ -44,7 +47,7 @@ done
 # The API base MUST keep the /v1 suffix: the client pins that prefix and the deployment's
 # Caddy routes /v1/* to the API. TCC (Screen Recording, etc.) keys off bundle id + signing
 # identity, so the bundle id must be the team's real reverse-DNS id before signing.
-BUNDLE_ID="${BUNDLE_ID:-com.niftyitsolution.timetrack}"
+BUNDLE_ID="${BUNDLE_ID:-com.niftyitsolution.niftytimer}"
 API_BASE_URL="${API_BASE_URL:-https://timer.niftyitsolution.com/v1}"
 DASHBOARD_URL="${DASHBOARD_URL:-https://timer.niftyitsolution.com}"
 PB=/usr/libexec/PlistBuddy

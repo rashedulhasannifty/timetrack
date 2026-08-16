@@ -13,7 +13,7 @@ import {
 } from '../components/marketing/MarketingChrome';
 
 export const metadata: Metadata = {
-  title: 'TimeTrack — self-hosted time tracking',
+  title: 'Nifty Timer — self-hosted time tracking',
   description:
     'Self-hosted time tracking and workforce analytics for teams of 10–50. The macOS client cannot run hidden and cannot read what you type.',
 };
@@ -118,7 +118,7 @@ export default async function HomePage() {
           <p className="mt-2">
             Employee monitoring carries disclosure obligations that vary by jurisdiction — several
             US states require written notice, GDPR applies to EU-based staff, and other countries
-            differ. TimeTrack encodes a defensible default, but it is not a substitute for talking
+            differ. Nifty Timer encodes a defensible default, but it is not a substitute for talking
             to legal and HR before you roll it out.
           </p>
         </div>

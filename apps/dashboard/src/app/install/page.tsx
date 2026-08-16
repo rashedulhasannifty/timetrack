@@ -11,9 +11,9 @@ import {
 } from '../../components/marketing/MarketingChrome';
 
 export const metadata: Metadata = {
-  title: 'Install TimeTrack for Mac',
+  title: 'Install Nifty Timer for Mac',
   description:
-    'Step-by-step install guide for the TimeTrack macOS client, including what it records and how to clear the first-launch prompt.',
+    'Step-by-step install guide for the Nifty Timer macOS client, including what it records and how to clear the first-launch prompt.',
 };
 
 /**
@@ -62,7 +62,7 @@ export default function InstallPage() {
             Install guide · macOS
           </p>
           <h1 className="text-h1 font-display font-semibold tracking-[-0.025em] text-balance">
-            Installing TimeTrack
+            Installing Nifty Timer
           </h1>
           <p className="text-text-secondary max-w-[58ch] text-[1.0625rem] leading-relaxed text-pretty">
             Download it, grant one permission, and you’re done. About five minutes, most of it
@@ -73,7 +73,7 @@ export default function InstallPage() {
               href={DOWNLOAD_URL}
               className="bg-accent hover:bg-accent-hover inline-block rounded-md px-5 py-2.5 text-[0.9375rem] font-medium text-white transition-colors"
             >
-              Download TimeTrack for Mac
+              Download Nifty Timer for Mac
             </a>
           </div>
         </div>
@@ -117,8 +117,8 @@ export default function InstallPage() {
         <ol className="flex max-w-[64ch] flex-col">
           <Step n={1} title="Unzip the download — but don’t open the app yet">
             <p>
-              Double-click <strong>TimeTrack-pilot.zip</strong> in your Downloads folder. You’ll get{' '}
-              <strong>TimeTrack.app</strong>. Leave it where it is for now.
+              Double-click <strong>NiftyTimer-pilot.zip</strong> in your Downloads folder. You’ll
+              get <strong>Nifty Timer.app</strong>. Leave it where it is for now.
             </p>
           </Step>
 
@@ -127,7 +127,7 @@ export default function InstallPage() {
               macOS tags anything that arrives from a browser, Slack, or email. Open{' '}
               <strong>Terminal</strong> (⌘ Space, type “Terminal”) and paste this:
             </p>
-            <CopyCommand command="xattr -dr com.apple.quarantine ~/Downloads/TimeTrack.app" />
+            <CopyCommand command={'xattr -dr com.apple.quarantine ~/Downloads/"Nifty Timer.app"'} />
             <Aside>
               Nothing will print — that means it worked. If you unzipped somewhere other than
               Downloads, type the command then drag the app onto the Terminal window to fill in the
@@ -137,7 +137,7 @@ export default function InstallPage() {
 
           <Step n={3} title="Move it to Applications and open it">
             <p>
-              Drag <strong>TimeTrack.app</strong> into your <strong>Applications</strong> folder,
+              Drag <strong>Nifty Timer.app</strong> into your <strong>Applications</strong> folder,
               then double-click it.
             </p>
             <Aside>
@@ -149,12 +149,12 @@ export default function InstallPage() {
           <Step n={4} flagged title="Only if macOS refuses to open it">
             <p>
               If you see{' '}
-              <em>“TimeTrack cannot be opened because the developer cannot be verified”</em>, the
+              <em>“Nifty Timer cannot be opened because the developer cannot be verified”</em>, the
               flag from step 2 was still set. Nothing is wrong with the app.
             </p>
             <p>
               Open <strong>System Settings → Privacy &amp; Security</strong>, scroll down to{' '}
-              <strong>Security</strong>, and click <strong>Open Anyway</strong> next to TimeTrack.
+              <strong>Security</strong>, and click <strong>Open Anyway</strong> next to Nifty Timer.
               Then launch it again.
             </p>
             <div className="border-manual/40 bg-manual/10 rounded-lg border p-4">
@@ -173,8 +173,8 @@ export default function InstallPage() {
           <Step n={5} title="Sign in and read the acknowledgement">
             <p>
               Use the account details you were sent. You’ll then get a screen headed{' '}
-              <em>“Here’s what TimeTrack records”</em>. Read it — it’s the authoritative version of
-              the list above, built from your organization’s live settings.
+              <em>“Here’s what Nifty Timer records”</em>. Read it — it’s the authoritative version
+              of the list above, built from your organization’s live settings.
             </p>
             <p>
               Tick the box to continue. <strong>Nothing at all is captured until you do</strong>,
@@ -185,7 +185,7 @@ export default function InstallPage() {
           <Step n={6} title="Allow Screen Recording">
             <p>
               macOS will ask for <strong>Screen Recording</strong> permission. Approve it, or switch
-              TimeTrack on under{' '}
+              Nifty Timer on under{' '}
               <strong>System Settings → Privacy &amp; Security → Screen Recording</strong>.
             </p>
             <p>
@@ -193,10 +193,10 @@ export default function InstallPage() {
               permission doesn’t take effect until you do.
             </p>
             <Aside>
-              This is the only permission TimeTrack asks for. It does not use Accessibility or Input
-              Monitoring, which is why it cannot see what you type even in principle. Until you
-              grant it, the menu bar icon shows a visible warning and your time still tracks — you
-              just won’t get screenshots.
+              This is the only permission Nifty Timer asks for. It does not use Accessibility or
+              Input Monitoring, which is why it cannot see what you type even in principle. Until
+              you grant it, the menu bar icon shows a visible warning and your time still tracks —
+              you just won’t get screenshots.
             </Aside>
           </Step>
         </ol>
@@ -221,7 +221,7 @@ export default function InstallPage() {
               To confirm it’s actually running, paste this into Terminal. If you get a line back,
               it’s running and the icon is just hidden:
             </p>
-            <CopyCommand command="pgrep -lf TimeTrack.app" />
+            <CopyCommand command={'pgrep -lf "Nifty Timer"'} />
           </Trouble>
 
           <Trouble summary="Screenshots aren’t being taken">
@@ -231,7 +231,7 @@ export default function InstallPage() {
               tracking — a stopped clock captures nothing.
             </p>
             <p>
-              If Screen Recording looks enabled but nothing happens, switch TimeTrack off and back
+              If Screen Recording looks enabled but nothing happens, switch Nifty Timer off and back
               on under System Settings → Privacy &amp; Security → Screen Recording, then quit and
               reopen the app.
             </p>
@@ -251,7 +251,7 @@ export default function InstallPage() {
 
           <Trouble summary="I want to remove it">
             <p>
-              Quit TimeTrack from the menu bar, then drag the app from Applications to the Trash.
+              Quit Nifty Timer from the menu bar, then drag the app from Applications to the Trash.
               Also switch it off under System Settings → Privacy &amp; Security → Screen Recording
               so no stale entry is left behind.
             </p>

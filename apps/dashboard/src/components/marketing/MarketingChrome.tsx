@@ -30,7 +30,7 @@ export function MarketingChrome({
           className="flex items-center gap-2.5 font-mono text-[0.9375rem] font-medium tracking-[-0.02em]"
         >
           <BrandMark />
-          TimeTrack
+          Nifty Timer
         </Link>
         <div className="text-label text-text-secondary flex items-center gap-5">
           <Link href="/install" className="hover:text-text transition-colors">
@@ -45,7 +45,7 @@ export function MarketingChrome({
       {children}
       <footer className="border-separator text-label text-text-secondary mt-6 border-t pt-8">
         <p>
-          <span className="text-text font-medium">TimeTrack</span> — built and run by Nifty IT
+          <span className="text-text font-medium">Nifty Timer</span> — built and run by Nifty IT
           Solution, Dhaka.
         </p>
       </footer>

@@ -106,7 +106,7 @@ final class UpdateCoordinator: ObservableObject {
         case UpdateInstallError.signatureRejected:
             return "The downloaded build is not signed by us. Nothing was installed."
         case UpdateInstallError.destinationNotWritable:
-            return "TimeTrack cannot update itself in this location. Download it manually."
+            return "Nifty Timer cannot update itself in this location. Download it manually."
         case UpdateInstallError.download(let code):
             return "The download failed (\(code)). Try again later."
         default:

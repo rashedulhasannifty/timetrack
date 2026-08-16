@@ -1,4 +1,9 @@
-# TimeTrack
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wordmark-dark.png">
+    <img src="docs/assets/wordmark.png" alt="Nifty Timer" width="340">
+  </picture>
+</p>
 
 Self-hosted employee time tracking and workforce analytics.
 macOS menu bar client (Swift) + NestJS API + Next.js dashboard.

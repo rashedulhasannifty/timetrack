@@ -23,8 +23,9 @@ private final class StubProtocol: URLProtocol {
 
 final class GitHubReleaseFeedTests: XCTestCase {
     private let api = "https://api.github.com/repos/acme/dist/releases/latest"
-    private let zipURL = "https://example.invalid/TimeTrack-pilot.zip"
-    private let sumURL = "https://example.invalid/TimeTrack-pilot.zip.sha256"
+    private let asset = GitHubReleaseFeed.assetName
+    private let zipURL = "https://example.invalid/download.zip"
+    private let sumURL = "https://example.invalid/download.zip.sha256"
     private let digest = String(repeating: "ab", count: 32)
 
     private func makeFeed() -> GitHubReleaseFeed {
@@ -50,9 +51,9 @@ final class GitHubReleaseFeedTests: XCTestCase {
     func testParsesAReleaseIntoAManifest() async throws {
         StubProtocol.routes = [
             api: (200, releaseJSON(tag: "v0.3.0",
-                                   assets: [("TimeTrack-pilot.zip", zipURL),
-                                            ("TimeTrack-pilot.zip.sha256", sumURL)]), [:]),
-            sumURL: (200, Data("\(digest)  TimeTrack-pilot.zip\n".utf8), [:]),
+                                   assets: [(asset, zipURL),
+                                            (asset + ".sha256", sumURL)]), [:]),
+            sumURL: (200, Data("\(digest)  \(asset)\n".utf8), [:]),
         ]
 
         let manifest = try await makeFeed().latest()
@@ -67,7 +68,7 @@ final class GitHubReleaseFeedTests: XCTestCase {
         // Publishing the zip but forgetting the digest must make the release invisible, never
         // installable-without-verification.
         StubProtocol.routes = [
-            api: (200, releaseJSON(tag: "v0.3.0", assets: [("TimeTrack-pilot.zip", zipURL)]), [:]),
+            api: (200, releaseJSON(tag: "v0.3.0", assets: [(asset, zipURL)]), [:]),
         ]
         await XCTAssertThrowsErrorAsync(try await self.makeFeed().latest())
     }
@@ -75,8 +76,8 @@ final class GitHubReleaseFeedTests: XCTestCase {
     func testReleaseWithoutTheExpectedAssetNameIsRejected() async {
         StubProtocol.routes = [
             api: (200, releaseJSON(tag: "v0.3.0",
-                                   assets: [("TimeTrack.zip", zipURL),
-                                            ("TimeTrack.zip.sha256", sumURL)]), [:]),
+                                   assets: [("some-other-name.zip", zipURL),
+                                            ("some-other-name.zip.sha256", sumURL)]), [:]),
         ]
         await XCTAssertThrowsErrorAsync(try await self.makeFeed().latest())
     }
@@ -84,8 +85,8 @@ final class GitHubReleaseFeedTests: XCTestCase {
     func testNonVersionTagIsRejected() async {
         StubProtocol.routes = [
             api: (200, releaseJSON(tag: "nightly",
-                                   assets: [("TimeTrack-pilot.zip", zipURL),
-                                            ("TimeTrack-pilot.zip.sha256", sumURL)]), [:]),
+                                   assets: [(asset, zipURL),
+                                            (asset + ".sha256", sumURL)]), [:]),
         ]
         await XCTAssertThrowsErrorAsync(try await self.makeFeed().latest())
     }
@@ -93,8 +94,8 @@ final class GitHubReleaseFeedTests: XCTestCase {
     func testGarbageChecksumAssetIsRejected() async {
         StubProtocol.routes = [
             api: (200, releaseJSON(tag: "v0.3.0",
-                                   assets: [("TimeTrack-pilot.zip", zipURL),
-                                            ("TimeTrack-pilot.zip.sha256", sumURL)]), [:]),
+                                   assets: [(asset, zipURL),
+                                            (asset + ".sha256", sumURL)]), [:]),
             sumURL: (200, Data("not-a-digest\n".utf8), [:]),
         ]
         await XCTAssertThrowsErrorAsync(try await self.makeFeed().latest())

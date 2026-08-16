@@ -28,7 +28,7 @@ final class AckWindowController {
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 600),
             styleMask: [.titled],
             backing: .buffered, defer: false)
-        window.title = "Welcome to TimeTrack"
+        window.title = "Welcome to Nifty Timer"
         window.contentView = NSHostingView(rootView: view)
         window.center()
         // ARC owns this window via `self.window`; without this, AppKit ALSO releases it on
@@ -89,12 +89,12 @@ struct AckView: View {
                             Image(systemName: "clock.fill")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(.white))
-                    Text("TimeTrack").font(.ttH2).foregroundStyle(TT.Palette.text)
+                    Text("Nifty Timer").font(.ttH2).foregroundStyle(TT.Palette.text)
                     Spacer()
                 }
 
                 VStack(alignment: .leading, spacing: TT.Space.x1) {
-                    Text("Here's what TimeTrack records")
+                    Text("Here's what Nifty Timer records")
                         .font(.ttH1).foregroundStyle(TT.Palette.text)
                     Text("Before anything is tracked, here's exactly what's captured — and what never is.")
                         .font(.ttBody).foregroundStyle(TT.Palette.textSecondary)
@@ -130,7 +130,7 @@ struct AckView: View {
                 }
 
                 Toggle(isOn: $hasRead) {
-                    Text("I've read what TimeTrack records.").font(.ttBody).foregroundStyle(TT.Palette.text)
+                    Text("I've read what Nifty Timer records.").font(.ttBody).foregroundStyle(TT.Palette.text)
                 }
                 .toggleStyle(.checkbox)
 
@@ -144,7 +144,7 @@ struct AckView: View {
                     }
                     .buttonStyle(.link)
                     Spacer()
-                    Button(busy ? "Recording…" : "Start TimeTrack") { acknowledge() }
+                    Button(busy ? "Recording…" : "Start Nifty Timer") { acknowledge() }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)

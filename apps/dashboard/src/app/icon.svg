@@ -1,8 +1,8 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="tile" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#F4F4F6"/>
+      <stop offset="0" stop-color="#F6FCFE"/>
+      <stop offset="1" stop-color="#E4F3F8"/>
     </linearGradient>
     <linearGradient id="arcGrad" x1="512" y1="232" x2="272" y2="712" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#30B0C7"/>
@@ -11,8 +11,8 @@
   </defs>
 
   <!-- icon body: superellipse, inset inside the canvas -->
-  <rect x="100" y="100" width="824" height="824" rx="184" fill="url(#tile)"/>
-  <rect x="100" y="100" width="824" height="824" rx="184" fill="none" stroke="#1D1D1F" stroke-opacity="0.12" stroke-width="2"/>
+<rect x="100" y="100" width="824" height="824" rx="184" fill="url(#tile)"/>
+<rect x="100" y="100" width="824" height="824" rx="184" fill="none" stroke="#1D1D1F" stroke-opacity="0.12" stroke-width="2"/>
   <!-- remaining time -->
   <path d="M 236.19,601.61 A 290.0,290.0 0 0,1 512.00,222.00" fill="none" stroke="#5E5CE6" stroke-opacity="0.25" stroke-width="118" stroke-linecap="butt"/>
   <!-- elapsed time (~70%) -->

@@ -26,7 +26,7 @@ function fallbackTitle(pathname: string): string {
   const hit = ROUTE_TITLES.find((r) =>
     r.exact ? pathname === r.prefix : pathname.startsWith(r.prefix),
   );
-  return hit?.title ?? 'TimeTrack';
+  return hit?.title ?? 'Nifty Timer';
 }
 
 export function TopBar({
