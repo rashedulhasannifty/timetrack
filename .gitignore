@@ -16,3 +16,9 @@ apps/client-macos/.build/
 apps/client-macos/DerivedData/
 apps/client-macos/dist/
 apps/client-macos/.swiftpm/
+
+# Next writes these for AI agents. Generation is disabled in
+# apps/dashboard/next.config.ts (agentRules: false); this is the backstop so an
+# already-generated copy on someone's disk can never be committed by `git add -A`.
+apps/dashboard/AGENTS.md
+apps/dashboard/CLAUDE.md
