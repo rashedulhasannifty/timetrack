@@ -79,7 +79,7 @@ export function Sidebar({ narrow, open, onNavigate, footer }: SidebarProps) {
       <div className="mb-7 flex items-center gap-2.5 px-2">
         <BrandMark size={26} />
         <span className="text-text font-display text-[17px] font-semibold tracking-tight">
-          TimeTrack
+          Nifty Timer
         </span>
       </div>
 

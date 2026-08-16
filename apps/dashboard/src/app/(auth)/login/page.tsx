@@ -26,7 +26,7 @@ export default async function LoginPage({
           <BrandMark size={34} />
           <div>
             <h1 className="text-text font-display text-h2 font-semibold tracking-tight">
-              Sign in to TimeTrack
+              Sign in to Nifty Timer
             </h1>
             <p className="text-text-secondary text-label mt-1">Your workspace is waiting.</p>
           </div>

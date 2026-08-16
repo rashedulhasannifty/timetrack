@@ -1,5 +1,5 @@
 /* ============================================================================
-   TimeTrack — dashboard design tokens (Tailwind CSS v4).
+   Nifty Timer — dashboard design tokens (Tailwind CSS v4).
    Ported from the Claude Design handoff (design files/…/globals.css). Semantic
    names match the macOS client's TimeTrackTokens.swift so both surfaces derive
    from one source. Dark uses the CLASS strategy (.dark on <html>) so the manual

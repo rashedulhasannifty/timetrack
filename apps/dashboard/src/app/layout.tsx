@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'TimeTrack',
+  title: 'Nifty Timer',
   description: 'Self-hosted time tracking and workforce analytics',
 };
 

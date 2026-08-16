@@ -39,7 +39,7 @@ export default async function AcceptInvitePage({
               Set your password
             </h1>
             <p className="text-text-secondary text-label mt-1">
-              Choose a password to finish setting up your TimeTrack account.
+              Choose a password to finish setting up your Nifty Timer account.
             </p>
           </div>
         </div>
