@@ -112,7 +112,7 @@ final class StatusItemController: NSObject {
 
     /// Surfaces that the policy could not be fetched — the gate stays closed, Start is inert.
     func showPolicyUnavailable() {
-        item.button?.toolTip = "TimeTrack: monitoring policy unavailable — not tracking."
+        item.button?.toolTip = "Nifty Timer: monitoring policy unavailable — not tracking."
     }
 
     /// PRD §6.2 / §4.2 — Screen Recording permission is missing while capture is enabled. Visible,
@@ -120,7 +120,7 @@ final class StatusItemController: NSObject {
     /// PREPENDED to the state — never hides the tracking indicator (CLAUDE.md §1: no kill switch).
     func showScreenRecordingDenied() {
         screenRecordingDenied = true
-        item.button?.toolTip = "TimeTrack: Screen Recording permission needed for screenshots — open System Settings > Privacy > Screen Recording."
+        item.button?.toolTip = "Nifty Timer: Screen Recording permission needed for screenshots — open System Settings > Privacy > Screen Recording."
         refresh()
     }
 
@@ -138,7 +138,7 @@ final class StatusItemController: NSObject {
         updateOverdue = overdue
         if overdue, !screenRecordingDenied {
             let v = version.map { " \($0)" } ?? ""
-            item.button?.toolTip = "TimeTrack\(v) is available — open the menu to update."
+            item.button?.toolTip = "Nifty Timer\(v) is available — open the menu to update."
         } else if !overdue, !screenRecordingDenied {
             item.button?.toolTip = nil
         }
@@ -221,9 +221,9 @@ final class StatusItemController: NSObject {
 
     private func accessibilityLabel(for state: State) -> String {
         switch state {
-        case .idle: return "TimeTrack: not tracking"
-        case .tracking: return "TimeTrack: tracking"
-        case .capturing: return "TimeTrack: capturing a screenshot"
+        case .idle: return "Nifty Timer: not tracking"
+        case .tracking: return "Nifty Timer: tracking"
+        case .capturing: return "Nifty Timer: capturing a screenshot"
         }
     }
 

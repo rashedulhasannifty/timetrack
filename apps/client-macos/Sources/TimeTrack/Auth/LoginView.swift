@@ -33,7 +33,7 @@ final class LoginWindowController {
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false)
-        window.title = "Sign in to TimeTrack"
+        window.title = "Sign in to Nifty Timer"
         window.contentView = NSHostingView(rootView: view)
         window.center()
         // ARC owns this window via `self.window`; without this, AppKit ALSO releases it on
@@ -67,7 +67,7 @@ struct LoginView: View {
                             .foregroundStyle(.white)
                     )
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Sign in to TimeTrack")
+                    Text("Sign in to Nifty Timer")
                         .font(.ttH2).foregroundStyle(TT.Palette.text)
                     Text("Your workspace is waiting.")
                         .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)

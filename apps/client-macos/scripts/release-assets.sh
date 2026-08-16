@@ -18,8 +18,8 @@ cd "$(dirname "$0")/.."
 
 TAG_SUFFIX="${TAG_SUFFIX--pilot}"
 
-APP="dist/TimeTrack.app"
-ZIP="dist/TimeTrack-pilot.zip"
+APP="dist/Nifty Timer.app"
+ZIP="dist/NiftyTimer-pilot.zip"
 
 [ -d "$APP" ] || { echo "✗ $APP not found — run scripts/package-app.sh first"; exit 1; }
 
