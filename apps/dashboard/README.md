@@ -1,4 +1,4 @@
-# TimeTrack dashboard
+# Nifty Timer dashboard
 
 Next.js 16 (App Router, React 19) + Tailwind 4. The manager/admin web UI.
 
