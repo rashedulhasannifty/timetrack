@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { Button } from '../../../../components/ui/Button';
 import { renameTeamAction, type TeamState } from './actions';
 
@@ -14,6 +14,17 @@ const INITIAL: TeamState = { ok: false };
 export function RenameTeamForm({ teamId, name }: { teamId: string; name: string }) {
   const [state, formAction, pending] = useActionState(renameTeamAction, INITIAL);
   const [editing, setEditing] = useState(false);
+
+  // Collapse once the server sends back a different name — i.e. the rename landed and the row
+  // revalidated. Closing is what makes the next open correct: the row is keyed by team id,
+  // which a rename does not change, so React would otherwise reuse this instance and the
+  // uncontrolled input would keep showing the OLD name while the row shows the new one.
+  // Saving again from that state would rename the team straight back.
+  // Keyed on `name` rather than `state.ok` so it re-fires on the second rename too; a FAILED
+  // rename leaves `name` untouched, so the form stays open with its error visible.
+  useEffect(() => {
+    setEditing(false);
+  }, [name]);
 
   if (!editing) {
     return (

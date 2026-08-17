@@ -8,6 +8,12 @@ import { test, expect, type Page } from '@playwright/test';
  * team the admin is NOT a member of must be creatable, renameable, and — the part that had no
  * route at all — have its monitoring policy edited. Before this, every settings write resolved
  * the admin's own team, so a second team was frozen on its creation defaults.
+ *
+ * NOT IDEMPOTENT — read before running. Each pass creates three teams, and the product ships
+ * no delete (see the page copy), so they accumulate in whatever database you point this at and
+ * cannot be removed through the UI. Run it against a scratch DB you are willing to re-seed
+ * (`pnpm db:migrate && pnpm db:seed`), never a shared or production one. The names are
+ * suffixed per run so repeated passes at least do not collide with each other.
  */
 const EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'admin@example.com';
 const PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'password12';
