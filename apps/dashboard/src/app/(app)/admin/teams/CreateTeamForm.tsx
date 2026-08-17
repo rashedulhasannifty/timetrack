@@ -2,14 +2,14 @@
 
 import { useActionState } from 'react';
 import { Button } from '../../../../components/ui/Button';
-import { createTeamAction, type RowState } from './actions';
+import { createTeamAction, type TeamState } from './actions';
 
-const INITIAL: RowState = { ok: false };
+const INITIAL: TeamState = { ok: false };
 
 /**
  * Create a team. A team is a manager's group, so this is the step that makes a new manager's
  * roster exist — without a second team there is nowhere to move anyone. The new team starts on
- * the default monitoring policy; it is edited from Admin → Settings.
+ * the default monitoring policy; it is edited per team from Admin → Settings.
  */
 export function CreateTeamForm() {
   const [state, formAction, pending] = useActionState(createTeamAction, INITIAL);

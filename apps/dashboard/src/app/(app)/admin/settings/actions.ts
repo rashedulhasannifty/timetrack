@@ -33,6 +33,14 @@ export async function updateSettingsAction(
   const session = await getSession();
   if (!session || session.role !== 'ADMIN') return { ok: false, message: 'Not authorized.' };
 
+  // Which team's policy this is. SettingsForm carries it as a hidden field so the submit
+  // cannot drift from the team the page rendered — resolving it from the session here would
+  // silently write the admin's own team while showing another team's values.
+  const teamId = formData.get('teamId');
+  if (typeof teamId !== 'string' || teamId.length === 0) {
+    return { ok: false, message: 'No team selected.' };
+  }
+
   // Unchecked checkboxes are absent from FormData → false. Numbers arrive as strings.
   const parsed = UpdateSettingsSchema.safeParse({
     screenshotsEnabled: formData.get('screenshotsEnabled') === 'on',
@@ -56,8 +64,10 @@ export async function updateSettingsAction(
   }
 
   try {
-    await api.updateTeamSettings(session.accessToken, parsed.data);
+    await api.updateTeamSettings(session.accessToken, teamId, parsed.data);
     revalidatePath('/admin/settings');
+    // The Teams table shows each team's policy summary, so it goes stale on this write too.
+    revalidatePath('/admin/teams');
     return { ok: true, message: 'Settings saved.' };
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Could not save settings.' };
