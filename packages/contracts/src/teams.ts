@@ -22,9 +22,33 @@ export const CreateTeamSchema = z.object({
   settings: TeamSettingsFieldsSchema.partial().optional(),
 });
 
-/** GET /v1/teams — ADMIN only. The picker behind assigning a user to a team. */
-export const TeamListSchema = z.array(TeamSchema);
+/**
+ * PATCH /v1/teams/:teamId — ADMIN renames a team.
+ *
+ * Deliberately NOT `CreateTeamSchema.partial()`. `CreateTeam` carries an optional `settings`,
+ * so a partial of it would accept a monitoring-policy write on the rename route — policy edits
+ * belong on the admin settings route, which audits them as `team.update_settings` with a
+ * before/after diff. A rename is an identity change and audits as `team.rename`; keeping the
+ * schemas separate keeps the two audit stories separate too.
+ */
+export const RenameTeamSchema = z.object({
+  name: z.string().min(1).max(200),
+});
+
+/**
+ * GET /v1/teams — ADMIN only. Backs both the team picker behind assigning a user and the
+ * Teams admin surface, so each row carries how many people are in it: a team's member count is
+ * what tells an admin whether it is safe to leave a policy alone, and it is one `_count` on a
+ * query that already runs rather than a second round trip per row.
+ */
+export const TeamListItemSchema = TeamSchema.extend({
+  memberCount: z.number().int().min(0),
+});
+
+export const TeamListSchema = z.array(TeamListItemSchema);
 
 export type Team = z.infer<typeof TeamSchema>;
+export type TeamListItem = z.infer<typeof TeamListItemSchema>;
 export type CreateTeam = z.infer<typeof CreateTeamSchema>;
+export type RenameTeam = z.infer<typeof RenameTeamSchema>;
 export type TeamList = z.infer<typeof TeamListSchema>;
