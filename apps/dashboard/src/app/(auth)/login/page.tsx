@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { BrandMark } from '../../../components/ui/BrandMark';
 
 export default async function LoginPage({
@@ -20,10 +21,12 @@ export default async function LoginPage({
     'bg-surface border-separator text-text placeholder:text-text-secondary focus:border-accent rounded-md border px-3 py-2.5 text-body outline-none transition-colors';
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-8">
+    <main className="flex min-h-screen flex-col items-center justify-center p-8">
       <div className="bg-surface-raised border-separator w-full max-w-sm rounded-2xl border p-7 shadow-e2">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <BrandMark size={34} />
+          <Link href="/" aria-label="Nifty Timer home">
+            <BrandMark size={34} />
+          </Link>
           <div>
             <h1 className="text-text font-display text-h2 font-semibold tracking-tight">
               Sign in to Nifty Timer
@@ -65,6 +68,18 @@ export default async function LoginPage({
           </>
         ) : null}
       </div>
+
+      {/* The sign-in card is otherwise a dead end: someone who arrives here without an
+          account — or before installing the client — has no route to the two public pages
+          unless this row offers one. */}
+      <nav className="text-text-secondary text-label mt-6 flex items-center gap-5">
+        <Link href="/" className="hover:text-text transition-colors">
+          Home
+        </Link>
+        <Link href="/install" className="hover:text-text transition-colors">
+          Install guide
+        </Link>
+      </nav>
     </main>
   );
 }
