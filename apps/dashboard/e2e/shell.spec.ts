@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
  */
 test.describe.skip('app shell', () => {
   test('sidebar shows the nav items', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     await expect(page.getByRole('link', { name: 'Overview' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Projects' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Reports' })).toBeVisible();
@@ -17,13 +17,13 @@ test.describe.skip('app shell', () => {
   });
 
   test('account avatar opens a dropdown with Sign out', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     await page.getByRole('button', { name: /avatar|account/i }).click();
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   });
 
   test('account dropdown closes on Escape', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     await page.getByRole('button', { name: /avatar|account/i }).click();
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
     await page.keyboard.press('Escape');
@@ -31,7 +31,7 @@ test.describe.skip('app shell', () => {
   });
 
   test('account dropdown closes on outside click', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     await page.getByRole('button', { name: /avatar|account/i }).click();
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
     await page.locator('main').click();
@@ -40,7 +40,7 @@ test.describe.skip('app shell', () => {
 
   test('on narrow viewport (<900px) hamburger toggles sidebar overlay', async ({ page }) => {
     await page.setViewportSize({ width: 800, height: 600 });
-    await page.goto('/');
+    await page.goto('/overview');
     const toggle = page.getByRole('button', { name: /toggle navigation/i });
     await toggle.click();
     await expect(page.getByRole('link', { name: 'Overview' })).toBeVisible();
@@ -49,7 +49,7 @@ test.describe.skip('app shell', () => {
   });
 
   test('header shows the page title', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     await expect(page.getByRole('heading', { name: 'Team overview' })).toBeVisible();
   });
 });

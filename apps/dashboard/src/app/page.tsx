@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import { getSession } from '../lib/session';
 import { DOWNLOAD_URL, MacDownloadPlate } from '../components/marketing/MacDownloadPlate';
 import { LimitsLedger } from '../components/marketing/RecordsTable';
@@ -19,18 +18,19 @@ export const metadata: Metadata = {
 };
 
 /**
- * The public front door. This is the only page on the domain that renders without a
+ * The public front door. This and /install are the only pages that render without a
  * session — everything else lives under (app), whose layout resolves the session and
- * redirects. Signed-in people never see this: they are sent straight to /overview, so
- * an existing "/" bookmark still lands on the dashboard.
+ * redirects. It renders for signed-in people too: they need to be able to re-read what the
+ * client records and reach the install guide after they have an account, and bouncing them
+ * to /overview left no route to either page. The chrome swaps its "Sign in" for "Open
+ * dashboard" when a session exists, so the way back is always one click.
  *
  * The hero leads with the limits rather than with benefits. Most people who read this page
  * are being asked to let their employer screenshot their Mac, so the useful thing to put in
  * front of them is the exact boundary — not a pitch they will discount anyway.
  */
 export default async function HomePage() {
-  const session = await getSession();
-  if (session) redirect('/overview');
+  const signedIn = (await getSession()) !== null;
 
   return (
     <MarketingChrome>
@@ -50,10 +50,10 @@ export default async function HomePage() {
           </p>
           <div className="flex flex-wrap gap-3 pt-2">
             <Link
-              href="/login"
+              href={signedIn ? '/overview' : '/login'}
               className="bg-accent hover:bg-accent-hover rounded-lg px-5 py-2.5 text-[0.9375rem] font-medium text-white transition-colors"
             >
-              Sign in
+              {signedIn ? 'Open dashboard' : 'Sign in'}
             </Link>
             <a
               href={DOWNLOAD_URL}

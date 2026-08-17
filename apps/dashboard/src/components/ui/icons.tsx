@@ -108,3 +108,11 @@ export const IconMenu = (p: SVGProps<SVGSVGElement>) => (
     <path d="M4 7h16M4 12h16M4 17h16" />
   </Base>
 );
+
+export const IconDownload = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M12 3.6v10.2" />
+    <path d="M8.2 10.2 12 14l3.8-3.8" />
+    <path d="M4.8 17.4v1.2a1.8 1.8 0 0 0 1.8 1.8h10.8a1.8 1.8 0 0 0 1.8-1.8v-1.2" />
+  </Base>
+);

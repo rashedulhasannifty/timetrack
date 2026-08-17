@@ -3,7 +3,15 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ComponentType, ReactNode, SVGProps } from 'react';
-import { IconClock, IconTeam, IconProjects, IconReports, IconApprovals, IconAdmin } from './icons';
+import {
+  IconClock,
+  IconTeam,
+  IconProjects,
+  IconReports,
+  IconApprovals,
+  IconAdmin,
+  IconDownload,
+} from './icons';
 import { BrandMark } from './BrandMark';
 
 type Item = {
@@ -28,7 +36,13 @@ const PRIMARY: Item[] = [
   { href: '/admin/settings', label: 'Admin', Icon: IconAdmin },
 ];
 
-const SECONDARY: Item[] = [{ href: '/me', label: 'My time', Icon: IconClock }];
+// /install is a public page outside the app shell, but installing the client is a
+// per-person action, so it belongs beside "My time" rather than under Admin. Following it
+// leaves the shell; the marketing nav there offers "Open dashboard" as the way back.
+const SECONDARY: Item[] = [
+  { href: '/me', label: 'My time', Icon: IconClock },
+  { href: '/install', label: 'Install the Mac app', Icon: IconDownload },
+];
 
 function isActive(pathname: string, item: Item): boolean {
   if (item.exact) return pathname === item.href;
