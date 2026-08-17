@@ -7,23 +7,23 @@ import { test, expect } from '@playwright/test';
  */
 test.describe.skip('overview reskin', () => {
   test('KPI cards render time tracked and active users', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     await expect(page.getByText(/time tracked/i)).toBeVisible();
     await expect(page.getByText(/active users/i)).toBeVisible();
   });
 
   test('top projects section is present', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     await expect(page.getByText(/top projects/i)).toBeVisible();
   });
 
   test("haven’t tracked section is present", async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     await expect(page.getByText(/haven’t tracked/i)).toBeVisible();
   });
 
   test('top users section is present', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     await expect(page.getByText(/top users/i)).toBeVisible();
   });
 });

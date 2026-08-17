@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
  */
 test.describe.skip('chart kit', () => {
   test('donut chart renders its segments and the centered value/label', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     const donutChart = page.locator('[data-testid="donut-chart"]');
     await expect(donutChart).toBeVisible();
     // Segments should be rendered
@@ -19,7 +19,7 @@ test.describe.skip('chart kit', () => {
   });
 
   test('hovering the line chart shows a tooltip with a date + value', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     const lineChart = page.locator('[data-testid="line-chart"]');
     await expect(lineChart).toBeVisible();
     // Hover over a data point
@@ -33,7 +33,7 @@ test.describe.skip('chart kit', () => {
   });
 
   test('gauge shows its percentage', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     const gauge = page.locator('[data-testid="gauge-chart"]');
     await expect(gauge).toBeVisible();
     // Percentage display should be visible
@@ -45,7 +45,7 @@ test.describe.skip('chart kit', () => {
   });
 
   test('category-mix bar shows productive/neutral/unproductive segments', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/overview');
     const barChart = page.locator('[data-testid="category-mix-bar"]');
     await expect(barChart).toBeVisible();
     // Check for productive segment
