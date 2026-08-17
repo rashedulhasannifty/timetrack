@@ -116,12 +116,20 @@ export class AdminRepository {
     return rows.map((r) => ({ name: r.name, bundleId: r.bundleId }));
   }
 
-  async getSettings(teamId: string): Promise<unknown> {
+  /**
+   * The team's raw settings Json wrapped in a row, or `null` when no such team exists. The
+   * wrapper is what makes those two cases distinguishable in the TYPE: a bare
+   * `Promise<unknown | null>` collapses to `unknown`, and the caller writes a policy next — a
+   * missing team must 404 rather than aim an update at a row Prisma cannot find. The `{}`
+   * fallback covers only the legacy/empty-column case.
+   */
+  async getSettings(teamId: string): Promise<{ settings: unknown } | null> {
     const row = await this.prisma.team.findUnique({
       where: { id: teamId },
       select: { settings: true },
     });
-    return row?.settings ?? {};
+    if (!row) return null;
+    return { settings: row.settings ?? {} };
   }
 
   async writeSettings(

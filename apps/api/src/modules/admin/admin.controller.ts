@@ -44,12 +44,35 @@ export class AdminController {
     return this.service.listObservedApps(actor);
   }
 
+  /**
+   * The actor's OWN team's policy. Kept as-is for `/v1` compatibility — anything already
+   * scripted against it keeps working — but the dashboard now uses the team-scoped route
+   * below, because an admin has to be able to edit a team they are not a member of.
+   */
   @Patch('settings')
   updateSettings(
     @Body(new ZodValidationPipe(UpdateSettingsSchema)) patch: UpdateSettings,
     @CurrentUser() actor: SessionUser,
   ): Promise<TeamSettings> {
     return this.service.updateSettings(patch, actor);
+  }
+
+  /**
+   * Any team's policy. The PRD makes the monitoring policy configurable per team, but until
+   * this route existed a second team's policy was frozen at its creation defaults with no way
+   * to edit it — the settings write always resolved the actor's own team.
+   *
+   * No `@ResourceScope` (CLAUDE.md §8.6): a team is an org-wide object with no owning user to
+   * scope against, and every route on this controller is already ADMIN-gated at the class
+   * level. An unknown teamId is a 404 from the service, not a silent no-op.
+   */
+  @Patch('teams/:teamId/settings')
+  updateTeamSettings(
+    @Param('teamId') teamId: string,
+    @Body(new ZodValidationPipe(UpdateSettingsSchema)) patch: UpdateSettings,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<TeamSettings> {
+    return this.service.updateSettings(patch, actor, teamId);
   }
 
   @Post('users/:id/erase')
