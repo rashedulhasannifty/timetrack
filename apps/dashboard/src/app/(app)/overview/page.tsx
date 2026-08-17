@@ -155,7 +155,7 @@ export default async function OverviewPage({
           <div className="flex flex-col gap-6">
             <div className="flex items-center justify-between gap-3">
               <WidgetsDrawer groups={GROUPS} />
-              <ReportRangePicker from={from} to={to} basePath="/" />
+              <ReportRangePicker from={from} to={to} basePath="/overview" />
             </div>
 
             <Widget id="kpis">
