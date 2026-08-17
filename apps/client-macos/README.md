@@ -40,4 +40,14 @@ counts-not-content is enforced by the API choice and not just by policy.
 Local notifications ask separately at first launch; denied is a silent no-op
 (`Notifications/LocalNotifier`), so the nudges just don't fire.
 
-Ship as a LaunchAgent for auto-start on login (default OFF).
+## Auto-start
+
+`autoStartOnLogin` is a **team setting** (`TeamSettings`, default off, edited by an admin
+in the dashboard) that rides `EffectivePolicy` to the client. It selects the tracking
+mode, not a login item: on, `Tracking/WorkspaceObserver` starts tracking on active-app
+and auto-stops on idle; off, tracking is manual and `Tracking/ManualNudgeMonitor` runs
+instead. Exactly one idle poller per mode.
+
+The app does not register itself as a macOS login item — there is no `SMAppService` call
+and no LaunchAgent in the bundle. Launching at login is the user's own System Settings
+choice today.
