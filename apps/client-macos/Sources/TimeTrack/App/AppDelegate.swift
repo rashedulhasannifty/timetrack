@@ -184,7 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updates.start()
 
         statusItem.install(content: MenuBarView(viewModel: menuViewModel, updates: updates))
-        statusItem.onOpen = { [weak self] in self?.refreshProjectsOnMenuOpen() }
+        statusItem.onOpen = { [weak self] in self?.menuDidOpen() }
         startHeartbeat()
         Task { await start() }
     }
@@ -279,6 +279,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Menu-open hook: refresh the project list, but only when signed in and not more than once
     /// per throttle window.
+    /// Everything that should be re-checked because a person is looking at the menu right now.
+    @MainActor private func menuDidOpen() {
+        refreshProjectsOnMenuOpen()
+        // The 6h background poll is the floor, not the whole story: a release published just
+        // after this app launched would otherwise sit unseen until the next tick.
+        updateCoordinator?.checkOnMenuOpen()
+    }
+
     @MainActor private func refreshProjectsOnMenuOpen() {
         guard menuViewModel.isReady, projectRefreshThrottle.shouldRefresh() else { return }
         Task { await refreshProjects() }

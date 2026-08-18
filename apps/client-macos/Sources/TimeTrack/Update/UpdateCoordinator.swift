@@ -9,10 +9,20 @@ import Foundation
 ///
 /// Nothing here can stop tracking. The strongest state is a visible warning.
 final class UpdateCoordinator: ObservableObject {
-    /// Poll interval. Deliberately slow: GitHub's unauthenticated API allows 60 requests/hour
-    /// per IP, and a pilot office sits behind one NAT. Twenty machines at this cadence is ~80
-    /// requests a day in total.
+    /// Background poll interval. Deliberately slow: GitHub's unauthenticated API allows 60
+    /// requests/hour per IP, and a pilot office sits behind one NAT. Twenty machines at this
+    /// cadence is ~80 requests a day in total.
     static let pollInterval: TimeInterval = 6 * 60 * 60
+
+    /// Floor between menu-open checks. The background poll alone means a release published just
+    /// after an app launched stays unseen for up to six hours; opening the dropdown is the one
+    /// moment a person could actually act on an update, so look then too.
+    ///
+    /// Same rate-limit budget as above: worst case is every machine in the office opening the
+    /// menu at least twice an hour, all hour — twenty machines × 2 = 40 requests/hour against the
+    /// 60/hour ceiling. Realistically far below that, and exceeding it is handled anyway
+    /// (`UpdateFeedError.rateLimited` collapses to `.unknownOrCurrent` and the timer carries on).
+    static let menuOpenMinInterval: TimeInterval = 30 * 60
 
     @Published private(set) var status: UpdateStatus = .unknownOrCurrent
     @Published private(set) var isInstalling = false
@@ -26,6 +36,7 @@ final class UpdateCoordinator: ObservableObject {
     private let openReleases: (URL) -> Void
     private let onQuit: () -> Void
     private let releasesURL: URL
+    private let menuOpenThrottle: RefreshThrottle
     private var timer: Timer?
 
     init(feed: UpdateFeed = GitHubReleaseFeed(),
@@ -33,6 +44,7 @@ final class UpdateCoordinator: ObservableObject {
          installer: UpdateInstaller = UpdateInstaller(),
          currentVersion: AppVersion? = AppVersion.current(),
          releasesURL: URL = URL(string: "https://github.com/\(GitHubReleaseFeed.defaultRepo)/releases/latest")!,
+         menuOpenThrottle: RefreshThrottle = RefreshThrottle(minInterval: UpdateCoordinator.menuOpenMinInterval),
          now: @escaping () -> Date = Date.init,
          openReleases: @escaping (URL) -> Void,
          onQuit: @escaping () -> Void) {
@@ -41,6 +53,7 @@ final class UpdateCoordinator: ObservableObject {
         self.installer = installer
         self.currentVersion = currentVersion
         self.releasesURL = releasesURL
+        self.menuOpenThrottle = menuOpenThrottle
         self.now = now
         self.openReleases = openReleases
         self.onQuit = onQuit
@@ -56,6 +69,15 @@ final class UpdateCoordinator: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+    }
+
+    /// The dropdown was opened. Checks at most once per `menuOpenMinInterval` (the first call
+    /// after launch always goes through), so holding the menu open and closed repeatedly cannot
+    /// hammer the API. Main-thread only — `RefreshThrottle` is not thread-safe, and the only
+    /// caller is AppKit's popover hook.
+    @MainActor func checkOnMenuOpen() {
+        guard menuOpenThrottle.shouldRefresh() else { return }
+        check()
     }
 
     func check() {
