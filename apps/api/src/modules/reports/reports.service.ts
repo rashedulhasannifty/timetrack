@@ -63,6 +63,11 @@ export class ReportsService {
       await this.access.assertCanAccessUser(user, query.userId); // throws 403 if not permitted
       return { kind: 'user', userId: query.userId };
     }
+    // An EMPLOYEE is ALWAYS scoped to themselves, exactly as `overview` already does: the
+    // scope is fixed by the actor's identity and no absent parameter can widen it
+    // (CLAUDE.md §4). Without this, an omitted ?userId fell through to the team branch below,
+    // so opening any report route to EMPLOYEE would hand them the whole team's data.
+    if (user.role === 'EMPLOYEE') return { kind: 'user', userId: user.id };
     if (query.teamId) {
       if (user.role === 'ADMIN') return { kind: 'team', teamId: query.teamId };
       if (user.role === 'MANAGER' && query.teamId === user.teamId) {

@@ -236,6 +236,42 @@ describe('ReportsService.appUsage', () => {
       ForbiddenException,
     );
   });
+
+  /**
+   * app-usage is the one report route open to EMPLOYEE, so these two pin the containment that
+   * makes it safe. An employee reads their own app breakdown; nothing they can omit or send
+   * widens that to the team.
+   */
+  it('pins an EMPLOYEE to themselves when no userId is given', async () => {
+    const { svc, repo } = makeReports();
+    await svc.appUsage(appRange, employee);
+    expect(repo.appUsage).toHaveBeenCalledWith(
+      { kind: 'user', userId: 'u1' },
+      new Date(range.from),
+      new Date(range.to),
+      5,
+    );
+  });
+
+  it('does not let an EMPLOYEE widen the scope with teamId', async () => {
+    const { svc, repo } = makeReports();
+    await svc.appUsage({ ...appRange, teamId: 't1' }, employee);
+    // Their own team's id is still not a team-wide read.
+    expect(repo.appUsage).toHaveBeenCalledWith(
+      { kind: 'user', userId: 'u1' },
+      new Date(range.from),
+      new Date(range.to),
+      5,
+    );
+  });
+
+  it('403s an EMPLOYEE asking about a colleague', async () => {
+    const { svc, access } = makeReports();
+    vi.mocked(access.assertCanAccessUser).mockRejectedValueOnce(new ForbiddenException());
+    await expect(
+      svc.appUsage({ ...appRange, userId: 'someone-else' }, employee),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });
 
 async function drain(iterable: AsyncIterable<string>): Promise<string> {

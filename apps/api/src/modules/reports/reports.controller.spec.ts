@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+import 'reflect-metadata';
 import { StreamableFile } from '@nestjs/common';
 import { ReportsController } from './reports.controller.js';
+import { ROLES } from '../../common/decorators/roles.decorator.js';
 import type { ReportsService } from './reports.service.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 
@@ -90,5 +92,34 @@ describe('ReportsController', () => {
     const chunks: Buffer[] = [];
     for await (const c of result.getStream()) chunks.push(Buffer.from(c as ArrayBufferLike));
     expect(Buffer.concat(chunks).toString('utf8')).toContain('e1,Ada,,,');
+  });
+});
+
+/**
+ * Every other report route is MANAGER/ADMIN via the class-level @Roles; `overview` and
+ * `app-usage` are the two deliberate exceptions. The RolesGuard produces the 403, so what this
+ * pins is the metadata it reads (SetMetadata survives the decorator metadata vitest drops).
+ */
+describe('ReportsController authorization metadata', () => {
+  const rolesFor = (handler: object): unknown => Reflect.getMetadata(ROLES, handler);
+
+  it('keeps the controller MANAGER/ADMIN by default', () => {
+    expect(Reflect.getMetadata(ROLES, ReportsController)).toEqual(['MANAGER', 'ADMIN']);
+  });
+
+  it('opens app-usage to EMPLOYEE so someone can see their own apps', () => {
+    expect(rolesFor(ReportsController.prototype.appUsage)).toEqual([
+      'EMPLOYEE',
+      'MANAGER',
+      'ADMIN',
+    ]);
+  });
+
+  it('leaves the team-wide reports closed to EMPLOYEE', () => {
+    // These read across people; only the self-scoped ones are widened.
+    expect(rolesFor(ReportsController.prototype.teamSummary)).toBeUndefined();
+    expect(rolesFor(ReportsController.prototype.trends)).toBeUndefined();
+    expect(rolesFor(ReportsController.prototype.teamActivity)).toBeUndefined();
+    expect(rolesFor(ReportsController.prototype.exportCsv)).toBeUndefined();
   });
 });
