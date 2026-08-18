@@ -55,6 +55,32 @@ final class UpdateEvaluatorTests: XCTestCase {
         XCTAssertEqual(s, .available(m))
     }
 
+    /// Releases are not chained: the feed reports only the newest one and the install is a whole
+    /// bundle swap, so a machine that sat out several releases jumps straight to current. There
+    /// is no version it can get stranded on.
+    func testSkippedVersionsUpdateInOneStep() {
+        let s = UpdateEvaluator().evaluate(current: AppVersion("0.3.0"),
+                                           latest: manifest("0.4.1", publishedDaysAgo: 1),
+                                           now: now)
+        XCTAssertEqual(s, .available(manifest("0.4.1", publishedDaysAgo: 1)))
+    }
+
+    /// KNOWN WRINKLE, pinned so a change is deliberate: the grace period is measured from the
+    /// LATEST release's publish date, so publishing a new build clears the warning marker for
+    /// someone who has been ignoring the previous one and hands them another quiet week.
+    func testANewReleaseResetsTheEscalationClock() {
+        let stale = UpdateEvaluator().evaluate(current: AppVersion("0.3.0"),
+                                               latest: manifest("0.4.0", publishedDaysAgo: 30),
+                                               now: now)
+        XCTAssertTrue(stale.isOverdue, "a month behind — the status item carries the warning")
+
+        let afterNewRelease = UpdateEvaluator().evaluate(current: AppVersion("0.3.0"),
+                                                         latest: manifest("0.4.1", publishedDaysAgo: 1),
+                                                         now: now)
+        XCTAssertFalse(afterNewRelease.isOverdue,
+                       "same laggard, warning gone: the clock restarted with the new release")
+    }
+
     func testUnreadableRunningVersionSaysNothing() {
         // `swift run` has no Info.plist. Treating that as "older than everything" would nag
         // every developer on every launch.
