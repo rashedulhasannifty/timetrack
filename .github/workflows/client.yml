@@ -1,0 +1,57 @@
+name: Client
+
+# The macOS client is outside the pnpm graph and needs a macOS runner, so ci.yml — every
+# job of which is `ubuntu-latest` — never compiled a line of it. Everything up to 0.4.1
+# shipped on nothing but whoever remembered to run `swift test` locally. This is that gate.
+#
+# Path-filtered on purpose: macOS minutes bill at 10x on a private repo, and the client
+# only breaks when the client (or this workflow) changes. There is no branch protection on
+# main, so a workflow that stays skipped on a server-only PR blocks nothing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/client-macos/**'
+      - '.github/workflows/client.yml'
+  pull_request:
+    paths:
+      - 'apps/client-macos/**'
+      - '.github/workflows/client.yml'
+
+# Same rationale as ci.yml: a new push makes the in-flight run obsolete, and at 10x
+# billing an abandoned macOS run is the expensive kind of waste.
+concurrency:
+  group: client-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: apps/client-macos
+
+jobs:
+  swift:
+    # arm64 image — the architecture the client actually ships on.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+
+      # The runner's default toolchain is a full Xcode. A dev Mac is often pointed at
+      # CommandLineTools instead, which has no XCTest — that is why local runs need
+      # DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer and CI does not. Printed
+      # so a runner-image bump that moves the Swift version is visible in the log.
+      - name: Toolchain
+        run: swift --version
+
+      - name: swift build (release)
+        run: swift build -c release
+
+      - name: swift test
+        run: swift test
+
+      # The .app assembly is its own regression surface: package-app.sh copies brand assets
+      # by explicit name and rewrites Info.plist knobs, so a renamed resource breaks the
+      # bundle while `swift build` stays perfectly green. The runner has no signing identity,
+      # so the script falls back to an ad-hoc signature — fine for an assembly smoke test.
+      # Distribution signing + notarization stays a human step (apps/client-macos/SIGNING.md).
+      - name: Package the .app bundle
+        run: ./scripts/package-app.sh
