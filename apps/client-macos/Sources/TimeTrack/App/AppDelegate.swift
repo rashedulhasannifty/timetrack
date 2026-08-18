@@ -70,11 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dailyDistraction: DailyDistractionAccumulator?
     private let endOfDayHour = 18
     private let forgotToStartMinutes = 10
-    // 60s sampler window ⇒ threshold in minutes == consecutive-sample count (see ActivitySampler).
-    // First distraction nudge after this many consecutive unproductive samples (== minutes at the
-    // 60s sampler cadence). The re-nudge cadence after that comes from the team policy
-    // (`settings.distractionRepeatMinutes`, admin-editable) — threaded into installNudgeInfra.
-    private let distractionThresholdMinutes = 10
+    // 60s sampler window ⇒ a threshold in minutes == a consecutive-sample count (see
+    // ActivitySampler). Whether the nudge runs at all, after how many unproductive minutes, and how
+    // often it repeats are ALL team policy (`settings.distractionAlertsEnabled` /
+    // `…ThresholdMinutes` / `…RepeatMinutes`) — threaded into installNudgeInfra as a
+    // DistractionSettings, never hardcoded here.
 
     override init() {
         let baseURL = AppDelegate.apiBaseURL()
@@ -220,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let userId = await session.userId() {
                     ackMarker.record(userId: userId, policyVersion: policy.policyVersion)
                 }
-                await becomeReady(distractionRepeatMinutes: policy.settings.distractionRepeatMinutes)
+                await becomeReady(distractionPolicy: DistractionSettings(policy.settings))
                 await startAutoTrackingIfEnabled(policy)   // online, !ackRequired: capture is allowed
                 await startScreenshotCaptureIfEnabled(policy)
                 await startActivityCaptureIfEnabled(policy)
@@ -237,9 +237,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Enable manual tracking and load projects (network → cache fallback). `distractionRepeatMinutes`
-    /// comes from the team policy on the online path; the offline path (no policy) uses the default.
-    private func becomeReady(distractionRepeatMinutes: Int = 5) async {
+    /// Enable manual tracking and load projects (network → cache fallback). `distractionPolicy` comes
+    /// from the team policy on the online path. The offline path has no policy, so it defaults to
+    /// OFF — matching the server's opt-in default, and moot in practice since a closed gate means
+    /// no activity samples and therefore nothing to nudge about.
+    private func becomeReady(distractionPolicy: DistractionSettings = .off) async {
         // Resolve the userId once (an `await`, since `AuthSession` is an actor) and stamp
         // `userIdBox` on the main thread BEFORE `markReady()` flips `isReady` — that flip is
         // the only thing that lets `TimeTracker.start()` run, so the box is always populated
@@ -249,7 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             userIdBox.value = currentUserId
             menuViewModel.markReady()
         }
-        await MainActor.run { self.installNudgeInfra(distractionRepeatMinutes: distractionRepeatMinutes) }
+        await MainActor.run { self.installNudgeInfra(distractionPolicy: distractionPolicy) }
         await MainActor.run { menuViewModel.projects = projectCache.load() } // instant, offline-safe
         await refreshProjects()
         await MainActor.run { startSyncIfNeeded() }
@@ -273,9 +275,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Local-notification infra (not a capture path — safe on both ready paths). Idempotent.
-    /// `distractionRepeatMinutes` (from the team policy) sets how often an unbroken distraction
+    /// `distractionPolicy` (from the team) sets whether, and how often, an unbroken distraction
     /// streak re-nudges.
-    @MainActor private func installNudgeInfra(distractionRepeatMinutes: Int = 5) {
+    @MainActor private func installNudgeInfra(distractionPolicy: DistractionSettings = .off) {
         guard notifier == nil else { return }
         let notifier = UNUserNotifier()
         notifier.requestAuthorization()
@@ -287,9 +289,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.dailyTotal?.add(start: start, end: end)
         }
 
-        // Both the tally (`sampleSeconds` default 60) and the monitor threshold (minutes) assume
-        // the ActivitySampler's 60s window — one sample == one minute. If that interval ever
-        // changes, revisit `sampleSeconds` here and `distractionThresholdMinutes` together.
+        // Both the tally (`sampleSeconds` default 60) and the monitor's threshold/repeat (minutes)
+        // assume the ActivitySampler's 60s window — one sample == one minute. If that interval ever
+        // changes, revisit `sampleSeconds` here and the DistractionSettings bounds in
+        // @timetrack/contracts together.
         let distraction = DailyDistractionAccumulator()
         self.dailyDistraction = distraction
         // The distraction nudge alone falls back to a visible in-app window when macOS has not
@@ -309,8 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             })
         self.distractionMonitor = DistractionMonitor(
-            notifier: distractionNotifier, threshold: distractionThresholdMinutes,
-            repeatEvery: distractionRepeatMinutes)   // from team policy (admin-editable)
+            notifier: distractionNotifier, settings: { distractionPolicy })   // team policy
 
         let scheduler = EndOfDayScheduler(
             hour: endOfDayHour, notifier: notifier,
