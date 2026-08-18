@@ -95,7 +95,38 @@ export function TimeRibbon({ ribbon }: { ribbon: PersonDayViewModel['ribbon'] })
             />
           ))}
         </div>
+
+        {/* The ribbon's own legend. It used to borrow the one under the activity bars, which
+            meant the capture ticks — drawn HERE — were explained under a chart that has none. */}
+        <div className="text-caption text-text-secondary mt-2 flex flex-wrap gap-3.5">
+          <Swatch className="bg-category-productive">Productive</Swatch>
+          <Swatch className="bg-category-neutral">Neutral</Swatch>
+          <Swatch className="bg-category-unproductive">Unproductive</Swatch>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="border-separator h-[8px] w-[8px] flex-none rounded-[2px] border"
+              style={{
+                backgroundImage:
+                  'repeating-linear-gradient(45deg, var(--tt-separator) 0, var(--tt-separator) 1px, transparent 1px, transparent 4px)',
+              }}
+            />
+            Not tracked
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="bg-surface-raised border-separator h-[8px] w-[2px] flex-none border" />
+            Screen capture
+          </span>
+        </div>
       </div>
     </div>
+  );
+}
+
+function Swatch({ className, children }: { className: string; children: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`h-[8px] w-[8px] flex-none rounded-[2px] ${className}`} />
+      {children}
+    </span>
   );
 }
