@@ -23,53 +23,84 @@ import { ProjectsRepository } from './projects.repository.js';
 export class ProjectsService {
   constructor(private readonly repo: ProjectsRepository) {}
 
-  list(user: SessionUser, includeArchived = false): Promise<Project[]> {
-    return this.repo.listByTeam(user.teamId, includeArchived);
+  /**
+   * Which team's projects to read. Mirrors ReportsService.resolveScope, deliberately: ADMIN is
+   * org-wide and may name any team, a MANAGER may name only their own, and an EMPLOYEE is
+   * pinned to their own whatever the query says — the scope is fixed by identity and no
+   * parameter widens it (CLAUDE.md §4). GET /projects has no @Roles (the macOS client calls
+   * it as an EMPLOYEE), so this role check is the gate.
+   */
+  // `async` on purpose: resolveTeam throws, and a synchronous throw from a Promise-returning
+  // method surprises every caller that only awaits. Rejecting keeps it uniform with the rest.
+  async list(user: SessionUser, includeArchived = false, teamId?: string): Promise<Project[]> {
+    return this.repo.listByTeam(this.resolveTeam(teamId, user), includeArchived);
+  }
+
+  private resolveTeam(teamId: string | undefined, user: SessionUser): string {
+    if (!teamId || user.role === 'EMPLOYEE') return user.teamId;
+    if (user.role === 'ADMIN' || teamId === user.teamId) return teamId;
+    throw this.forbidden();
+  }
+
+  /**
+   * A project belongs to a team, and ADMIN is an org-wide role while a MANAGER manages their
+   * own team. Every project-administration path routes through here so that rule is decided
+   * once — it used to be seven copies of the same comparison, which is how they would drift.
+   */
+  private assertCanAdminister(projectTeamId: string, actor: SessionUser): void {
+    if (actor.role === 'ADMIN') return;
+    if (projectTeamId !== actor.teamId) throw this.forbidden();
   }
 
   async createProject(dto: CreateProject, actor: SessionUser): Promise<Project> {
-    if (dto.teamId !== actor.teamId) throw this.forbidden();
+    this.assertCanAdminister(dto.teamId, actor);
     return this.repo.createProject(dto.teamId, dto.name, actor.id, dto.color);
   }
 
   async createTask(dto: CreateTask, actor: SessionUser): Promise<Task> {
     const project = await this.repo.findForActor(dto.projectId);
     if (!project) throw this.notFound();
-    if (project.teamId !== actor.teamId) throw this.forbidden();
+    this.assertCanAdminister(project.teamId, actor);
     return this.repo.createTask(dto.projectId, dto.name, actor.id);
   }
 
   async listTasks(id: string, actor: SessionUser): Promise<Task[]> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    if (project.teamId !== actor.teamId) throw this.forbidden();
+    this.assertCanAdminister(project.teamId, actor);
     return this.repo.listTasksForProject(id);
   }
 
   async setTaskArchived(taskId: string, dto: UpdateTask, actor: SessionUser): Promise<Task> {
     const task = await this.repo.findTaskForActor(taskId);
     if (!task) throw this.notFound();
-    if (task.teamId !== actor.teamId) throw this.forbidden();
+    this.assertCanAdminister(task.teamId, actor);
     return this.repo.setTaskArchived(taskId, dto.archived, actor.id);
   }
 
   async update(id: string, dto: UpdateProject, actor: SessionUser): Promise<Project> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    if (project.teamId !== actor.teamId) throw this.forbidden();
+    this.assertCanAdminister(project.teamId, actor);
 
     // Form submits one field per action; an empty body is a harmless no-op.
     let result: Project = project;
     if (dto.archived !== undefined)
       result = await this.repo.setArchived(id, dto.archived, actor.id);
     if (dto.color !== undefined) result = await this.repo.setColor(id, dto.color, actor.id);
+    if (dto.teamId !== undefined && dto.teamId !== project.teamId) {
+      // Moving across an org boundary, so ADMIN only — a MANAGER must not be able to pull
+      // another team's project into their own, nor push one out of reach.
+      if (actor.role !== 'ADMIN') throw this.forbidden();
+      result = await this.repo.setTeam(id, dto.teamId, actor.id);
+    }
     return result;
   }
 
   async detail(id: string, query: ProjectDetailQuery, actor: SessionUser): Promise<ProjectDetail> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    if (project.teamId !== actor.teamId) throw this.forbidden();
+    this.assertCanAdminister(project.teamId, actor);
 
     const from = new Date(query.from);
     const to = new Date(query.to);
@@ -98,7 +129,7 @@ export class ProjectsService {
   async topApps(id: string, dto: ProjectDetailQuery, actor: SessionUser): Promise<ProjectTopApps> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    if (project.teamId !== actor.teamId) throw this.forbidden();
+    this.assertCanAdminister(project.teamId, actor);
 
     const { apps, totalSeconds } = await this.repo.topAppsForProject(
       id,

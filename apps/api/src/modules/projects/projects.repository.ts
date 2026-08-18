@@ -110,6 +110,33 @@ export class ProjectsRepository {
     });
   }
 
+  /**
+   * Move a project to another team and audit it in the same transaction, mirroring
+   * `user.team_change`. Tasks follow by FK; time entries are deliberately left alone — they
+   * reference the project by id and reports scope by the entry's user, so hours already
+   * tracked stay with the team whose people tracked them.
+   */
+  async setTeam(id: string, teamId: string, actorId: string): Promise<Project> {
+    return this.prisma.$transaction(async (tx) => {
+      const before = await tx.project.findUnique({ where: { id }, select: { teamId: true } });
+      const project = await tx.project.update({
+        where: { id },
+        data: { teamId },
+        select: PROJECT_SELECT,
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: 'project.team_change',
+          targetType: 'project',
+          targetId: id,
+          diff: { from: before?.teamId ?? null, to: teamId },
+        },
+      });
+      return project;
+    });
+  }
+
   findForActor(id: string): Promise<{
     id: string;
     teamId: string;

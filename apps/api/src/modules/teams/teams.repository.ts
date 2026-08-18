@@ -8,9 +8,10 @@ export interface TeamRow {
   settings: unknown;
 }
 
-/** A TeamRow plus how many users sit in it. The list shape only — `getById` stays lean. */
+/** A TeamRow plus what sits in it. The list shape only — `getById` stays lean. */
 export interface TeamListRow extends TeamRow {
   memberCount: number;
+  projectCount: number;
 }
 
 @Injectable()
@@ -32,9 +33,18 @@ export class TeamsRepository {
   async list(): Promise<TeamListRow[]> {
     const rows = await this.prisma.team.findMany({
       orderBy: { name: 'asc' },
-      select: { id: true, name: true, settings: true, _count: { select: { users: true } } },
+      select: {
+        id: true,
+        name: true,
+        settings: true,
+        _count: { select: { users: true, projects: true } },
+      },
     });
-    return rows.map(({ _count, ...team }) => ({ ...team, memberCount: _count.users }));
+    return rows.map(({ _count, ...team }) => ({
+      ...team,
+      memberCount: _count.users,
+      projectCount: _count.projects,
+    }));
   }
 
   /**
