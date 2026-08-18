@@ -67,6 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var endOfDayScheduler: EndOfDayScheduler?
     private var manualNudgeMonitor: ManualNudgeMonitor?
     private var distractionMonitor: DistractionMonitor?
+    /// The admin-editable slice of the team policy, refreshed by AckGate on every capture cycle.
+    private let livePolicy: LivePolicy
     private var dailyDistraction: DailyDistractionAccumulator?
     private let endOfDayHour = 18
     private let forgotToStartMinutes = 10
@@ -81,7 +83,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let session = AuthSession(client: AuthClient(baseURL: baseURL), store: KeychainTokenStore())
         self.session = session
         self.policyClient = PolicyClient(baseURL: baseURL, session: session)
-        self.ackGate = AckGate(policyProvider: policyClient)
+        // The gate re-fetches the policy before every capture cycle; hand each one to the box so
+        // the sampler and the distraction nudge pick up an admin's edit on the next sample rather
+        // than the next launch (the settings page promises ≤60s).
+        let livePolicy = LivePolicy()
+        self.livePolicy = livePolicy
+        self.ackGate = AckGate(policyProvider: policyClient,
+                               onPolicy: { policy in livePolicy.update(from: policy.settings) })
         self.ackClient = AckClient(baseURL: baseURL, session: session)
         let ackMarker = AckMarker()
         self.ackMarker = ackMarker
@@ -220,7 +228,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let userId = await session.userId() {
                     ackMarker.record(userId: userId, policyVersion: policy.policyVersion)
                 }
-                await becomeReady(distractionPolicy: DistractionSettings(policy.settings))
+                // Seed the box before anything reads it — the gate refreshes it from here on.
+                livePolicy.update(from: policy.settings)
+                await becomeReady()
                 await startAutoTrackingIfEnabled(policy)   // online, !ackRequired: capture is allowed
                 await startScreenshotCaptureIfEnabled(policy)
                 await startActivityCaptureIfEnabled(policy)
@@ -237,11 +247,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Enable manual tracking and load projects (network → cache fallback). `distractionPolicy` comes
-    /// from the team policy on the online path. The offline path has no policy, so it defaults to
-    /// OFF — matching the server's opt-in default, and moot in practice since a closed gate means
-    /// no activity samples and therefore nothing to nudge about.
-    private func becomeReady(distractionPolicy: DistractionSettings = .off) async {
+    /// Enable manual tracking and load projects (network → cache fallback). Nudge settings are
+    /// read live from `livePolicy`, which the caller seeds and the gate keeps fresh; on the
+    /// offline path it stays at its pending default (silent), which is moot anyway since a closed
+    /// gate means no activity samples and therefore nothing to nudge about.
+    private func becomeReady() async {
         // Resolve the userId once (an `await`, since `AuthSession` is an actor) and stamp
         // `userIdBox` on the main thread BEFORE `markReady()` flips `isReady` — that flip is
         // the only thing that lets `TimeTracker.start()` run, so the box is always populated
@@ -251,7 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             userIdBox.value = currentUserId
             menuViewModel.markReady()
         }
-        await MainActor.run { self.installNudgeInfra(distractionPolicy: distractionPolicy) }
+        await MainActor.run { self.installNudgeInfra() }
         await MainActor.run { menuViewModel.projects = projectCache.load() } // instant, offline-safe
         await refreshProjects()
         await MainActor.run { startSyncIfNeeded() }
@@ -275,9 +285,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Local-notification infra (not a capture path — safe on both ready paths). Idempotent.
-    /// `distractionPolicy` (from the team) sets whether, and how often, an unbroken distraction
+    /// The team policy (read live) sets whether, and how often, an unbroken distraction
     /// streak re-nudges.
-    @MainActor private func installNudgeInfra(distractionPolicy: DistractionSettings = .off) {
+    @MainActor private func installNudgeInfra() {
         guard notifier == nil else { return }
         let notifier = UNUserNotifier()
         notifier.requestAuthorization()
@@ -312,7 +322,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             })
         self.distractionMonitor = DistractionMonitor(
-            notifier: distractionNotifier, settings: { distractionPolicy })   // team policy
+            // Read per tick: an admin toggling alerts, or moving the threshold, applies to a
+            // running client on its next sample.
+            notifier: distractionNotifier, settings: { [livePolicy] in livePolicy.current.distraction })
 
         let scheduler = EndOfDayScheduler(
             hour: endOfDayHour, notifier: notifier,
@@ -466,6 +478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor private func installActivityCapture(policy: EffectivePolicy) {
         guard activitySampler == nil else { return }   // idempotent
+        livePolicy.update(from: policy.settings)       // freshest known values before the first tick
         let sampler = ActivitySampler(
             ackGate: ackGate,
             counter: EventCounter(),
@@ -476,13 +489,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             siteResolver: AppleScriptSiteResolver(onAutomationDenied: { [weak self] denied in
                 Task { @MainActor in self?.statusItem.setAutomationDenied(denied) }
             }),
-            categorizer: Categorizer(
-                productiveApps: policy.settings.productiveApps,
-                unproductiveApps: policy.settings.unproductiveApps,
-                productiveSites: policy.settings.productiveSites,
-                unproductiveSites: policy.settings.unproductiveSites),
+            livePolicy: livePolicy,
             store: ActivitySampleStore.shared,
-            captureWindowTitles: policy.settings.captureWindowTitles,
             isTracking: { [weak self] in self?.timeTracker.isRunning ?? false },
             onSampled: { [weak self] in Task { await self?.activitySync?.syncNow() } },
             onCategorized: { [weak self] category in

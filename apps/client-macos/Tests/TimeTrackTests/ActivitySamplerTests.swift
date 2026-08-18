@@ -17,6 +17,7 @@ final class ActivitySamplerTests: XCTestCase {
         categorizer: Categorizer = Categorizer(productiveApps: [], unproductiveApps: [],
                                                productiveSites: ["github.com"],
                                                unproductiveSites: ["youtube.com"]),
+        livePolicy: LivePolicy? = nil,
         onCategorized: @escaping (TimeTrack.Category) -> Void = { _ in }
     ) -> ActivitySampler {
         ActivitySampler(
@@ -24,9 +25,10 @@ final class ActivitySamplerTests: XCTestCase {
             counter: counter,
             appSampler: app,
             siteResolver: site,
-            categorizer: categorizer,
+            livePolicy: livePolicy ?? LivePolicy(.init(categorizer: categorizer,
+                                                        captureWindowTitles: captureWindowTitles,
+                                                        distraction: .off)),
             store: buffer,
-            captureWindowTitles: captureWindowTitles,
             intervalSeconds: 60,
             subBuckets: 12,
             isTracking: isTracking,
@@ -146,10 +148,11 @@ final class ActivitySamplerTests: XCTestCase {
             counter: halfActiveCounter(),
             appSampler: FakeAppSampler(),
             siteResolver: FakeSiteResolver(host: nil),
-            categorizer: Categorizer(productiveApps: [], unproductiveApps: [],
-                                     productiveSites: ["github.com"], unproductiveSites: ["youtube.com"]),
+            livePolicy: LivePolicy(.init(
+                categorizer: Categorizer(productiveApps: [], unproductiveApps: [],
+                                         productiveSites: ["github.com"], unproductiveSites: ["youtube.com"]),
+                captureWindowTitles: true, distraction: .off)),
             store: buffer,
-            captureWindowTitles: true,
             intervalSeconds: 60,
             subBuckets: 12,
             isTracking: { true },
