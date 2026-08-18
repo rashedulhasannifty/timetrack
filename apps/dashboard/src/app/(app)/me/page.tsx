@@ -7,11 +7,13 @@ import { ScreenshotsPanel } from './ScreenshotsPanel';
 import { toScreenshotView } from './screenshot-view';
 import { redactScreenshotAction } from './actions';
 import { ApprovalsPanel } from './ApprovalsPanel';
+import { DayAppUsage } from '../../../components/day/DayAppUsage';
 import { selfApprovals } from '../../../lib/approvals-view';
 import type {
   ActivitySample,
   Project,
   Screenshot,
+  TeamAppUsage,
   TimeEntry,
   TimesheetApproval,
 } from '@timetrack/contracts';
@@ -39,7 +41,7 @@ export default async function MyDataPage({
   });
 
   // Self-scoped; each read is independent — a failure in one degrades to an empty panel.
-  const [entries, samples, screenshots, approvals, projects] = await Promise.all([
+  const [entries, samples, screenshots, approvals, projects, appUsage] = await Promise.all([
     api.listTimeEntries(session.accessToken, todayParams).catch((): TimeEntry[] => []),
     api.listActivitySamples(session.accessToken, todayParams).catch((): ActivitySample[] => []),
     api.listScreenshots(session.accessToken, todayParams).catch((): Screenshot[] => []),
@@ -51,6 +53,10 @@ export default async function MyDataPage({
     // Names for the entries: an entry carries a projectId/taskId, not names. includeArchived so a
     // historical entry on a since-archived project still resolves instead of falling to "Untitled".
     api.listProjects(session.accessToken, { includeArchived: true }).catch((): Project[] => []),
+    // Explicitly self-scoped. The API pins an EMPLOYEE to themselves regardless, but a
+    // MANAGER/ADMIN reading their OWN page would otherwise fall through to a team-wide
+    // rollup rendered under a heading that says it is theirs.
+    api.appUsage(session.accessToken, todayParams).catch((): TeamAppUsage | null => null),
   ]);
 
   const myApprovals = selfApprovals(approvals, session.userId);
@@ -73,6 +79,7 @@ export default async function MyDataPage({
         <ApprovalsPanel rows={myApprovals} />
         <PersonDayView
           model={model}
+          apps={<DayAppUsage usage={appUsage} />}
           screenshots={
             <ScreenshotsPanel
               shots={screenshots.map(toScreenshotView)}

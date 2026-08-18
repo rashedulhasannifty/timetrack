@@ -37,7 +37,10 @@ export function ActivityBars({ buckets }: { buckets: ActivityBucket[] }) {
             ? `${bucket.label}:00 · untracked`
             : `${bucket.label}:00 · ${bucket.activityPct}% active`;
           return (
-            <div key={i} className="flex flex-1 items-end" title={title}>
+            // h-full is load-bearing: the row sets `items-end`, so without an explicit height
+            // this wrapper is sized by its content, and the bar's percentage height resolves
+            // against an indefinite height -> 0px. Every bar rendered invisible.
+            <div key={i} className="flex h-full flex-1 items-end" title={title}>
               <div
                 className={`w-full rounded-t-[3px] ${fillClass}`}
                 style={{ height: `${heightPct}%` }}
@@ -56,16 +59,14 @@ export function ActivityBars({ buckets }: { buckets: ActivityBucket[] }) {
         ))}
       </div>
 
-      {/* Legend */}
+      {/* Legend. No "screen captures" entry: these bars draw no capture ticks — those belong
+          to the ribbon above, and a legend that names a mark the chart never draws sends the
+          reader hunting for something that isn't there. */}
       <div className="flex flex-wrap gap-3.5 text-caption text-text-secondary">
         <LegendSwatch className="bg-category-productive">Productive</LegendSwatch>
         <LegendSwatch className="bg-category-neutral">Neutral</LegendSwatch>
         <LegendSwatch className="bg-category-unproductive">Unproductive</LegendSwatch>
-        <LegendSwatch className={UNTRACKED_BG_CLASS}>Untracked</LegendSwatch>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="bg-surface-raised border-separator h-[8px] w-[2px] flex-none border" />
-          Screen captures
-        </span>
+        <LegendSwatch className={UNTRACKED_BG_CLASS}>No data</LegendSwatch>
       </div>
     </div>
   );

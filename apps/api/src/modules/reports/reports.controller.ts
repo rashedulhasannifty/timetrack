@@ -65,7 +65,17 @@ export class ReportsController {
     return this.service.teamActivity(query, user);
   }
 
+  /**
+   * Open to EMPLOYEE, unlike its neighbours. The apps behind someone's day are derived from
+   * activity samples they can already read via `/activity`, and PRD §4 promises an employee
+   * reads their own record through the same API a manager uses — so withholding the rollup
+   * while showing the manager theirs would be the asymmetry the product rules out.
+   *
+   * Safe because `resolveScope` pins an EMPLOYEE to their own id whether or not `?userId` is
+   * sent, and `assertCanAccessUser` 403s anyone asking about someone else.
+   */
   @Get('app-usage')
+  @Roles('EMPLOYEE', 'MANAGER', 'ADMIN')
   appUsage(
     @Query(new ZodValidationPipe(AppUsageQuerySchema)) query: AppUsageQuery,
     @CurrentUser() user: SessionUser,
