@@ -52,6 +52,7 @@ export async function updateSettingsAction(
     captureWindowTitles: formData.get('captureWindowTitles') === 'on',
     autoStartOnLogin: formData.get('autoStartOnLogin') === 'on',
     distractionAlertsEnabled: formData.get('distractionAlertsEnabled') === 'on',
+    distractionThresholdMinutes: Number(formData.get('distractionThresholdMinutes')),
     distractionRepeatMinutes: Number(formData.get('distractionRepeatMinutes')),
     timesheetReminderHours: Number(formData.get('timesheetReminderHours')),
     unproductiveApps: parseAppList(formData.get('unproductiveApps')),
