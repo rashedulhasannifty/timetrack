@@ -47,9 +47,19 @@ export const UpdateTaskSchema = z.object({
   archived: z.boolean(),
 });
 
+/**
+ * PATCH /v1/projects/:id. `teamId` MOVES the project to another team — ADMIN only, because a
+ * team is an org-wide boundary. It is here rather than on a route of its own so the one
+ * "edit a project" call stays one call; the service audits a move separately from a rename.
+ *
+ * Moving does not rewrite history: project reports scope by the ENTRY's user, joining projects
+ * only for the name, so hours already tracked stay with the team whose people tracked them.
+ * The team controls who can assign the project from here on, and who can administer it.
+ */
 export const UpdateProjectSchema = z.object({
   archived: z.boolean().optional(),
   color: ProjectColorSchema.optional(),
+  teamId: z.uuid().optional(),
 });
 
 // Query for GET /projects. z.stringbool() parses "true"/"false" correctly;
@@ -57,6 +67,13 @@ export const UpdateProjectSchema = z.object({
 // makes the field optional and defaults a missing flag to "assignable only".
 export const ListProjectsQuerySchema = z.object({
   includeArchived: z.stringbool().default(false),
+  /**
+   * ADMIN only: read another team's projects. A MANAGER naming a team other than their own is
+   * a 403; an EMPLOYEE is pinned to their own team whatever they send. Without this an
+   * org-wide admin had no way to SEE a project outside their own team, which is what made a
+   * project stranded by a team change invisible rather than merely unassignable.
+   */
+  teamId: z.uuid().optional(),
 });
 
 export const ProjectHoursTrendRowSchema = z.object({

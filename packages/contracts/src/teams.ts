@@ -43,6 +43,11 @@ export const RenameTeamSchema = z.object({
  */
 export const TeamListItemSchema = TeamSchema.extend({
   memberCount: z.number().int().min(0),
+  /**
+   * Projects owned by this team. Moving someone between teams silently changes which projects
+   * they can pick — this is what lets the admin UI say so before the move rather than after.
+   */
+  projectCount: z.number().int().min(0),
 });
 
 export const TeamListSchema = z.array(TeamListItemSchema);

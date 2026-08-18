@@ -224,6 +224,21 @@ describe('team-settings + policy', () => {
     expect(CreateTeamSchema.parse({ name: 'X' }).settings).toBeUndefined();
   });
 
+  it('UpdateProjectSchema accepts a teamId, which is how a stranded project is moved', () => {
+    const uuid = '019797a0-0000-7000-8000-0000000000ff';
+    expect(UpdateProjectSchema.parse({ teamId: uuid }).teamId).toBe(uuid);
+    expect(UpdateProjectSchema.safeParse({ teamId: 'not-a-uuid' }).success).toBe(false);
+    // Still every-field-optional: the form submits one field per action.
+    expect(UpdateProjectSchema.parse({}).teamId).toBeUndefined();
+  });
+
+  it('ListProjectsQuerySchema accepts an optional teamId (ADMIN widening)', () => {
+    const uuid = '019797a0-0000-7000-8000-0000000000ff';
+    expect(ListProjectsQuerySchema.parse({ teamId: uuid }).teamId).toBe(uuid);
+    expect(ListProjectsQuerySchema.parse({}).teamId).toBeUndefined();
+    expect(ListProjectsQuerySchema.safeParse({ teamId: 'nope' }).success).toBe(false);
+  });
+
   it('RenameTeamSchema takes a name and nothing else', () => {
     expect(RenameTeamSchema.parse({ name: 'Support' })).toEqual({ name: 'Support' });
     expect(RenameTeamSchema.safeParse({ name: '' }).success).toBe(false);
@@ -239,12 +254,19 @@ describe('team-settings + policy', () => {
 
   it('TeamListItemSchema requires the member count alongside the team', () => {
     const team = { id: '01920000-0000-7000-8000-000000000001', name: 'Eng', settings: {} };
-    expect(TeamListItemSchema.parse({ ...team, memberCount: 4 }).memberCount).toBe(4);
+    const counted = { ...team, memberCount: 4, projectCount: 2 };
+    expect(TeamListItemSchema.parse(counted).memberCount).toBe(4);
+    expect(TeamListItemSchema.parse(counted).projectCount).toBe(2);
     // An empty team is a real answer, not a missing one.
-    expect(TeamListItemSchema.parse({ ...team, memberCount: 0 }).memberCount).toBe(0);
+    expect(
+      TeamListItemSchema.parse({ ...counted, memberCount: 0, projectCount: 0 }).memberCount,
+    ).toBe(0);
     expect(TeamListItemSchema.safeParse(team).success).toBe(false);
-    expect(TeamListItemSchema.safeParse({ ...team, memberCount: -1 }).success).toBe(false);
-    expect(TeamListItemSchema.safeParse({ ...team, memberCount: 1.5 }).success).toBe(false);
+    expect(TeamListItemSchema.safeParse({ ...counted, memberCount: -1 }).success).toBe(false);
+    expect(TeamListItemSchema.safeParse({ ...counted, memberCount: 1.5 }).success).toBe(false);
+    // projectCount is required too — it drives the team-move warning, and a missing count
+    // there would render "no projects" and quietly re-create the trap it exists to prevent.
+    expect(TeamListItemSchema.safeParse({ ...team, memberCount: 4 }).success).toBe(false);
   });
 
   it('parses an effective policy with nested settings', () => {
