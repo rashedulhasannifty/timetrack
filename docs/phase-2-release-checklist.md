@@ -10,20 +10,32 @@ the §11 gate line).
 
 ---
 
-## 1. Automatable gates — ✅ verified on current `main` (`673e96b`, 2026-08-06)
+## 1. Automatable gates — ✅ verified on current `main` (`2a28f50`, 2026-08-18)
 
-| Gate                                                        | Result                                  |
-| ----------------------------------------------------------- | --------------------------------------- |
-| Monorepo `pnpm lint && typecheck && test && build`          | green                                   |
-| API integration/e2e (Testcontainers, real PG/Redis/MinIO)   | 139/139                                 |
-| Worker e2e                                                  | 16/16                                   |
-| Client `swift build -c release` (Xcode toolchain)           | clean (only `#selector` style warnings) |
-| Client `swift test`                                         | **232/232**, 0 failures                 |
-| `scripts/package-app.sh` → `dist/TimeTrack.app` assembles   | ✓                                       |
-| Bundle launch smoke (starts, stays alive, no startup crash) | ✓                                       |
+Server-side gates cite the CI run rather than a hand-copied count, so this table cannot go
+stale again the way it did between 2026-08-06 and 2026-08-18.
 
-> Build note: `xcode-select -p` points at CommandLineTools; the client needs the full SDK, so
-> build with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
+| Gate                                                           | Result                                                                  |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Monorepo `pnpm lint && typecheck && test && build`             | green — CI run [32135018994][ci] (`verify`, 2m25s)                      |
+| API + contracts coverage gates (Testcontainers, real PG/Redis) | green — same run; ≥80% enforced, build fails below it                   |
+| Worker e2e (BullMQ processors, real PG/Redis/MinIO)            | ⚠️ **not covered by CI** — see the note below                           |
+| Client `swift build -c release` (Xcode toolchain)              | clean, ~20s from cold                                                   |
+| Client `swift test`                                            | **294/294**, 0 failures                                                 |
+| `scripts/package-app.sh` → `dist/Nifty Timer.app` assembles    | ✓ — bundle id `com.niftyitsolution.niftytimer`, production URLs stamped |
+| Bundle launch smoke (starts, stays alive, no startup crash)    | ✓                                                                       |
+
+[ci]: https://github.com/rashedulhasannifty/timetrack/actions/runs/32135018994
+
+> ⚠️ **Worker e2e never runs in CI.** Every worker e2e spec is `describe.runIf(RUN_E2E)`, and
+> no workflow sets `RUN_E2E=1` outside the api's own `test:coverage` script — so `pnpm test`
+> skips all of them and the run still reports green. They have to be run by hand:
+> `RUN_E2E=1 pnpm --filter @timetrack/worker test:e2e` (needs Docker). Treat the worker as
+> unverified by CI until that is wired up.
+
+> Build note: on a dev Mac `xcode-select -p` often points at CommandLineTools, which has no
+> XCTest, so local runs need `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`. CI
+> runners default to a full Xcode and need no override.
 
 The 2026-07/08 dependency upgrades (eslint 10, boundaries 7, testcontainers 12, aws-sdk, CI
 actions) do **not** touch the Swift client — it is outside the pnpm graph.
@@ -41,7 +53,7 @@ slice 2.4 and PRD §10.
       then `pnpm dev` (api + worker + dashboard).
 - [ ] A seeded user; **acknowledge the monitoring policy in the client** so `monitoringAckAt`
       is set (capture cannot start before this — that is the whole point of `AckGate`).
-- [ ] Launch `apps/client-macos/dist/TimeTrack.app`; grant **Screen Recording**,
+- [ ] Launch `apps/client-macos/dist/Nifty Timer.app`; grant **Screen Recording**,
       **Accessibility**, and **Notifications** when prompted.
 
 ### 2b. Idle & focus nudges (slice 2.4)
@@ -78,19 +90,24 @@ slice 2.4 and PRD §10.
 
 ## 3. Pre-distribution blockers — ⬜ before shipping to employees
 
-The built bundle is a **dev** bundle. Three things must change before it goes to real machines:
+Two of the three original blockers are now closed; the remaining one is an account problem,
+not a repo problem:
 
-- [ ] **Bundle id is a placeholder.** `apps/client-macos/Info.plist:13` is `com.example.timetrack`.
-      Change it to a real reverse-DNS id owned by the team **before** signing — TCC permission
-      grants (Screen Recording, etc.) key off bundle id + signing identity, and notarization
-      requires a real one.
-- [ ] **Real signing + notarization.** The machine currently has only _Apple Development_
-      identities; distribution needs a **Developer ID Application** certificate and a `notarytool`
-      keychain profile, then run the build → sign → notarize → staple flow (below).
-- [ ] **Stable dev signing for the §2 dry-run.** Sign the dev bundle with a stable
-      `CODESIGN_IDENTITY` (either _Apple Development_ identity from
-      `security find-identity -v -p codesigning`) so macOS doesn't re-prompt for Screen Recording
-      on every rebuild. Ad-hoc (the default) re-prompts each rebuild.
+- [x] **Real bundle id.** `Info.plist` carries `com.niftyitsolution.niftytimer` (was the
+      `com.example.timetrack` placeholder), and `package-app.sh` defaults to it. TCC grants key
+      off bundle id + signing identity, so this had to land before any signing.
+- [ ] **Real signing + notarization.** ⛔ Blocked on the **expired Apple Developer membership**
+      (`SIGNING.md`) — an expired membership can issue neither a Developer ID Application
+      certificate nor a notarization ticket. Until it is renewed the pilot ships unnotarized on
+      an _Apple Development_ identity. Note that the cutover cannot be delivered by auto-update:
+      `UpdateInstaller` checks a candidate against the running app's designated requirement,
+      which pins the leaf certificate CN, so an identity change requires a manual reinstall.
+- [x] **Stable dev signing for the §2 dry-run.** `package-app.sh` now auto-selects a stable
+      identity deterministically (Developer ID first, else Apple Development, fingerprints
+      sorted) instead of falling back to ad-hoc, so a granted permission survives a rebuild.
+      With more than one identity installed it prints which it picked — pin the intended one
+      with `CODESIGN_IDENTITY`, since switching identity between rebuilds re-triggers the TCC
+      prompt on its own.
 
 Build → sign → notarize → staple (full runbook:
 [`apps/client-macos/SIGNING.md`](../apps/client-macos/SIGNING.md)):
