@@ -31,16 +31,27 @@ defaults:
 jobs:
   swift:
     # arm64 image — the architecture the client actually ships on.
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
 
-      # The runner's default toolchain is a full Xcode. A dev Mac is often pointed at
-      # CommandLineTools instead, which has no XCTest — that is why local runs need
-      # DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer and CI does not. Printed
-      # so a runner-image bump that moves the Swift version is visible in the log.
-      - name: Toolchain
-        run: swift --version
+      # The client needs a Swift 6 toolchain even though Package.swift still declares
+      # swift-tools-version:5.10. Under Swift 5.10 three `self?` captures inside
+      # `ackGate.withCaptureAllowed { ... MainActor.run { self?... } }` are hard ERRORS
+      # ("reference to captured var 'self' in concurrently-executing code"), while the
+      # identical pattern in the sync engines is only a warning — the first run of this
+      # workflow failed exactly there, on the macos-14 image's Xcode 15.
+      #
+      # The manifest stays at 5.10 deliberately: raising it to 6.0 would switch the package
+      # into Swift 6 language mode and turn every one of those warnings into an error too.
+      # So CI selects the newest Xcode on the image instead, which is what the shipped
+      # builds are made with. `ls` is logged so an image bump that moves the toolchain is
+      # visible rather than mysterious.
+      - name: Select the newest installed Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          swift --version
 
       - name: swift build (release)
         run: swift build -c release
