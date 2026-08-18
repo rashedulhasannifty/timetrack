@@ -3,12 +3,19 @@ import { Avatar } from '../../../../components/ui/Avatar';
 import { buttonClasses } from '../../../../components/ui/Button';
 import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { PersonDayView } from '../../../../components/day/PersonDayView';
+import { DayAppUsage } from '../../../../components/day/DayAppUsage';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
 import { personDayView, resolveDayDate } from '../../../../lib/person-day-view';
 import { ScreenshotsPanel } from '../../me/ScreenshotsPanel';
 import { toScreenshotView } from '../../me/screenshot-view';
-import type { ActivitySample, Project, Screenshot, TimeEntry } from '@timetrack/contracts';
+import type {
+  ActivitySample,
+  Project,
+  Screenshot,
+  TeamAppUsage,
+  TimeEntry,
+} from '@timetrack/contracts';
 
 // Next 16 — route params are async.
 export default async function PersonPage({
@@ -41,12 +48,15 @@ export default async function PersonPage({
 
   // Same manager-owns-team authz applies to these reads, but a failure here shouldn't wall off
   // the whole page — it degrades the relevant panel to empty instead.
-  const [samples, screenshots, projects] = await Promise.all([
+  const [samples, screenshots, projects, appUsage] = await Promise.all([
     api.listActivitySamples(session.accessToken, search).catch((): ActivitySample[] => []),
     api.listScreenshots(session.accessToken, search).catch((): Screenshot[] => []),
     // Names for the entries. Team-scoped to the caller, so this resolves for the common
     // manager-owns-team view; a cross-team admin view degrades to "Untitled entry" per entry.
     api.listProjects(session.accessToken, { includeArchived: true }).catch((): Project[] => []),
+    // `search` already carries userId + the day window, which is what app-usage wants; the
+    // API re-checks manager-owns-team on that userId and 403s if it doesn't hold.
+    api.appUsage(session.accessToken, search).catch((): TeamAppUsage | null => null),
   ]);
 
   // Decorative header data only — never let a lookup failure crash the page.
@@ -89,6 +99,7 @@ export default async function PersonPage({
           <PersonDayView
             model={model}
             avatar={<Avatar name={person.name} size={40} />}
+            apps={<DayAppUsage usage={appUsage} />}
             screenshots={<ScreenshotsPanel shots={screenshots.map(toScreenshotView)} />}
           />
         </div>
