@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "prisma": "^7.9.1",
-    "tsx": "^4.23.11",
+    "tsx": "^4.23.12",
     "dotenv": "^17.4.2",
     "@types/pg": "^8.21.0"
   },
