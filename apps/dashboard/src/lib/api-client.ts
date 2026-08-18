@@ -205,12 +205,17 @@ export const api = {
     get(`/screenshots?${params}`, z.array(ScreenshotSchema), token),
   redactScreenshot: (token: string, id: string, dto: RedactScreenshot): Promise<Screenshot> =>
     send('POST', `/screenshots/${id}/redact`, dto, ScreenshotSchema, token),
-  listProjects: (token: string, opts?: { includeArchived?: boolean }): Promise<Project[]> =>
-    get(
-      `/projects${opts?.includeArchived ? '?includeArchived=true' : ''}`,
-      z.array(ProjectSchema),
-      token,
-    ),
+  /** `teamId` is ADMIN-only server-side; a MANAGER naming another team gets a 403. */
+  listProjects: (
+    token: string,
+    opts?: { includeArchived?: boolean; teamId?: string },
+  ): Promise<Project[]> => {
+    const q = new URLSearchParams();
+    if (opts?.includeArchived) q.set('includeArchived', 'true');
+    if (opts?.teamId) q.set('teamId', opts.teamId);
+    const qs = q.toString();
+    return get(`/projects${qs ? `?${qs}` : ''}`, z.array(ProjectSchema), token);
+  },
   listUsers: (token: string): Promise<User[]> => get('/users', z.array(UserSchema), token),
   getCurrentUser: (token: string): Promise<User> => get('/users/me', UserSchema, token),
   getCurrentTeam: (token: string): Promise<Team> => get('/teams/current', TeamSchema, token),

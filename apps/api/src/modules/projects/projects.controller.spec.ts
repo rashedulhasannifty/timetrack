@@ -48,7 +48,13 @@ describe('ProjectsController delegation', () => {
   it('list passes the parsed includeArchived flag to the service', async () => {
     const { ctrl, service } = make();
     await ctrl.list(actor, { includeArchived: true });
-    expect(service.list).toHaveBeenCalledWith(actor, true);
+    expect(service.list).toHaveBeenCalledWith(actor, true, undefined);
+  });
+
+  it('list forwards an explicit teamId so an ADMIN can read another team', async () => {
+    const { ctrl, service } = make();
+    await ctrl.list(actor, { includeArchived: false, teamId: 't2' });
+    expect(service.list).toHaveBeenCalledWith(actor, false, 't2');
   });
 
   it('update passes id, dto, and actor to the service', async () => {

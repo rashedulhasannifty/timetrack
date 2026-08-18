@@ -354,6 +354,52 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     const coveredSeconds = result.apps.reduce((sum, a) => sum + a.trackedSeconds, 0);
     expect(coveredSeconds).toBeLessThanOrEqual(result.totalSeconds);
   });
+
+  describe('setTeam — recovering a project stranded by a team change', () => {
+    it('moves the project and audits the from/to in the same transaction', async () => {
+      const eng = await seedTeam('Engineering');
+      const support = await seedTeam('Support');
+      const project = await repo().createProject(eng.id, 'Apollo', 'admin-1');
+
+      const moved = await repo().setTeam(project.id, support.id, 'admin-1');
+      expect(moved.teamId).toBe(support.id);
+
+      // It is now assignable in Support and gone from Engineering — the whole point.
+      await expect(repo().listByTeam(support.id)).resolves.toHaveLength(1);
+      await expect(repo().listByTeam(eng.id)).resolves.toHaveLength(0);
+
+      const audit = await db.prisma.auditLog.findMany({
+        where: { targetId: project.id, action: 'project.team_change' },
+      });
+      expect(audit).toHaveLength(1);
+      expect(audit[0]!.diff).toEqual({ from: eng.id, to: support.id });
+      expect(audit[0]!.actorId).toBe('admin-1');
+    });
+
+    it('carries the project’s tasks with it', async () => {
+      const eng = await seedTeam('Engineering');
+      const support = await seedTeam('Support');
+      const project = await repo().createProject(eng.id, 'Apollo', 'admin-1');
+      await repo().createTask(project.id, 'Design', 'admin-1');
+
+      await repo().setTeam(project.id, support.id, 'admin-1');
+
+      // Tasks hang off the project by FK, so they follow without being touched.
+      await expect(repo().listTasksForProject(project.id)).resolves.toHaveLength(1);
+    });
+
+    it('leaves the name, color and archived flag alone', async () => {
+      const eng = await seedTeam('Engineering');
+      const support = await seedTeam('Support');
+      const project = await repo().createProject(eng.id, 'Apollo', 'admin-1', '#ff0000');
+      await repo().setArchived(project.id, true, 'admin-1');
+
+      const moved = await repo().setTeam(project.id, support.id, 'admin-1');
+      expect(moved.name).toBe('Apollo');
+      expect(moved.color).toBe('#ff0000');
+      expect(moved.archived).toBe(true);
+    });
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.

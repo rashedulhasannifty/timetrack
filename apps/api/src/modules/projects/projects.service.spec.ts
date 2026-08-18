@@ -21,6 +21,7 @@ function makeService(overrides: Partial<ProjectsRepository> = {}) {
     listTasksForProject: vi.fn(),
     findTaskForActor: vi.fn(),
     setTaskArchived: vi.fn(),
+    setTeam: vi.fn(),
     ...overrides,
   } as unknown as ProjectsRepository;
   return { svc: new ProjectsService(repo), repo };
@@ -302,5 +303,102 @@ describe('ProjectsService.setTaskArchived', () => {
     });
     await expect(svc.setTaskArchived('t1', { archived: true }, manager)).resolves.toEqual(updated);
     expect(repo.setTaskArchived).toHaveBeenCalledWith('t1', true, 'm1');
+  });
+});
+
+const employee: SessionUser = { id: 'e1', role: 'EMPLOYEE', teamId: 't1' };
+const admin: SessionUser = { id: 'a1', role: 'ADMIN', teamId: 't1' };
+const OTHER = 't2';
+
+/**
+ * Which team's projects you get. GET /projects carries no @Roles — the macOS client calls it
+ * as an EMPLOYEE — so the role check in the service IS the gate, and these pin it.
+ */
+describe('ProjectsService.list team scoping', () => {
+  it('defaults everyone to their own team', async () => {
+    const { svc, repo } = makeService();
+    await svc.list(manager, false);
+    expect(repo.listByTeam).toHaveBeenCalledWith('t1', false);
+  });
+
+  it('lets an ADMIN read another team — the only way to find a stranded project', async () => {
+    const { svc, repo } = makeService();
+    await svc.list(admin, false, OTHER);
+    expect(repo.listByTeam).toHaveBeenCalledWith(OTHER, false);
+  });
+
+  it('403s a MANAGER naming another team', async () => {
+    const { svc, repo } = makeService();
+    await expect(svc.list(manager, false, OTHER)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(repo.listByTeam).not.toHaveBeenCalled();
+  });
+
+  it('pins an EMPLOYEE to their own team however the query is set', async () => {
+    // Not a 403 — the parameter is ignored, exactly like reports. An employee cannot widen
+    // their own scope by guessing a team id.
+    const { svc, repo } = makeService();
+    await svc.list(employee, false, OTHER);
+    expect(repo.listByTeam).toHaveBeenCalledWith('t1', false);
+  });
+
+  it('lets a MANAGER name their own team explicitly', async () => {
+    const { svc, repo } = makeService();
+    await svc.list(manager, true, 't1');
+    expect(repo.listByTeam).toHaveBeenCalledWith('t1', true);
+  });
+});
+
+describe('ProjectsService.update — moving a project between teams', () => {
+  const project = { id: 'p1', teamId: 't1', name: 'Apollo', color: null, archived: false };
+
+  it('moves the project when an ADMIN asks', async () => {
+    const { svc, repo } = makeService({
+      findForActor: vi.fn().mockResolvedValue(project),
+      setTeam: vi.fn().mockResolvedValue({ ...project, teamId: OTHER }),
+    });
+    const out = await svc.update('p1', { teamId: OTHER }, admin);
+    expect(repo.setTeam).toHaveBeenCalledWith('p1', OTHER, 'a1');
+    expect(out.teamId).toBe(OTHER);
+  });
+
+  it('403s a MANAGER trying to move one, even out of their own team', async () => {
+    const { svc, repo } = makeService({ findForActor: vi.fn().mockResolvedValue(project) });
+    await expect(svc.update('p1', { teamId: OTHER }, manager)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(repo.setTeam).not.toHaveBeenCalled();
+  });
+
+  it('treats a move to the current team as a no-op rather than an audited move', async () => {
+    const { svc, repo } = makeService({ findForActor: vi.fn().mockResolvedValue(project) });
+    await svc.update('p1', { teamId: 't1' }, admin);
+    expect(repo.setTeam).not.toHaveBeenCalled();
+  });
+
+  it('lets an ADMIN administer a project outside their own team', async () => {
+    // The un-stranding case: the admin moved themselves to t2, the project stayed in t1.
+    // Before, this 403'd and the project could not be recovered through any surface.
+    const { svc, repo } = makeService({
+      findForActor: vi.fn().mockResolvedValue({ ...project, teamId: 't1' }),
+      setArchived: vi.fn().mockResolvedValue({ ...project, archived: true }),
+    });
+    await svc.update('p1', { archived: true }, { id: 'a1', role: 'ADMIN', teamId: OTHER });
+    expect(repo.setArchived).toHaveBeenCalledWith('p1', true, 'a1');
+  });
+
+  it('still 403s a MANAGER administering another team’s project', async () => {
+    const { svc } = makeService({
+      findForActor: vi.fn().mockResolvedValue({ ...project, teamId: OTHER }),
+    });
+    await expect(svc.update('p1', { archived: true }, manager)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('404s before any authorization decision when the project is gone', async () => {
+    const { svc } = makeService({ findForActor: vi.fn().mockResolvedValue(null) });
+    await expect(svc.update('nope', { teamId: OTHER }, admin)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

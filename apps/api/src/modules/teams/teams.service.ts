@@ -45,7 +45,11 @@ export class TeamsService {
   }
 
   private toListItem(row: TeamListRow): TeamListItem {
-    return TeamListItemSchema.parse({ ...this.toTeam(row), memberCount: row.memberCount });
+    return TeamListItemSchema.parse({
+      ...this.toTeam(row),
+      memberCount: row.memberCount,
+      projectCount: row.projectCount,
+    });
   }
 
   /**

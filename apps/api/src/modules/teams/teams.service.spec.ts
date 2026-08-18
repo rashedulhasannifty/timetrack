@@ -25,8 +25,8 @@ describe('TeamsService.list', () => {
   it('carries each row’s member count through to the list item', async () => {
     const { svc } = makeService({
       list: vi.fn().mockResolvedValue([
-        { id: T1, name: 'Engineering', settings: {}, memberCount: 7 },
-        { id: T2, name: 'Support', settings: {}, memberCount: 0 },
+        { id: T1, name: 'Engineering', settings: {}, memberCount: 7, projectCount: 3 },
+        { id: T2, name: 'Support', settings: {}, memberCount: 0, projectCount: 0 },
       ]),
     });
     const teams = await svc.list();
@@ -40,7 +40,11 @@ describe('TeamsService.list', () => {
     // A row whose Json column was never written must still present a complete policy — the
     // Teams surface renders these values directly.
     const { svc } = makeService({
-      list: vi.fn().mockResolvedValue([{ id: T1, name: 'Eng', settings: {}, memberCount: 1 }]),
+      list: vi
+        .fn()
+        .mockResolvedValue([
+          { id: T1, name: 'Eng', settings: {}, memberCount: 1, projectCount: 0 },
+        ]),
     });
     const [team] = await svc.list();
     expect(team?.settings.screenshotIntervalMinutes).toBe(10);
