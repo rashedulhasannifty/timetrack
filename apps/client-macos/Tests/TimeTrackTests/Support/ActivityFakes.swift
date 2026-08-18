@@ -24,8 +24,13 @@ final class FakeAppSampler: AppSampling {
 
 final class FakeSiteResolver: SiteResolving {
     let host: String?
+    /// Call count — the sampler must not script the browser at all when no site rule could match.
+    private(set) var calls = 0
     init(host: String? = nil) { self.host = host }
-    func currentHost() -> String? { host }
+    func currentHost() -> String? {
+        calls += 1
+        return host
+    }
 }
 
 /// Minimal in-memory buffer for sampler tests.

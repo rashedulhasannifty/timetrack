@@ -11,6 +11,16 @@ protocol SiteResolving {
 }
 
 final class AppleScriptSiteResolver: SiteResolving {
+    /// Reports whether macOS is currently blocking the Apple Event (true) or has just let one
+    /// through (false). Only called when the frontmost app IS a scriptable browser — the OS has
+    /// no opinion about a non-browser, so the last known state stands. Wired to the menu-bar
+    /// warning; without it a denied permission is indistinguishable from "no site rules matched".
+    private let onAutomationDenied: (Bool) -> Void
+
+    init(onAutomationDenied: @escaping (Bool) -> Void = { _ in }) {
+        self.onAutomationDenied = onAutomationDenied
+    }
+
     /// bundle id → AppleScript returning the active-tab URL of the front window.
     private static let scripts: [String: String] = [
         "com.apple.Safari": "tell application \"Safari\" to return URL of current tab of front window",
@@ -26,8 +36,29 @@ final class AppleScriptSiteResolver: SiteResolving {
               let apple = NSAppleScript(source: script) else { return nil }
         var err: NSDictionary?
         let out = apple.executeAndReturnError(&err)
-        guard err == nil, let url = out.stringValue else { return nil }
+        if let err {
+            let code = (err[NSAppleScript.errorNumber] as? Int) ?? 0
+            onAutomationDenied(Self.isAutomationDenied(errorNumber: code))
+            return nil
+        }
+        onAutomationDenied(false)   // the event went through — permission is granted
+        guard let url = out.stringValue else { return nil }
         return Self.host(from: url)
+    }
+
+    /// Is this AppleScript failure the OS refusing us, or just nothing to read?
+    ///
+    /// - `-1743` `errAEEventNotPermitted` — Automation denied in System Settings (or never
+    ///   granted, once the prompt has been answered).
+    /// - `-1744` `errAEEventWouldRequireUserConsent` — consent has not been given and the event
+    ///   was sent without permission to prompt.
+    ///
+    /// Everything else is benign and must NOT raise the warning: `-1728` (no front window — a
+    /// browser with all windows closed), `-600` (target not running), a `chrome://` tab, a
+    /// timeout. Warning on any error would put a permanent ⚠️ on the menu bar of anyone who
+    /// happens to close their last browser window.
+    static func isAutomationDenied(errorNumber: Int) -> Bool {
+        errorNumber == -1743 || errorNumber == -1744
     }
 
     /// Pure host extraction: scheme/path/query stripped, leading `www.` removed, lowercased.

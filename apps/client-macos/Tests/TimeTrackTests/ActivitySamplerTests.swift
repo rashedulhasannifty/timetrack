@@ -14,6 +14,9 @@ final class ActivitySamplerTests: XCTestCase {
         buffer: ActivitySampleBuffering,
         policy: PolicyProviding? = nil,
         captureWindowTitles: Bool = true,
+        categorizer: Categorizer = Categorizer(productiveApps: [], unproductiveApps: [],
+                                               productiveSites: ["github.com"],
+                                               unproductiveSites: ["youtube.com"]),
         onCategorized: @escaping (TimeTrack.Category) -> Void = { _ in }
     ) -> ActivitySampler {
         ActivitySampler(
@@ -21,8 +24,7 @@ final class ActivitySamplerTests: XCTestCase {
             counter: counter,
             appSampler: app,
             siteResolver: site,
-            categorizer: Categorizer(productiveApps: [], unproductiveApps: [],
-                                     productiveSites: ["github.com"], unproductiveSites: ["youtube.com"]),
+            categorizer: categorizer,
             store: buffer,
             captureWindowTitles: captureWindowTitles,
             intervalSeconds: 60,
@@ -158,5 +160,31 @@ final class ActivitySamplerTests: XCTestCase {
         let measured = await task?.value
         XCTAssertEqual(measured, false)
         XCTAssertTrue(buffer.samples.isEmpty)
+    }
+
+    // MARK: - the browser URL is read only when a site rule could match it
+
+    func testReadsTheBrowserHostWhenTheTeamHasSiteRules() async {
+        let site = FakeSiteResolver(host: "youtube.com")
+        let buffer = MemoryActivityBuffer()
+        let sampler = makeSampler(ackRequired: false, isTracking: { true },
+                                  counter: halfActiveCounter(), site: site, buffer: buffer)
+        _ = await sampler.captureTick()
+        XCTAssertEqual(site.calls, 1)
+        XCTAssertEqual(buffer.samples.first?.category, "UNPRODUCTIVE")
+    }
+
+    func testNeverReadsTheBrowserURLWhenNoSiteRulesExist() async {
+        // No site lists ⇒ no rule could match a host, so the URL must not be read at all: no
+        // Apple Event, no Automation prompt, nothing transiently in memory (CLAUDE.md §1).
+        let site = FakeSiteResolver(host: "youtube.com")
+        let buffer = MemoryActivityBuffer()
+        let sampler = makeSampler(
+            ackRequired: false, isTracking: { true }, counter: halfActiveCounter(),
+            site: site, buffer: buffer,
+            categorizer: Categorizer(productiveApps: [], unproductiveApps: []))
+        _ = await sampler.captureTick()
+        XCTAssertEqual(site.calls, 0, "scripted the browser with no site rule to match it against")
+        XCTAssertEqual(buffer.samples.first?.category, "NEUTRAL")
     }
 }

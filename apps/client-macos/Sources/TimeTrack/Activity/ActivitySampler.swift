@@ -94,7 +94,10 @@ final class ActivitySampler {
                 guard !Task.isCancelled else { return false }
                 let capturedAt = clock()
                 let (appName, bundleId, windowTitle) = appSampler.sample(captureWindowTitles: captureWindowTitles)
-                let host = siteResolver.currentHost()  // discarded after this line; never stored/sent
+                // Only script the browser when a site rule could actually match. No site lists
+                // ⇒ the URL is never read at all (and no Automation prompt is provoked).
+                // Discarded on the next line either way; never stored, never sent.
+                let host = categorizer.hasSiteRules ? siteResolver.currentHost() : nil
                 let category = categorizer.category(appName: appName, bundleId: bundleId, host: host)
                 let sample = ActivitySample(
                     id: idGen(capturedAt), timestamp: Self.iso.string(from: capturedAt),

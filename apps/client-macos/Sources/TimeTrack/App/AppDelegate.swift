@@ -470,7 +470,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ackGate: ackGate,
             counter: EventCounter(),
             appSampler: AppSampler(),
-            siteResolver: AppleScriptSiteResolver(),
+            // A denied Apple Event means every site rule silently stops matching — surface it in
+            // the menu bar. Only meaningful when the team has site rules at all; without them the
+            // sampler never scripts the browser, so the callback never fires either.
+            siteResolver: AppleScriptSiteResolver(onAutomationDenied: { [weak self] denied in
+                Task { @MainActor in self?.statusItem.setAutomationDenied(denied) }
+            }),
             categorizer: Categorizer(
                 productiveApps: policy.settings.productiveApps,
                 unproductiveApps: policy.settings.unproductiveApps,
