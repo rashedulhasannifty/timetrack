@@ -50,7 +50,7 @@ jobs:
       # branch, so a new PR restores main's cache. Entries are content-addressed, so a
       # stale restore is never wrong — it just misses.
       - name: Restore turbo cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-${{ github.sha }}
@@ -62,7 +62,7 @@ jobs:
       # the case that actually matters — a dashboard change, where the turbo build is a
       # miss and Next has to compile.
       - name: Restore Next.js build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: apps/dashboard/.next/cache
           key: next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
