@@ -17,6 +17,10 @@ const teamSettingsFields = {
   captureWindowTitles: z.boolean(),
   autoStartOnLogin: z.boolean(),
   distractionAlertsEnabled: z.boolean(),
+  // Minutes of CONSECUTIVE unproductive activity before the FIRST nudge (client
+  // DistractionMonitor). One activity sample is one minute, and any productive/neutral sample
+  // breaks the streak, so this is "N unbroken minutes on a distracting app or site".
+  distractionThresholdMinutes: z.number().int().min(1).max(60),
   // Minutes of continued distraction between re-nudges while a streak keeps going (client
   // DistractionMonitor). Lower = more frequent reminders.
   distractionRepeatMinutes: z.number().int().min(1).max(60),
@@ -55,6 +59,9 @@ export const TeamSettingsSchema = z.object({
   captureWindowTitles: teamSettingsFields.captureWindowTitles.default(true),
   autoStartOnLogin: teamSettingsFields.autoStartOnLogin.default(false),
   distractionAlertsEnabled: teamSettingsFields.distractionAlertsEnabled.default(false),
+  // 10 was the client's hardcoded value before this became admin-editable — keep it as the
+  // default so an existing team's nudge cadence does not shift when the field appears.
+  distractionThresholdMinutes: teamSettingsFields.distractionThresholdMinutes.default(10),
   distractionRepeatMinutes: teamSettingsFields.distractionRepeatMinutes.default(5),
   // OFF by default — see the field comment. A deploy must not start emailing employees.
   timesheetReminderHours: teamSettingsFields.timesheetReminderHours.default(0),

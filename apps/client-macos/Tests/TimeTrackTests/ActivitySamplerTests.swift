@@ -14,6 +14,10 @@ final class ActivitySamplerTests: XCTestCase {
         buffer: ActivitySampleBuffering,
         policy: PolicyProviding? = nil,
         captureWindowTitles: Bool = true,
+        categorizer: Categorizer = Categorizer(productiveApps: [], unproductiveApps: [],
+                                               productiveSites: ["github.com"],
+                                               unproductiveSites: ["youtube.com"]),
+        livePolicy: LivePolicy? = nil,
         onCategorized: @escaping (TimeTrack.Category) -> Void = { _ in }
     ) -> ActivitySampler {
         ActivitySampler(
@@ -21,10 +25,10 @@ final class ActivitySamplerTests: XCTestCase {
             counter: counter,
             appSampler: app,
             siteResolver: site,
-            categorizer: Categorizer(productiveApps: [], unproductiveApps: [],
-                                     productiveSites: ["github.com"], unproductiveSites: ["youtube.com"]),
+            livePolicy: livePolicy ?? LivePolicy(.init(categorizer: categorizer,
+                                                        captureWindowTitles: captureWindowTitles,
+                                                        distraction: .off)),
             store: buffer,
-            captureWindowTitles: captureWindowTitles,
             intervalSeconds: 60,
             subBuckets: 12,
             isTracking: isTracking,
@@ -144,10 +148,11 @@ final class ActivitySamplerTests: XCTestCase {
             counter: halfActiveCounter(),
             appSampler: FakeAppSampler(),
             siteResolver: FakeSiteResolver(host: nil),
-            categorizer: Categorizer(productiveApps: [], unproductiveApps: [],
-                                     productiveSites: ["github.com"], unproductiveSites: ["youtube.com"]),
+            livePolicy: LivePolicy(.init(
+                categorizer: Categorizer(productiveApps: [], unproductiveApps: [],
+                                         productiveSites: ["github.com"], unproductiveSites: ["youtube.com"]),
+                captureWindowTitles: true, distraction: .off)),
             store: buffer,
-            captureWindowTitles: true,
             intervalSeconds: 60,
             subBuckets: 12,
             isTracking: { true },
@@ -158,5 +163,31 @@ final class ActivitySamplerTests: XCTestCase {
         let measured = await task?.value
         XCTAssertEqual(measured, false)
         XCTAssertTrue(buffer.samples.isEmpty)
+    }
+
+    // MARK: - the browser URL is read only when a site rule could match it
+
+    func testReadsTheBrowserHostWhenTheTeamHasSiteRules() async {
+        let site = FakeSiteResolver(host: "youtube.com")
+        let buffer = MemoryActivityBuffer()
+        let sampler = makeSampler(ackRequired: false, isTracking: { true },
+                                  counter: halfActiveCounter(), site: site, buffer: buffer)
+        _ = await sampler.captureTick()
+        XCTAssertEqual(site.calls, 1)
+        XCTAssertEqual(buffer.samples.first?.category, "UNPRODUCTIVE")
+    }
+
+    func testNeverReadsTheBrowserURLWhenNoSiteRulesExist() async {
+        // No site lists ⇒ no rule could match a host, so the URL must not be read at all: no
+        // Apple Event, no Automation prompt, nothing transiently in memory (CLAUDE.md §1).
+        let site = FakeSiteResolver(host: "youtube.com")
+        let buffer = MemoryActivityBuffer()
+        let sampler = makeSampler(
+            ackRequired: false, isTracking: { true }, counter: halfActiveCounter(),
+            site: site, buffer: buffer,
+            categorizer: Categorizer(productiveApps: [], unproductiveApps: []))
+        _ = await sampler.captureTick()
+        XCTAssertEqual(site.calls, 0, "scripted the browser with no site rule to match it against")
+        XCTAssertEqual(buffer.samples.first?.category, "NEUTRAL")
     }
 }

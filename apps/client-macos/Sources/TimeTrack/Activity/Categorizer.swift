@@ -30,6 +30,11 @@ struct Categorizer {
         self.unproductiveSites = unproductiveSites
     }
 
+    /// Whether ANY site rule exists. When false the caller must not read the browser's URL at
+    /// all — no rule could match it, so scripting the browser would be a privacy cost (and an
+    /// Automation prompt) bought for nothing.
+    var hasSiteRules: Bool { !productiveSites.isEmpty || !unproductiveSites.isEmpty }
+
     func category(appName: String, bundleId: String? = nil, host: String?) -> Category {
         if let host = Self.normalize(host) {
             // Most-specific term wins across both site lists; equal specificity -> unproductive.

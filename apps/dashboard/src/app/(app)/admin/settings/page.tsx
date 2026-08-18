@@ -81,6 +81,14 @@ export default async function AdminSettingsPage({
             />
             <PolicyRow label="Idle threshold" value={`${settings.idleThresholdMinutes} min`} />
             <PolicyRow
+              label="Distraction alerts"
+              value={settings.distractionAlertsEnabled ? 'On' : 'Off'}
+            />
+            <PolicyRow
+              label="Distraction threshold"
+              value={`${settings.distractionThresholdMinutes} min`}
+            />
+            <PolicyRow
               label="Distraction re-nudge"
               value={`${settings.distractionRepeatMinutes} min`}
             />

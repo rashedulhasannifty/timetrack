@@ -9,7 +9,9 @@ struct EffectivePolicy: Decodable {
     let settings: Settings
 
     /// Subset of @timetrack/contracts `TeamSettingsSchema` that the client acts on. Extra keys
-    /// in the JSON are ignored by `Decodable`. Activity fields default to the server's defaults so
+    /// in the JSON are ignored by `Decodable` — which is exactly how `distractionAlertsEnabled`
+    /// went unread for a release, so `PolicySettingsDecodeTests` now asserts every field here
+    /// against a full server body. Activity fields default to the server's defaults so
     /// a legacy/partial policy JSON (missing them) still decodes.
     struct Settings: Decodable {
         let idleThresholdMinutes: Int
@@ -17,6 +19,8 @@ struct EffectivePolicy: Decodable {
         let screenshotsEnabled: Bool
         let screenshotIntervalMinutes: Int
         let captureWindowTitles: Bool
+        let distractionAlertsEnabled: Bool
+        let distractionThresholdMinutes: Int
         let distractionRepeatMinutes: Int
         let productiveApps: [String]
         let unproductiveApps: [String]
@@ -30,6 +34,8 @@ struct EffectivePolicy: Decodable {
         /// edit `FakePolicyProvider`.
         init(idleThresholdMinutes: Int, autoStartOnLogin: Bool, screenshotsEnabled: Bool,
              screenshotIntervalMinutes: Int, captureWindowTitles: Bool = true,
+             distractionAlertsEnabled: Bool = false,
+             distractionThresholdMinutes: Int = 10,
              distractionRepeatMinutes: Int = 5,
              productiveApps: [String] = [], unproductiveApps: [String] = [],
              productiveSites: [String] = [], unproductiveSites: [String] = []) {
@@ -38,6 +44,8 @@ struct EffectivePolicy: Decodable {
             self.screenshotsEnabled = screenshotsEnabled
             self.screenshotIntervalMinutes = screenshotIntervalMinutes
             self.captureWindowTitles = captureWindowTitles
+            self.distractionAlertsEnabled = distractionAlertsEnabled
+            self.distractionThresholdMinutes = distractionThresholdMinutes
             self.distractionRepeatMinutes = distractionRepeatMinutes
             self.productiveApps = productiveApps
             self.unproductiveApps = unproductiveApps
@@ -47,7 +55,8 @@ struct EffectivePolicy: Decodable {
 
         enum CodingKeys: String, CodingKey {
             case idleThresholdMinutes, autoStartOnLogin, screenshotsEnabled, screenshotIntervalMinutes
-            case captureWindowTitles, distractionRepeatMinutes, productiveApps, unproductiveApps
+            case captureWindowTitles, distractionAlertsEnabled, distractionThresholdMinutes
+            case distractionRepeatMinutes, productiveApps, unproductiveApps
             case productiveSites, unproductiveSites
         }
 
@@ -58,6 +67,10 @@ struct EffectivePolicy: Decodable {
             screenshotsEnabled = try c.decode(Bool.self, forKey: .screenshotsEnabled)
             screenshotIntervalMinutes = try c.decode(Int.self, forKey: .screenshotIntervalMinutes)
             captureWindowTitles = try c.decodeIfPresent(Bool.self, forKey: .captureWindowTitles) ?? true
+            // The server's own defaults (contracts/team-settings.ts): alerts are OPT-IN, so an
+            // absent key means OFF — a policy that never mentions the switch must not nudge.
+            distractionAlertsEnabled = try c.decodeIfPresent(Bool.self, forKey: .distractionAlertsEnabled) ?? false
+            distractionThresholdMinutes = try c.decodeIfPresent(Int.self, forKey: .distractionThresholdMinutes) ?? 10
             distractionRepeatMinutes = try c.decodeIfPresent(Int.self, forKey: .distractionRepeatMinutes) ?? 5
             productiveApps = try c.decodeIfPresent([String].self, forKey: .productiveApps) ?? []
             unproductiveApps = try c.decodeIfPresent([String].self, forKey: .unproductiveApps) ?? []

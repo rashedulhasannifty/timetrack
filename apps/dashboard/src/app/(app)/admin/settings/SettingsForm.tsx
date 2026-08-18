@@ -266,8 +266,16 @@ export function SettingsForm({
         <Toggle
           name="distractionAlertsEnabled"
           label="Distraction alerts"
-          hint="Local-only nudges on unproductive apps; nothing is sent to managers."
+          hint="Master switch. Off means the app never nudges, whatever the lists below say. Local-only; nothing is sent to managers."
           checked={settings.distractionAlertsEnabled}
+        />
+        <NumberField
+          name="distractionThresholdMinutes"
+          label="Distraction threshold"
+          hint="Unbroken minutes on an unproductive app or site before the first nudge (1–60). A productive or uncategorized minute resets the count."
+          value={settings.distractionThresholdMinutes}
+          min={1}
+          max={60}
         />
         <NumberField
           name="distractionRepeatMinutes"

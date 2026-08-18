@@ -12,7 +12,11 @@ final class StatusItemController: NSObject {
     private let popover = NSPopover()
     private var currentState: State = .idle
     private var screenRecordingDenied = false
+    /// macOS is blocking the Apple Event that reads the front browser's tab host, so site rules
+    /// (youtube.com &c.) silently never match. Surfaced rather than swallowed.
+    private var automationDenied = false
     private var updateOverdue = false
+    private var updateVersion: String?
     /// refresh() runs once a second while tracking; build each status image once
     /// rather than re-reading it from the bundle on every tick.
     private var statusImages: [State: NSImage] = [:]
@@ -120,13 +124,26 @@ final class StatusItemController: NSObject {
     /// PREPENDED to the state — never hides the tracking indicator (CLAUDE.md §1: no kill switch).
     func showScreenRecordingDenied() {
         screenRecordingDenied = true
-        item.button?.toolTip = "Nifty Timer: Screen Recording permission needed for screenshots — open System Settings > Privacy > Screen Recording."
+        updateTooltip()
         refresh()
     }
 
+    /// Screen Recording works again (a capture succeeded). Only that flag clears — an Automation
+    /// or update warning is unrelated and must survive a successful screenshot.
     func clearWarning() {
         screenRecordingDenied = false
-        item.button?.toolTip = nil
+        updateTooltip()
+        refresh()
+    }
+
+    /// Slice 4.5 — the front browser's tab host drives the productive/unproductive SITE rules, and
+    /// reading it needs Automation (Apple Events) permission. Denied, the client can still
+    /// categorize by app, so nothing breaks loudly — the site lists just never match. That silence
+    /// is the bug this surfaces. Only raised while the team actually has site rules configured.
+    func setAutomationDenied(_ denied: Bool) {
+        guard automationDenied != denied else { return }
+        automationDenied = denied
+        updateTooltip()
         refresh()
     }
 
@@ -136,13 +153,33 @@ final class StatusItemController: NSObject {
     func setUpdateOverdue(_ overdue: Bool, version: String? = nil) {
         guard updateOverdue != overdue else { return }
         updateOverdue = overdue
-        if overdue, !screenRecordingDenied {
-            let v = version.map { " \($0)" } ?? ""
-            item.button?.toolTip = "Nifty Timer\(v) is available — open the menu to update."
-        } else if !overdue, !screenRecordingDenied {
-            item.button?.toolTip = nil
-        }
+        updateVersion = version
+        updateTooltip()
         refresh()
+    }
+
+    private func updateTooltip() {
+        item.button?.toolTip = Self.tooltip(
+            screenRecordingDenied: screenRecordingDenied, automationDenied: automationDenied,
+            updateOverdue: updateOverdue, updateVersion: updateVersion)
+    }
+
+    /// The tooltip precedence rule, pure so the ordering is testable without a status bar.
+    /// Screen Recording first (capture is actually failing), then Automation (site rules are
+    /// silently inert), then the advisory update — most actionable first.
+    static func tooltip(screenRecordingDenied: Bool, automationDenied: Bool,
+                        updateOverdue: Bool, updateVersion: String?) -> String? {
+        if screenRecordingDenied {
+            return "Nifty Timer: Screen Recording permission needed for screenshots — open System Settings > Privacy > Screen Recording."
+        }
+        if automationDenied {
+            return "Nifty Timer: Automation permission needed to categorize websites — open System Settings > Privacy > Automation and allow Nifty Timer to control your browser."
+        }
+        if updateOverdue {
+            let v = updateVersion.map { " \($0)" } ?? ""
+            return "Nifty Timer\(v) is available — open the menu to update."
+        }
+        return nil
     }
 
     private func startTicking() {
@@ -166,9 +203,9 @@ final class StatusItemController: NSObject {
         if currentState != .idle, let startedAt {
             title = " " + compactElapsed(since: startedAt)
         }
-        // One marker covers both conditions — two warning glyphs in the menu bar would be
-        // noise, and the tooltip says which it is.
-        if screenRecordingDenied || updateOverdue {
+        // One marker covers all three conditions — several warning glyphs in the menu bar would
+        // be noise, and the tooltip says which it is.
+        if screenRecordingDenied || automationDenied || updateOverdue {
             title = " ⚠️" + title
         }
         button.title = title

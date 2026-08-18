@@ -12,9 +12,10 @@ final class ActivitySampler {
     private let counter: InputCounting
     private let appSampler: AppSampling
     private let siteResolver: SiteResolving
-    private let categorizer: Categorizer
+    /// Categorization lists + captureWindowTitles are read from here on every tick, not captured
+    /// at construction, so an admin's edit applies on the next sample instead of the next launch.
+    private let livePolicy: LivePolicy
     private let store: ActivitySampleBuffering
-    private let captureWindowTitles: Bool
     private let intervalSeconds: TimeInterval
     private let subBuckets: Int
     private let isTracking: () -> Bool
@@ -30,8 +31,8 @@ final class ActivitySampler {
     private var currentCycle: Task<Void, Never>?
 
     init(ackGate: AckGate, counter: InputCounting, appSampler: AppSampling,
-         siteResolver: SiteResolving, categorizer: Categorizer, store: ActivitySampleBuffering,
-         captureWindowTitles: Bool, intervalSeconds: TimeInterval = 60, subBuckets: Int = 12,
+         siteResolver: SiteResolving, livePolicy: LivePolicy, store: ActivitySampleBuffering,
+         intervalSeconds: TimeInterval = 60, subBuckets: Int = 12,
          isTracking: @escaping () -> Bool,
          idGen: @escaping (Date) -> String = { UUIDv7.generate(now: $0) },
          clock: @escaping () -> Date = Date.init,
@@ -42,9 +43,8 @@ final class ActivitySampler {
         self.counter = counter
         self.appSampler = appSampler
         self.siteResolver = siteResolver
-        self.categorizer = categorizer
+        self.livePolicy = livePolicy
         self.store = store
-        self.captureWindowTitles = captureWindowTitles
         self.intervalSeconds = intervalSeconds
         self.subBuckets = max(1, subBuckets)
         self.isTracking = isTracking
@@ -93,9 +93,15 @@ final class ActivitySampler {
                 // Cancelled mid-cycle (e.g. sign-out) → never persist a partial-window sample.
                 guard !Task.isCancelled else { return false }
                 let capturedAt = clock()
-                let (appName, bundleId, windowTitle) = appSampler.sample(captureWindowTitles: captureWindowTitles)
-                let host = siteResolver.currentHost()  // discarded after this line; never stored/sent
-                let category = categorizer.category(appName: appName, bundleId: bundleId, host: host)
+                // One snapshot for the whole sample — a policy landing mid-tick must not title
+                // the window under one rule set and categorize it under another.
+                let policy = livePolicy.current
+                let (appName, bundleId, windowTitle) = appSampler.sample(captureWindowTitles: policy.captureWindowTitles)
+                // Only script the browser when a site rule could actually match. No site lists
+                // ⇒ the URL is never read at all (and no Automation prompt is provoked).
+                // Discarded on the next line either way; never stored, never sent.
+                let host = policy.categorizer.hasSiteRules ? siteResolver.currentHost() : nil
+                let category = policy.categorizer.category(appName: appName, bundleId: bundleId, host: host)
                 let sample = ActivitySample(
                     id: idGen(capturedAt), timestamp: Self.iso.string(from: capturedAt),
                     appName: appName, bundleId: bundleId, windowTitle: windowTitle,
