@@ -8,7 +8,8 @@ import { api, ApiError } from '../../../lib/api-client';
 import { defaultReportRange } from '../../../lib/reports-view';
 import { toProjectIndexRows } from '../../../lib/projects-index-view';
 import { formatDuration } from '../../../lib/format';
-import type { Project, ProjectSummary } from '@timetrack/contracts';
+import { ProjectTeamPicker } from '../../../components/projects/ProjectTeamPicker';
+import type { Project, ProjectSummary, TeamListItem } from '@timetrack/contracts';
 
 // Next 16 — searchParams is async. Projects index: per-project tracked hours over a range.
 // Hours come from /reports/projects (MANAGER/ADMIN); a 403 becomes the not-permitted state,
@@ -16,7 +17,7 @@ import type { Project, ProjectSummary } from '@timetrack/contracts';
 export default async function ProjectsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; includeArchived?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; includeArchived?: string; teamId?: string }>;
 }) {
   const session = await getSession();
   if (!session) return null;
@@ -27,12 +28,31 @@ export default async function ProjectsPage({
   const to = sp.to ?? fallback.to;
   const includeArchived = sp.includeArchived === 'true';
 
+  // ADMIN-only team dimension. A non-admin never sees the picker and the API pins them to
+  // their own team anyway, so a hand-typed ?teamId can't widen anything.
+  const [teams, ownTeam] =
+    session.role === 'ADMIN'
+      ? await Promise.all([
+          api.listTeams(session.accessToken).catch((): TeamListItem[] => []),
+          // Which pill to mark active when no ?teamId is set: the API defaults to the
+          // caller's own team, so that is what the list is showing.
+          api
+            .getCurrentTeam(session.accessToken)
+            .then((t) => t.id)
+            .catch(() => undefined),
+        ])
+      : [[] as TeamListItem[], undefined];
+  const selectedTeamId = teams.some((t) => t.id === sp.teamId) ? sp.teamId : undefined;
+
   let projectList: Project[] | null = null;
   let summary: ProjectSummary | null = null;
   let forbidden = false;
   try {
     [projectList, summary] = await Promise.all([
-      api.listProjects(session.accessToken, { includeArchived }),
+      api.listProjects(session.accessToken, {
+        includeArchived,
+        ...(selectedTeamId ? { teamId: selectedTeamId } : {}),
+      }),
       api.projectSummary(session.accessToken, new URLSearchParams({ from, to })),
     ]);
   } catch (e) {
@@ -45,6 +65,7 @@ export default async function ProjectsPage({
 
   // "Show/Hide archived" toggle preserves the current range and flips includeArchived.
   const toggle = new URLSearchParams({ from, to });
+  if (selectedTeamId) toggle.set('teamId', selectedTeamId);
   if (!includeArchived) toggle.set('includeArchived', 'true');
   const toggleHref = `/projects?${toggle.toString()}`;
 
@@ -62,6 +83,13 @@ export default async function ProjectsPage({
         </p>
       ) : (
         <div className="flex flex-col gap-6">
+          <ProjectTeamPicker
+            teams={teams}
+            selectedId={selectedTeamId ?? ownTeam ?? ''}
+            from={from}
+            to={to}
+            includeArchived={includeArchived}
+          />
           <NewProjectForm />
           <div className="flex items-center justify-between gap-4">
             <ReportRangePicker from={from} to={to} basePath="/projects" />

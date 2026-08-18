@@ -80,7 +80,12 @@ export default async function AdminUsersPage() {
                         <RoleSelect userId={u.id} role={u.role} />
                       </Td>
                       <Td>
-                        <TeamSelect userId={u.id} teamId={u.teamId} teams={teams} />
+                        <TeamSelect
+                          userId={u.id}
+                          userName={u.name}
+                          teamId={u.teamId}
+                          teams={teams}
+                        />
                       </Td>
                       <Td className="text-text-secondary">
                         {u.monitoringAckAt ? (
