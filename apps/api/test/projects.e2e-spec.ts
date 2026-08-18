@@ -354,13 +354,6 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     const coveredSeconds = result.apps.reduce((sum, a) => sum + a.trackedSeconds, 0);
     expect(coveredSeconds).toBeLessThanOrEqual(result.totalSeconds);
   });
-});
-
-// Keeps the file a valid, non-empty suite when e2e is disabled.
-describe('projects e2e harness', () => {
-  it('is gated behind RUN_E2E=1', () => {
-    expect(typeof RUN_E2E).toBe('boolean');
-  });
 
   describe('setTeam — recovering a project stranded by a team change', () => {
     it('moves the project and audits the from/to in the same transaction', async () => {
@@ -406,5 +399,12 @@ describe('projects e2e harness', () => {
       expect(moved.color).toBe('#ff0000');
       expect(moved.archived).toBe(true);
     });
+  });
+});
+
+// Keeps the file a valid, non-empty suite when e2e is disabled.
+describe('projects e2e harness', () => {
+  it('is gated behind RUN_E2E=1', () => {
+    expect(typeof RUN_E2E).toBe('boolean');
   });
 });
