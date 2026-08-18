@@ -8,6 +8,11 @@ export interface TeamRow {
   settings: unknown;
 }
 
+/** A TeamRow plus how many users sit in it. The list shape only — `getById` stays lean. */
+export interface TeamListRow extends TeamRow {
+  memberCount: number;
+}
+
 @Injectable()
 export class TeamsRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -19,12 +24,17 @@ export class TeamsRepository {
     });
   }
 
-  /** Every team, for the ADMIN-only picker. Ordered by name so the list is stable. */
-  list(): Promise<TeamRow[]> {
-    return this.prisma.team.findMany({
+  /**
+   * Every team, for the ADMIN-only picker and the Teams admin surface. Ordered by name so the
+   * list is stable. The member count rides along as a `_count` on this same query — one round
+   * trip for the whole list, rather than the N+1 a per-row count would cost.
+   */
+  async list(): Promise<TeamListRow[]> {
+    const rows = await this.prisma.team.findMany({
       orderBy: { name: 'asc' },
-      select: { id: true, name: true, settings: true },
+      select: { id: true, name: true, settings: true, _count: { select: { users: true } } },
     });
+    return rows.map(({ _count, ...team }) => ({ ...team, memberCount: _count.users }));
   }
 
   /**
@@ -52,6 +62,35 @@ export class TeamsRepository {
     });
   }
 
-  // TODO(scaffold): updateSettings(teamId, patch) — validate the MERGED object through
-  //                 TeamSettingsSchema before writing (never persist an unvalidated patch).
+  /**
+   * Rename a team and audit it in the same transaction. The old name is read INSIDE the
+   * transaction so the recorded diff is the rename that actually happened — a name read before
+   * the transaction could be stale by the time the update lands. Returns null when the team is
+   * gone, which the service maps to a 404.
+   *
+   * Policy edits do not come through here: they live on the admin settings route, which owns
+   * the `team.update_settings` audit trail and the merged-settings validation.
+   */
+  async rename(id: string, name: string, actorId: string): Promise<TeamRow | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const before = await tx.team.findUnique({ where: { id }, select: { name: true } });
+      if (!before) return null;
+
+      const team = await tx.team.update({
+        where: { id },
+        data: { name },
+        select: { id: true, name: true, settings: true },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: 'team.rename',
+          targetType: 'team',
+          targetId: id,
+          diff: { before: { name: before.name }, after: { name } },
+        },
+      });
+      return team;
+    });
+  }
 }

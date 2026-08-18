@@ -1,7 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { TeamSchema, TeamSettingsSchema, type CreateTeam, type Team } from '@timetrack/contracts';
+import {
+  TeamSchema,
+  TeamSettingsSchema,
+  TeamListItemSchema,
+  type CreateTeam,
+  type RenameTeam,
+  type Team,
+  type TeamListItem,
+} from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
-import { TeamsRepository, type TeamRow } from './teams.repository.js';
+import { TeamsRepository, type TeamListRow, type TeamRow } from './teams.repository.js';
 
 @Injectable()
 export class TeamsService {
@@ -27,10 +35,17 @@ export class TeamsService {
     return this.toTeam(row);
   }
 
-  /** ADMIN-only. Backs the team picker used to assign a user to a manager. */
-  async list(): Promise<Team[]> {
+  /**
+   * ADMIN-only. Backs the team picker used to assign a user to a manager, and the Teams admin
+   * surface — which is why each row carries its member count.
+   */
+  async list(): Promise<TeamListItem[]> {
     const rows = await this.repo.list();
-    return rows.map((row) => this.toTeam(row));
+    return rows.map((row) => this.toListItem(row));
+  }
+
+  private toListItem(row: TeamListRow): TeamListItem {
+    return TeamListItemSchema.parse({ ...this.toTeam(row), memberCount: row.memberCount });
   }
 
   /**
@@ -42,6 +57,17 @@ export class TeamsService {
   async create(dto: CreateTeam, actor: SessionUser): Promise<Team> {
     const settings = TeamSettingsSchema.parse({ ...(dto.settings ?? {}) });
     const row = await this.repo.create(dto.name, settings, actor.id);
+    return this.toTeam(row);
+  }
+
+  /**
+   * ADMIN-only, org-wide: renaming is an identity change, so it never touches `settings`. A
+   * team that vanished between the admin loading the list and submitting is a 404, not a
+   * silently-created row.
+   */
+  async rename(teamId: string, dto: RenameTeam, actor: SessionUser): Promise<Team> {
+    const row = await this.repo.rename(teamId, dto.name, actor.id);
+    if (!row) throw new NotFoundException({ title: 'Team not found', status: 404 });
     return this.toTeam(row);
   }
 }

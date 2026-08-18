@@ -17,6 +17,8 @@ import {
   RedactScreenshotSchema,
   TeamSettingsSchema,
   CreateTeamSchema,
+  RenameTeamSchema,
+  TeamListItemSchema,
   EffectivePolicySchema,
   InviteUserSchema,
   CreateProjectSchema,
@@ -220,6 +222,29 @@ describe('team-settings + policy', () => {
     ).toBe(false);
     // And settings stay optional entirely.
     expect(CreateTeamSchema.parse({ name: 'X' }).settings).toBeUndefined();
+  });
+
+  it('RenameTeamSchema takes a name and nothing else', () => {
+    expect(RenameTeamSchema.parse({ name: 'Support' })).toEqual({ name: 'Support' });
+    expect(RenameTeamSchema.safeParse({ name: '' }).success).toBe(false);
+    expect(RenameTeamSchema.safeParse({ name: 'x'.repeat(201) }).success).toBe(false);
+    // The reason it is not built from CreateTeamSchema.partial(): a rename must not be able to
+    // carry a policy write. The shape has no `settings` key at all, so one never survives the
+    // parse — and the API's ZodValidationPipe, which runs bodies in strict mode, turns the
+    // same payload into a 422 rather than silently dropping half of it.
+    expect(
+      RenameTeamSchema.parse({ name: 'Support', settings: { screenshotsEnabled: false } }),
+    ).toEqual({ name: 'Support' });
+  });
+
+  it('TeamListItemSchema requires the member count alongside the team', () => {
+    const team = { id: '01920000-0000-7000-8000-000000000001', name: 'Eng', settings: {} };
+    expect(TeamListItemSchema.parse({ ...team, memberCount: 4 }).memberCount).toBe(4);
+    // An empty team is a real answer, not a missing one.
+    expect(TeamListItemSchema.parse({ ...team, memberCount: 0 }).memberCount).toBe(0);
+    expect(TeamListItemSchema.safeParse(team).success).toBe(false);
+    expect(TeamListItemSchema.safeParse({ ...team, memberCount: -1 }).success).toBe(false);
+    expect(TeamListItemSchema.safeParse({ ...team, memberCount: 1.5 }).success).toBe(false);
   });
 
   it('parses an effective policy with nested settings', () => {

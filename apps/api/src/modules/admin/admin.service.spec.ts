@@ -10,7 +10,7 @@ const actor: SessionUser = { id: 'a1', role: 'ADMIN', teamId: 't1' };
 
 function makeService(overrides: Partial<AdminRepository> = {}) {
   const repo = {
-    getSettings: vi.fn().mockResolvedValue({}),
+    getSettings: vi.fn().mockResolvedValue({ settings: {} }),
     writeSettings: vi.fn().mockResolvedValue(undefined),
     listAudit: vi.fn(),
     ...overrides,
@@ -47,12 +47,54 @@ describe('AdminService.updateSettings', () => {
 
   it('normalizes a legacy/partial stored settings row before merging', async () => {
     const { svc } = makeService({
-      getSettings: vi.fn().mockResolvedValue({ screenshotIntervalMinutes: 45 }),
+      getSettings: vi.fn().mockResolvedValue({ settings: { screenshotIntervalMinutes: 45 } }),
     });
     const result = await svc.updateSettings({ screenshotBlur: 'BLUR' }, actor);
     expect(result.screenshotIntervalMinutes).toBe(45); // preserved from stored
     expect(result.screenshotBlur).toBe('BLUR'); // from patch
     expect(result.idleThresholdMinutes).toBe(5); // default filled
+  });
+
+  /**
+   * The regression this route exists for: before an explicit teamId could be passed, EVERY
+   * settings write resolved `actor.teamId`, so a second team's policy was frozen at its
+   * creation defaults. The read and the write must BOTH target the requested team — reading
+   * the right team and writing the wrong one would quietly copy one policy onto another.
+   */
+  it('reads and writes the requested team, not the actor’s own', async () => {
+    const { svc, repo } = makeService();
+    await svc.updateSettings({ screenshotsEnabled: false }, actor, 't2');
+    expect(repo.getSettings).toHaveBeenCalledWith('t2');
+    expect(repo.writeSettings).toHaveBeenCalledWith(
+      't2',
+      expect.objectContaining({ screenshotsEnabled: false }),
+      expect.any(Object) as object,
+      'a1',
+    );
+  });
+
+  it('falls back to the actor’s own team when no teamId is given', async () => {
+    const { svc, repo } = makeService();
+    await svc.updateSettings({ screenshotsEnabled: false }, actor);
+    expect(repo.getSettings).toHaveBeenCalledWith('t1');
+  });
+
+  it('404s on an unknown team instead of writing to a row that is not there', async () => {
+    const { svc, repo } = makeService({ getSettings: vi.fn().mockResolvedValue(null) });
+    await expect(svc.updateSettings({ screenshotsEnabled: false }, actor, 'gone')).rejects.toThrow(
+      NotFoundException,
+    );
+    expect(repo.writeSettings).not.toHaveBeenCalled();
+  });
+
+  it('treats an empty stored settings column as a real team, not a missing one', async () => {
+    // `{}` is what a legacy/never-edited row holds — it must still be editable. Only `null`
+    // (no such team) is a 404.
+    const { svc, repo } = makeService({ getSettings: vi.fn().mockResolvedValue({ settings: {} }) });
+    await expect(svc.updateSettings({ screenshotsEnabled: false }, actor, 't2')).resolves.toEqual(
+      expect.objectContaining({ screenshotsEnabled: false }),
+    );
+    expect(repo.writeSettings).toHaveBeenCalledOnce();
   });
 });
 

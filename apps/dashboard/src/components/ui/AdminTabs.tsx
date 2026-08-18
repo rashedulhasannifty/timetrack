@@ -11,6 +11,7 @@ type Tab = {
 const TABS: Tab[] = [
   { href: '/admin/settings', label: 'Settings' },
   { href: '/admin/users', label: 'Users' },
+  { href: '/admin/teams', label: 'Teams' },
   { href: '/admin/audit', label: 'Audit' },
 ];
 

@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { InviteUserSchema, EraseUserSchema, CreateTeamSchema, Role } from '@timetrack/contracts';
+import { InviteUserSchema, EraseUserSchema, Role } from '@timetrack/contracts';
 import { getSession } from '../../../../lib/session';
 import { api, ApiError } from '../../../../lib/api-client';
 
@@ -130,25 +130,7 @@ export async function setUserTeamAction(_prev: RowState, formData: FormData): Pr
   }
 }
 
-/**
- * Create a team. A team is a manager's group, so this is how a new manager's roster comes into
- * existence — settings are left at their defaults and edited from Admin → Settings.
- */
-export async function createTeamAction(_prev: RowState, formData: FormData): Promise<RowState> {
-  const session = await getSession();
-  if (!session || session.role !== 'ADMIN') return { ok: false, message: 'Not authorized.' };
-
-  const parsed = CreateTeamSchema.safeParse({ name: formData.get('name') });
-  if (!parsed.success) return { ok: false, message: 'Enter a team name (1–200 characters).' };
-
-  try {
-    await api.createTeam(session.accessToken, parsed.data);
-    revalidatePath('/admin/users');
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, message: e instanceof ApiError ? e.message : 'Could not create the team.' };
-  }
-}
+// Team create/rename live in ../teams/actions.ts, next to the surface that owns them.
 
 /**
  * PRD §4.4 — erase a user's data. The API enforces the same rules again (cross-team 403,

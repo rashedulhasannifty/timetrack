@@ -21,7 +21,9 @@ import {
   TeamSchema,
   TeamListSchema,
   type Team,
+  type TeamListItem,
   type CreateTeam,
+  type RenameTeam,
   ObservedAppsSchema,
   type ObservedApps,
   TokenPairSchema,
@@ -212,8 +214,8 @@ export const api = {
   listUsers: (token: string): Promise<User[]> => get('/users', z.array(UserSchema), token),
   getCurrentUser: (token: string): Promise<User> => get('/users/me', UserSchema, token),
   getCurrentTeam: (token: string): Promise<Team> => get('/teams/current', TeamSchema, token),
-  /** ADMIN-only. Backs the team pickers on the admin users page. */
-  listTeams: (token: string): Promise<Team[]> => get('/teams', TeamListSchema, token),
+  /** ADMIN-only. Backs the team pickers on the admin users page and the Teams surface. */
+  listTeams: (token: string): Promise<TeamListItem[]> => get('/teams', TeamListSchema, token),
   getObservedApps: (token: string): Promise<ObservedApps> =>
     get('/admin/observed-apps', ObservedAppsSchema, token),
   teamOverview: (token: string, date?: string): Promise<TeamOverview> =>
@@ -263,8 +265,19 @@ export const api = {
     send('PATCH', `/users/${id}`, { teamId }, UserSchema, token),
   createTeam: (token: string, dto: CreateTeam): Promise<Team> =>
     send('POST', '/teams', dto, TeamSchema, token),
-  updateTeamSettings: (token: string, patch: UpdateSettings): Promise<TeamSettings> =>
-    send('PATCH', '/admin/settings', patch, TeamSettingsSchema, token),
+  renameTeam: (token: string, teamId: string, dto: RenameTeam): Promise<Team> =>
+    send('PATCH', `/teams/${teamId}`, dto, TeamSchema, token),
+  /**
+   * Always team-scoped. `PATCH /admin/settings` (own team) still exists on the API for /v1
+   * compatibility, but the dashboard has to be able to edit a team the admin is not a member
+   * of — that is the point of the Teams surface — so the one call site always names the team.
+   */
+  updateTeamSettings: (
+    token: string,
+    teamId: string,
+    patch: UpdateSettings,
+  ): Promise<TeamSettings> =>
+    send('PATCH', `/admin/teams/${teamId}/settings`, patch, TeamSettingsSchema, token),
   listAudit: (token: string, params: URLSearchParams): Promise<AuditLogPage> =>
     get(`/admin/audit-log?${params}`, AuditLogPageSchema, token),
   eraseUser: (token: string, id: string, dto: EraseUser): Promise<void> =>

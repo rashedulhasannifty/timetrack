@@ -147,14 +147,24 @@ function ListField({
 }
 
 /**
- * The monitoring policy editor. Renders every TeamSettings field so a save is a full
- * replacement (see the action). Client component to show the save result inline. Copy is
+ * The monitoring policy editor for ONE team. Renders every TeamSettings field so a save is a
+ * full replacement (see the action). Client component to show the save result inline. Copy is
  * plain and candid about what is captured (design-prompt §0 voice).
+ *
+ * `teamId` rides along as a hidden field instead of being resolved from the session in the
+ * action: editing a team the admin is not a member of is the normal case here, so a submit
+ * that forgot which team it was showing would write the wrong team's policy.
+ *
+ * The caller MUST key this component by team id — the classification lists below are held in
+ * useState, and without a key React reuses the instance across a team switch and leaves the
+ * previous team's lists on screen.
  */
 export function SettingsForm({
+  teamId,
   settings,
   observedApps,
 }: {
+  teamId: string;
   settings: TeamSettings;
   observedApps: ObservedApp[];
 }) {
@@ -169,11 +179,12 @@ export function SettingsForm({
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      <input type="hidden" name="teamId" value={teamId} />
       <Card padding="md" className="flex flex-col gap-4">
         <div>
           <h2 className="text-text text-[15px] font-semibold">Screenshots</h2>
           <p className="text-text-secondary text-caption">
-            Applies org-wide to every macOS client.
+            Applies to every macOS client on this team.
           </p>
         </div>
         <Toggle

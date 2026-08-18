@@ -136,13 +136,22 @@ describe('api.updateTeamSettings', () => {
       unproductiveSites: [],
       productiveSites: [],
     };
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() => new Response(JSON.stringify(settings), { status: 200 })),
+    const fetchMock = vi.fn(() => new Response(JSON.stringify(settings), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(
+      await api.updateTeamSettings('tok', 'team-9', { screenshotIntervalMinutes: 15 }),
+    ).toEqual(settings);
+  });
+
+  it('addresses the team named in the call, not the caller’s own team', async () => {
+    // The whole point of the team-scoped route: the id must reach the URL. Sending this to
+    // /admin/settings would write whichever team the access token belongs to.
+    const fetchMock = vi.fn(
+      (url: string | URL) => new Response(JSON.stringify({ url: String(url) }), { status: 200 }),
     );
-    expect(await api.updateTeamSettings('tok', { screenshotIntervalMinutes: 15 })).toEqual(
-      settings,
-    );
+    vi.stubGlobal('fetch', fetchMock);
+    await api.updateTeamSettings('tok', 'team-9', {}).catch(() => undefined);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/admin/teams/team-9/settings');
   });
 });
 

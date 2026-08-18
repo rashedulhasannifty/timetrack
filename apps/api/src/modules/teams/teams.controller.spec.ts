@@ -13,6 +13,7 @@ function make() {
     getMine: vi.fn().mockResolvedValue({ id: 't1', name: 'Eng' }),
     list: vi.fn().mockResolvedValue([{ id: 't1', name: 'Eng' }]),
     create: vi.fn().mockResolvedValue({ id: 't2', name: 'Support' }),
+    rename: vi.fn().mockResolvedValue({ id: 't2', name: 'Customer Support' }),
   } as unknown as TeamsService;
   return { service, ctrl: new TeamsController(service) };
 }
@@ -36,6 +37,15 @@ describe('TeamsController', () => {
     await ctrl.create(dto, admin);
     expect(service.create).toHaveBeenCalledWith(dto, admin);
   });
+
+  it('rename passes the URL team id, not the actor’s own team', async () => {
+    const { ctrl, service } = make();
+    const dto = { name: 'Customer Support' };
+    // The admin is in t1; the team being renamed is t2. Reading the id from the actor here
+    // would silently rename the wrong team.
+    await ctrl.rename('t2', dto, admin);
+    expect(service.rename).toHaveBeenCalledWith('t2', dto, admin);
+  });
 });
 
 /**
@@ -56,6 +66,10 @@ describe('TeamsController authorization metadata', () => {
 
   it('restricts team creation to ADMIN', () => {
     expect(rolesFor(TeamsController.prototype.create)).toEqual(['ADMIN']);
+  });
+
+  it('restricts renaming a team to ADMIN', () => {
+    expect(rolesFor(TeamsController.prototype.rename)).toEqual(['ADMIN']);
   });
 
   it('leaves GET /teams/current open to any authenticated user', () => {

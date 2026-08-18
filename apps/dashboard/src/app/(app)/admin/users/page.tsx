@@ -12,7 +12,6 @@ import { InviteForm } from './InviteForm';
 import { UserRowActions } from './UserRowActions';
 import { RoleSelect } from './RoleSelect';
 import { TeamSelect } from './TeamSelect';
-import { CreateTeamForm } from './CreateTeamForm';
 
 /**
  * The admin's workforce screen: list everyone, invite new members, assign them to a manager by
@@ -46,7 +45,6 @@ export default async function AdminUsersPage() {
           </span>
         </div>
         <InviteForm teams={teams} />
-        <CreateTeamForm />
 
         {users.length === 0 ? (
           <p className="text-text-secondary text-body">

@@ -31,6 +31,15 @@ describe('AdminController', () => {
     expect(service.updateSettings).toHaveBeenCalledWith(patch, actor);
   });
 
+  it('updateTeamSettings passes the URL team id through as the third argument', async () => {
+    const { ctrl, service } = make();
+    const patch = { screenshotsEnabled: false };
+    // The actor is in t1 and is editing t2. Dropping the id here is the exact bug this route
+    // exists to fix — the write would silently land on the admin's own team instead.
+    await ctrl.updateTeamSettings('t2', patch, actor);
+    expect(service.updateSettings).toHaveBeenCalledWith(patch, actor, 't2');
+  });
+
   it('eraseUser delegates id + dto + actor', async () => {
     const { ctrl, service } = make();
     const dto = { reason: 'GDPR request' };

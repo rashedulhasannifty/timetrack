@@ -1,5 +1,12 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
-import { CreateTeamSchema, type CreateTeam, type Team } from '@timetrack/contracts';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  CreateTeamSchema,
+  RenameTeamSchema,
+  type CreateTeam,
+  type RenameTeam,
+  type Team,
+  type TeamListItem,
+} from '@timetrack/contracts';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { CurrentUser, type SessionUser } from '../../common/decorators/current-user.decorator.js';
@@ -21,7 +28,7 @@ export class TeamsController {
    */
   @Get()
   @Roles('ADMIN')
-  list(): Promise<Team[]> {
+  list(): Promise<TeamListItem[]> {
     return this.service.list();
   }
 
@@ -32,5 +39,21 @@ export class TeamsController {
     @CurrentUser() actor: SessionUser,
   ): Promise<Team> {
     return this.service.create(dto, actor);
+  }
+
+  /**
+   * Rename a team. Deliberately no `@ResourceScope` (CLAUDE.md §8.6): teams are org-wide
+   * objects with no owning user to scope against, so `@Roles('ADMIN')` IS the authorization —
+   * the same gate `list` and `create` already rely on. A MANAGER gets a 403 here, which is the
+   * point: the team list is the roster of management boundaries.
+   */
+  @Patch(':teamId')
+  @Roles('ADMIN')
+  rename(
+    @Param('teamId') teamId: string,
+    @Body(new ZodValidationPipe(RenameTeamSchema)) dto: RenameTeam,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<Team> {
+    return this.service.rename(teamId, dto, actor);
   }
 }

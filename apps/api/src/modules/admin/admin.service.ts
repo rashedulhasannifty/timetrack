@@ -34,17 +34,29 @@ export class AdminService {
     return { apps };
   }
 
-  async updateSettings(patch: UpdateSettings, actor: SessionUser): Promise<TeamSettings> {
+  /**
+   * Write a team's monitoring policy. `teamId` defaults to the actor's own team, which is what
+   * `PATCH /admin/settings` passes; `PATCH /admin/teams/:teamId/settings` passes an explicit
+   * one. ADMIN is an org-wide role, so an admin editing another team's policy is the intended
+   * capability, not an escalation — and it is the only way a second team's policy is editable
+   * at all.
+   *
+   * Both entry points land here so there is exactly ONE write path to `Team.settings`: the
+   * merge-then-validate rule and the `team.update_settings` audit row cannot drift apart.
+   */
+  async updateSettings(
+    patch: UpdateSettings,
+    actor: SessionUser,
+    teamId: string = actor.teamId,
+  ): Promise<TeamSettings> {
+    const row = await this.repo.getSettings(teamId);
+    // A team that was deleted (or a bad id in the URL) must 404, not aim a write at nothing.
+    if (!row) throw new NotFoundException({ title: 'Team not found', status: 404 });
     // Normalize the stored value (fills defaults for a legacy/partial row)...
-    const current = TeamSettingsSchema.parse(await this.repo.getSettings(actor.teamId));
+    const current = TeamSettingsSchema.parse(row.settings);
     // ...merge, then validate the MERGED object so what we persist is always complete & in-range.
     const merged = TeamSettingsSchema.parse({ ...current, ...patch });
-    await this.repo.writeSettings(
-      actor.teamId,
-      merged,
-      { before: current, after: merged },
-      actor.id,
-    );
+    await this.repo.writeSettings(teamId, merged, { before: current, after: merged }, actor.id);
     return merged;
   }
 
