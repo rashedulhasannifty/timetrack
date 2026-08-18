@@ -52,7 +52,7 @@ TCC stores the app's _designated requirement_, which pins the signing identity �
 bundle id:
 
 ```bash
-$ codesign -d -r- dist/TimeTrack.app
+$ codesign -d -r- "dist/Nifty Timer.app"
 designated => identifier "com.niftyitsolution.timetrack" and anchor apple generic
   and certificate leaf[subject.CN] = "Apple Development: developers@niftyitsolution.com (DUGT7JB37J)"
   and certificate 1[field.1.2.840.113635.100.6.2.1]
@@ -78,8 +78,11 @@ cd apps/client-macos
 # Confirm the fingerprint still matches: security find-identity -v -p codesigning
 CODESIGN_IDENTITY=18FCAD844204EED21C099C0A90E762106D55264F ./scripts/package-app.sh
 
-# ditto, not zip — it preserves the bundle's signature
-( cd dist && ditto -c -k --keepParent TimeTrack.app TimeTrack-pilot.zip )
+# Pack the zip AND the .sha256 sidecar the updater verifies against. Both asset names are
+# part of the contract: GitHubReleaseFeed looks for NiftyTimer-pilot.zip and refuses a release
+# that has no matching .sha256, so a hand-rolled zip under any other name publishes a release
+# that is invisible to every installed client.
+./scripts/release-assets.sh
 ```
 
 The packaging defaults already point at the pilot deployment
@@ -89,8 +92,8 @@ build at a local stack.
 Verify before you send it out:
 
 ```bash
-codesign --verify --deep --strict dist/TimeTrack.app   # → valid on disk
-codesign -dvv dist/TimeTrack.app 2>&1 | grep Timestamp # → secure timestamp present
+codesign --verify --deep --strict "dist/Nifty Timer.app"   # → valid on disk
+codesign -dvv "dist/Nifty Timer.app" 2>&1 | grep Timestamp # → secure timestamp present
 ```
 
 `spctl -a -vvv --type exec` reports **`rejected`** on a pilot build. That is expected, not a
@@ -102,7 +105,7 @@ binary, and a real bundle exercises code paths `swift run` and `swift test` neve
 bundle id exists, so `UNUserNotificationCenter` behaves differently). Smoke-test before sending:
 
 ```bash
-open dist/TimeTrack.app && sleep 5 && pgrep -lf TimeTrack.app   # → still running, menu bar item visible
+open "dist/Nifty Timer.app" && sleep 5 && pgrep -lf "Nifty Timer.app"   # → still running, menu bar item visible
 log show --last 1m --predicate 'process == "TimeTrack"' | grep -iE 'error|fault|abort'
 ```
 
@@ -111,13 +114,13 @@ log show --last 1m --predicate 'process == "TimeTrack"' | grep -iE 'error|fault|
 1. Unzip the file — but **don't open the app yet**.
 2. Clear the download quarantine flag _before_ moving or launching it:
    ```bash
-   xattr -dr com.apple.quarantine ~/Downloads/TimeTrack.app
+   xattr -dr com.apple.quarantine "~/Downloads/Nifty Timer.app"
    ```
    Adjust the path to wherever you unzipped it. Harmless if the flag was never set.
-3. Drag **TimeTrack.app** into **/Applications** and launch it.
-4. **If you see "TimeTrack cannot be opened because the developer cannot be verified"** — the
+3. Drag **Nifty Timer.app** into **/Applications** and launch it.
+4. **If you see "Nifty Timer cannot be opened because the developer cannot be verified"** — the
    flag was still set. Open **System Settings → Privacy & Security**, scroll to the Security
-   section, click **Open Anyway** next to TimeTrack, and launch again. On macOS 15+ the old
+   section, click **Open Anyway** next to Nifty Timer, and launch again. On macOS 15+ the old
    Ctrl-click → Open shortcut no longer works. Once per machine.
 5. Sign in, then **acknowledge the monitoring policy**. Nothing is captured until you do — that
    gate has no admin override (`Policy/AckGate`).
@@ -138,7 +141,7 @@ Shipping the zip over Slack/Drive/Mail sets the quarantine flag, which is what s
    entity name, i.e. `Nifty IT Solution Ltd.` — copy it verbatim from `security find-identity`
    rather than typing it, since `codesign` matches the CN exactly.
 3. Keep the bundle id `com.niftyitsolution.timetrack` unchanged.
-4. Warn testers to expect one Screen Recording re-prompt, and to delete any stale TimeTrack row
+4. Warn testers to expect one Screen Recording re-prompt, and to delete any stale Nifty Timer row
    left behind in System Settings → Privacy & Security → Screen Recording.
 
 ---
@@ -174,7 +177,7 @@ Shipping the zip over Slack/Drive/Mail sets the quarantine flag, which is what s
 ```bash
 cd apps/client-macos
 
-# 1. Build a release binary and assemble dist/TimeTrack.app. For a DISTRIBUTION build, point
+# 1. Build a release binary and assemble "dist/Nifty Timer.app". For a DISTRIBUTION build, point
 #    it at the production deployment (defaults are the dev/localhost values in Info.plist):
 BUNDLE_ID=com.niftyitsolution.timetrack \
 API_BASE_URL=https://<your-prod-domain>/v1 \
@@ -187,8 +190,8 @@ NOTARY_PROFILE=timetrack \
 ./scripts/sign-and-notarize.sh
 
 # 3. Confirm Gatekeeper acceptance
-spctl -a -vvv --type exec dist/TimeTrack.app
-codesign --verify --deep --strict --verbose=2 dist/TimeTrack.app
+spctl -a -vvv --type exec "dist/Nifty Timer.app"
+codesign --verify --deep --strict --verbose=2 "dist/Nifty Timer.app"
 ```
 
 The bundle id is baked into TCC permission grants, so keep it fixed once employees have
