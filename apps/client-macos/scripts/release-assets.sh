@@ -3,9 +3,9 @@
 # digest it verifies against.
 #
 # The names are part of the contract and must not drift:
-#   TimeTrack-pilot.zip         — the dashboard's DOWNLOAD_URL resolves to this via
-#                                 releases/latest/download/<name>
-#   TimeTrack-pilot.zip.sha256  — GitHubReleaseFeed refuses a release without it, so a release
+#   NiftyTimer-pilot.zip         — the dashboard's DOWNLOAD_URL resolves to this via
+#                                  releases/latest/download/<name>
+#   NiftyTimer-pilot.zip.sha256  — GitHubReleaseFeed refuses a release without it, so a release
 #                                 published without this file is invisible to the updater
 #                                 rather than installable-but-unverified. That is deliberate.
 #
