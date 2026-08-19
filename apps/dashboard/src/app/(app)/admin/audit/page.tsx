@@ -2,8 +2,6 @@ import { Forbidden } from '../../../../components/ui/Forbidden';
 import { Card } from '../../../../components/ui/Card';
 import { Button } from '../../../../components/ui/Button';
 import { Table, THead, Tbody, Tr, Th, Td } from '../../../../components/ui/Table';
-import { AdminTabs } from '../../../../components/ui/AdminTabs';
-import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { getSession } from '../../../../lib/session';
 import { api, ApiError } from '../../../../lib/api-client';
 import { actorLabel, formatDiff, toIso, buildAuditParams } from '../../../../lib/audit-view';
@@ -56,9 +54,6 @@ export default async function AdminAuditPage({
 
   return (
     <>
-      <SetPageTitle title="Admin" />
-      <AdminTabs />
-
       <div className="flex flex-col gap-4">
         <Card padding="md">
           <form method="get" className="flex flex-wrap items-end gap-3 text-label">

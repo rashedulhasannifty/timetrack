@@ -3,10 +3,10 @@ import { test, expect } from '@playwright/test';
 /**
  * SCAFFOLD: skipped so `test:e2e` passes without a browser install or a running app.
  * Remove `.skip` once seeded data + auth are wired, then run against a live dashboard.
- * Covers Slice 1: app shell — sidebar navigation, account dropdown, responsive hamburger, page title.
+ * Covers the app shell — top navigation, account dropdown, narrow-viewport nav.
  */
 test.describe.skip('app shell', () => {
-  test('sidebar shows the nav items', async ({ page }) => {
+  test('the nav row shows the nav items', async ({ page }) => {
     await page.goto('/overview');
     await expect(page.getByRole('link', { name: 'Overview' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Projects' })).toBeVisible();
@@ -38,18 +38,16 @@ test.describe.skip('app shell', () => {
     await expect(page.getByRole('button', { name: 'Sign out' })).not.toBeVisible();
   });
 
-  test('on narrow viewport (<900px) hamburger toggles sidebar overlay', async ({ page }) => {
+  test('on a narrow viewport the nav stays on screen and scrolls sideways', async ({ page }) => {
     await page.setViewportSize({ width: 800, height: 600 });
     await page.goto('/overview');
-    const toggle = page.getByRole('button', { name: /toggle navigation/i });
-    await toggle.click();
+    // No drawer to open: every item is still reachable in the row itself.
     await expect(page.getByRole('link', { name: 'Overview' })).toBeVisible();
-    await toggle.click();
-    await expect(page.getByRole('link', { name: 'Overview' })).not.toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Primary' })).toBeVisible();
   });
 
-  test('header shows the page title', async ({ page }) => {
-    await page.goto('/overview');
-    await expect(page.getByRole('heading', { name: 'Team overview' })).toBeVisible();
+  test('each page carries its own heading', async ({ page }) => {
+    await page.goto('/reports');
+    await expect(page.getByRole('heading', { name: 'Reports' })).toBeVisible();
   });
 });

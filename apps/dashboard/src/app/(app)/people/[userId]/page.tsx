@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { Avatar } from '../../../../components/ui/Avatar';
 import { buttonClasses } from '../../../../components/ui/Button';
-import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { PersonDayView } from '../../../../components/day/PersonDayView';
 import { DayAppUsage } from '../../../../components/day/DayAppUsage';
 import { getSession } from '../../../../lib/session';
@@ -85,7 +84,6 @@ export default async function PersonPage({
 
   return (
     <>
-      <SetPageTitle title={entries === null ? 'Person' : person.name} />
       {model === null ? (
         <p className="text-text-secondary text-body">You’re not permitted to view this person.</p>
       ) : (

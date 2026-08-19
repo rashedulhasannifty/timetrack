@@ -1,4 +1,3 @@
-import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { getSession } from '../../../lib/session';
 import { api } from '../../../lib/api-client';
 import { personDayView, resolveDayDate } from '../../../lib/person-day-view';
@@ -65,7 +64,7 @@ export default async function MyDataPage({
     date,
     now: new Date(),
     isSelf: true,
-    subjectName: 'You',
+    subjectName: 'My time',
     entries,
     samples,
     screenshots,
@@ -74,7 +73,6 @@ export default async function MyDataPage({
 
   return (
     <>
-      <SetPageTitle title="My time" />
       <div className="flex flex-col gap-4">
         <ApprovalsPanel rows={myApprovals} />
         <PersonDayView

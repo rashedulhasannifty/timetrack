@@ -6,7 +6,6 @@ import type {
   TeamSummary,
   TeamTrends,
 } from '@timetrack/contracts';
-import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { SectionHeader } from '../../../components/ui/SectionHeader';
 import { StatCard } from '../../../components/ui/StatCard';
 import { Card } from '../../../components/ui/Card';
@@ -143,7 +142,6 @@ export default async function OverviewPage({
 
   return (
     <>
-      <SetPageTitle title="Overview" />
       {forbidden ? (
         <p className="text-text-secondary text-body">
           You’re not permitted to view the team overview.

@@ -1,4 +1,4 @@
-import { SetPageTitle } from '../../../components/ui/PageTitleContext';
+import { PageHeader } from '../../../components/ui/PageHeader';
 import { Card } from '../../../components/ui/Card';
 import { Avatar } from '../../../components/ui/Avatar';
 import { Badge, type BadgeTone } from '../../../components/ui/Badge';
@@ -44,7 +44,10 @@ export default async function ApprovalsPage({
 
   return (
     <>
-      <SetPageTitle title="Approvals" />
+      <PageHeader
+        title="Approvals"
+        subtitle="Weekly timesheets awaiting a manager decision. Flagged weeks are held back from payroll export."
+      />
       {forbidden ? (
         <p className="text-text-secondary text-body">You’re not permitted to view approvals.</p>
       ) : rows === null ? (
@@ -55,10 +58,6 @@ export default async function ApprovalsPage({
         <p className="text-text-secondary text-body">No timesheets in this filter.</p>
       ) : (
         <div className="flex flex-col gap-4">
-          <p className="text-label text-text-secondary">
-            Weekly timesheets awaiting a manager decision. Flagged weeks are held back from payroll
-            export.
-          </p>
           <Card padding="none" className="overflow-hidden">
             <Table>
               <THead>

@@ -3,13 +3,13 @@ import { redirect } from 'next/navigation';
 import { getSession } from '../../lib/session';
 import { api, ApiError } from '../../lib/api-client';
 import { AppShell } from '../../components/ui/AppShell';
-import { TrackingFooter } from '../../components/ui/TrackingFooter';
+import { TrackingIndicator } from '../../components/ui/TrackingIndicator';
 
 /**
  * The authenticated app shell. Server Component (PRD §7.6) — the session is resolved
  * server-side; the browser never holds a long-lived API credential. A null session goes
  * to /api/auth/refresh, which reissues it or falls through to /login (see the auth route).
- * Chrome (AppShell -> Sidebar/TopBar) follows the Nifty Timer design system (tokens in globals.css).
+ * Chrome (AppShell -> AppNav) follows the Nifty Timer design system (tokens in globals.css).
  */
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const session = await getSession();
@@ -34,10 +34,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       role={me.role}
       name={me.name}
       email={me.email}
-      footer={
+      tracking={
         canSeeTracking ? (
           <Suspense fallback={null}>
-            <TrackingFooter token={session.accessToken} />
+            <TrackingIndicator token={session.accessToken} />
           </Suspense>
         ) : undefined
       }

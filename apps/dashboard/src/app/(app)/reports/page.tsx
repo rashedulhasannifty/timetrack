@@ -1,4 +1,3 @@
-import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { SectionHeader } from '../../../components/ui/SectionHeader';
 import { Card } from '../../../components/ui/Card';
 import { Button } from '../../../components/ui/Button';
@@ -47,7 +46,6 @@ export default async function ReportsPage({
 
   return (
     <>
-      <SetPageTitle title="Reports" />
       {forbidden ? (
         <p className="text-text-secondary text-body">You’re not permitted to view reports.</p>
       ) : team === null || projects === null ? (

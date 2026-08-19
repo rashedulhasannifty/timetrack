@@ -3,8 +3,6 @@ import { Card } from '../../../../components/ui/Card';
 import { Avatar } from '../../../../components/ui/Avatar';
 import { Badge } from '../../../../components/ui/Badge';
 import { Table, THead, Tbody, Tr, Th, Td } from '../../../../components/ui/Table';
-import { AdminTabs } from '../../../../components/ui/AdminTabs';
-import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
 import { formatDate } from '../../../../lib/format';
@@ -34,9 +32,6 @@ export default async function AdminUsersPage() {
 
   return (
     <>
-      <SetPageTitle title="Admin" />
-      <AdminTabs />
-
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-3">
           <span className="text-label text-text-secondary tt-numeric flex-1">

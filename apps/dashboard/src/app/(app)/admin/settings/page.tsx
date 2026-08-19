@@ -1,7 +1,5 @@
 import { Forbidden } from '../../../../components/ui/Forbidden';
 import { Card } from '../../../../components/ui/Card';
-import { AdminTabs } from '../../../../components/ui/AdminTabs';
-import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
 import { SettingsForm } from './SettingsForm';
@@ -55,8 +53,6 @@ export default async function AdminSettingsPage({
 
   return (
     <>
-      <SetPageTitle title="Admin" />
-      <AdminTabs />
       <TeamPolicyPicker teams={teams} selectedId={team.id} />
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
         {/* Keyed by team: SettingsForm holds the classification lists in useState, so without
