@@ -65,7 +65,7 @@ function makeService(
     createRefreshToken: vi.fn().mockResolvedValue('rt2'),
     findRefreshToken: vi.fn(),
     revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
-    markRotated: vi.fn().mockResolvedValue(undefined),
+    rotateRefreshToken: vi.fn().mockResolvedValue('rt2'),
     ...repo,
   } as unknown as AuthRepository;
   const invitesSvc = {
@@ -271,15 +271,66 @@ describe('AuthService.oidcCallback', () => {
 });
 
 describe('AuthService.refresh', () => {
-  it('rotates: marks the presented token rotated (linked to its successor) and issues a fresh pair', async () => {
+  it('rotates: claims the presented token and mints its successor in one transaction', async () => {
     const { svc, repo } = makeService({
       findRefreshToken: vi.fn().mockResolvedValue(liveToken),
       findIdentityById: vi.fn().mockResolvedValue(IDENTITY),
     });
     const pair = await svc.refresh({ refreshToken: 'opaque' });
-    expect(repo.markRotated).toHaveBeenCalledWith('rt1', expect.any(Date), expect.any(String));
+    expect(repo.rotateRefreshToken).toHaveBeenCalledWith(
+      'rt1',
+      'u1',
+      expect.any(String),
+      expect.any(Date),
+      expect.any(Date),
+    );
+    // The successor is created INSIDE the rotation, never as a second unlinked write.
+    expect(repo.createRefreshToken).not.toHaveBeenCalled();
+    expect(pair.accessToken).toBe('access.jwt.token');
+  });
+
+  it('serves the loser of a concurrent ROTATION — the multi-tab case', async () => {
+    // null = the conditional UPDATE matched 0 rows. Re-reading shows a sibling refresh
+    // rotated microseconds earlier, so the caller presented a token that was live when
+    // they read it: serve them an unlinked pair.
+    const rotatedByPeer = { ...liveToken, revokedAt: new Date(), replacedById: 'rt9' };
+    const { svc, repo } = makeService({
+      findRefreshToken: vi
+        .fn()
+        .mockResolvedValueOnce(liveToken)
+        .mockResolvedValueOnce(rotatedByPeer),
+      findIdentityById: vi.fn().mockResolvedValue(IDENTITY),
+      rotateRefreshToken: vi.fn().mockResolvedValue(null),
+    });
+    const pair = await svc.refresh({ refreshToken: 'opaque' });
+    expect(repo.rotateRefreshToken).toHaveBeenCalledOnce();
     expect(repo.createRefreshToken).toHaveBeenCalledOnce();
     expect(pair.accessToken).toBe('access.jwt.token');
+  });
+
+  it('lets a concurrent LOGOUT win the race instead of resurrecting the token', async () => {
+    // Same lost claim, different cause: revokedAt set with NO successor is a logout. The
+    // old unconditional write overwrote it and handed back a live successor anyway.
+    const loggedOut = { ...liveToken, revokedAt: new Date(), replacedById: null };
+    const { svc, repo } = makeService({
+      findRefreshToken: vi.fn().mockResolvedValueOnce(liveToken).mockResolvedValueOnce(loggedOut),
+      findIdentityById: vi.fn().mockResolvedValue(IDENTITY),
+      rotateRefreshToken: vi.fn().mockResolvedValue(null),
+    });
+    await expect(svc.refresh({ refreshToken: 'opaque' })).rejects.toThrow(UnauthorizedException);
+    expect(repo.createRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it('does not re-claim on the grace path — the window must not slide on replay', async () => {
+    const { svc, repo } = makeService({
+      findRefreshToken: vi
+        .fn()
+        .mockResolvedValue({ ...liveToken, revokedAt: new Date(), replacedById: 'rt2' }),
+      findIdentityById: vi.fn().mockResolvedValue(IDENTITY),
+    });
+    await svc.refresh({ refreshToken: 'opaque' });
+    expect(repo.rotateRefreshToken).not.toHaveBeenCalled();
+    expect(repo.createRefreshToken).toHaveBeenCalledOnce();
   });
 
   it('rejects a revoked token (replay) and does not re-revoke', async () => {
@@ -311,7 +362,7 @@ describe('AuthService.refresh', () => {
     });
     await expect(svc.refresh({ refreshToken: 'opaque' })).rejects.toThrow(UnauthorizedException);
     // Identity is checked before rotation, so a deactivated user's token is left untouched.
-    expect(repo.markRotated).not.toHaveBeenCalled();
+    expect(repo.rotateRefreshToken).not.toHaveBeenCalled();
     expect(repo.revokeRefreshToken).not.toHaveBeenCalled();
   });
 });
