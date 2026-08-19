@@ -1,10 +1,17 @@
 /* ============================================================================
    Nifty Timer — dashboard design tokens (Tailwind CSS v4).
-   Ported from the Claude Design handoff (design files/…/globals.css). Semantic
-   names match the macOS client's TimeTrackTokens.swift so both surfaces derive
-   from one source. Dark uses the CLASS strategy (.dark on <html>) so the manual
-   toggle wins in both directions; the root-layout inline script seeds .dark from
-   the stored preference (falling back to the OS setting) before first paint.
+   Values come from the "Dashboard Redesign — All Pages" handoff; the semantic
+   NAMES are unchanged so they still line up with the macOS client's
+   TimeTrackTokens.swift and so a value swap stays a value swap. Dark uses the
+   CLASS strategy (.dark on <html>) so the manual toggle wins in both
+   directions; the root-layout inline script seeds .dark from the stored
+   preference (falling back to the OS setting) before first paint.
+
+   The handoff carries five colour roles (accent / good / warn / bad / neutral)
+   where we carry nine names, so several names now alias one value on purpose:
+   category-productive and recording both resolve to `good`, and manual resolves
+   to `category-unproductive`. Keeping the names means callers still say what
+   they mean, and splitting a role apart later is a one-line value change.
    ============================================================================ */
 
 @import 'tailwindcss';
@@ -14,45 +21,45 @@
 
 /* --- Raw palette: light (default) ---------------------------------------- */
 :root {
-  --tt-surface: #f4f4f6;
+  --tt-surface: #f6f7f9;
   --tt-surface-raised: #ffffff;
-  --tt-separator: #d6d6db;
-  --tt-text: #1d1d1f;
-  --tt-text-secondary: #6e6e73;
-  --tt-accent: #007aff;
-  --tt-accent-hover: #0063cc;
-  --tt-destructive: #d70015;
-  --tt-category-productive: #5e5ce6;
-  --tt-category-neutral: #8e8e93;
-  --tt-category-unproductive: #ff9500;
-  --tt-recording: #30b0c7;
-  --tt-good: #34c759;
-  --tt-manual: #ffcc00;
+  --tt-separator: #e3e6ea;
+  --tt-text: #14171c;
+  --tt-text-secondary: #646c78;
+  --tt-accent: #3355e8;
+  --tt-accent-hover: #2440c9;
+  --tt-destructive: #c62f26;
+  --tt-category-productive: #127a52;
+  --tt-category-neutral: #98a0ac;
+  --tt-category-unproductive: #b26a05;
+  --tt-recording: #127a52;
+  --tt-good: #127a52;
+  --tt-manual: #b26a05;
 
-  --tt-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.08);
-  --tt-elevation-2: 0 8px 24px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.1);
-  --tt-hairline: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --tt-elevation-1: 0 1px 2px rgba(20, 23, 28, 0.05);
+  --tt-elevation-2: 0 12px 32px rgba(20, 23, 28, 0.12), 0 2px 6px rgba(20, 23, 28, 0.06);
+  --tt-hairline: inset 0 0 0 1px rgba(20, 23, 28, 0.04);
 }
 
 /* --- Raw palette: dark (manual .dark class) ------------------------------ */
 .dark {
-  --tt-surface: #1c1c1e;
-  --tt-surface-raised: #2c2c2e;
-  --tt-separator: #3a3a3c;
-  --tt-text: #f5f5f7;
-  --tt-text-secondary: #a1a1a6;
-  --tt-accent: #0a84ff;
-  --tt-accent-hover: #409cff;
-  --tt-destructive: #ff453a;
-  --tt-category-productive: #7d7aff;
-  --tt-category-neutral: #98989d;
-  --tt-category-unproductive: #ff9f0a;
-  --tt-recording: #40cbe0;
-  --tt-good: #30d158;
-  --tt-manual: #ffd60a;
+  --tt-surface: #0f1216;
+  --tt-surface-raised: #171b21;
+  --tt-separator: #262c34;
+  --tt-text: #eef1f5;
+  --tt-text-secondary: #98a1ae;
+  --tt-accent: #7d94ff;
+  --tt-accent-hover: #9dafff;
+  --tt-destructive: #f2766c;
+  --tt-category-productive: #3ecf95;
+  --tt-category-neutral: #6c7683;
+  --tt-category-unproductive: #e0a33a;
+  --tt-recording: #3ecf95;
+  --tt-good: #3ecf95;
+  --tt-manual: #e0a33a;
 
-  --tt-elevation-1: 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --tt-elevation-2: 0 8px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --tt-elevation-1: 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --tt-elevation-2: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
   --tt-hairline: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
@@ -74,10 +81,13 @@
   --color-good: var(--tt-good);
   --color-manual: var(--tt-manual);
 
-  /* Type — SF Pro via the system stack so web + macOS read as one product. */
-  --font-sans: -apple-system, 'SF Pro Text', 'SF Pro', ui-sans-serif, system-ui, sans-serif;
-  --font-display: -apple-system, 'SF Pro Display', 'SF Pro', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Type — IBM Plex, loaded by next/font in the root layout. The handoff picks it
+     for the whole surface; that does mean the dashboard no longer shares the
+     macOS client's SF Pro stack. Display and body are the same family here: the
+     handoff separates headings by size and weight, not by face. */
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, Menlo, monospace;
 
   /* Type scale (size / line-height). */
   --text-caption: 0.75rem;
