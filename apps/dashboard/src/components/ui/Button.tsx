@@ -1,21 +1,25 @@
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'react';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'destructive';
+export type ButtonVariant = 'primary' | 'secondary' | 'destructive' | 'ghost';
 export type ButtonSize = 'xs' | 'sm' | 'md';
 
+// Every control in the redesign is a pill. `secondary` sits on the raised surface with a
+// hairline and the standard card shadow, so it reads as a control even on the page ground.
 const BASE =
-  'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-50 disabled:pointer-events-none';
+  'inline-flex items-center justify-center gap-2 rounded-full font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-50 disabled:pointer-events-none';
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary: 'bg-accent text-white hover:bg-accent-hover',
-  secondary: 'bg-surface border-separator text-text hover:border-text-secondary border',
+  secondary:
+    'bg-surface-raised border-separator text-text-secondary hover:text-text hover:border-text-secondary border shadow-e1',
   destructive: 'bg-destructive text-white hover:opacity-90',
+  ghost: 'text-text-secondary hover:text-text hover:bg-surface',
 };
 
 const SIZES: Record<ButtonSize, string> = {
-  xs: 'text-caption px-2.5 py-1',
-  sm: 'text-label px-3 py-1.5',
-  md: 'text-body px-4 py-2',
+  xs: 'text-caption px-3 py-[5px]',
+  sm: 'text-caption px-[13px] py-[6px]',
+  md: 'text-label px-[17px] py-2',
 };
 
 /**
