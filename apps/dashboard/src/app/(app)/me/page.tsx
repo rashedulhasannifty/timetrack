@@ -132,11 +132,11 @@ export default async function MyDataPage({
       {tab === 'activity' ? (
         <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(340px,1fr))]">
           <Card padding="md" className="flex flex-col gap-3.5">
-            <SectionHeader label="Active minutes" note="keyboard &amp; mouse" />
+            <SectionHeader label="Active minutes" note="keyboard & mouse" />
             <ActivityBars buckets={model.activityBuckets} />
           </Card>
           <Card padding="md" className="flex flex-col gap-3.5">
-            <SectionHeader label="Your apps &amp; sites" />
+            <SectionHeader label="Your apps & sites" />
             <DayAppUsage usage={appUsage} />
           </Card>
         </div>

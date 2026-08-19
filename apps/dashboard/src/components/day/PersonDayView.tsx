@@ -62,7 +62,7 @@ export function PersonDayView({
           </section>
           {apps ? (
             <section className="flex flex-col gap-3">
-              <SectionHeader label="Apps &amp; sites" />
+              <SectionHeader label="Apps & sites" />
               {apps}
             </section>
           ) : null}

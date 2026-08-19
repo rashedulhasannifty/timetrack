@@ -35,7 +35,7 @@ export function AppShell({
 }) {
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-separator bg-surface-raised flex-none border-b">
+      <header className="border-separator bg-surface-raised sticky top-0 z-30 flex-none border-b">
         <div className="flex items-center gap-6 px-7 pt-3">
           <span className="text-text flex items-center gap-2.5 text-[15px] font-semibold tracking-[-0.01em]">
             <BrandMark size={20} />

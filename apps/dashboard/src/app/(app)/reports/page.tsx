@@ -50,7 +50,11 @@ export default async function ReportsPage({
     <>
       <PageHeader
         title="Reports"
-        subtitle={`Range ${formatDate(from)} – ${formatDate(to)} · ${team?.rows.length ?? 0} users · ${projects?.rows.length ?? 0} projects`}
+        {...(team && projects
+          ? {
+              subtitle: `Range ${formatDate(from)} – ${formatDate(to)} · ${team.rows.length} users · ${projects.rows.length} projects`,
+            }
+          : {})}
       />
       {forbidden ? (
         <p className="text-text-secondary text-body">You’re not permitted to view reports.</p>

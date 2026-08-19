@@ -3,29 +3,29 @@ import { test, expect } from '@playwright/test';
 /**
  * SCAFFOLD: skipped so `test:e2e` passes without a browser install or a running app.
  * Remove `.skip` once seeded data + auth are wired, then run against a live dashboard.
- * Covers the day-view Person screen (`PersonDayView`) — header, back link, and the
- * "Your day" / "Activity" sections shared with the `/me` self-view.
+ * Covers the day-view Person screen (`PersonDayView`) — header, the inline back link,
+ * and the day sections. `/me` composes the same leaf panels behind its own tabs.
  */
 test.describe.skip('person day view', () => {
-  test('back link is present', async ({ page }) => {
+  test('the back link names where the row was opened from', async ({ page }) => {
     await page.goto('/people/00000000-0000-0000-0000-000000000000');
-    await expect(page.getByRole('link', { name: /back/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: '← People' })).toBeVisible();
   });
 
   test('person header renders above the day view sections', async ({ page }) => {
     await page.goto('/people/00000000-0000-0000-0000-000000000000');
-    // Header row carries the Back link; the day-view sections sit below it.
-    await expect(page.getByRole('link', { name: /back/i })).toBeVisible();
-    await expect(page.getByText('Your day')).toBeVisible();
+    // The back link sits inline with the name; the day sections are below.
+    await expect(page.getByRole('link', { name: '← People' })).toBeVisible();
+    await expect(page.getByText('The day')).toBeVisible();
   });
 
-  test('"Your day" section is present', async ({ page }) => {
+  test('the day ribbon section is present', async ({ page }) => {
     await page.goto('/people/00000000-0000-0000-0000-000000000000');
-    await expect(page.getByText('Your day')).toBeVisible();
+    await expect(page.getByText('The day')).toBeVisible();
   });
 
   test('activity section is present', async ({ page }) => {
     await page.goto('/people/00000000-0000-0000-0000-000000000000');
-    await expect(page.getByText('Activity')).toBeVisible();
+    await expect(page.getByText('Activity per hour')).toBeVisible();
   });
 });

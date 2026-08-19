@@ -44,7 +44,7 @@ const GROUPS: WidgetGroup[] = [
     label: 'Detail',
     items: [
       { id: 'people', label: 'People' },
-      { id: 'projects', label: 'Projects' },
+      { id: 'project-split', label: 'Projects' },
       { id: 'apps', label: 'Apps & websites' },
     ],
   },
@@ -233,7 +233,7 @@ export default async function OverviewPage({
         </Widget>
 
         <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(340px,1fr))]">
-          <Widget id="projects">
+          <Widget id="project-split">
             <Card padding="md" className="h-full">
               <SectionHeader
                 label="Projects"
@@ -274,7 +274,7 @@ export default async function OverviewPage({
           <Widget id="apps">
             <Card padding="md" className="h-full">
               <SectionHeader
-                label="Apps &amp; websites"
+                label="Apps & websites"
                 action={
                   <Tabs
                     label="App usage category"
