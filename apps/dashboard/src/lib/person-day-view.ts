@@ -62,7 +62,13 @@ export interface PersonDayViewModel {
   isToday: boolean;
   recordingNow: boolean;
   window: { startMs: number; endMs: number };
-  stats: { trackedSeconds: number; untrackedSeconds: number; activePct: number | null };
+  stats: {
+    trackedSeconds: number;
+    untrackedSeconds: number;
+    activePct: number | null;
+    /** Productive share of *categorized* samples. Null when the day has no samples at all. */
+    productivePct: number | null;
+  };
   ribbon: {
     tracked: RibbonBlock[];
     untracked: RibbonGap[];
@@ -278,6 +284,16 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
       ? null
       : Math.round(samples.reduce((sum, s) => sum + s.activityPct, 0) / samples.length);
 
+  // Share of the day's samples classified PRODUCTIVE. The denominator is every sample, not
+  // just the productive+unproductive ones: a day spent entirely in unrated apps should read
+  // as a low productive percentage, not as an undefined one.
+  const productivePct =
+    samples.length === 0
+      ? null
+      : Math.round(
+          (samples.filter((s) => s.category === 'PRODUCTIVE').length * 100) / samples.length,
+        );
+
   const recordingNow = isToday && parsed.some((p) => p.open);
 
   const entryRows: DayEntryRow[] = parsed
@@ -382,9 +398,79 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
     isToday,
     recordingNow,
     window: { startMs: windowStartMs, endMs: windowEndMs },
-    stats: { trackedSeconds, untrackedSeconds, activePct },
+    stats: { trackedSeconds, untrackedSeconds, activePct, productivePct },
     ribbon: { tracked: trackedBlocks, untracked: untrackedGaps, captures, hourTicks },
     activityBuckets,
     entries: entryRows,
   };
+}
+
+/* ---------------------------------------------------------------------------
+   Week strip — the seven days around the one being viewed, so a day reads in the
+   context of its week instead of in isolation.
+   --------------------------------------------------------------------------- */
+
+const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const WEEK_DAY_MS = 86_400_000;
+
+export interface WeekStripDay {
+  /** 'YYYY-MM-DD' — the link target. */
+  date: string;
+  /** Single-letter day of week. */
+  dow: string;
+  /** Day of month. */
+  num: number;
+  hours: number;
+  /** Bar fill as a share of the week's busiest day, 0–100. */
+  fillPct: number;
+  selected: boolean;
+  /** Days after today can't have data; they render as inert rather than as empty days. */
+  future: boolean;
+}
+
+/** The Monday-start week containing `date`, as a [from, to] pair of ISO instants. */
+export function weekRangeFor(date: string): { from: string; to: string } {
+  const dayMs = Date.parse(`${date}T00:00:00.000Z`);
+  const dow = new Date(dayMs).getUTCDay();
+  // getUTCDay() is Sunday-based; shift so Monday is the first column.
+  const mondayOffset = (dow + 6) % 7;
+  const from = dayMs - mondayOffset * WEEK_DAY_MS;
+  return {
+    from: new Date(from).toISOString(),
+    to: new Date(from + 7 * WEEK_DAY_MS - 1).toISOString(),
+  };
+}
+
+/**
+ * Build the strip from a per-day trends series. `days` may be short or out of order — a day the
+ * series doesn't mention is rendered as zero rather than dropped, so the strip is always seven
+ * columns wide and the columns always line up with the weekday letters.
+ */
+export function weekStrip(
+  selectedDate: string,
+  days: ReadonlyArray<{ day: string; trackedSeconds: number }>,
+  today: string,
+): WeekStripDay[] {
+  const { from } = weekRangeFor(selectedDate);
+  const mondayMs = Date.parse(from);
+  const byDay = new Map(days.map((d) => [d.day, d.trackedSeconds]));
+
+  const raw = Array.from({ length: 7 }, (_, i) => {
+    const ms = mondayMs + i * WEEK_DAY_MS;
+    const date = new Date(ms).toISOString().slice(0, 10);
+    const seconds = byDay.get(date) ?? 0;
+    return {
+      date,
+      dow: DOW[new Date(ms).getUTCDay()]!,
+      num: new Date(ms).getUTCDate(),
+      hours: Math.round((seconds / 3600) * 10) / 10,
+      fillPct: 0,
+      selected: date === selectedDate,
+      future: date > today,
+    };
+  });
+
+  const peak = Math.max(0, ...raw.map((d) => d.hours));
+  for (const d of raw) d.fillPct = peak === 0 ? 0 : (d.hours / peak) * 100;
+  return raw;
 }

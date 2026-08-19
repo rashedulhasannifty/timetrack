@@ -1,5 +1,8 @@
 import Link from 'next/link';
-import { PageHeader } from '../../../components/ui/PageHeader';
+import { SetPageTitle } from '../../../components/ui/PageTitleContext';
+import { Card } from '../../../components/ui/Card';
+import { Meter } from '../../../components/ui/Meter';
+import { buttonClasses } from '../../../components/ui/Button';
 import { ReportRangePicker } from '../../../components/reports/ReportRangePicker';
 import { NewProjectForm } from '../../../components/projects/NewProjectForm';
 import { ProjectArchiveToggle } from '../../../components/projects/ProjectArchiveToggle';
@@ -71,9 +74,10 @@ export default async function ProjectsPage({
 
   return (
     <>
-      <PageHeader
+      {/* The shell header already renders the page title; this only supplies the range line. */}
+      <SetPageTitle
         title="Projects"
-        subtitle={`Tracked hours · ${from.slice(0, 10)} – ${to.slice(0, 10)}`}
+        kicker={`Tracked hours · ${from.slice(0, 10)} – ${to.slice(0, 10)}`}
       />
       {forbidden ? (
         <p className="text-text-secondary text-body">You’re not permitted to view projects.</p>
@@ -91,64 +95,106 @@ export default async function ProjectsPage({
             includeArchived={includeArchived}
           />
           <NewProjectForm />
-          <div className="flex items-center justify-between gap-4">
-            <ReportRangePicker from={from} to={to} basePath="/projects" />
-            <Link
-              href={toggleHref}
-              className="border-separator text-text hover:bg-surface inline-flex items-center rounded-md border px-3 py-1.5 text-label font-medium transition-colors"
-            >
-              {includeArchived ? 'Hide archived' : 'Show archived'}
-            </Link>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <span className="tt-numeric text-text-secondary text-label">
+              {view.rows.length} {view.rows.length === 1 ? 'project' : 'projects'} ·{' '}
+              {formatDuration(view.totalSeconds)} this period
+            </span>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <ReportRangePicker from={from} to={to} basePath="/projects" />
+              <Link href={toggleHref} className={buttonClasses('secondary', 'sm')}>
+                {includeArchived ? 'Hide archived' : 'Show archived'}
+              </Link>
+            </div>
           </div>
 
           {view.rows.length === 0 ? (
             <p className="text-text-secondary text-body">No projects yet.</p>
           ) : (
-            <ul className="bg-surface-raised border-separator divide-separator divide-y rounded-lg border shadow-e1">
-              {view.rows.map((row) => (
-                <li
-                  key={row.projectId}
-                  className="flex items-center justify-between gap-4 px-4 py-3"
-                >
-                  <Link
-                    href={`/projects/${row.projectId}`}
-                    className="hover:text-accent flex min-w-0 flex-1 items-center gap-3 transition-colors"
+            <Card padding="none" className="overflow-hidden">
+              <ul className="m-0 flex list-none flex-col p-0">
+                {view.rows.map((row) => (
+                  <li
+                    key={row.projectId}
+                    className="border-separator hover:bg-surface flex flex-wrap items-center gap-3.5 border-b px-[26px] py-4 transition-colors"
                   >
                     <span
-                      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                      className="inline-block h-[9px] w-[9px] shrink-0 rounded-full"
                       style={{ backgroundColor: row.color }}
                       aria-hidden="true"
                     />
-                    <span className="text-text truncate font-medium">{row.name}</span>
+                    <Link
+                      href={`/projects/${row.projectId}`}
+                      className="text-text hover:text-accent min-w-[190px] flex-none truncate text-[14px] font-bold transition-colors"
+                    >
+                      {row.name}
+                    </Link>
                     {row.archived && (
-                      <span className="text-text-secondary border-separator text-caption rounded-full border px-2 py-0.5">
+                      <span className="text-text-secondary border-separator text-micro rounded-full border px-2.5 py-0.5">
                         Archived
                       </span>
                     )}
-                  </Link>
-                  <span className="flex shrink-0 items-center gap-3">
-                    <span className="tt-numeric text-text-secondary text-label">
+                    <span className="text-text-secondary text-caption min-w-[130px]">
+                      {row.taskCount === 0
+                        ? 'no tasks'
+                        : `${row.taskCount} ${row.taskCount === 1 ? 'task' : 'tasks'}`}
+                    </span>
+                    <Meter pct={row.sharePct} />
+                    <span className="tt-numeric w-20 shrink-0 text-right text-[13px] font-bold">
                       {formatDuration(row.trackedSeconds)}
                     </span>
+                    <span className="tt-numeric text-neutral w-10 shrink-0 text-right text-caption">
+                      {Math.round(row.sharePct)}%
+                    </span>
                     <ProjectArchiveToggle id={row.projectId} archived={row.archived} />
-                  </span>
-                </li>
-              ))}
-              {view.noProjectSeconds > 0 && (
-                <li className="text-text-secondary flex items-center justify-between gap-4 px-4 py-3">
-                  <span className="flex items-center gap-3">
+                  </li>
+                ))}
+                {view.noProjectSeconds > 0 && (
+                  <li className="text-text-secondary flex flex-wrap items-center gap-3.5 px-[26px] py-4">
                     <span
-                      className="bg-separator inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                      className="bg-separator inline-block h-[9px] w-[9px] shrink-0 rounded-full"
                       aria-hidden="true"
                     />
-                    <span>No project</span>
-                  </span>
-                  <span className="tt-numeric text-label shrink-0">
-                    {formatDuration(view.noProjectSeconds)}
-                  </span>
-                </li>
-              )}
-            </ul>
+                    <span className="min-w-[190px] flex-none text-[14px]">No project</span>
+                    <span className="min-w-[130px]" />
+                    <Meter
+                      pct={
+                        view.totalSeconds === 0
+                          ? 0
+                          : (view.noProjectSeconds / view.totalSeconds) * 100
+                      }
+                    />
+                    <span className="tt-numeric w-20 shrink-0 text-right text-[13px]">
+                      {formatDuration(view.noProjectSeconds)}
+                    </span>
+                    <span className="w-10 shrink-0" />
+                  </li>
+                )}
+                {view.residualSeconds > 0 && (
+                  <li className="text-text-secondary border-separator flex flex-wrap items-center gap-3.5 border-t px-[26px] py-4">
+                    <span
+                      className="bg-separator inline-block h-[9px] w-[9px] shrink-0 rounded-full"
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-[190px] flex-none text-[14px]">Projects not listed</span>
+                    <span className="text-caption min-w-[130px]">
+                      archived — turn on “Show archived”
+                    </span>
+                    <Meter
+                      pct={
+                        view.totalSeconds === 0
+                          ? 0
+                          : (view.residualSeconds / view.totalSeconds) * 100
+                      }
+                    />
+                    <span className="tt-numeric w-20 shrink-0 text-right text-[13px]">
+                      {formatDuration(view.residualSeconds)}
+                    </span>
+                    <span className="w-10 shrink-0" />
+                  </li>
+                )}
+              </ul>
+            </Card>
           )}
         </div>
       )}

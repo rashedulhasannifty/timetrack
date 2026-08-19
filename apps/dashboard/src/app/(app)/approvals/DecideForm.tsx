@@ -36,7 +36,7 @@ export function DecideForm({ approvalId }: { approvalId: string }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="bg-surface border-separator text-accent cursor-pointer rounded-md border px-3 py-1 text-caption"
+        className="bg-surface-raised border-separator text-accent text-caption cursor-pointer rounded-full border px-[13px] py-[5px] font-bold"
       >
         Decide
       </button>

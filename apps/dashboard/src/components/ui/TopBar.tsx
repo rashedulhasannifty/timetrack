@@ -2,69 +2,62 @@
 
 import { usePathname } from 'next/navigation';
 import { ThemeToggle } from './ThemeToggle';
-import { AccountMenu } from './AccountMenu';
-import { usePageTitle } from './PageTitleContext';
+import { usePageKicker, usePageTitle } from './PageTitleContext';
 import { IconMenu } from './icons';
 
-const ROLE_LABEL: Record<string, string> = {
-  EMPLOYEE: 'Employee',
-  MANAGER: 'Manager',
-  ADMIN: 'Admin',
-};
+type RouteMeta = { prefix: string; title: string; kicker: string; exact?: boolean };
 
-const ROUTE_TITLES: { prefix: string; title: string; exact?: boolean }[] = [
-  { prefix: '/', title: 'Overview', exact: true },
-  { prefix: '/projects', title: 'Projects' },
-  { prefix: '/reports', title: 'Reports' },
-  { prefix: '/approvals', title: 'Approvals' },
-  { prefix: '/admin', title: 'Admin' },
-  { prefix: '/me', title: 'My time' },
-  { prefix: '/people', title: 'Team' },
+// The kicker says what the page is *for*, in the product's voice — it is the one line of the
+// chrome that is allowed to be plain English rather than a label.
+const ROUTES: RouteMeta[] = [
+  { prefix: '/', title: 'Overview', kicker: 'How the team spent its time', exact: true },
+  { prefix: '/overview', title: 'Overview', kicker: 'How the team spent its time' },
+  { prefix: '/projects', title: 'Projects', kicker: "Where the team's time goes" },
+  { prefix: '/reports', title: 'Reports', kicker: 'Ready for payroll and clients' },
+  { prefix: '/approvals', title: 'Approvals', kicker: 'Weekly timesheets awaiting a decision' },
+  { prefix: '/admin', title: 'Admin', kicker: 'Team-wide tracking policy' },
+  { prefix: '/me', title: 'My time', kicker: 'Everything here is yours only' },
+  { prefix: '/people', title: 'Team', kicker: 'Day view' },
 ];
 
-function fallbackTitle(pathname: string): string {
-  const hit = ROUTE_TITLES.find((r) =>
-    r.exact ? pathname === r.prefix : pathname.startsWith(r.prefix),
-  );
-  return hit?.title ?? 'Nifty Timer';
+function routeMeta(pathname: string): RouteMeta | undefined {
+  return ROUTES.find((r) => (r.exact ? pathname === r.prefix : pathname.startsWith(r.prefix)));
 }
 
 export function TopBar({
-  role,
-  name,
-  email,
   narrow,
   onToggleSidebar,
 }: {
-  role: string;
-  name: string;
-  email: string;
   narrow: boolean;
   onToggleSidebar: () => void;
 }) {
   const ctxTitle = usePageTitle();
+  const ctxKicker = usePageKicker();
   const pathname = usePathname();
-  const title = ctxTitle ?? fallbackTitle(pathname);
+  const route = routeMeta(pathname);
+  const title = ctxTitle ?? route?.title ?? 'Nifty Timer';
+  const kicker = ctxKicker ?? route?.kicker ?? null;
 
   return (
-    <header className="border-separator bg-surface-raised sticky top-0 z-30 flex min-h-[60px] items-center gap-4 border-b px-6 py-3">
+    <header className="flex flex-none items-end gap-3 px-6 pt-6 sm:px-10 sm:pt-[30px]">
       {narrow ? (
         <button
           type="button"
           aria-label="Toggle navigation"
           onClick={onToggleSidebar}
-          className="border-separator text-text grid h-8 w-8 flex-none place-items-center rounded-sm border"
+          className="border-separator bg-surface-raised text-text mb-1 grid h-9 w-9 flex-none place-items-center rounded-full border"
         >
           <IconMenu width={16} height={16} />
         </button>
       ) : null}
-      <h1 className="m-0 truncate text-[22px] font-semibold tracking-[-0.02em]">{title}</h1>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        {kicker ? (
+          <span className="tt-numeric text-text-secondary text-caption font-medium">{kicker}</span>
+        ) : null}
+        <h1 className="m-0 truncate text-h1 font-extrabold tracking-[-0.035em]">{title}</h1>
+      </div>
       <div className="flex-1" />
       <ThemeToggle />
-      <span className="text-caption text-text-secondary border-separator whitespace-nowrap rounded-full border px-2.5 py-[3px] font-semibold">
-        {ROLE_LABEL[role] ?? role}
-      </span>
-      <AccountMenu name={name} email={email} role={role} />
     </header>
   );
 }

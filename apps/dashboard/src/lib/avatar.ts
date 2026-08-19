@@ -1,13 +1,13 @@
 /** Deterministic initials + chip colors for people avatars (no PII beyond the name). */
 export const AVATAR_PALETTE: ReadonlyArray<{ bg: string; fg: string }> = [
-  { bg: '#cfe4ff', fg: '#0b3d80' },
-  { bg: '#ede0ff', fg: '#4b2673' },
-  { bg: '#d3f2e3', fg: '#0f5132' },
-  { bg: '#ffe6cc', fg: '#8a4b00' },
-  { bg: '#ffd9e0', fg: '#8a1030' },
-  { bg: '#d9f0f5', fg: '#0a4d5c' },
-  { bg: '#fff3cc', fg: '#7a5900' },
-  { bg: '#e3e6ea', fg: '#3a3f47' },
+  { bg: '#e7efee', fg: '#0f5a53' },
+  { bg: '#e9e7f3', fg: '#4a4494' },
+  { bg: '#e5efe4', fg: '#2f6b2c' },
+  { bg: '#f5ead9', fg: '#8a5410' },
+  { bg: '#f6e3de', fg: '#93392c' },
+  { bg: '#e1eef2', fg: '#155e6e' },
+  { bg: '#f2e4ec', fg: '#8b2f5c' },
+  { bg: '#ecebe5', fg: '#5b5947' },
 ];
 
 export function initialsFor(name: string): string {

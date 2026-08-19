@@ -31,7 +31,7 @@ export function ThemeToggle() {
       type="button"
       onClick={toggle}
       aria-label={dark ? 'Switch to light appearance' : 'Switch to dark appearance'}
-      className="border-separator text-text-secondary hover:text-text grid h-8 w-8 place-items-center rounded-full border transition-colors"
+      className="border-separator bg-surface-raised text-text-secondary hover:text-text shadow-e1 mb-1 grid h-9 w-9 flex-none place-items-center rounded-full border transition-colors"
     >
       {dark ? <IconSun width={16} height={16} /> : <IconMoon width={16} height={16} />}
     </button>

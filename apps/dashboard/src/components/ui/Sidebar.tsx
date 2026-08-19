@@ -12,7 +12,8 @@ import {
   IconAdmin,
   IconDownload,
 } from './icons';
-import { BrandMark } from './BrandMark';
+import { BrandChip } from './BrandMark';
+import { AccountMenu } from './AccountMenu';
 
 type Item = {
   href: string;
@@ -26,6 +27,9 @@ type SidebarProps = {
   open: boolean;
   onNavigate: () => void;
   footer?: ReactNode;
+  name: string;
+  email: string;
+  role: string;
 };
 
 const PRIMARY: Item[] = [
@@ -45,7 +49,11 @@ const SECONDARY: Item[] = [
 ];
 
 function isActive(pathname: string, item: Item): boolean {
-  if (item.exact) return pathname === item.href;
+  if (item.exact) {
+    // A person's day view is reached from the Overview people table and has no nav item of
+    // its own, so Overview stays lit while you are inside it rather than nothing being lit.
+    return pathname === item.href || pathname.startsWith('/people/');
+  }
   // Admin spans /admin/*; others match their own subtree.
   const base = item.href === '/admin/settings' ? '/admin' : item.href;
   return pathname === base || pathname.startsWith(base + '/');
@@ -66,38 +74,40 @@ function NavLink({
       href={item.href}
       aria-current={active ? 'page' : undefined}
       onClick={onNavigate}
-      className={`flex items-center gap-3 rounded-md px-3 py-2 text-label transition-colors ${
+      className={`text-label flex items-center gap-[11px] rounded-[11px] border px-[11px] py-[9px] font-semibold transition-colors ${
         active
-          ? 'bg-surface text-text font-medium'
-          : 'text-text-secondary hover:bg-surface hover:text-text'
+          ? 'bg-surface-raised border-separator text-text shadow-e1'
+          : 'text-text-secondary hover:text-text border-transparent'
       }`}
     >
-      <Icon className={active ? 'text-accent' : ''} />
-      <span>{item.label}</span>
+      <Icon width={18} height={18} className="flex-none" />
+      <span className="flex-1">{item.label}</span>
     </Link>
   );
 }
 
-export function Sidebar({ narrow, open, onNavigate, footer }: SidebarProps) {
+export function Sidebar({ narrow, open, onNavigate, footer, name, email, role }: SidebarProps) {
   const pathname = usePathname();
+  // Off-canvas below 900px, so it needs its own opaque ground and a shadow; docked it sits
+  // directly on the page surface with no divider — the raised nav pill carries the edge.
   const positionClass = narrow
-    ? 'fixed inset-y-0 left-0 z-[70] shadow-e2 transition-transform duration-200'
+    ? 'fixed inset-y-0 left-0 z-[70] bg-surface shadow-e2 transition-transform duration-200'
     : 'sticky top-0 h-screen';
   const transform = narrow ? { transform: `translateX(${open ? '0' : '-105%'})` } : undefined;
   return (
     <aside
-      className={`bg-surface-raised border-separator flex w-60 shrink-0 flex-col border-r px-4 py-5 ${positionClass}`}
+      className={`flex w-[224px] shrink-0 flex-col px-4 pb-5 pt-6 ${positionClass}`}
       style={transform}
       aria-label="Primary"
     >
-      <div className="mb-7 flex items-center gap-2.5 px-2">
-        <BrandMark size={26} />
-        <span className="text-text font-display text-[17px] font-semibold tracking-tight">
+      <div className="flex items-center gap-2.5 px-2.5 pb-7">
+        <BrandChip size={28} />
+        <span className="text-text font-display text-[15.5px] font-extrabold tracking-[-0.02em]">
           Nifty Timer
         </span>
       </div>
 
-      <nav className="flex flex-col gap-1">
+      <nav className="flex flex-col gap-0.5">
         {PRIMARY.map((item) => (
           <NavLink
             key={item.href}
@@ -108,9 +118,9 @@ export function Sidebar({ narrow, open, onNavigate, footer }: SidebarProps) {
         ))}
       </nav>
 
-      <div className="border-separator my-4 border-t" />
+      <div className="tt-eyebrow text-neutral px-2.5 pb-2 pt-6">You</div>
 
-      <nav className="flex flex-col gap-1">
+      <nav className="flex flex-col gap-0.5">
         {SECONDARY.map((item) => (
           <NavLink
             key={item.href}
@@ -121,7 +131,10 @@ export function Sidebar({ narrow, open, onNavigate, footer }: SidebarProps) {
         ))}
       </nav>
 
-      {footer ? <div className="mt-auto px-2 pt-4">{footer}</div> : null}
+      <div className="mt-auto flex flex-col gap-3.5 pt-6">
+        {footer}
+        <AccountMenu name={name} email={email} role={role} />
+      </div>
     </aside>
   );
 }

@@ -15,7 +15,11 @@ export function Tbody({ children }: { children: ReactNode }) {
   return <tbody>{children}</tbody>;
 }
 
-/** Row; `interactive` adds hover/cursor styling only (any click handler stays with the caller). */
+/**
+ * Row. The rule sits on the row's TOP edge rather than each cell's bottom, so the last row
+ * meets the card's rounded corner cleanly instead of drawing a line across it.
+ * `interactive` adds hover/cursor styling only (any click handler stays with the caller).
+ */
 export function Tr({
   children,
   interactive = false,
@@ -28,7 +32,7 @@ export function Tr({
 } & HTMLAttributes<HTMLTableRowElement>) {
   const hover = interactive ? 'hover:bg-surface cursor-pointer' : '';
   return (
-    <tr className={`${hover} ${className}`.trim()} {...rest}>
+    <tr className={`border-separator border-t ${hover} ${className}`.trim()} {...rest}>
       {children}
     </tr>
   );
@@ -37,7 +41,7 @@ export function Tr({
 const HEAD_ALIGN = { left: 'text-left', right: 'text-right' } as const;
 
 /**
- * Header cell. Unifies the header styling that was copy-pasted across the tables. When `sortable`,
+ * Header cell — the `tt-eyebrow` voice (10.5px, heavy, uppercase, wide). When `sortable`,
  * wraps children in a button and shows a caret from `sortDirection` (↑ asc / ↓ desc / ⇅ inactive);
  * the sort state + handler stay with the caller (used only by the client Reports table).
  */
@@ -56,8 +60,7 @@ export function Th({
   onSortClick?: () => void;
   className?: string;
 }) {
-  const base =
-    `text-caption text-text-secondary border-separator border-b px-[18px] py-3 font-semibold ${HEAD_ALIGN[align]} ${className}`.trim();
+  const base = `tt-eyebrow text-neutral px-[26px] py-3 ${HEAD_ALIGN[align]} ${className}`.trim();
   if (!sortable) {
     return (
       <th scope="col" className={base}>
@@ -77,7 +80,7 @@ export function Th({
       <button
         type="button"
         onClick={onSortClick}
-        className="inline-flex items-center gap-1 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+        className="focus-visible:outline-accent inline-flex items-center gap-1 focus-visible:outline-2 focus-visible:outline-offset-1"
       >
         {children} <span aria-hidden="true">{caret}</span>
       </button>
@@ -96,12 +99,9 @@ export function Td({
   align?: 'left' | 'right';
   className?: string;
 } & TdHTMLAttributes<HTMLTableCellElement>) {
-  const alignCls = align === 'right' ? 'text-right tt-numeric' : 'text-left';
+  const alignCls = align === 'right' ? 'tt-numeric text-right' : 'text-left';
   return (
-    <td
-      className={`border-separator border-b px-[18px] py-[11px] ${alignCls} ${className}`.trim()}
-      {...rest}
-    >
+    <td className={`px-[26px] py-[13px] ${alignCls} ${className}`.trim()} {...rest}>
       {children}
     </td>
   );

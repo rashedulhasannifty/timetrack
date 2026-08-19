@@ -4,7 +4,9 @@ import {
   ActivityDailySummarySchema,
   type ActivityDailySummary,
   IdleEventSchema,
+  IdleEventResultSchema,
   type IdleEvent,
+  type IdleEventResult,
   ScreenshotSchema,
   type Screenshot,
   TimeEntrySchema,
@@ -227,6 +229,16 @@ export const api = {
     get(`/activity-summaries?${params}`, z.array(ActivityDailySummarySchema), token),
   listIdleEvents: (token: string, params: URLSearchParams): Promise<IdleEvent[]> =>
     get(`/idle-events?${params}`, z.array(IdleEventSchema), token),
+  /**
+   * Re-post an idle event to change how it resolved. `POST /idle-events` is an idempotent
+   * upsert on the client-minted id (the Mac client's offline-drain contract), and its update
+   * branch writes resolvedAction -- so this is the resolve path, not a second endpoint.
+   *
+   * Self-attributed by the API: the row is always written against the CALLER's user id, so a
+   * manager cannot resolve someone else's period this way. Employee-only by construction.
+   */
+  upsertIdleEvent: (token: string, event: IdleEvent): Promise<IdleEventResult> =>
+    send('POST', '/idle-events', event, IdleEventResultSchema, token),
   listScreenshots: (token: string, params: URLSearchParams): Promise<Screenshot[]> =>
     get(`/screenshots?${params}`, z.array(ScreenshotSchema), token),
   redactScreenshot: (token: string, id: string, dto: RedactScreenshot): Promise<Screenshot> =>

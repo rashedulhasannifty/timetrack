@@ -1,6 +1,7 @@
 import Link from 'next/link';
-import { PageHeader } from '../../../../components/ui/PageHeader';
+import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { SectionHeader } from '../../../../components/ui/SectionHeader';
+import { buttonClasses } from '../../../../components/ui/Button';
 import { Card } from '../../../../components/ui/Card';
 import { ReportRangePicker } from '../../../../components/reports/ReportRangePicker';
 import { ProjectHoursChart } from '../../../../components/charts/ProjectHoursChart';
@@ -79,15 +80,22 @@ export default async function ProjectDetailPage({
 
   return (
     <>
-      <div className="mb-2">
-        <Link href="/projects" className="text-text-secondary hover:text-text text-label">
+      <SetPageTitle
+        title={detail?.name ?? 'Project'}
+        kicker={
+          detail
+            ? `${formatDuration(detail.totalSeconds)} tracked · ${from.slice(0, 10)} – ${to.slice(0, 10)}`
+            : 'Project'
+        }
+      />
+      <div className="mb-3">
+        <Link href="/projects" className={buttonClasses('secondary', 'sm')}>
           ← Projects
         </Link>
       </div>
 
       {detail === null ? (
         <>
-          <PageHeader title="Project" />
           <p className="text-text-secondary text-body">
             {state === 'notfound'
               ? 'Project not found.'
@@ -104,9 +112,11 @@ export default async function ProjectDetailPage({
               style={{ backgroundColor: detail.color ?? projectColor(detail.projectId) }}
               aria-hidden="true"
             />
-            <h1 className="text-text text-h1 font-display font-semibold">{detail.name}</h1>
+            <h2 className="text-text text-h2 font-display font-extrabold tracking-[-0.02em]">
+              {detail.name}
+            </h2>
             {detail.archived && (
-              <span className="text-text-secondary border-separator text-caption rounded-full border px-2 py-0.5">
+              <span className="text-text-secondary border-separator text-micro rounded-full border px-2.5 py-0.5">
                 Archived
               </span>
             )}

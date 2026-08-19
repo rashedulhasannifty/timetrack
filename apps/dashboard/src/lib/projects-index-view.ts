@@ -7,25 +7,39 @@ export type ProjectIndexRow = {
   archived: boolean;
   trackedSeconds: number;
   color: string;
+  /** Non-archived tasks on the project, from the nested `tasks` the list endpoint returns. */
+  taskCount: number;
+  /** Share of the range's total tracked time, 0–100. */
+  sharePct: number;
+};
+
+export type ProjectIndexView = {
+  rows: ProjectIndexRow[];
+  noProjectSeconds: number;
+  /**
+   * Hours belonging to a project that isn't in `projects` — reachable on the default view,
+   * where /reports/projects aggregates archived projects too but listProjects returns
+   * active-only. Kept as its own bucket so the shares reconcile to 100 instead of silently
+   * losing the time. Zero once `includeArchived` is on.
+   */
+  residualSeconds: number;
+  /** Everything the summary reported, including both buckets — the shares' denominator. */
+  totalSeconds: number;
 };
 
 /**
- * Merge the project list (names, archived) with per-project hours (from /reports/projects) into
- * sorted index rows. The null-projectId "No project" bucket is not a project — its seconds are
- * returned separately for a muted footer row. Pure; unit-tested. No I/O.
+ * Merge the project list (names, archived, tasks) with per-project hours (from
+ * /reports/projects) into sorted index rows. The null-projectId "No project" bucket is not a
+ * project — its seconds are returned separately for a muted footer row. Pure; unit-tested. No I/O.
  *
- * KNOWN GAP (revisit when a slice renders a grand total): only the forward join is covered —
- * every project gets a row. A non-null-projectId summary row with NO matching project in
- * `projects` has its seconds silently dropped (neither a row nor `noProjectSeconds`). This IS
- * reachable on the default view: /reports/projects aggregates all projects incl. archived, but
- * listProjects returns active-only by default, so an archived project with in-range hours is
- * absent from `projects`. Benign here (Slice 1 shows no total, so nothing fails to reconcile);
- * when a total/reconciliation is added, route unmatched non-null seconds into a residual bucket.
+ * Both joins are now covered. A summary row whose non-null projectId has no matching project
+ * used to have its seconds dropped entirely; they land in `residualSeconds` instead, which is
+ * what lets `sharePct` add up to 100.
  */
 export function toProjectIndexRows(
   projects: Project[],
   summaryRows: ProjectSummaryRow[],
-): { rows: ProjectIndexRow[]; noProjectSeconds: number } {
+): ProjectIndexView {
   const secondsById = new Map<string, number>();
   let noProjectSeconds = 0;
   for (const r of summaryRows) {
@@ -33,14 +47,29 @@ export function toProjectIndexRows(
     else secondsById.set(r.projectId, r.trackedSeconds);
   }
 
-  const rows: ProjectIndexRow[] = projects.map((p) => ({
-    projectId: p.id,
-    name: p.name,
-    archived: p.archived,
-    trackedSeconds: secondsById.get(p.id) ?? 0,
-    color: p.color ?? projectColor(p.id),
-  }));
+  const known = new Set(projects.map((p) => p.id));
+  let residualSeconds = 0;
+  for (const [projectId, seconds] of secondsById) {
+    if (!known.has(projectId)) residualSeconds += seconds;
+  }
+
+  const totalSeconds = summaryRows.reduce((sum, r) => sum + r.trackedSeconds, 0);
+  const share = (seconds: number): number =>
+    totalSeconds === 0 ? 0 : (seconds / totalSeconds) * 100;
+
+  const rows: ProjectIndexRow[] = projects.map((p) => {
+    const trackedSeconds = secondsById.get(p.id) ?? 0;
+    return {
+      projectId: p.id,
+      name: p.name,
+      archived: p.archived,
+      trackedSeconds,
+      color: p.color ?? projectColor(p.id),
+      taskCount: p.tasks?.length ?? 0,
+      sharePct: share(trackedSeconds),
+    };
+  });
 
   rows.sort((a, b) => b.trackedSeconds - a.trackedSeconds || a.name.localeCompare(b.name));
-  return { rows, noProjectSeconds };
+  return { rows, noProjectSeconds, residualSeconds, totalSeconds };
 }

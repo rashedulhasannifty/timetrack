@@ -35,7 +35,15 @@ export function AppShell({
   return (
     <TitleProvider>
       <div className="flex min-h-screen">
-        <Sidebar narrow={narrow} open={open} onNavigate={() => setOpen(false)} footer={footer} />
+        <Sidebar
+          narrow={narrow}
+          open={open}
+          onNavigate={() => setOpen(false)}
+          footer={footer}
+          name={name}
+          email={email}
+          role={role}
+        />
         {narrow && open ? (
           <div
             className="fixed inset-0 z-[60] bg-black/30"
@@ -44,14 +52,8 @@ export function AppShell({
           />
         ) : null}
         <div className="flex min-w-0 flex-1 flex-col">
-          <TopBar
-            role={role}
-            name={name}
-            email={email}
-            narrow={narrow}
-            onToggleSidebar={() => setOpen((v) => !v)}
-          />
-          <main className="flex-1 p-8">{children}</main>
+          <TopBar narrow={narrow} onToggleSidebar={() => setOpen((v) => !v)} />
+          <main className="flex-1 px-6 pb-14 pt-[26px] sm:px-10">{children}</main>
         </div>
       </div>
     </TitleProvider>

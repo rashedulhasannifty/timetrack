@@ -55,35 +55,39 @@ export function DayHeader({
         <div className="flex items-center gap-3.5">
           {avatar}
           <div>
-            <h1 className="text-h1 font-display font-semibold">{subjectName}</h1>
-            <p className="text-text-secondary text-label mt-0.5">{formatDayLabel(date)}</p>
+            <h2 className="text-h2 font-display font-extrabold tracking-[-0.02em]">
+              {subjectName}
+            </h2>
+            <p className="text-text-secondary text-caption tt-numeric mt-0.5">
+              {formatDayLabel(date)}
+            </p>
           </div>
         </div>
         <div className="flex flex-none items-center gap-3">
           {recordingNow ? (
-            <span className="bg-recording/12 text-recording flex items-center gap-1.5 rounded-full px-3 py-1 text-label font-medium">
+            <span className="bg-tint text-accent text-caption flex items-center gap-1.5 rounded-full px-3 py-1 font-bold">
               <span
-                className="bg-recording h-[7px] w-[7px] flex-none rounded-full"
+                className="bg-accent tt-pulse h-[6px] w-[6px] flex-none rounded-full"
                 aria-hidden="true"
               />
-              Recording now
+              Tracking
             </span>
           ) : null}
           <DayPicker date={date} today={today} />
           <nav
-            className="border-separator flex items-center gap-1 rounded-md border p-0.5"
+            className="border-separator bg-surface-raised shadow-e1 flex items-center gap-1 rounded-full border p-0.5"
             aria-label="Day navigation"
           >
             <Link
               href={`?date=${prevDate}`}
-              className="text-text hover:bg-surface rounded px-2.5 py-1 text-label"
+              className="text-text hover:bg-surface text-caption rounded-full px-2.5 py-1 font-semibold"
               aria-label="Previous day"
             >
               ‹
             </Link>
             <Link
               href={`?date=${today}`}
-              className="text-text hover:bg-surface rounded px-2.5 py-1 text-label"
+              className="text-text hover:bg-surface text-caption rounded-full px-2.5 py-1 font-semibold"
             >
               Today
             </Link>
@@ -91,14 +95,14 @@ export function DayHeader({
               <span
                 aria-disabled="true"
                 aria-label="Next day"
-                className="text-text-secondary cursor-not-allowed rounded px-2.5 py-1 text-label opacity-40"
+                className="text-text-secondary text-caption cursor-not-allowed rounded-full px-2.5 py-1 font-semibold opacity-40"
               >
                 ›
               </span>
             ) : (
               <Link
                 href={`?date=${nextDate}`}
-                className="text-text hover:bg-surface rounded px-2.5 py-1 text-label"
+                className="text-text hover:bg-surface text-caption rounded-full px-2.5 py-1 font-semibold"
                 aria-label="Next day"
               >
                 ›

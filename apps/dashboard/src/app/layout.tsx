@@ -1,6 +1,23 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { Schibsted_Grotesk, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
+
+// Self-hosted at build time by next/font — no runtime request to Google, and the
+// CSS variables are what globals.css's --font-sans / --font-mono resolve to.
+const schibsted = Schibsted_Grotesk({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-schibsted',
+  display: 'swap',
+});
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-plex-mono',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Nifty Timer',
@@ -14,7 +31,11 @@ const THEME_INIT = `(function(){try{var t=localStorage.getItem('tt-theme');if(t=
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${schibsted.variable} ${plexMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
       </head>
