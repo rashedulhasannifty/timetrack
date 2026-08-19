@@ -1,12 +1,12 @@
 import type {
   ProjectSummaryRow,
+  TeamActivityRow,
   TeamOverviewRow,
   TeamSummaryRow,
   TeamTrends,
   TeamActivity,
   TeamAppUsage,
 } from '@timetrack/contracts';
-import { formatDuration } from './format';
 import { projectColor } from './project-color';
 
 /** Pure view-transforms for the reskinned Overview page. No React, no I/O. */
@@ -21,49 +21,8 @@ export function overviewKpis(
   return { totalSeconds, activeUsers, tracking };
 }
 
-export function topByHours(
-  team: TeamSummaryRow[],
-  n = 5,
-): { userId: string; name: string; trackedSeconds: number; pct: number }[] {
-  const maxSeconds = Math.max(1, ...team.map((r) => r.trackedSeconds));
-  return [...team]
-    .sort((a, b) => b.trackedSeconds - a.trackedSeconds)
-    .slice(0, n)
-    .map((r) => ({
-      userId: r.userId,
-      name: r.name,
-      trackedSeconds: r.trackedSeconds,
-      pct: (r.trackedSeconds / maxSeconds) * 100,
-    }));
-}
-
-export function topByActivity(
-  team: TeamSummaryRow[],
-  n = 6,
-): { userId: string; name: string; activityPct: number }[] {
-  return [...team]
-    .sort((a, b) => b.activityPct - a.activityPct)
-    .slice(0, n)
-    .map((r) => ({ userId: r.userId, name: r.name, activityPct: r.activityPct }));
-}
-
 export function haventTracked(overview: TeamOverviewRow[]): TeamOverviewRow[] {
   return overview.filter((r) => r.trackedSecondsToday === 0);
-}
-
-export function donutFromProjects(projects: ProjectSummaryRow[]): {
-  segments: { label: string; value: number; color: string; display: string }[];
-  totalSeconds: number;
-} {
-  const kept = projects.filter((p) => p.trackedSeconds > 0);
-  const segments = kept.map((p) => ({
-    label: p.name,
-    value: p.trackedSeconds,
-    color: projectColor(p.projectId ?? 'none'),
-    display: formatDuration(p.trackedSeconds),
-  }));
-  const totalSeconds = kept.reduce((sum, p) => sum + p.trackedSeconds, 0);
-  return { segments, totalSeconds };
 }
 
 export interface DayLetter {
@@ -76,10 +35,6 @@ export interface HoursLineModel {
   axis: string[];
   dayLetters: DayLetter[];
   labels: string[];
-}
-export interface ProductivityBarsModel {
-  values: number[];
-  dayLetters: DayLetter[];
 }
 export interface AppUsageItem {
   appName: string;
@@ -145,47 +100,77 @@ export function trendsToHoursLine(trends: TeamTrends): HoursLineModel {
   };
 }
 
-export function trendsToProductivityBars(trends: TeamTrends): ProductivityBarsModel {
-  return {
-    values: trends.days.map((d) =>
-      pct(d.productiveSeconds, d.productiveSeconds + d.neutralSeconds + d.unproductiveSeconds),
-    ),
-    dayLetters: trends.days.map((d) => dayLetter(d.day)),
-  };
+export interface PeopleRow {
+  userId: string;
+  name: string;
+  trackedSeconds: number;
+  activityPct: number;
+  productivePct: number;
+  unproductivePct: number;
+  idlePct: number;
+  idleMinutes: number;
+  tracking: boolean;
 }
 
-export function topByProductive(
-  activity: TeamActivity,
-  n = 6,
-): { userId: string; name: string; pct: number }[] {
-  return [...activity.rows]
-    .sort((a, b) => b.productivePct - a.productivePct)
-    .slice(0, n)
-    .map((r) => ({ userId: r.userId, name: r.name, pct: r.productivePct }));
+/**
+ * The overview's people table: one row per person, tracked time descending. Three endpoints
+ * carry the columns — the range summary has hours and activity, the activity rollup has the
+ * category split and idle, and the live overview says who is tracking right now — so they are
+ * joined here on userId rather than in the page. A person present in the summary but missing
+ * from the activity rollup keeps their row with zeroed category columns: dropping the row would
+ * silently shrink a headcount the reader is reading off the table.
+ */
+export function peopleTableRows(
+  team: TeamSummaryRow[],
+  activity: TeamActivityRow[],
+  overview: TeamOverviewRow[],
+): PeopleRow[] {
+  const byUser = new Map(activity.map((r) => [r.userId, r]));
+  const live = new Set(overview.filter((r) => r.tracking).map((r) => r.userId));
+  return [...team]
+    .sort((a, b) => b.trackedSeconds - a.trackedSeconds || a.name.localeCompare(b.name))
+    .map((r) => {
+      const a = byUser.get(r.userId);
+      return {
+        userId: r.userId,
+        name: r.name,
+        trackedSeconds: r.trackedSeconds,
+        activityPct: r.activityPct,
+        productivePct: a?.productivePct ?? 0,
+        unproductivePct: a?.unproductivePct ?? 0,
+        idlePct: a?.idlePct ?? 0,
+        idleMinutes: a?.idleMinutes ?? 0,
+        tracking: live.has(r.userId),
+      };
+    });
 }
 
-export function topByUnproductive(
-  activity: TeamActivity,
-  n = 6,
-): { userId: string; name: string; pct: number }[] {
-  return [...activity.rows]
-    .sort((a, b) => b.unproductivePct - a.unproductivePct)
-    .slice(0, n)
-    .map((r) => ({ userId: r.userId, name: r.name, pct: r.unproductivePct }));
+export interface ProjectBar {
+  key: string;
+  name: string;
+  trackedSeconds: number;
+  /** Share of all tracked time in the range — the number shown beside the bar. */
+  sharePct: number;
+  /** Share of the largest project — the bar's own width, so the top project fills the track. */
+  widthPct: number;
+  color: string;
 }
 
-export function topByIdle(
-  activity: TeamActivity,
-  n = 5,
-): { userId: string; name: string; idlePct: number; idleMinutes: number }[] {
-  return [...activity.rows]
-    .sort((a, b) => b.idlePct - a.idlePct)
+/** Top projects as a bar list: share of the range for the label, share of the leader for the bar. */
+export function projectBars(projects: ProjectSummaryRow[], n = 5): ProjectBar[] {
+  const kept = projects.filter((p) => p.trackedSeconds > 0);
+  const total = kept.reduce((sum, p) => sum + p.trackedSeconds, 0);
+  const max = Math.max(1, ...kept.map((p) => p.trackedSeconds));
+  return [...kept]
+    .sort((a, b) => b.trackedSeconds - a.trackedSeconds)
     .slice(0, n)
-    .map((r) => ({
-      userId: r.userId,
-      name: r.name,
-      idlePct: r.idlePct,
-      idleMinutes: r.idleMinutes,
+    .map((p) => ({
+      key: p.projectId ?? 'none',
+      name: p.name,
+      trackedSeconds: p.trackedSeconds,
+      sharePct: pct(p.trackedSeconds, total),
+      widthPct: (p.trackedSeconds / max) * 100,
+      color: projectColor(p.projectId ?? 'none'),
     }));
 }
 

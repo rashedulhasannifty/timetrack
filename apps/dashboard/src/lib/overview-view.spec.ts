@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  overviewKpis,
-  topByHours,
-  topByActivity,
-  haventTracked,
-  donutFromProjects,
-} from './overview-view';
+import { overviewKpis, haventTracked, peopleTableRows, projectBars } from './overview-view';
 import type { TeamSummaryRow, TeamOverviewRow, ProjectSummaryRow } from '@timetrack/contracts';
 import { projectColor } from './project-color';
 
@@ -35,60 +29,6 @@ describe('overviewKpis', () => {
   });
 });
 
-describe('topByHours', () => {
-  it('sorts by trackedSeconds desc and normalizes pct to the top row', () => {
-    const result = topByHours(team, 5);
-    expect(result.map((r) => r.userId)).toEqual(['2', '1', '3']);
-    expect(result[0]?.pct).toBe(100);
-    expect(result[1]?.pct).toBe(50);
-    expect(result[2]?.pct).toBe(0);
-  });
-
-  it('truncates to n', () => {
-    expect(topByHours(team, 2)).toHaveLength(2);
-  });
-
-  it('does not mutate the input array', () => {
-    const copy = [...team];
-    topByHours(team, 5);
-    expect(team).toEqual(copy);
-  });
-
-  it('returns [] for empty team', () => {
-    expect(topByHours([], 5)).toEqual([]);
-  });
-
-  it('defaults n to 5', () => {
-    expect(topByHours(team)).toHaveLength(3);
-  });
-});
-
-describe('topByActivity', () => {
-  it('sorts by activityPct desc', () => {
-    const result = topByActivity(team, 6);
-    expect(result.map((r) => r.userId)).toEqual(['1', '2', '3']);
-    expect(result.map((r) => r.activityPct)).toEqual([80, 40, 0]);
-  });
-
-  it('truncates to n', () => {
-    expect(topByActivity(team, 2)).toHaveLength(2);
-  });
-
-  it('does not mutate the input array', () => {
-    const copy = [...team];
-    topByActivity(team, 6);
-    expect(team).toEqual(copy);
-  });
-
-  it('returns [] for empty team', () => {
-    expect(topByActivity([], 6)).toEqual([]);
-  });
-
-  it('defaults n to 6', () => {
-    expect(topByActivity(team)).toHaveLength(3);
-  });
-});
-
 describe('haventTracked', () => {
   it('returns rows with trackedSecondsToday === 0', () => {
     expect(haventTracked(overview).map((r) => r.userId)).toEqual(['2', '3']);
@@ -106,50 +46,10 @@ describe('haventTracked', () => {
   });
 });
 
-describe('donutFromProjects', () => {
-  const projects: ProjectSummaryRow[] = [
-    { projectId: 'p1', name: 'Website', trackedSeconds: 3600 },
-    { projectId: null, name: 'No project', trackedSeconds: 1800 },
-    { projectId: 'p2', name: 'Empty Project', trackedSeconds: 0 },
-  ];
-
-  it('drops zero-second rows and sums totalSeconds from the kept rows', () => {
-    const { segments, totalSeconds } = donutFromProjects(projects);
-    expect(segments).toHaveLength(2);
-    expect(totalSeconds).toBe(5400);
-  });
-
-  it('builds label/value/display per segment', () => {
-    const { segments } = donutFromProjects(projects);
-    expect(segments[0]).toMatchObject({ label: 'Website', value: 3600, display: '1h 0m' });
-    expect(segments[1]).toMatchObject({ label: 'No project', value: 1800, display: '30m' });
-  });
-
-  it('derives color deterministically via projectColor, using "none" for null projectId', () => {
-    const first = donutFromProjects(projects);
-    const second = donutFromProjects(projects);
-    expect(first.segments[0]?.color).toBe(second.segments[0]?.color);
-    expect(typeof first.segments[0]?.color).toBe('string');
-  });
-
-  it('falls back to "none" for a null projectId', () => {
-    const { segments } = donutFromProjects(projects);
-    expect(segments[1]?.color).toBe(projectColor('none'));
-  });
-
-  it('returns [] segments and 0 totalSeconds for empty input', () => {
-    expect(donutFromProjects([])).toEqual({ segments: [], totalSeconds: 0 });
-  });
-});
-
 import {
   teamCategoryKpis,
   teamIdleKpi,
   trendsToHoursLine,
-  trendsToProductivityBars,
-  topByProductive,
-  topByUnproductive,
-  topByIdle,
   appUsageByCategory,
 } from './overview-view';
 import type { TeamTrends, TeamActivity, TeamAppUsage } from '@timetrack/contracts';
@@ -255,34 +155,6 @@ describe('trendsToHoursLine', () => {
   });
 });
 
-describe('trendsToProductivityBars', () => {
-  it('productive % of categorized per day', () => {
-    const m = trendsToProductivityBars(trends);
-    expect(m.values).toEqual([0, 75, 50]); // day1 0/0→0; day2 2700/3600; day3 1800/3600
-    expect(m.dayLetters.length).toBe(3);
-  });
-});
-
-describe('leaderboards', () => {
-  it('topByProductive sorts desc', () => {
-    expect(topByProductive(activity)).toEqual([
-      { userId: '1', name: 'Ada', pct: 75 },
-      { userId: '2', name: 'Bo', pct: 20 },
-    ]);
-  });
-  it('topByUnproductive sorts desc', () => {
-    expect(topByUnproductive(activity)[0]!).toEqual({ userId: '2', name: 'Bo', pct: 80 });
-  });
-  it('topByIdle sorts desc and carries minutes', () => {
-    expect(topByIdle(activity)[0]!).toEqual({
-      userId: '2',
-      name: 'Bo',
-      idlePct: 40,
-      idleMinutes: 40,
-    });
-  });
-});
-
 describe('appUsageByCategory', () => {
   it('splits by category and normalizes pct within each list', () => {
     const r = appUsageByCategory(appUsage);
@@ -291,5 +163,82 @@ describe('appUsageByCategory', () => {
     expect(r.topUsed[1]!.pct).toBe(50); // 1800/3600
     expect(r.unproductive.map((i) => i.appName)).toEqual(['YouTube']);
     expect(r.unrated.map((i) => i.appName)).toEqual(['Slack']);
+  });
+});
+
+describe('peopleTableRows', () => {
+  const summary: TeamSummaryRow[] = [
+    { userId: '1', name: 'Ada', trackedSeconds: 3600, activityPct: 80 },
+    { userId: '2', name: 'Bo', trackedSeconds: 7200, activityPct: 40 },
+    { userId: '9', name: 'Zed', trackedSeconds: 1800, activityPct: 10 },
+  ];
+  const live: TeamOverviewRow[] = [
+    { userId: '2', name: 'Bo', tracking: true, trackedSecondsToday: 60 },
+    { userId: '1', name: 'Ada', tracking: false, trackedSecondsToday: 0 },
+  ];
+
+  it('joins the summary, activity and live rollups on userId, tracked time descending', () => {
+    const rows = peopleTableRows(summary, activity.rows, live);
+    expect(rows.map((r) => r.name)).toEqual(['Bo', 'Ada', 'Zed']);
+    expect(rows[0]).toEqual({
+      userId: '2',
+      name: 'Bo',
+      trackedSeconds: 7200,
+      activityPct: 40,
+      productivePct: 20,
+      unproductivePct: 80,
+      idlePct: 40,
+      idleMinutes: 40,
+      tracking: true,
+    });
+  });
+
+  it('keeps a person missing from the activity rollup, with zeroed category columns', () => {
+    const zed = peopleTableRows(summary, activity.rows, live).find((r) => r.userId === '9');
+    expect(zed).toBeDefined();
+    expect(zed!.trackedSeconds).toBe(1800);
+    expect(zed!.productivePct).toBe(0);
+    expect(zed!.idleMinutes).toBe(0);
+    expect(zed!.tracking).toBe(false);
+  });
+
+  it('breaks a tracked-time tie on name', () => {
+    const tied: TeamSummaryRow[] = [
+      { userId: 'b', name: 'Bea', trackedSeconds: 60, activityPct: 0 },
+      { userId: 'a', name: 'Abe', trackedSeconds: 60, activityPct: 0 },
+    ];
+    expect(peopleTableRows(tied, [], []).map((r) => r.name)).toEqual(['Abe', 'Bea']);
+  });
+
+  it('is empty when the summary is', () => {
+    expect(peopleTableRows([], activity.rows, live)).toEqual([]);
+  });
+});
+
+describe('projectBars', () => {
+  const rows: ProjectSummaryRow[] = [
+    { projectId: '11111111-1111-4111-8111-111111111111', name: 'Apollo', trackedSeconds: 7200 },
+    { projectId: '22222222-2222-4222-8222-222222222222', name: 'Borealis', trackedSeconds: 1800 },
+    { projectId: '33333333-3333-4333-8333-333333333333', name: 'Cinder', trackedSeconds: 0 },
+    { projectId: null, name: 'No project', trackedSeconds: 1000 },
+  ];
+
+  it('labels share of the range but sizes the bar against the leader', () => {
+    const bars = projectBars(rows);
+    expect(bars.map((b) => b.name)).toEqual(['Apollo', 'Borealis', 'No project']);
+    expect(bars[0]!.sharePct).toBe(72); // 7200 / 10000
+    expect(bars[0]!.widthPct).toBe(100); // the leader fills the track
+    expect(bars[1]!.widthPct).toBe(25); // 1800 / 7200
+  });
+
+  it('drops zero-second projects and colours the null bucket deterministically', () => {
+    const bars = projectBars(rows);
+    expect(bars.some((b) => b.name === 'Cinder')).toBe(false);
+    expect(bars.find((b) => b.key === 'none')!.color).toBe(projectColor('none'));
+  });
+
+  it('caps the list and survives an empty range', () => {
+    expect(projectBars(rows, 1).map((b) => b.name)).toEqual(['Apollo']);
+    expect(projectBars([])).toEqual([]);
   });
 });
