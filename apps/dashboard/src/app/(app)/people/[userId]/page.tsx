@@ -13,10 +13,15 @@ import {
   weekStrip,
 } from '../../../../lib/person-day-view';
 import { WeekStrip } from '../../../../components/day/WeekStrip';
+import { IdlePanel } from '../../../../components/day/IdlePanel';
+import { CategoryMixBar } from '../../../../components/day/CategoryMixBar';
+import { Card, CardTitle } from '../../../../components/ui/Card';
+import { categoryMix, idleRows } from '../../../../lib/idle-view';
 import { ScreenshotsPanel } from '../../me/ScreenshotsPanel';
 import { toScreenshotView } from '../../me/screenshot-view';
 import type {
   ActivitySample,
+  IdleEvent,
   Project,
   Screenshot,
   TeamAppUsage,
@@ -60,7 +65,7 @@ export default async function PersonPage({
   const week = weekRangeFor(date);
   const weekSearch = new URLSearchParams({ userId, from: week.from, to: week.to });
 
-  const [samples, screenshots, projects, appUsage, trends] = await Promise.all([
+  const [samples, screenshots, projects, appUsage, trends, idle] = await Promise.all([
     api.listActivitySamples(session.accessToken, search).catch((): ActivitySample[] => []),
     api.listScreenshots(session.accessToken, search).catch((): Screenshot[] => []),
     // Names for the entries. Team-scoped to the caller, so this resolves for the common
@@ -70,6 +75,10 @@ export default async function PersonPage({
     // API re-checks manager-owns-team on that userId and 403s if it doesn't hold.
     api.appUsage(session.accessToken, search).catch((): TeamAppUsage | null => null),
     api.trends(session.accessToken, weekSearch).catch((): TeamTrends | null => null),
+    // Same manager-owns-team gate as the rest (ResourceScope on ?userId=). Read-only here:
+    // POST /idle-events attributes the row to the caller, so only the person themselves can
+    // resolve one, from their own My time page.
+    api.listIdleEvents(session.accessToken, search).catch((): IdleEvent[] => []),
   ]);
 
   // Decorative header data only — never let a lookup failure crash the page.
@@ -122,6 +131,19 @@ export default async function PersonPage({
               ) : undefined
             }
           />
+
+          <div className="grid items-start gap-[22px] [grid-template-columns:repeat(auto-fit,minmax(360px,1fr))]">
+            <Card padding="md">
+              <CardTitle className="mb-3.5">How the day broke down</CardTitle>
+              <CategoryMixBar mix={categoryMix(samples)} />
+            </Card>
+            <Card padding="md">
+              <CardTitle className="mb-2" note="over the team's idle threshold">
+                Idle periods
+              </CardTitle>
+              <IdlePanel rows={idleRows(idle)} />
+            </Card>
+          </div>
         </div>
       )}
     </>
