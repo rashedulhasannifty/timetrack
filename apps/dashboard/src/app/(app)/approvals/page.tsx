@@ -1,4 +1,5 @@
 import { PageHeader } from '../../../components/ui/PageHeader';
+import { Tabs } from '../../../components/ui/Tabs';
 import { Card } from '../../../components/ui/Card';
 import { Avatar } from '../../../components/ui/Avatar';
 import { Badge, type BadgeTone } from '../../../components/ui/Badge';
@@ -7,7 +8,17 @@ import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
 import { weekLabel, formatHours, statusBadge } from '../../../lib/approvals-view';
 import { DecideForm } from './DecideForm';
-import type { TimesheetApproval, ApprovalStatus } from '@timetrack/contracts';
+import type { TimesheetApproval } from '@timetrack/contracts';
+
+// The status filter the API already accepted through ?status= but nothing surfaced. "All"
+// is the absence of the parameter, which is exactly how ApprovalListQuery models it.
+const FILTERS = [
+  { key: 'PENDING', label: 'Pending' },
+  { key: 'APPROVED', label: 'Approved' },
+  { key: 'FLAGGED', label: 'Flagged' },
+  { key: 'ALL', label: 'All' },
+] as const;
+type Filter = (typeof FILTERS)[number]['key'];
 
 // Maps statusBadge's tone vocabulary onto the shared Badge component's tone vocabulary.
 const TONE: Record<'neutral' | 'positive' | 'warning', BadgeTone> = {
@@ -26,10 +37,22 @@ export default async function ApprovalsPage({
   if (!session) return null;
 
   const sp = await searchParams;
-  const status = (sp.status ?? 'PENDING') as ApprovalStatus;
+  const filter: Filter = FILTERS.some((f) => f.key === sp.status)
+    ? (sp.status as Filter)
+    : 'PENDING';
 
-  const params = new URLSearchParams({ status });
+  const params = new URLSearchParams();
+  // Narrowed to the three ApprovalStatus values here; 'ALL' means send no status at all.
+  if (filter !== 'ALL') params.set('status', filter);
   if (sp.teamId) params.set('teamId', sp.teamId);
+
+  const hrefFor = (key: Filter) => {
+    const q = new URLSearchParams();
+    if (key !== 'PENDING') q.set('status', key);
+    if (sp.teamId) q.set('teamId', sp.teamId);
+    const qs = q.toString();
+    return qs ? `/approvals?${qs}` : '/approvals';
+  };
 
   let rows: TimesheetApproval[] | null = null;
   let forbidden = false;
@@ -54,48 +77,55 @@ export default async function ApprovalsPage({
         <p className="text-text-secondary text-body">
           Something went wrong loading approvals. Please try again.
         </p>
-      ) : rows.length === 0 ? (
-        <p className="text-text-secondary text-body">No timesheets in this filter.</p>
       ) : (
-        <div className="flex flex-col gap-4">
-          <Card padding="none" className="overflow-hidden">
-            <Table>
-              <THead>
-                <Tr>
-                  <Th>User</Th>
-                  <Th>Week</Th>
-                  <Th align="right">Hours</Th>
-                  <Th>Status</Th>
-                  <Th align="right">Action</Th>
-                </Tr>
-              </THead>
-              <Tbody>
-                {rows.map((row) => {
-                  const badge = statusBadge(row.status);
-                  return (
-                    <Tr key={row.id}>
-                      <Td>
-                        <span className="inline-flex items-center gap-2">
-                          <Avatar name={row.userName} size={26} />
-                          {row.userName}
-                        </span>
-                      </Td>
-                      <Td className="text-text-secondary tt-numeric">
-                        {weekLabel(row.periodStart)}
-                      </Td>
-                      <Td align="right">{formatHours(row.totalSeconds ?? row.trackedSeconds)}</Td>
-                      <Td>
-                        <Badge tone={TONE[badge.tone]}>{badge.label}</Badge>
-                      </Td>
-                      <Td align="right">
-                        <DecideForm approvalId={row.id} />
-                      </Td>
-                    </Tr>
-                  );
-                })}
-              </Tbody>
-            </Table>
-          </Card>
+        <div className="flex flex-col gap-5">
+          <Tabs
+            label="Approval status"
+            items={FILTERS.map((f) => ({ href: hrefFor(f.key), label: f.label }))}
+            activeHref={hrefFor(filter)}
+          />
+          {rows.length === 0 ? (
+            <p className="text-text-secondary text-body">No timesheets in this filter.</p>
+          ) : (
+            <Card padding="none" className="overflow-hidden">
+              <Table>
+                <THead>
+                  <Tr>
+                    <Th>User</Th>
+                    <Th>Week</Th>
+                    <Th align="right">Hours</Th>
+                    <Th>Status</Th>
+                    <Th align="right">Action</Th>
+                  </Tr>
+                </THead>
+                <Tbody>
+                  {rows.map((row) => {
+                    const badge = statusBadge(row.status);
+                    return (
+                      <Tr key={row.id}>
+                        <Td>
+                          <span className="inline-flex items-center gap-2">
+                            <Avatar name={row.userName} size={26} />
+                            {row.userName}
+                          </span>
+                        </Td>
+                        <Td className="text-text-secondary tt-numeric">
+                          {weekLabel(row.periodStart)}
+                        </Td>
+                        <Td align="right">{formatHours(row.totalSeconds ?? row.trackedSeconds)}</Td>
+                        <Td>
+                          <Badge tone={TONE[badge.tone]}>{badge.label}</Badge>
+                        </Td>
+                        <Td align="right">
+                          <DecideForm approvalId={row.id} />
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+                </Tbody>
+              </Table>
+            </Card>
+          )}
         </div>
       )}
     </>

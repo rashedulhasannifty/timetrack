@@ -1,12 +1,13 @@
+import { PageHeader } from '../../../components/ui/PageHeader';
 import { SectionHeader } from '../../../components/ui/SectionHeader';
 import { Card } from '../../../components/ui/Card';
 import { Button } from '../../../components/ui/Button';
-import { BarMeter } from '../../../components/charts/BarMeter';
 import { ReportsByPersonTable } from '../../../components/reports/ReportsByPersonTable';
 import { ReportRangePicker } from '../../../components/reports/ReportRangePicker';
 import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
 import { defaultReportRange, hasReportData } from '../../../lib/reports-view';
+import { projectBars } from '../../../lib/overview-view';
 import { formatDuration, formatDate } from '../../../lib/format';
 import type { ProjectSummary, TeamSummary } from '@timetrack/contracts';
 
@@ -42,10 +43,15 @@ export default async function ReportsPage({
     projects = null;
   }
 
-  const projectsMax = projects ? Math.max(1, ...projects.rows.map((r) => r.trackedSeconds)) : 1;
+  // Every project, not the overview's top five — this is the report you export from.
+  const bars = projectBars(projects?.rows ?? [], Number.MAX_SAFE_INTEGER);
 
   return (
     <>
+      <PageHeader
+        title="Reports"
+        subtitle={`Range ${formatDate(from)} – ${formatDate(to)} · ${team?.rows.length ?? 0} users · ${projects?.rows.length ?? 0} projects`}
+      />
       {forbidden ? (
         <p className="text-text-secondary text-body">You’re not permitted to view reports.</p>
       ) : team === null || projects === null ? (
@@ -53,12 +59,8 @@ export default async function ReportsPage({
           Something went wrong loading reports. Please try again.
         </p>
       ) : (
-        <div className="flex flex-col gap-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="text-label text-text-secondary tt-numeric">
-              Range {formatDate(from)} – {formatDate(to)} · {team.rows.length} users ·{' '}
-              {projects.rows.length} projects
-            </span>
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             <div className="flex items-center gap-3">
               <ReportRangePicker from={from} to={to} />
               <Button
@@ -73,30 +75,31 @@ export default async function ReportsPage({
           </div>
           {hasReportData(team.rows, projects.rows) ? (
             <>
-              <section className="flex flex-col gap-3">
-                <SectionHeader label="By person" />
-                <ReportsByPersonTable rows={team.rows} />
-              </section>
-              <section className="flex flex-col gap-3">
+              <ReportsByPersonTable rows={team.rows} />
+              <Card padding="md" className="flex flex-col gap-4">
                 <SectionHeader label="By project" />
-                <Card padding="md">
-                  <div className="flex flex-col gap-3.5">
-                    {projects.rows.map((p) => (
-                      <BarMeter
-                        key={p.projectId ?? 'none'}
-                        label={p.name}
-                        value={formatDuration(p.trackedSeconds)}
-                        fills={[
-                          {
-                            pct: (p.trackedSeconds / projectsMax) * 100,
-                            color: 'var(--tt-accent)',
-                          },
-                        ]}
-                      />
-                    ))}
-                  </div>
-                </Card>
-              </section>
+                <div className="flex flex-col gap-3.5">
+                  {bars.map((p) => (
+                    <div key={p.key} className="flex flex-col gap-1.5">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-text flex-1 truncate text-[13px]">{p.name}</span>
+                        <span className="tt-numeric text-text-secondary text-[13px]">
+                          {formatDuration(p.trackedSeconds)}
+                        </span>
+                        <span className="tt-numeric text-text-secondary text-caption w-9 text-right">
+                          {p.sharePct}%
+                        </span>
+                      </div>
+                      <div className="bg-separator h-2 overflow-hidden rounded-[2px]">
+                        <div
+                          className="h-full"
+                          style={{ width: `${p.widthPct}%`, background: p.color, opacity: 0.85 }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
             </>
           ) : (
             <p className="text-text-secondary text-body">No data in this range.</p>

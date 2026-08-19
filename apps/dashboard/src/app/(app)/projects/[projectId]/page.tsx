@@ -104,7 +104,9 @@ export default async function ProjectDetailPage({
               style={{ backgroundColor: detail.color ?? projectColor(detail.projectId) }}
               aria-hidden="true"
             />
-            <h1 className="text-text text-h1 font-display font-semibold">{detail.name}</h1>
+            <h1 className="text-text text-h2 font-display font-semibold tracking-[-0.01em]">
+              {detail.name}
+            </h1>
             {detail.archived && (
               <span className="text-text-secondary border-separator text-caption rounded-full border px-2 py-0.5">
                 Archived
@@ -127,15 +129,15 @@ export default async function ProjectDetailPage({
 
           <div className="flex flex-col gap-8">
             <section>
-              <h2 className="text-text text-h2 mb-3 font-semibold">Hours over time</h2>
+              <h2 className="text-text text-body mb-3 font-semibold">Hours over time</h2>
               <ProjectHoursTrendChart data={toTrendBars(detail.trend)} />
             </section>
             <section>
-              <h2 className="text-text text-h2 mb-3 font-semibold">By member</h2>
+              <h2 className="text-text text-body mb-3 font-semibold">By member</h2>
               <ProjectHoursChart data={toMemberBars(detail.members)} />
             </section>
             <section>
-              <h2 className="text-text text-h2 mb-3 font-semibold">By task</h2>
+              <h2 className="text-text text-body mb-3 font-semibold">By task</h2>
               <ProjectHoursChart data={toTaskBars(detail.tasks)} />
             </section>
             {topApps && (
@@ -171,7 +173,7 @@ export default async function ProjectDetailPage({
             )}
             <section>
               <div className="mb-3 flex items-center justify-between gap-4">
-                <h2 className="text-text text-h2 font-semibold">Tasks</h2>
+                <h2 className="text-text text-body font-semibold">Tasks</h2>
                 <NewTaskForm projectId={detail.projectId} />
               </div>
               {tasks.length === 0 ? (

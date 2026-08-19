@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { PageHeader } from '../../../components/ui/PageHeader';
 import { ReportRangePicker } from '../../../components/reports/ReportRangePicker';
+import { buttonClasses } from '../../../components/ui/Button';
 import { NewProjectForm } from '../../../components/projects/NewProjectForm';
 import { ProjectArchiveToggle } from '../../../components/projects/ProjectArchiveToggle';
 import { getSession } from '../../../lib/session';
@@ -93,10 +94,7 @@ export default async function ProjectsPage({
           <NewProjectForm />
           <div className="flex items-center justify-between gap-4">
             <ReportRangePicker from={from} to={to} basePath="/projects" />
-            <Link
-              href={toggleHref}
-              className="border-separator text-text hover:bg-surface inline-flex items-center rounded-md border px-3 py-1.5 text-label font-medium transition-colors"
-            >
+            <Link href={toggleHref} className={buttonClasses('secondary', 'md')}>
               {includeArchived ? 'Hide archived' : 'Show archived'}
             </Link>
           </div>
@@ -104,15 +102,12 @@ export default async function ProjectsPage({
           {view.rows.length === 0 ? (
             <p className="text-text-secondary text-body">No projects yet.</p>
           ) : (
-            <ul className="bg-surface-raised border-separator divide-separator divide-y rounded-lg border shadow-e1">
+            <ul className="bg-surface-raised border-separator divide-separator m-0 list-none divide-y rounded-md border p-0 shadow-e1">
               {view.rows.map((row) => (
-                <li
-                  key={row.projectId}
-                  className="flex items-center justify-between gap-4 px-4 py-3"
-                >
+                <li key={row.projectId} className="flex items-center gap-3.5 px-5 py-3.5">
                   <Link
                     href={`/projects/${row.projectId}`}
-                    className="hover:text-accent flex min-w-0 flex-1 items-center gap-3 transition-colors"
+                    className="hover:text-accent flex min-w-[190px] items-center gap-3.5 transition-colors"
                   >
                     <span
                       className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
@@ -120,32 +115,47 @@ export default async function ProjectsPage({
                       aria-hidden="true"
                     />
                     <span className="text-text truncate font-medium">{row.name}</span>
-                    {row.archived && (
-                      <span className="text-text-secondary border-separator text-caption rounded-full border px-2 py-0.5">
-                        Archived
-                      </span>
-                    )}
                   </Link>
-                  <span className="flex shrink-0 items-center gap-3">
-                    <span className="tt-numeric text-text-secondary text-label">
-                      {formatDuration(row.trackedSeconds)}
+                  {row.archived && (
+                    <span className="text-text-secondary border-separator text-caption shrink-0 rounded-full border px-2 py-0.5">
+                      Archived
                     </span>
-                    <ProjectArchiveToggle id={row.projectId} archived={row.archived} />
+                  )}
+                  {/* The bar is a comparison between projects; the number beside it is the
+                      project's share of the whole range. */}
+                  <span className="bg-separator relative h-1.5 flex-1 overflow-hidden rounded-[3px]">
+                    <span
+                      className="absolute inset-y-0 left-0 rounded-[3px]"
+                      style={{
+                        width: `${row.widthPct}%`,
+                        background: row.color,
+                        opacity: 0.8,
+                      }}
+                    />
                   </span>
+                  <span className="tt-numeric w-20 shrink-0 text-right text-[13px]">
+                    {formatDuration(row.trackedSeconds)}
+                  </span>
+                  <span className="tt-numeric text-text-secondary text-caption w-11 shrink-0 text-right">
+                    {row.sharePct}%
+                  </span>
+                  <ProjectArchiveToggle id={row.projectId} archived={row.archived} />
                 </li>
               ))}
               {view.noProjectSeconds > 0 && (
-                <li className="text-text-secondary flex items-center justify-between gap-4 px-4 py-3">
-                  <span className="flex items-center gap-3">
+                <li className="text-text-secondary flex items-center gap-3.5 px-5 py-3.5">
+                  <span className="flex min-w-[190px] items-center gap-3.5">
                     <span
                       className="bg-separator inline-block h-2.5 w-2.5 shrink-0 rounded-full"
                       aria-hidden="true"
                     />
                     <span>No project</span>
                   </span>
-                  <span className="tt-numeric text-label shrink-0">
+                  <span className="flex-1" />
+                  <span className="tt-numeric w-20 shrink-0 text-right text-[13px]">
                     {formatDuration(view.noProjectSeconds)}
                   </span>
+                  <span className="w-11 shrink-0" />
                 </li>
               )}
             </ul>

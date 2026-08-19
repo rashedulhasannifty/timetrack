@@ -7,6 +7,10 @@ export type ProjectIndexRow = {
   archived: boolean;
   trackedSeconds: number;
   color: string;
+  /** Share of all tracked time on the index, including the "No project" bucket. */
+  sharePct: number;
+  /** Share of the busiest project, so the leader's bar fills its track. */
+  widthPct: number;
 };
 
 /**
@@ -39,8 +43,21 @@ export function toProjectIndexRows(
     archived: p.archived,
     trackedSeconds: secondsById.get(p.id) ?? 0,
     color: p.color ?? projectColor(p.id),
+    sharePct: 0,
+    widthPct: 0,
   }));
 
   rows.sort((a, b) => b.trackedSeconds - a.trackedSeconds || a.name.localeCompare(b.name));
+
+  // Denominators for the row bars. Total includes the unassigned bucket — a project's share of
+  // the range is not its share of the assigned range, or the percentages would sum past what
+  // the reader can see. Max excludes it, because the bar is a comparison between projects.
+  const total = rows.reduce((sum, r) => sum + r.trackedSeconds, 0) + noProjectSeconds;
+  const max = Math.max(1, ...rows.map((r) => r.trackedSeconds));
+  for (const r of rows) {
+    r.sharePct = total === 0 ? 0 : Math.round((r.trackedSeconds * 100) / total);
+    r.widthPct = (r.trackedSeconds / max) * 100;
+  }
+
   return { rows, noProjectSeconds };
 }

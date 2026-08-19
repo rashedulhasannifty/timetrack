@@ -12,7 +12,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     <>
       <PageHeader title="Admin" subtitle="Policy applies to every macOS client on this team." />
       <AdminTabs />
-      {children}
+      <div className="mt-5 flex flex-col gap-5">{children}</div>
     </>
   );
 }

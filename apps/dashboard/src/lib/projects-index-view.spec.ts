@@ -26,6 +26,8 @@ describe('toProjectIndexRows', () => {
         archived: false,
         trackedSeconds: 7200,
         color: projectColor('p2'),
+        sharePct: 67,
+        widthPct: 100,
       },
       {
         projectId: 'p1',
@@ -33,6 +35,8 @@ describe('toProjectIndexRows', () => {
         archived: false,
         trackedSeconds: 3600,
         color: projectColor('p1'),
+        sharePct: 33,
+        widthPct: 50,
       },
     ]);
   });
@@ -79,5 +83,27 @@ describe('toProjectIndexRows', () => {
     expect(rows[0]?.color).toBe('#ff2d55');
     const { rows: derived } = toProjectIndexRows([P('p2', 'Beta')], []);
     expect(derived[0]?.color).toBe(projectColor('p2'));
+  });
+});
+
+describe('toProjectIndexRows bar geometry', () => {
+  const projects = [P('p1', 'Apollo'), P('p2', 'Borealis')];
+
+  it('measures share against the whole range but bar width against the busiest project', () => {
+    const { rows } = toProjectIndexRows(projects, [
+      { projectId: 'p1', name: 'Apollo', trackedSeconds: 6000 },
+      { projectId: 'p2', name: 'Borealis', trackedSeconds: 3000 },
+      { projectId: null, name: 'No project', trackedSeconds: 1000 },
+    ]);
+    expect(rows[0]!.sharePct).toBe(60); // 6000 of 10000, unassigned time included
+    expect(rows[1]!.sharePct).toBe(30);
+    expect(rows[0]!.widthPct).toBe(100); // the leader fills its track
+    expect(rows[1]!.widthPct).toBe(50); // 3000 / 6000
+  });
+
+  it('is all zeroes when nothing was tracked, rather than dividing by zero', () => {
+    const { rows } = toProjectIndexRows(projects, []);
+    expect(rows.map((r) => r.sharePct)).toEqual([0, 0]);
+    expect(rows.map((r) => r.widthPct)).toEqual([0, 0]);
   });
 });
