@@ -39,7 +39,12 @@ describe.runIf(RUN_E2E)('users management — real Postgres', () => {
     const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
     const user = await seedUser(team.id);
     await db.prisma.refreshToken.create({
-      data: { userId: user.id, tokenHash: 'h1', expiresAt: new Date(Date.now() + 3_600_000) },
+      data: {
+        userId: user.id,
+        tokenHash: 'h1',
+        expiresAt: new Date(Date.now() + 3_600_000),
+        familyId: 'fam-h1',
+      },
     });
 
     const result = await repo().setActive(user.id, true, 'admin1');

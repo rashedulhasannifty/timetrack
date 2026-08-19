@@ -45,6 +45,7 @@ const IDENTITY = { id: 'u1', role: 'EMPLOYEE' as const, teamId: 't1', deactivate
 const liveToken = {
   id: 'rt1',
   userId: 'u1',
+  familyId: 'fam1',
   expiresAt: new Date(Date.now() + 1_000_000),
   revokedAt: null,
 };
@@ -66,6 +67,7 @@ function makeService(
     findRefreshToken: vi.fn(),
     revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
     rotateRefreshToken: vi.fn().mockResolvedValue('rt2'),
+    revokeFamily: vi.fn().mockResolvedValue(0),
     ...repo,
   } as unknown as AuthRepository;
   const invitesSvc = {
@@ -283,6 +285,7 @@ describe('AuthService.refresh', () => {
       expect.any(String),
       expect.any(Date),
       expect.any(Date),
+      'fam1', // the successor stays in the presented token's family
     );
     // The successor is created INSIDE the rotation, never as a second unlinked write.
     expect(repo.createRefreshToken).not.toHaveBeenCalled();
@@ -339,6 +342,48 @@ describe('AuthService.refresh', () => {
     });
     await expect(svc.refresh({ refreshToken: 'opaque' })).rejects.toThrow(UnauthorizedException);
     expect(repo.revokeRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it('revokes the whole family when a long-rotated token is replayed', async () => {
+    // Outside the grace window with a successor present = reuse. The chain is compromised.
+    const replayed = {
+      ...liveToken,
+      revokedAt: new Date(Date.now() - 60_000),
+      replacedById: 'rt2',
+    };
+    const { svc, repo } = makeService({ findRefreshToken: vi.fn().mockResolvedValue(replayed) });
+    await expect(svc.refresh({ refreshToken: 'opaque' })).rejects.toThrow(UnauthorizedException);
+    expect(repo.revokeFamily).toHaveBeenCalledWith('fam1', expect.any(Date));
+  });
+
+  it('does NOT revoke the family for a replayed logout — that is not reuse', async () => {
+    // revokedAt with no successor is a logout. Replaying it is a client retrying, not
+    // evidence of theft; nuking the chain would punish a normal sign-out.
+    const loggedOut = {
+      ...liveToken,
+      revokedAt: new Date(Date.now() - 60_000),
+      replacedById: null,
+    };
+    const { svc, repo } = makeService({ findRefreshToken: vi.fn().mockResolvedValue(loggedOut) });
+    await expect(svc.refresh({ refreshToken: 'opaque' })).rejects.toThrow(UnauthorizedException);
+    expect(repo.revokeFamily).not.toHaveBeenCalled();
+  });
+
+  it('does NOT revoke the family inside the grace window — that is the multi-tab case', async () => {
+    const justRotated = { ...liveToken, revokedAt: new Date(), replacedById: 'rt2' };
+    const { svc, repo } = makeService({
+      findRefreshToken: vi.fn().mockResolvedValue(justRotated),
+      findIdentityById: vi.fn().mockResolvedValue(IDENTITY),
+    });
+    await svc.refresh({ refreshToken: 'opaque' });
+    expect(repo.revokeFamily).not.toHaveBeenCalled();
+    // and the graced token stays in its original family rather than forking a new chain
+    expect(repo.createRefreshToken).toHaveBeenCalledWith(
+      'u1',
+      expect.any(String),
+      expect.any(Date),
+      'fam1',
+    );
   });
 
   it('rejects an expired token', async () => {

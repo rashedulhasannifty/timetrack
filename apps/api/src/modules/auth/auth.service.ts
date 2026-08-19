@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import * as argon2 from 'argon2';
 import type {
   AcceptInvite,
@@ -92,6 +92,17 @@ export class AuthService {
       // the multi-tab race. A logout-revoked token (replacedById null) is never graced.
       const graceMs = this.refreshGraceSeconds * 1000;
       const withinGrace = now.getTime() - stored.revokedAt.getTime() <= graceMs;
+      if (stored.replacedById && !withinGrace) {
+        // REUSE DETECTED. A token rotated long enough ago that its holder should have moved
+        // on is being presented again: either it leaked, or something is holding a copy it
+        // should not have. The chain is no longer trustworthy, so kill whatever is still
+        // live in it. Family-scoped, so the user's other devices survive.
+        //
+        // A tripwire, not a seal: an attacker who steals a token and is never out-raced by
+        // the real client trips nothing. What it does is bound the damage the moment the
+        // two copies diverge, which is what makes silent long-term theft loud.
+        await this.repo.revokeFamily(stored.familyId, now);
+      }
       if (!stored.replacedById || !withinGrace) throw this.invalidToken();
     }
 
@@ -100,7 +111,7 @@ export class AuthService {
 
     // The grace path deliberately does NOT re-link: the original's revokedAt/replacedById
     // stay put so the window cannot slide forward on every replay.
-    if (stored.revokedAt) return (await this.issueTokens(identity)).tokens;
+    if (stored.revokedAt) return (await this.issueTokens(identity, stored.familyId)).tokens;
 
     const refreshToken = randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + this.refreshTtlSeconds * 1000);
@@ -110,6 +121,7 @@ export class AuthService {
       this.hashRefreshToken(refreshToken),
       expiresAt,
       now,
+      stored.familyId,
     );
 
     if (rotatedId === null) {
@@ -126,7 +138,7 @@ export class AuthService {
       if (now.getTime() - after.revokedAt.getTime() > this.refreshGraceSeconds * 1000) {
         throw this.invalidToken();
       }
-      return (await this.issueTokens(identity)).tokens;
+      return (await this.issueTokens(identity, after.familyId)).tokens;
     }
 
     const claims: JwtClaims = { sub: identity.id, role: identity.role, teamId: identity.teamId };
@@ -234,9 +246,17 @@ export class AuthService {
     return identity;
   }
 
-  /** Mint a fresh, unlinked pair — login, SSO, invite acceptance, and the grace path. */
+  /**
+   * Mint a pair — login, SSO, invite acceptance, and the grace path.
+   *
+   * Omitting `familyId` starts a NEW family: that is what makes each login its own chain,
+   * so revoking a compromised one leaves the user's other devices alone. The grace path
+   * passes the presented token's family, so a raced refresh stays inside the chain it came
+   * from instead of forking an untracked one.
+   */
   private async issueTokens(
     identity: AuthIdentity,
+    familyId: string = randomUUID(),
   ): Promise<{ tokens: TokenPair; refreshTokenId: string }> {
     const claims: JwtClaims = { sub: identity.id, role: identity.role, teamId: identity.teamId };
     const accessToken = await this.jwt.signAsync(claims);
@@ -247,6 +267,7 @@ export class AuthService {
       identity.id,
       this.hashRefreshToken(refreshToken),
       expiresAt,
+      familyId,
     );
 
     return {
