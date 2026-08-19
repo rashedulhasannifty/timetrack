@@ -1,4 +1,7 @@
 name: CI
+
+# Server + web only. Every job here is `ubuntu-latest`, so nothing in this file compiles
+# the macOS client — that gate lives in client.yml, on a macOS runner.
 on:
   push: { branches: [main] }
   pull_request:

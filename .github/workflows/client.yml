@@ -1,0 +1,68 @@
+name: Client
+
+# The macOS client is outside the pnpm graph and needs a macOS runner, so ci.yml — every
+# job of which is `ubuntu-latest` — never compiled a line of it. Everything up to 0.4.1
+# shipped on nothing but whoever remembered to run `swift test` locally. This is that gate.
+#
+# Path-filtered on purpose: macOS minutes bill at 10x on a private repo, and the client
+# only breaks when the client (or this workflow) changes. There is no branch protection on
+# main, so a workflow that stays skipped on a server-only PR blocks nothing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/client-macos/**'
+      - '.github/workflows/client.yml'
+  pull_request:
+    paths:
+      - 'apps/client-macos/**'
+      - '.github/workflows/client.yml'
+
+# Same rationale as ci.yml: a new push makes the in-flight run obsolete, and at 10x
+# billing an abandoned macOS run is the expensive kind of waste.
+concurrency:
+  group: client-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: apps/client-macos
+
+jobs:
+  swift:
+    # arm64 image — the architecture the client actually ships on.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      # The client needs a Swift 6 toolchain even though Package.swift still declares
+      # swift-tools-version:5.10. Under Swift 5.10 three `self?` captures inside
+      # `ackGate.withCaptureAllowed { ... MainActor.run { self?... } }` are hard ERRORS
+      # ("reference to captured var 'self' in concurrently-executing code"), while the
+      # identical pattern in the sync engines is only a warning — the first run of this
+      # workflow failed exactly there, on the macos-14 image's Xcode 15.
+      #
+      # The manifest stays at 5.10 deliberately: raising it to 6.0 would switch the package
+      # into Swift 6 language mode and turn every one of those warnings into an error too.
+      # So CI selects the newest Xcode on the image instead, which is what the shipped
+      # builds are made with. `ls` is logged so an image bump that moves the toolchain is
+      # visible rather than mysterious.
+      - name: Select the newest installed Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          swift --version
+
+      - name: swift build (release)
+        run: swift build -c release
+
+      - name: swift test
+        run: swift test
+
+      # The .app assembly is its own regression surface: package-app.sh copies brand assets
+      # by explicit name and rewrites Info.plist knobs, so a renamed resource breaks the
+      # bundle while `swift build` stays perfectly green. The runner has no signing identity,
+      # so the script falls back to an ad-hoc signature — fine for an assembly smoke test.
+      # Distribution signing + notarization stays a human step (apps/client-macos/SIGNING.md).
+      - name: Package the .app bundle
+        run: ./scripts/package-app.sh
