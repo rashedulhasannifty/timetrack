@@ -3,12 +3,13 @@
 The client is distributed outside the App Store as a **Developer ID**, **notarized**,
 **Hardened Runtime** app so Gatekeeper runs it on employee machines without warnings.
 
-> **Scope (per the current decision):** signing + notarization are wired now; the signed
-> **auto-update channel (Sparkle + EdDSA appcast) is deferred** to a later slice. See the
-> "Deferred" section for where it plugs in.
+> **Scope:** signing + notarization are wired now. The **auto-update channel has since
+> shipped** — not the Sparkle/EdDSA design once planned here, but a GitHub-releases feed
+> verified by SHA-256 **and** the running app's designated requirement
+> (`Sources/TimeTrack/Update/`). See "Auto-update channel" below.
 
 Team: **Nifty IT Solution Ltd.** — Team ID **`4XCMVF4S5P`**, enrolled as an **Organization**
-(account holder: AHMAD SYED ANWAR). Bundle id **`com.niftyitsolution.timetrack`** (the committed
+(account holder: AHMAD SYED ANWAR). Bundle id **`com.niftyitsolution.niftytimer`** (the committed
 default in `Info.plist`; overridable at package time via `BUNDLE_ID`).
 
 > **Account status — the membership is EXPIRED.** Its renewal date was **28 August 2023**. An
@@ -53,7 +54,7 @@ bundle id:
 
 ```bash
 $ codesign -d -r- "dist/Nifty Timer.app"
-designated => identifier "com.niftyitsolution.timetrack" and anchor apple generic
+designated => identifier "com.niftyitsolution.niftytimer" and anchor apple generic
   and certificate leaf[subject.CN] = "Apple Development: developers@niftyitsolution.com (DUGT7JB37J)"
   and certificate 1[field.1.2.840.113635.100.6.2.1]
 ```
@@ -140,9 +141,14 @@ Shipping the zip over Slack/Drive/Mail sets the quarantine flag, which is what s
    `package-app.sh` → `sign-and-notarize.sh` path below. Its identity string will carry the legal
    entity name, i.e. `Nifty IT Solution Ltd.` — copy it verbatim from `security find-identity`
    rather than typing it, since `codesign` matches the CN exactly.
-3. Keep the bundle id `com.niftyitsolution.timetrack` unchanged.
+3. Keep the bundle id `com.niftyitsolution.niftytimer` unchanged.
 4. Warn testers to expect one Screen Recording re-prompt, and to delete any stale Nifty Timer row
    left behind in System Settings → Privacy & Security → Screen Recording.
+5. **Ship the cutover build manually — auto-update cannot carry it.** `UpdateInstaller` validates
+   a candidate against the _running_ app's designated requirement, and that requirement pins the
+   leaf certificate CN. A Developer ID-signed build therefore fails `signatureRejected` on every
+   pilot Mac running an Apple Development-signed one. The identity change has to be a reinstall;
+   auto-update resumes for releases after it.
 
 ---
 
@@ -177,9 +183,10 @@ Shipping the zip over Slack/Drive/Mail sets the quarantine flag, which is what s
 ```bash
 cd apps/client-macos
 
-# 1. Build a release binary and assemble "dist/Nifty Timer.app". For a DISTRIBUTION build, point
-#    it at the production deployment (defaults are the dev/localhost values in Info.plist):
-BUNDLE_ID=com.niftyitsolution.timetrack \
+# 1. Build a release binary and assemble "dist/Nifty Timer.app". The committed defaults ALREADY
+#    point at production (package-app.sh: a build that silently talks to 127.0.0.1 is the worse
+#    failure), so these are only needed to override them:
+BUNDLE_ID=com.niftyitsolution.niftytimer \
 API_BASE_URL=https://<your-prod-domain>/v1 \
 DASHBOARD_URL=https://<your-prod-domain> \
 ./scripts/package-app.sh
@@ -216,8 +223,8 @@ identity; see [the cutover cost](#the-cutover-costs-one-re-grant-per-mac).
 
 - ✅ `package-app.sh` builds the release binary and assembles a valid `.app` bundle.
 - ✅ `BUNDLE_ID` / `API_BASE_URL` / `DASHBOARD_URL` injection verified: a plain build keeps the
-  committed dev defaults (`com.niftyitsolution.timetrack` + localhost), and an env-overridden
-  build stamps the bundle's `Info.plist` with the distribution values.
+  committed defaults (`com.niftyitsolution.niftytimer` + the production URLs), and an
+  env-overridden build stamps the bundle's `Info.plist` with the values passed in.
 - ✅ The `codesign` invocation + entitlements were validated with an **ad-hoc** signature
   (`codesign --sign -`) — the bundle is well-formed and signable (`--verify --strict` passes).
 - ⛔ **Developer ID signing, notarization, and `spctl` acceptance require your certificate
@@ -230,9 +237,15 @@ Signing/notarization runs on a **macOS runner** with the certificate imported in
 temporary keychain and `DEVELOPER_ID_APP` / notary credentials provided as encrypted
 secrets. This is intentionally **not** part of the Linux `verify` job.
 
-## Deferred — signed auto-update channel (Sparkle)
+## Auto-update channel — shipped (not Sparkle)
 
-When we add updates: integrate **Sparkle**, host an **appcast** signed with an **EdDSA**
-key, ship the public key in `Info.plist` (`SUPublicEDKey`), and have `sign-and-notarize.sh`
-also sign the update archive. The always-visible indicator and `AckGate` remain in every
-build — there is no update or target that removes them.
+Sparkle + an EdDSA-signed appcast was the original plan. What shipped instead is in
+`Sources/TimeTrack/Update/`: `UpdateFeed` reads the newest release from the public
+distribution repo over the unauthenticated GitHub API (no token ships inside a binary that
+sits on employee laptops), and `UpdateInstaller` gates the swap on two independent checks —
+the published SHA-256, and the running app's designated requirement. `release-assets.sh`
+publishes `NiftyTimer-pilot.zip` alongside its `.sha256`; a release missing the digest is
+refused rather than trusted.
+
+The always-visible indicator and `AckGate` remain in every build — there is no update or
+target that removes them.

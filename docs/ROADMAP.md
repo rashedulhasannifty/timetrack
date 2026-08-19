@@ -32,7 +32,7 @@ work, not code — see **Next**.
 - **Deployment** — production scaffolding shipped: `infra/docker-compose.prod.yml` (app images +
   Caddy TLS proxy, own project namespace), `infra/Caddyfile`, `.env.prod.example`
   (`docs/deployment.md`). macOS client distribution wired: real bundle id
-  (`com.niftyitsolution.timetrack`) + build-time-parameterized packaging + `apps/client-macos/SIGNING.md`.
+  (`com.niftyitsolution.niftytimer`) + build-time-parameterized packaging + `apps/client-macos/SIGNING.md`.
 
 **Next — close the Phase 2 §11 gate (self-view ships _with_ capture, PRD §11):**
 
