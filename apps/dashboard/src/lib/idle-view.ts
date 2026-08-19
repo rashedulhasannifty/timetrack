@@ -13,6 +13,9 @@ export type IdleOutcome = IdleEvent['resolvedAction'];
 
 export interface IdleRow {
   id: string;
+  /** The original ISO window, re-posted verbatim when resolving (the upsert rewrites it). */
+  startTime: string;
+  endTime: string;
   /** "10:48 – 11:05" in UTC, matching the rest of the day view. */
   range: string;
   durationSeconds: number;
@@ -51,6 +54,8 @@ export function idleRows(events: IdleEvent[]): IdleRow[] {
       const { resolvedAction } = e;
       return {
         id: e.id,
+        startTime: e.startTime,
+        endTime: e.endTime,
         range: `${hhmm(e.startTime)} – ${hhmm(e.endTime)}`,
         durationSeconds,
         outcome: resolvedAction,

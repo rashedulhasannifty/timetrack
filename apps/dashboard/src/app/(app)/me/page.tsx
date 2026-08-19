@@ -12,7 +12,13 @@ import { IdlePanel } from '../../../components/day/IdlePanel';
 import { CategoryMixBar } from '../../../components/day/CategoryMixBar';
 import { Card, CardTitle } from '../../../components/ui/Card';
 import { categoryMix, idleRows } from '../../../lib/idle-view';
-import { PersonDayView } from '../../../components/day/PersonDayView';
+import { DayHeader } from '../../../components/day/DayHeader';
+import { DayStats } from '../../../components/day/DayStats';
+import { TimeRibbon } from '../../../components/day/TimeRibbon';
+import { ActivityBars } from '../../../components/day/ActivityBars';
+import { TimeEntriesList } from '../../../components/day/TimeEntriesList';
+import { MeTabs, resolveMePanel } from './MeTabs';
+import { ResolveIdleForm } from './ResolveIdleForm';
 import { ScreenshotsPanel } from './ScreenshotsPanel';
 import { toScreenshotView } from './screenshot-view';
 import { redactScreenshotAction } from './actions';
@@ -38,13 +44,14 @@ import type {
 export default async function MyDataPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; panel?: string }>;
 }) {
   const session = await getSession();
   if (!session) return null;
 
-  const { date: rawDate } = await searchParams;
+  const { date: rawDate, panel: rawPanel } = await searchParams;
   const date = resolveDayDate(rawDate, new Date());
+  const panel = resolveMePanel(rawPanel);
 
   const todayParams = new URLSearchParams({
     userId: session.userId,
@@ -96,41 +103,83 @@ export default async function MyDataPage({
     projects,
   });
 
+  const today = new Date().toISOString().slice(0, 10);
+
   return (
     <>
-      <SetPageTitle title="My time" />
-      <div className="flex flex-col gap-4">
+      <SetPageTitle title="My time" kicker="Everything here is yours only" />
+      <div className="flex flex-col gap-6">
         <ApprovalsPanel rows={myApprovals} />
-        <PersonDayView
-          model={model}
-          apps={<DayAppUsage usage={appUsage} />}
-          screenshots={
+
+        <DayHeader
+          date={date}
+          subjectName={model.subjectName}
+          isSelf
+          isToday={model.isToday}
+          recordingNow={model.recordingNow}
+        />
+
+        <DayStats stats={model.stats} />
+
+        <MeTabs panel={panel} date={date} />
+
+        {panel === 'timeline' ? (
+          <Card padding="md" className="flex flex-col gap-[22px]">
+            <section className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <CardTitle>The day</CardTitle>
+                {trends ? <WeekStrip days={weekStrip(date, trends.days, today)} /> : null}
+              </div>
+              <TimeRibbon ribbon={model.ribbon} />
+            </section>
+            <section className="flex flex-col gap-3">
+              <CardTitle>Time entries</CardTitle>
+              <TimeEntriesList entries={model.entries} />
+            </section>
+          </Card>
+        ) : null}
+
+        {panel === 'activity' ? (
+          <div className="grid items-start gap-[22px] [grid-template-columns:repeat(auto-fit,minmax(360px,1fr))]">
+            <Card padding="md" className="flex flex-col gap-5">
+              <section className="flex flex-col gap-3">
+                <CardTitle>Active minutes</CardTitle>
+                <ActivityBars buckets={model.activityBuckets} />
+              </section>
+              <section className="border-separator border-t pt-4">
+                <CategoryMixBar mix={categoryMix(samples)} />
+              </section>
+            </Card>
+            <Card padding="md">
+              <CardTitle className="mb-3.5">Your apps &amp; sites</CardTitle>
+              <DayAppUsage usage={appUsage} />
+            </Card>
+          </div>
+        ) : null}
+
+        {panel === 'screenshots' ? (
+          <Card padding="md">
+            <CardTitle
+              className="mb-3.5"
+              note="blurred at capture · you can redact any of your own"
+            >
+              Screenshots
+            </CardTitle>
             <ScreenshotsPanel
               shots={screenshots.map(toScreenshotView)}
               onRedact={redactScreenshotAction}
             />
-          }
-          weekStrip={
-            trends ? (
-              <WeekStrip
-                days={weekStrip(date, trends.days, new Date().toISOString().slice(0, 10))}
-              />
-            ) : undefined
-          }
-        />
-
-        <div className="grid items-start gap-[22px] [grid-template-columns:repeat(auto-fit,minmax(360px,1fr))]">
-          <Card padding="md">
-            <CardTitle className="mb-3.5">How the day broke down</CardTitle>
-            <CategoryMixBar mix={categoryMix(samples)} />
           </Card>
+        ) : null}
+
+        {panel === 'idle' ? (
           <Card padding="md">
             <CardTitle className="mb-2" note="over your team's idle threshold">
               Idle periods
             </CardTitle>
-            <IdlePanel rows={idleRows(idle)} />
+            <IdlePanel rows={idleRows(idle)} action={(row) => <ResolveIdleForm row={row} />} />
           </Card>
-        </div>
+        ) : null}
       </div>
     </>
   );

@@ -55,6 +55,15 @@ describe('idleRows', () => {
   it('returns nothing for a day with no idle periods', () => {
     expect(idleRows([])).toEqual([]);
   });
+
+  it('carries the raw window through so a resolve can re-post it unchanged', () => {
+    // POST /idle-events is an upsert whose update branch rewrites endTime; the form has to
+    // send the original values back or resolving would silently move the period.
+    const row = idleRows(events).find((r) => r.outcome === 'KEPT')!;
+    const source = events.find((e) => e.resolvedAction === 'KEPT')!;
+    expect(row.startTime).toBe(source.startTime);
+    expect(row.endTime).toBe(source.endTime);
+  });
 });
 
 describe('categoryMix', () => {
