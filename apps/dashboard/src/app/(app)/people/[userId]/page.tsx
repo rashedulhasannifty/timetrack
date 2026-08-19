@@ -6,7 +6,13 @@ import { PersonDayView } from '../../../../components/day/PersonDayView';
 import { DayAppUsage } from '../../../../components/day/DayAppUsage';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
-import { personDayView, resolveDayDate } from '../../../../lib/person-day-view';
+import {
+  personDayView,
+  resolveDayDate,
+  weekRangeFor,
+  weekStrip,
+} from '../../../../lib/person-day-view';
+import { WeekStrip } from '../../../../components/day/WeekStrip';
 import { ScreenshotsPanel } from '../../me/ScreenshotsPanel';
 import { toScreenshotView } from '../../me/screenshot-view';
 import type {
@@ -14,6 +20,7 @@ import type {
   Project,
   Screenshot,
   TeamAppUsage,
+  TeamTrends,
   TimeEntry,
 } from '@timetrack/contracts';
 
@@ -48,7 +55,12 @@ export default async function PersonPage({
 
   // Same manager-owns-team authz applies to these reads, but a failure here shouldn't wall off
   // the whole page — it degrades the relevant panel to empty instead.
-  const [samples, screenshots, projects, appUsage] = await Promise.all([
+  // The week the viewed day sits in — one extra per-user trends call, scoped by the same
+  // manager-owns-team check as everything else here.
+  const week = weekRangeFor(date);
+  const weekSearch = new URLSearchParams({ userId, from: week.from, to: week.to });
+
+  const [samples, screenshots, projects, appUsage, trends] = await Promise.all([
     api.listActivitySamples(session.accessToken, search).catch((): ActivitySample[] => []),
     api.listScreenshots(session.accessToken, search).catch((): Screenshot[] => []),
     // Names for the entries. Team-scoped to the caller, so this resolves for the common
@@ -57,6 +69,7 @@ export default async function PersonPage({
     // `search` already carries userId + the day window, which is what app-usage wants; the
     // API re-checks manager-owns-team on that userId and 403s if it doesn't hold.
     api.appUsage(session.accessToken, search).catch((): TeamAppUsage | null => null),
+    api.trends(session.accessToken, weekSearch).catch((): TeamTrends | null => null),
   ]);
 
   // Decorative header data only — never let a lookup failure crash the page.
@@ -101,6 +114,13 @@ export default async function PersonPage({
             avatar={<Avatar name={person.name} size={40} />}
             apps={<DayAppUsage usage={appUsage} />}
             screenshots={<ScreenshotsPanel shots={screenshots.map(toScreenshotView)} />}
+            weekStrip={
+              trends ? (
+                <WeekStrip
+                  days={weekStrip(date, trends.days, new Date().toISOString().slice(0, 10))}
+                />
+              ) : undefined
+            }
           />
         </div>
       )}
