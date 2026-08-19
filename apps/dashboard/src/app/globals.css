@@ -1,10 +1,15 @@
 /* ============================================================================
    Nifty Timer — dashboard design tokens (Tailwind CSS v4).
-   Ported from the Claude Design handoff (design files/…/globals.css). Semantic
-   names match the macOS client's TimeTrackTokens.swift so both surfaces derive
-   from one source. Dark uses the CLASS strategy (.dark on <html>) so the manual
-   toggle wins in both directions; the root-layout inline script seeds .dark from
-   the stored preference (falling back to the OS setting) before first paint.
+   Ported from the "Nifty Timer Redesign" Claude Design handoff. Semantic names
+   are unchanged from the previous handoff — only the VALUES moved — so every
+   component keeps reading the same roles. Dark uses the CLASS strategy (.dark on
+   <html>) so the manual toggle wins in both directions; the root-layout inline
+   script seeds .dark from the stored preference (falling back to the OS setting)
+   before first paint.
+
+   NOTE: these values now differ from the macOS client's TimeTrackTokens.swift.
+   The two surfaces were previously value-identical; restyling the client is a
+   separate pass and was deliberately left out of this change.
    ============================================================================ */
 
 @import 'tailwindcss';
@@ -14,44 +19,70 @@
 
 /* --- Raw palette: light (default) ---------------------------------------- */
 :root {
-  --tt-surface: #f4f4f6;
+  --tt-surface: #f6f6f4;
   --tt-surface-raised: #ffffff;
-  --tt-separator: #d6d6db;
-  --tt-text: #1d1d1f;
-  --tt-text-secondary: #6e6e73;
-  --tt-accent: #007aff;
-  --tt-accent-hover: #0063cc;
-  --tt-destructive: #d70015;
-  --tt-category-productive: #5e5ce6;
-  --tt-category-neutral: #8e8e93;
-  --tt-category-unproductive: #ff9500;
-  --tt-recording: #30b0c7;
-  --tt-good: #34c759;
-  --tt-manual: #ffcc00;
+  --tt-separator: #eae9e5;
+  --tt-text: #191917;
+  --tt-text-secondary: #73726c;
+  --tt-accent: #0f766e;
+  --tt-accent-hover: #0d5f59;
+  --tt-destructive: #bb2020;
+  --tt-category-productive: #0f766e;
+  --tt-category-neutral: #a4a39d;
+  --tt-category-unproductive: #b45309;
+  --tt-recording: #0f766e;
+  --tt-good: #15803d;
+  --tt-manual: #b45309;
 
-  --tt-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.08);
-  --tt-elevation-2: 0 8px 24px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.1);
-  --tt-hairline: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+  /* Roles the redesign introduced.
+     `neutral` is a THIRD text weight, quieter than text-secondary — column
+     headers, placeholder meta, disabled chrome. `tint` is the accent wash behind
+     selected pills and count badges. The `hero`* family paints the one gradient
+     panel (overview total, chart tooltip) and is deliberately NOT re-declared
+     under .dark: it is a fixed dark-teal ground in both themes. */
+  --tt-neutral: #a4a39d;
+  --tt-tint: #edf3f2;
+  --tt-hero: #123f39;
+  --tt-hero-2: #0d5c53;
+  --tt-hero-text: #f2f7f6;
+  --tt-hero-dim: #9ec4be;
+
+  /* The product mark's two arcs. Fixed in both themes because the same two
+     values are baked into icon.svg / apple-icon.png, which cannot follow a
+     theme — keeping them theme-invariant is what stops the sidebar mark and the
+     browser-tab favicon from drifting apart. */
+  --tt-mark-remaining: #3f7a72;
+  --tt-mark-elapsed: #7fd6c9;
+
+  --tt-elevation-1: 0 1px 2px rgba(25, 25, 23, 0.04), 0 4px 16px -8px rgba(25, 25, 23, 0.06);
+  --tt-elevation-2: 0 8px 24px -8px rgba(25, 25, 23, 0.18), 0 2px 6px rgba(25, 25, 23, 0.06);
+  --tt-hairline: inset 0 0 0 1px rgba(25, 25, 23, 0.04);
 }
 
 /* --- Raw palette: dark (manual .dark class) ------------------------------ */
 .dark {
-  --tt-surface: #1c1c1e;
-  --tt-surface-raised: #2c2c2e;
-  --tt-separator: #3a3a3c;
-  --tt-text: #f5f5f7;
-  --tt-text-secondary: #a1a1a6;
-  --tt-accent: #0a84ff;
-  --tt-accent-hover: #409cff;
-  --tt-destructive: #ff453a;
-  --tt-category-productive: #7d7aff;
-  --tt-category-neutral: #98989d;
-  --tt-category-unproductive: #ff9f0a;
-  --tt-recording: #40cbe0;
-  --tt-good: #30d158;
-  --tt-manual: #ffd60a;
+  --tt-surface: #111113;
+  --tt-surface-raised: #1a1a1d;
+  --tt-separator: #28282c;
+  --tt-text: #f1f1ef;
+  --tt-text-secondary: #9d9d97;
+  --tt-accent: #43c0af;
+  --tt-accent-hover: #6bd3c4;
+  --tt-destructive: #f47272;
+  --tt-category-productive: #43c0af;
+  --tt-category-neutral: #676762;
+  --tt-category-unproductive: #fbbf24;
+  --tt-recording: #43c0af;
+  --tt-good: #4ade80;
+  --tt-manual: #fbbf24;
 
-  --tt-elevation-1: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --tt-neutral: #676762;
+  --tt-tint: #1d2725;
+
+  /* The mockup drops card shadows entirely in dark and leans on the raised
+     surface + separator for depth. e2 is kept for the off-canvas drawer, which
+     has nothing behind it to read against. */
+  --tt-elevation-1: none;
   --tt-elevation-2: 0 8px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
   --tt-hairline: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
@@ -64,8 +95,10 @@
   --color-separator: var(--tt-separator);
   --color-text: var(--tt-text);
   --color-text-secondary: var(--tt-text-secondary);
+  --color-neutral: var(--tt-neutral);
   --color-accent: var(--tt-accent);
   --color-accent-hover: var(--tt-accent-hover);
+  --color-tint: var(--tt-tint);
   --color-destructive: var(--tt-destructive);
   --color-category-productive: var(--tt-category-productive);
   --color-category-neutral: var(--tt-category-neutral);
@@ -73,31 +106,46 @@
   --color-recording: var(--tt-recording);
   --color-good: var(--tt-good);
   --color-manual: var(--tt-manual);
+  --color-hero: var(--tt-hero);
+  --color-hero-2: var(--tt-hero-2);
+  --color-hero-text: var(--tt-hero-text);
+  --color-hero-dim: var(--tt-hero-dim);
+  --color-mark-remaining: var(--tt-mark-remaining);
+  --color-mark-elapsed: var(--tt-mark-elapsed);
 
-  /* Type — SF Pro via the system stack so web + macOS read as one product. */
-  --font-sans: -apple-system, 'SF Pro Text', 'SF Pro', ui-sans-serif, system-ui, sans-serif;
-  --font-display: -apple-system, 'SF Pro Display', 'SF Pro', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Type — Schibsted Grotesk for everything, IBM Plex Mono for the few places
+     that need a machine voice (timestamps, action names, app lists). Both are
+     loaded by next/font in the root layout, which fills in these two variables. */
+  --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, 'SF Mono', Menlo, monospace;
 
-  /* Type scale (size / line-height). */
+  /* Type scale (size / line-height). The redesign is a tighter, denser scale
+     than the previous handoff: 15px body, and headings that lose size but gain
+     weight and negative tracking. */
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1.35;
   --text-caption: 0.75rem;
   --text-caption--line-height: 1.35;
   --text-label: 0.8125rem;
-  --text-label--line-height: 1.3;
+  --text-label--line-height: 1.35;
   --text-body: 0.9375rem;
   --text-body--line-height: 1.5;
-  --text-h2: 1.375rem;
+  --text-h3: 0.90625rem;
+  --text-h3--line-height: 1.25;
+  --text-h2: 1.1875rem;
   --text-h2--line-height: 1.2;
-  --text-h1: 2rem;
+  --text-h1: 1.6875rem;
   --text-h1--line-height: 1.1;
-  --text-display: 3rem;
-  --text-display--line-height: 1.05;
+  --text-display: 3.25rem;
+  --text-display--line-height: 1;
 
-  /* Spacing (4pt base), radii, elevation. */
+  /* Spacing (4pt base), radii, elevation. Cards are the 20px "pebble" of the
+     redesign; `full` pills carry every button, tab and status chip. */
   --spacing: 4px;
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-md: 11px;
+  --radius-lg: 20px;
   --shadow-e1: var(--tt-elevation-1);
   --shadow-e2: var(--tt-elevation-2);
 }
@@ -135,6 +183,32 @@ body {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
   letter-spacing: 0;
+}
+
+/* The column-header voice: 10.5px, heavy, uppercase, wide. Used by every table
+   head and the sidebar's section labels, so it lives here rather than being
+   respelled as six utilities at each call site. */
+.tt-eyebrow {
+  font-size: 0.65625rem;
+  font-weight: 700;
+  line-height: 1.3;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* The live-tracking pulse. Paused under reduced-motion by the block below. */
+@keyframes tt-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.tt-pulse {
+  animation: tt-pulse 1.8s ease-in-out infinite;
 }
 
 :focus-visible {
