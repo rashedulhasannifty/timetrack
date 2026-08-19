@@ -39,7 +39,7 @@ export function PeopleTable({ rows }: { rows: PeopleRow[] }) {
                 <span className="text-text font-medium">{row.name}</span>
                 {row.tracking ? (
                   <span className="text-good text-caption inline-flex items-center gap-1.5">
-                    <span className="bg-good h-[7px] w-[7px] flex-none rounded-full" />
+                    <span className="bg-good tt-pulse h-[7px] w-[7px] flex-none rounded-full" />
                     tracking now
                   </span>
                 ) : null}

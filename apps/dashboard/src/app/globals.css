@@ -139,6 +139,20 @@ body {
   }
 }
 
+/* The live-tracking dot. Reduced-motion callers get a static dot from the block below. */
+@keyframes tt-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.tt-pulse {
+  animation: tt-pulse 1.8s ease-in-out infinite;
+}
+
 /* The numeric role: durations, %, timestamps, date ranges — tabular so digits
    stack column-to-column. Right-align in tables. */
 .tt-numeric {

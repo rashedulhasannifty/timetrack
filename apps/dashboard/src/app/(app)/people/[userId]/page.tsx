@@ -1,6 +1,4 @@
-import Link from 'next/link';
 import { Avatar } from '../../../../components/ui/Avatar';
-import { buttonClasses } from '../../../../components/ui/Button';
 import { PersonDayView } from '../../../../components/day/PersonDayView';
 import { DayAppUsage } from '../../../../components/day/DayAppUsage';
 import { getSession } from '../../../../lib/session';
@@ -88,15 +86,10 @@ export default async function PersonPage({
         <p className="text-text-secondary text-body">You’re not permitted to view this person.</p>
       ) : (
         <div className="flex flex-col gap-5">
-          <div>
-            <Link href="/overview" className={buttonClasses('secondary', 'sm')}>
-              ← Back
-            </Link>
-          </div>
-
           <PersonDayView
             model={model}
-            avatar={<Avatar name={person.name} size={40} />}
+            back={{ href: '/overview', label: 'People' }}
+            avatar={<Avatar name={person.name} size={36} />}
             apps={<DayAppUsage usage={appUsage} />}
             screenshots={<ScreenshotsPanel shots={screenshots.map(toScreenshotView)} />}
           />

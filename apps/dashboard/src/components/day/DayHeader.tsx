@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Card } from '../ui/Card';
+import { buttonClasses } from '../ui/Button';
 import { DayPicker } from './DayPicker';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -37,6 +38,7 @@ export function DayHeader({
   isToday,
   recordingNow,
   avatar,
+  back,
 }: {
   date: string;
   subjectName: string;
@@ -44,6 +46,8 @@ export function DayHeader({
   isToday: boolean;
   recordingNow: boolean;
   avatar?: ReactNode;
+  /** Where this day view was opened from. Sits inline with the name, as in the handoff. */
+  back?: { href: string; label: string };
 }) {
   const prevDate = shiftDateUTC(date, -1);
   const nextDate = shiftDateUTC(date, 1);
@@ -53,20 +57,27 @@ export function DayHeader({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3.5">
+          {back ? (
+            <Link href={back.href} className={buttonClasses('secondary', 'xs')}>
+              ← {back.label}
+            </Link>
+          ) : null}
           {avatar}
           <div>
-            <h1 className="text-h1 font-display font-semibold">{subjectName}</h1>
-            <p className="text-text-secondary text-label mt-0.5">{formatDayLabel(date)}</p>
+            <h1 className="text-h2 font-display font-semibold tracking-[-0.01em]">{subjectName}</h1>
+            <p className="text-text-secondary text-caption tt-numeric mt-0.5">
+              {formatDayLabel(date)}
+            </p>
           </div>
         </div>
         <div className="flex flex-none items-center gap-3">
           {recordingNow ? (
-            <span className="bg-recording/12 text-recording flex items-center gap-1.5 rounded-full px-3 py-1 text-label font-medium">
+            <span className="text-recording text-caption flex items-center gap-1.5">
               <span
-                className="bg-recording h-[7px] w-[7px] flex-none rounded-full"
+                className="bg-recording tt-pulse h-[7px] w-[7px] flex-none rounded-full"
                 aria-hidden="true"
               />
-              Recording now
+              tracking now
             </span>
           ) : null}
           <DayPicker date={date} today={today} />
@@ -108,12 +119,12 @@ export function DayHeader({
         </div>
       </div>
       {isSelf ? (
-        <Card padding="md" className="flex items-start gap-2.5">
+        <Card className="flex items-start gap-2.5 px-[18px] py-3">
           <span
-            className="bg-accent mt-[7px] h-[7px] w-[7px] flex-none rounded-full"
+            className="bg-accent mt-[6px] h-[7px] w-[7px] flex-none rounded-full"
             aria-hidden="true"
           />
-          <p className="text-body m-0">
+          <p className="text-label m-0">
             You’re viewing your own record — the same view your manager sees. Nothing here is hidden
             from you.
           </p>

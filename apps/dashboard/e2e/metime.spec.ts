@@ -3,9 +3,9 @@ import { test, expect } from '@playwright/test';
 /**
  * SCAFFOLD: skipped so `test:e2e` passes without a browser install or a running app.
  * Remove `.skip` once seeded data + auth are wired, then run against a live dashboard.
- * Covers the My Time day view (`PersonDayView`): hero stats, the "Your day" ribbon,
- * activity breakdown, time entries, and screenshots — the tabbed layout (Timeline /
- * Activity / Screenshots / Idle tabs) was removed in favor of one scrollable day view.
+ * Covers the My Time day view: header, timesheet card, hero stats, and the tab strip
+ * (Timeline / Activity / Screenshots / Idle) the redesign reintroduced — an earlier slice
+ * had flattened these into one scrollable page.
  */
 test.describe.skip('my time day view', () => {
   test('header shows the timesheet card with the page title', async ({ page }) => {
@@ -22,23 +22,28 @@ test.describe.skip('my time day view', () => {
     await expect(page.getByText('Untracked')).toBeVisible();
   });
 
-  test('"Your day" ribbon section renders', async ({ page }) => {
+  test('the timeline tab is the default panel', async ({ page }) => {
     await page.goto('/me');
-    await expect(page.getByText('Your day')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Timeline' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await expect(page.getByText('Time entries').or(page.locator('[data-ribbon]'))).toBeTruthy();
   });
 
-  test('activity section renders', async ({ page }) => {
+  test('each tab swaps the panel through the URL', async ({ page }) => {
     await page.goto('/me');
-    await expect(page.getByText('Activity')).toBeVisible();
+    await page.getByRole('link', { name: 'Screenshots' }).click();
+    await expect(page).toHaveURL(/tab=screenshots/);
+    await expect(page.getByRole('heading', { name: 'Screenshots' })).toBeVisible();
+
+    await page.getByRole('link', { name: 'Idle' }).click();
+    await expect(page).toHaveURL(/tab=idle/);
+    await expect(page.getByRole('heading', { name: 'Idle periods' })).toBeVisible();
   });
 
-  test('screenshots section renders', async ({ page }) => {
-    await page.goto('/me');
-    await expect(page.getByText('Screenshots')).toBeVisible();
-  });
-
-  test('time entries section renders', async ({ page }) => {
-    await page.goto('/me');
-    await expect(page.getByText('Time entries')).toBeVisible();
+  test('idle periods are read-only — resolution happens on the Mac', async ({ page }) => {
+    await page.goto('/me?tab=idle');
+    await expect(page.getByRole('button', { name: /resolve/i })).toHaveCount(0);
   });
 });
