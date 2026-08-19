@@ -2,36 +2,78 @@ import Foundation
 
 enum SessionError: Error { case notAuthenticated }
 
+/// What a launch-time bootstrap concluded.
+///
+/// The distinction that matters is `.offline` vs `.unauthenticated`: only a server that
+/// actually REJECTED the refresh token (401) means the session is dead. Being offline, or
+/// catching the API mid-deploy, or tripping the global throttler, says nothing about the
+/// token — and used to sign the employee out anyway, wiping the Keychain on a laptop that
+/// simply woke up before Wi-Fi associated.
+enum BootstrapOutcome {
+    /// Refresh succeeded; an access token is in memory.
+    case authenticated
+    /// Refresh could not be completed, but the refresh token is retained and still good.
+    case offline
+    /// No stored token, or the server rejected the one we had. Credentials are cleared.
+    case unauthenticated
+}
+
 /// The single owner of the client's tokens. An actor so concurrent accessToken() callers
 /// share ONE in-flight refresh instead of racing. Refresh token → Keychain; access token
 /// → memory only, re-minted via refresh on expiry.
 actor AuthSession {
     private let client: AuthClienting
     private let store: TokenStore
+    private let defaults: UserDefaults
+
+    /// The last signed-in user id, mirrored out of the access token's `sub`.
+    ///
+    /// The access token is memory-only, so after an offline launch there is nothing to decode
+    /// a user id from — and the offline branch of AppDelegate.proceedToPolicy() needs one to
+    /// look up this user's local ack marker. Cleared by logout(), which is what stops one
+    /// user's marker from granting readiness to whoever signs in next.
+    private static let lastUserIdKey = "auth.lastUserId"
 
     private var access: String?
     private var accessDeadline: Date?
     private var refreshInFlight: Task<Void, Error>?
     private static let skew: TimeInterval = 30
 
-    init(client: AuthClienting, store: TokenStore) {
+    /// `defaults` is defaulted so existing call sites keep compiling.
+    init(client: AuthClienting, store: TokenStore, defaults: UserDefaults = .standard) {
         self.client = client
         self.store = store
+        self.defaults = defaults
     }
 
     func isAuthenticated() -> Bool { store.readRefreshToken() != nil }
 
     func userId() -> String? {
-        guard let access else { return nil }
-        return try? JWTDecoder.claims(from: access).sub
+        if let access, let sub = try? JWTDecoder.claims(from: access).sub { return sub }
+        // Offline launch: no access token to decode, so fall back to the mirrored id.
+        return defaults.string(forKey: Self.lastUserIdKey)
     }
 
     /// On launch: if a refresh token is stored, refresh once to mint an access token.
-    /// A rejected refresh clears the store and returns false. Never throws to the caller.
-    func bootstrap() async -> Bool {
-        guard store.readRefreshToken() != nil else { return false }
-        do { try await refresh(); return true }
-        catch { store.clear(); access = nil; accessDeadline = nil; return false }
+    /// Never throws to the caller.
+    ///
+    /// ONLY a 401 clears the stored token. Everything else — no network, a 5xx while the API
+    /// is redeploying, a 429 from the global throttler — leaves the Keychain untouched and
+    /// reports `.offline`, because none of those are evidence the token is dead. Clearing on
+    /// them logged employees out for good and silently stopped capture until they noticed.
+    func bootstrap() async -> BootstrapOutcome {
+        guard store.readRefreshToken() != nil else { return .unauthenticated }
+        do {
+            try await refresh()
+            return .authenticated
+        } catch AuthError.refreshRejected {
+            logout()
+            return .unauthenticated
+        } catch {
+            access = nil
+            accessDeadline = nil
+            return .offline
+        }
     }
 
     func login(email: String, password: String) async throws {
@@ -44,6 +86,7 @@ actor AuthSession {
         access = nil
         accessDeadline = nil
         refreshInFlight = nil
+        defaults.removeObject(forKey: Self.lastUserIdKey)
     }
 
     /// Returns a valid access token, refreshing when within `skew` of the deadline.
@@ -82,5 +125,8 @@ actor AuthSession {
         access = pair.accessToken
         accessDeadline = Date().addingTimeInterval(TimeInterval(pair.expiresIn))
         store.saveRefreshToken(pair.refreshToken)
+        if let sub = try? JWTDecoder.claims(from: pair.accessToken).sub {
+            defaults.set(sub, forKey: Self.lastUserIdKey)
+        }
     }
 }
