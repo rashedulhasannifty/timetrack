@@ -42,7 +42,7 @@ export function UserRowActions({
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="border-destructive/30 text-destructive hover:bg-destructive/10 rounded-md border px-3 py-1.5 text-label font-medium transition-colors"
+            className="border-destructive/30 text-destructive hover:bg-destructive/10 text-caption rounded-full border px-3 py-1.5 font-semibold transition-colors"
           >
             Erase…
           </button>
@@ -87,7 +87,7 @@ export function UserRowActions({
                 setOpen(false);
                 setReason('');
               }}
-              className="border-separator text-text hover:bg-surface rounded-md border px-3 py-1.5 text-label transition-colors disabled:opacity-50"
+              className="border-separator text-text hover:bg-surface text-caption rounded-full border px-3 py-1.5 font-semibold transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
