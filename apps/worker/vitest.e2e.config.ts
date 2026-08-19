@@ -8,5 +8,9 @@ export default defineConfig({
     hookTimeout: 180_000,
     testTimeout: 120_000,
     fileParallelism: false,
+    // Runs before each spec's imports, so loadEnv() never falls through to the repo-root
+    // `.env`. Wired here rather than imported per-spec (the api's pattern) so a new spec
+    // cannot forget it and silently depend on a developer's local file.
+    setupFiles: ['test/test-env.ts'],
   },
 });

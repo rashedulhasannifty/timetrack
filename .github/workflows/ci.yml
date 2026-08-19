@@ -86,6 +86,12 @@ jobs:
       # standalone e2e step, which it subsumes.
       - run: pnpm --filter @timetrack/api test:coverage
       - run: pnpm --filter @timetrack/contracts test:coverage
+      # Every worker e2e spec is `describe.runIf(RUN_E2E)`, and until now nothing in CI set
+      # RUN_E2E outside the api's own test:coverage script — so `pnpm test` above skipped all
+      # of them and still reported green. The worker ships as one of the three deployed
+      # images, and its processors are exactly the code that only breaks against a real
+      # Postgres/Redis/MinIO. 26 specs, ~35s.
+      - run: RUN_E2E=1 pnpm --filter @timetrack/worker test:e2e
 
   # The apps bind host '0.0.0.0' — IPv4 only — but `localhost` inside an Alpine container
   # also resolves to ::1, and busybox wget tries IPv6 first. A probe aimed at localhost
