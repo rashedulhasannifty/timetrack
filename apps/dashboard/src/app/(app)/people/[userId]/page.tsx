@@ -2,7 +2,10 @@ import Link from 'next/link';
 import { Avatar } from '../../../../components/ui/Avatar';
 import { buttonClasses } from '../../../../components/ui/Button';
 import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
-import { PersonDayView } from '../../../../components/day/PersonDayView';
+import { DayHeader } from '../../../../components/day/DayHeader';
+import { DayStats } from '../../../../components/day/DayStats';
+import { DayTabs, resolveDayPanel } from '../../../../components/day/DayTabs';
+import { DayPanels } from '../../../../components/day/DayPanels';
 import { DayAppUsage } from '../../../../components/day/DayAppUsage';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
@@ -13,9 +16,6 @@ import {
   weekStrip,
 } from '../../../../lib/person-day-view';
 import { WeekStrip } from '../../../../components/day/WeekStrip';
-import { IdlePanel } from '../../../../components/day/IdlePanel';
-import { CategoryMixBar } from '../../../../components/day/CategoryMixBar';
-import { Card, CardTitle } from '../../../../components/ui/Card';
 import { categoryMix, idleRows } from '../../../../lib/idle-view';
 import { ScreenshotsPanel } from '../../me/ScreenshotsPanel';
 import { toScreenshotView } from '../../me/screenshot-view';
@@ -35,14 +35,15 @@ export default async function PersonPage({
   searchParams,
 }: {
   params: Promise<{ userId: string }>;
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; panel?: string }>;
 }) {
   const { userId } = await params;
   const session = await getSession();
   if (!session) return null;
 
-  const { date: rawDate } = await searchParams;
+  const { date: rawDate, panel: rawPanel } = await searchParams;
   const date = resolveDayDate(rawDate, new Date());
+  const panel = resolveDayPanel(rawPanel);
 
   const search = new URLSearchParams({
     userId,
@@ -118,11 +119,22 @@ export default async function PersonPage({
             </Link>
           </div>
 
-          <PersonDayView
-            model={model}
+          <DayHeader
+            date={date}
+            subjectName={person.name}
+            isSelf={false}
+            isToday={model.isToday}
+            recordingNow={model.recordingNow}
             avatar={<Avatar name={person.name} size={40} />}
-            apps={<DayAppUsage usage={appUsage} />}
-            screenshots={<ScreenshotsPanel shots={screenshots.map(toScreenshotView)} />}
+          />
+
+          <DayStats stats={model.stats} />
+
+          <DayTabs panel={panel} date={date} basePath={`/people/${userId}`} />
+
+          <DayPanels
+            panel={panel}
+            model={model}
             weekStrip={
               trends ? (
                 <WeekStrip
@@ -130,20 +142,11 @@ export default async function PersonPage({
                 />
               ) : undefined
             }
+            apps={<DayAppUsage usage={appUsage} />}
+            screenshots={<ScreenshotsPanel shots={screenshots.map(toScreenshotView)} />}
+            mix={categoryMix(samples)}
+            idle={idleRows(idle)}
           />
-
-          <div className="grid items-start gap-[22px] [grid-template-columns:repeat(auto-fit,minmax(360px,1fr))]">
-            <Card padding="md">
-              <CardTitle className="mb-3.5">How the day broke down</CardTitle>
-              <CategoryMixBar mix={categoryMix(samples)} />
-            </Card>
-            <Card padding="md">
-              <CardTitle className="mb-2" note="over the team's idle threshold">
-                Idle periods
-              </CardTitle>
-              <IdlePanel rows={idleRows(idle)} />
-            </Card>
-          </div>
         </div>
       )}
     </>
