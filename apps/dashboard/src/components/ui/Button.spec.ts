@@ -5,12 +5,12 @@ describe('buttonClasses', () => {
   it('composes base + variant + size', () => {
     const cls = buttonClasses('primary', 'sm');
     expect(cls).toContain('bg-accent'); // primary variant
-    expect(cls).toContain('text-label px-3 py-1.5'); // sm size
-    expect(cls).toContain('rounded-md'); // base
+    expect(cls).toContain('text-caption px-3 py-1.5'); // sm size
+    expect(cls).toContain('rounded-sm'); // base
   });
 
   it('supports the xs size for compact contexts', () => {
-    expect(buttonClasses('secondary', 'xs')).toContain('text-caption px-2.5 py-1');
+    expect(buttonClasses('secondary', 'xs')).toContain('text-caption px-2.5 py-[5px]');
   });
 
   it('renders each variant', () => {

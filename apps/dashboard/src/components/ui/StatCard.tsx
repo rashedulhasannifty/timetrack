@@ -8,17 +8,20 @@ export function StatCard({
   label,
   value,
   info = false,
+  hint,
   bar,
 }: {
   label: string;
   value: string;
   info?: boolean;
+  /** One-line context under the value — the handoff's stat tiles always carry one. */
+  hint?: string;
   bar?: Bar;
 }) {
   return (
-    <Card padding="none" className="flex min-h-[118px] flex-col gap-2.5 p-4">
+    <Card padding="none" className="flex flex-col gap-[5px] px-[18px] py-4">
       <div className="flex items-start gap-1.5">
-        <div className="text-label text-text-secondary flex-1">{label}</div>
+        <div className="text-caption text-text-secondary flex-1">{label}</div>
         {info ? (
           <IconInfo
             width={13}
@@ -27,11 +30,12 @@ export function StatCard({
           />
         ) : null}
       </div>
-      <div className="tt-numeric text-[28px] font-semibold leading-[1.1] tracking-[-0.02em]">
+      <div className="tt-numeric text-[24px] font-semibold leading-[1.1] tracking-[-0.02em]">
         {value}
       </div>
+      {hint ? <div className="text-caption text-text-secondary">{hint}</div> : null}
       {bar ? (
-        <div className="mt-auto flex flex-col gap-1.5">
+        <div className="mt-auto flex flex-col gap-1.5 pt-1">
           <div className="bg-separator h-[5px] overflow-hidden rounded-[3px]">
             <div
               className="h-full rounded-[3px]"

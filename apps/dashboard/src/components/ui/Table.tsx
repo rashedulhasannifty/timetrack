@@ -57,7 +57,7 @@ export function Th({
   className?: string;
 }) {
   const base =
-    `text-caption text-text-secondary border-separator border-b px-[18px] py-3 font-semibold ${HEAD_ALIGN[align]} ${className}`.trim();
+    `text-text-secondary px-3 py-[9px] text-[11px] font-medium uppercase tracking-[0.08em] first:pl-[22px] last:pr-[22px] ${HEAD_ALIGN[align]} ${className}`.trim();
   if (!sortable) {
     return (
       <th scope="col" className={base}>
@@ -85,7 +85,11 @@ export function Th({
   );
 }
 
-/** Body cell. `align="right"` right-aligns and applies tabular numerals for numeric columns. */
+/**
+ * Body cell. `align="right"` right-aligns and applies tabular numerals for numeric columns.
+ * The row rule is a `border-t` here rather than a `border-b`: the first body row then draws the
+ * line under the header, and the last row leaves the card's own edge clean.
+ */
 export function Td({
   children,
   align = 'left',
@@ -99,7 +103,7 @@ export function Td({
   const alignCls = align === 'right' ? 'text-right tt-numeric' : 'text-left';
   return (
     <td
-      className={`border-separator border-b px-[18px] py-[11px] ${alignCls} ${className}`.trim()}
+      className={`border-separator border-t px-3 py-3 first:pl-[22px] last:pr-[22px] ${alignCls} ${className}`.trim()}
       {...rest}
     >
       {children}

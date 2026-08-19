@@ -1,14 +1,20 @@
 import type { ReactNode } from 'react';
 
-/** Uppercase section label + hairline rule + optional right-aligned action. */
-export function SectionHeader({ label, action }: { label: string; action?: ReactNode }) {
+/** Panel heading: 15px semibold title, optional muted note beside it, optional right-aligned action. */
+export function SectionHeader({
+  label,
+  note,
+  action,
+}: {
+  label: string;
+  note?: string;
+  action?: ReactNode;
+}) {
   return (
-    <div className="flex items-center gap-3">
-      <h2 className="text-caption text-text-secondary m-0 font-semibold uppercase tracking-[0.06em]">
-        {label}
-      </h2>
-      <div className="bg-separator h-px flex-1" />
-      {action}
+    <div className="flex items-baseline gap-2.5">
+      <h2 className="text-text text-body m-0 font-semibold">{label}</h2>
+      {note ? <span className="text-caption text-text-secondary">{note}</span> : null}
+      {action ? <div className="ml-auto">{action}</div> : null}
     </div>
   );
 }
