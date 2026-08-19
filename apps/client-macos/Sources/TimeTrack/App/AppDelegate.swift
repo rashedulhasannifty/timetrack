@@ -199,9 +199,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func start() async {
-        if await session.bootstrap() {
+        switch await session.bootstrap() {
+        case .authenticated:
             await proceedToPolicy()
-        } else {
+        case .offline:
+            // The refresh token is still ours — we just could not reach the API. Take the
+            // same route as a normal launch: the policy fetch below fails, and
+            // proceedToPolicy()'s catch grants MANUAL tracking to a user who acked here
+            // before. Capture stays shut behind AckGate either way. Presenting the login
+            // window instead would be a lie — nothing is wrong with the session.
+            await proceedToPolicy()
+        case .unauthenticated:
             await MainActor.run { presentLogin() }
         }
     }
