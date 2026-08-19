@@ -184,12 +184,28 @@ describe('api.login', () => {
 });
 
 describe('api.refresh', () => {
-  it('returns null when the refresh token is rejected', async () => {
+  it('reports rejected ONLY for a 401 — the token really is dead', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() => new Response('nope', { status: 401 })),
     );
-    expect(await api.refresh('revoked')).toBeNull();
+    expect(await api.refresh('revoked')).toEqual({ status: 'rejected' });
+  });
+
+  it.each([500, 502, 503, 429])('reports unavailable for %i, not rejected', async (status) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response('boom', { status })),
+    );
+    expect(await api.refresh('good-token')).toEqual({ status: 'unavailable' });
+  });
+
+  it('reports unavailable when the API cannot be reached at all', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('fetch failed'))),
+    );
+    expect(await api.refresh('good-token')).toEqual({ status: 'unavailable' });
   });
 });
 

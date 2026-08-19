@@ -184,12 +184,23 @@ export async function GET(
       clearSession(res);
       return res;
     }
-    const tokens = await api.refresh(current.refreshToken);
-    if (!tokens) {
+    const outcome = await api.refresh(current.refreshToken);
+    if (outcome.status === 'unavailable') {
+      // The API is unreachable or erroring — which says NOTHING about the refresh token.
+      // Keep the cookie: clearing it here logged people out over a redeploy and burned a
+      // session that was still valid. 503 rather than a redirect, so this cannot become a
+      // bounce loop while the API is down.
+      return new NextResponse('Sign-in is temporarily unavailable. Please try again shortly.', {
+        status: 503,
+        headers: { 'retry-after': '10' },
+      });
+    }
+    if (outcome.status === 'rejected') {
       const res = redirect(req, '/login');
       clearSession(res);
       return res;
     }
+    const tokens = outcome.tokens;
     // Loop-breaker: if the freshly issued access token still can't be decoded, a redirect
     // back to the app would just bounce here again and burn a rotation each hop. Stop at /login.
     if (!decodeClaims(tokens.accessToken)) {

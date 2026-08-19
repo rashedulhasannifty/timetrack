@@ -178,6 +178,32 @@ async function getRaw(path: string, token: string): Promise<Response> {
  * handler can redirect (e.g. bad credentials → /login?error=1) without surfacing the API
  * error body to the browser.
  */
+/**
+ * Why refresh does not use authPost: `!res.ok → null` cannot tell "your token is dead" from
+ * "the API is redeploying", and the auth route reacts to the two identically — it clears the
+ * session cookie. That logged people out over a blip, on a token that was still perfectly
+ * good. Only a 401 means the token is dead.
+ */
+export type RefreshOutcome =
+  { status: 'ok'; tokens: TokenPair } | { status: 'rejected' } | { status: 'unavailable' };
+
+async function refreshTokens(refreshToken: string): Promise<RefreshOutcome> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+      cache: 'no-store',
+    });
+  } catch {
+    return { status: 'unavailable' }; // DNS, connection refused, timeout
+  }
+  if (res.status === 401) return { status: 'rejected' };
+  if (!res.ok) return { status: 'unavailable' }; // 5xx, 429, anything else
+  return { status: 'ok', tokens: TokenPairSchema.parse(await res.json()) };
+}
+
 async function authPost<T>(path: string, body: unknown, schema: z.ZodType<T>): Promise<T | null> {
   const res = await fetch(`${API_URL}${path}`, {
     method: 'POST',
@@ -298,8 +324,7 @@ export const api = {
 
   login: (email: string, password: string): Promise<TokenPair | null> =>
     authPost('/auth/login', { email, password }, TokenPairSchema),
-  refresh: (refreshToken: string): Promise<TokenPair | null> =>
-    authPost('/auth/refresh', { refreshToken }, TokenPairSchema),
+  refresh: (refreshToken: string): Promise<RefreshOutcome> => refreshTokens(refreshToken),
   // Accepting an invite auto-logs-in: the API returns a TokenPair, so the BFF establishes
   // the session exactly as for login. Null on an invalid/expired/already-used token.
   acceptInvite: (token: string, password: string): Promise<TokenPair | null> =>

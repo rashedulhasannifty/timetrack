@@ -41,9 +41,8 @@ afterEach(() => vi.restoreAllMocks());
 describe('GET /api/auth/refresh loop-breaker', () => {
   it('redirects to /overview when the reissued token has valid claims', async () => {
     vi.mocked(api.refresh).mockResolvedValue({
-      accessToken: makeJwt(VALID_CLAIMS),
-      refreshToken: 'r2',
-      expiresIn: 900,
+      status: 'ok',
+      tokens: { accessToken: makeJwt(VALID_CLAIMS), refreshToken: 'r2', expiresIn: 900 },
     });
     const res = await GET(refreshRequest(), ctx);
     expect(res.headers.get('location')).toBe('/overview');
@@ -51,12 +50,32 @@ describe('GET /api/auth/refresh loop-breaker', () => {
 
   it('falls through to /login when the reissued token still fails to decode', async () => {
     vi.mocked(api.refresh).mockResolvedValue({
-      accessToken: makeJwt({ sub: 'not-a-uuid', role: 'ADMIN', teamId: 'x' }),
-      refreshToken: 'r2',
-      expiresIn: 900,
+      status: 'ok',
+      tokens: {
+        accessToken: makeJwt({ sub: 'not-a-uuid', role: 'ADMIN', teamId: 'x' }),
+        refreshToken: 'r2',
+        expiresIn: 900,
+      },
     });
     const res = await GET(refreshRequest(), ctx);
     expect(res.headers.get('location')).toBe('/login');
+  });
+
+  it('clears the session when the API rejects the token', async () => {
+    vi.mocked(api.refresh).mockResolvedValue({ status: 'rejected' });
+    const res = await GET(refreshRequest(), ctx);
+    expect(res.headers.get('location')).toBe('/login');
+    expect(res.headers.get('set-cookie')).toContain('Max-Age=0');
+  });
+
+  it('KEEPS the session when the API is merely unreachable', async () => {
+    // A redeploy or a blip is not evidence the refresh token is dead. Clearing the cookie
+    // here logged people out and burned a session that was still valid.
+    vi.mocked(api.refresh).mockResolvedValue({ status: 'unavailable' });
+    const res = await GET(refreshRequest(), ctx);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('location')).toBeNull(); // no bounce loop while the API is down
+    expect(res.headers.get('set-cookie') ?? '').not.toContain('Max-Age=0');
   });
 });
 
