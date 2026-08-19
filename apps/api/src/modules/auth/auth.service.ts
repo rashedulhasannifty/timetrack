@@ -98,13 +98,43 @@ export class AuthService {
     const identity = await this.repo.findIdentityById(stored.userId);
     if (!identity || identity.deactivatedAt) throw this.invalidToken();
 
-    const issued = await this.issueTokens(identity);
-    // Only the first (normal) rotation links the old token → successor; the grace path
-    // leaves the original revokedAt/replacedById intact so the window doesn't slide.
-    if (!stored.revokedAt) {
-      await this.repo.markRotated(stored.id, now, issued.refreshTokenId);
+    // The grace path deliberately does NOT re-link: the original's revokedAt/replacedById
+    // stay put so the window cannot slide forward on every replay.
+    if (stored.revokedAt) return (await this.issueTokens(identity)).tokens;
+
+    const refreshToken = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + this.refreshTtlSeconds * 1000);
+    const rotatedId = await this.repo.rotateRefreshToken(
+      stored.id,
+      identity.id,
+      this.hashRefreshToken(refreshToken),
+      expiresAt,
+      now,
+    );
+
+    if (rotatedId === null) {
+      // The conditional UPDATE matched nothing: something revoked this token between our
+      // read and our claim. WHAT revoked it decides the outcome, so re-read and re-apply
+      // the same rules rather than assuming a sibling refresh:
+      //   - a concurrent ROTATION (replacedById set, recent) is the multi-tab case → serve.
+      //   - a concurrent LOGOUT (replacedById null) must win → 401.
+      // The previous unconditional write got this backwards: a refresh racing a logout
+      // overwrote revokedAt and set replacedById, which handed the caller a live successor
+      // AND left the logged-out token replayable for the whole grace window.
+      const after = await this.repo.findRefreshToken(this.hashRefreshToken(dto.refreshToken));
+      if (!after?.revokedAt || !after.replacedById) throw this.invalidToken();
+      if (now.getTime() - after.revokedAt.getTime() > this.refreshGraceSeconds * 1000) {
+        throw this.invalidToken();
+      }
+      return (await this.issueTokens(identity)).tokens;
     }
-    return issued.tokens;
+
+    const claims: JwtClaims = { sub: identity.id, role: identity.role, teamId: identity.teamId };
+    return {
+      accessToken: await this.jwt.signAsync(claims),
+      refreshToken,
+      expiresIn: this.accessTtlSeconds,
+    };
   }
 
   async logout(dto: Refresh): Promise<void> {
@@ -204,6 +234,7 @@ export class AuthService {
     return identity;
   }
 
+  /** Mint a fresh, unlinked pair — login, SSO, invite acceptance, and the grace path. */
   private async issueTokens(
     identity: AuthIdentity,
   ): Promise<{ tokens: TokenPair; refreshTokenId: string }> {

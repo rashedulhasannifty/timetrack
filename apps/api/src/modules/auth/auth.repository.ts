@@ -147,8 +147,41 @@ export class AuthRepository {
     await this.prisma.refreshToken.update({ where: { id }, data: { revokedAt } });
   }
 
-  /** Rotation (not logout): links the old token to its successor so a grace window can be granted. */
-  async markRotated(id: string, revokedAt: Date, replacedById: string): Promise<void> {
-    await this.prisma.refreshToken.update({ where: { id }, data: { revokedAt, replacedById } });
+  /**
+   * Rotation (not logout), atomically: claim the presented token, mint its successor, and
+   * link the two. Returns the successor's id, or null when another request got there first.
+   *
+   * The claim is `updateMany ... where revokedAt: null`, which compiles to a single
+   * conditional UPDATE — so exactly one of N concurrent refreshes can win. The previous
+   * version read the row, issued a token, then wrote unconditionally: two concurrent
+   * refreshes both saw `revokedAt: null`, both minted a chain, and the second write
+   * overwrote `replacedById`, orphaning the first successor and losing the only link that
+   * makes a rotation traceable.
+   *
+   * An explicit timeout because $transaction(fn) otherwise defaults to 5s.
+   */
+  async rotateRefreshToken(
+    id: string,
+    userId: string,
+    tokenHash: string,
+    expiresAt: Date,
+    revokedAt: Date,
+  ): Promise<string | null> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const claimed = await tx.refreshToken.updateMany({
+          where: { id, revokedAt: null },
+          data: { revokedAt },
+        });
+        if (claimed.count !== 1) return null;
+        const successor = await tx.refreshToken.create({
+          data: { userId, tokenHash, expiresAt },
+          select: { id: true },
+        });
+        await tx.refreshToken.update({ where: { id }, data: { replacedById: successor.id } });
+        return successor.id;
+      },
+      { timeout: 10_000, maxWait: 5_000 },
+    );
   }
 }

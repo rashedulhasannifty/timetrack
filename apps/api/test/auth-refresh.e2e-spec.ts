@@ -45,6 +45,65 @@ describe.runIf(RUN_E2E)('auth refresh — grace window (real Postgres)', () => {
     return svc.login({ email: 'ada@example.com', password: 'password12' });
   }
 
+  it('serialises concurrent refreshes: exactly one claims the rotation', async () => {
+    // The unit test mocks the repository, so only a real Postgres can prove the conditional
+    // UPDATE actually serialises. Before this, both callers read revokedAt: null, both minted
+    // a chain, and the second write overwrote replacedById — orphaning the first successor.
+    const svc = service();
+    const pair1 = await seedUserAndLogin(svc);
+    const original = await db.prisma.refreshToken.findFirstOrThrow({ select: { id: true } });
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => svc.refresh({ refreshToken: pair1.refreshToken })),
+    );
+
+    // Every caller is served — none of them presented a token that was dead when they read it.
+    expect(results).toHaveLength(5);
+    expect(new Set(results.map((r) => r.refreshToken)).size).toBe(5);
+
+    // ...but the original was claimed exactly once, and points at a successor that exists.
+    const claimed = await db.prisma.refreshToken.findUniqueOrThrow({
+      where: { id: original.id },
+      select: { revokedAt: true, replacedById: true },
+    });
+    expect(claimed.revokedAt).not.toBeNull();
+    expect(claimed.replacedById).not.toBeNull();
+    const successor = await db.prisma.refreshToken.findUnique({
+      where: { id: claimed.replacedById as string },
+      select: { id: true },
+    });
+    expect(successor, 'replacedById must point at a row that exists, not an orphan').not.toBeNull();
+  });
+
+  it('a refresh racing a logout does not resurrect the logged-out token', async () => {
+    // The security case for the conditional UPDATE. Previously the refresh's unconditional
+    // write landed on top of the logout: it set replacedById, so the caller got a live
+    // successor AND the logged-out token became grace-replayable for the whole window.
+    const svc = service();
+    const pair1 = await seedUserAndLogin(svc);
+
+    const [logout, refresh] = await Promise.allSettled([
+      svc.logout({ refreshToken: pair1.refreshToken }),
+      svc.refresh({ refreshToken: pair1.refreshToken }),
+    ]);
+    expect(logout.status).toBe('fulfilled');
+
+    // Whoever won, the end state must be coherent: if the logout landed first the refresh
+    // is rejected; if the refresh landed first the token is rotated, never both.
+    const row = await db.prisma.refreshToken.findFirstOrThrow({
+      where: { replacedById: null, revokedAt: { not: null } },
+      select: { replacedById: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (refresh.status === 'rejected') {
+      // Logout won: the token stays successor-less, so it can never be graced back in.
+      expect(row.replacedById).toBeNull();
+      await expect(svc.refresh({ refreshToken: pair1.refreshToken })).rejects.toMatchObject({
+        status: 401,
+      });
+    }
+  });
+
   it('accepts a just-rotated token again within the grace window', async () => {
     const svc = service();
     const pair1 = await seedUserAndLogin(svc);
