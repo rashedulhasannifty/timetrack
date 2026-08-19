@@ -6,7 +6,7 @@ import type { TeamSummaryRow } from '@timetrack/contracts';
 import { Card } from '../ui/Card';
 import { Avatar } from '../ui/Avatar';
 import { Table, THead, Tbody, Tr, Th, Td } from '../ui/Table';
-import { BarMeter } from '../charts/BarMeter';
+import { Meter } from '../ui/Meter';
 import { formatDuration } from '../../lib/format';
 import { sortTeamRows } from '../../lib/reports-view';
 
@@ -31,7 +31,7 @@ export function ReportsByPersonTable({ rows }: { rows: TeamSummaryRow[] }) {
     <Card padding="none" className="overflow-hidden">
       <Table>
         <THead>
-          <Tr>
+          <tr>
             <Th sortable sortDirection={dirFor('name')} onSortClick={() => handleSort('name')}>
               User
             </Th>
@@ -51,24 +51,27 @@ export function ReportsByPersonTable({ rows }: { rows: TeamSummaryRow[] }) {
             >
               Activity %
             </Th>
-          </Tr>
+          </tr>
         </THead>
         <Tbody>
           {sorted.map((row) => (
             <Tr key={row.userId} interactive onClick={() => router.push(`/people/${row.userId}`)}>
               <Td>
-                <span className="inline-flex items-center gap-2">
-                  <Avatar name={row.name} size={26} />
-                  {row.name}
+                <span className="inline-flex items-center gap-2.5">
+                  <Avatar name={row.name} size={28} />
+                  <span className="font-bold">{row.name}</span>
                 </span>
               </Td>
-              <Td align="right">{formatDuration(row.trackedSeconds)}</Td>
+              <Td align="right" className="font-bold">
+                {formatDuration(row.trackedSeconds)}
+              </Td>
               <Td align="right" className="w-[220px]">
-                <BarMeter
-                  label=""
-                  value={`${row.activityPct}%`}
-                  fills={[{ pct: row.activityPct, color: 'var(--tt-accent)' }]}
-                />
+                <span className="flex items-center gap-2.5">
+                  <Meter pct={row.activityPct} label={`${row.name} activity`} />
+                  <span className="tt-numeric text-text-secondary w-9 text-right">
+                    {row.activityPct}%
+                  </span>
+                </span>
               </Td>
             </Tr>
           ))}

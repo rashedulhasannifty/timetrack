@@ -1,8 +1,8 @@
 import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { SectionHeader } from '../../../components/ui/SectionHeader';
-import { Card } from '../../../components/ui/Card';
+import { Card, CardTitle } from '../../../components/ui/Card';
 import { Button } from '../../../components/ui/Button';
-import { BarMeter } from '../../../components/charts/BarMeter';
+import { Meter } from '../../../components/ui/Meter';
 import { ReportsByPersonTable } from '../../../components/reports/ReportsByPersonTable';
 import { ReportRangePicker } from '../../../components/reports/ReportRangePicker';
 import { getSession } from '../../../lib/session';
@@ -75,30 +75,27 @@ export default async function ReportsPage({
           </div>
           {hasReportData(team.rows, projects.rows) ? (
             <>
-              <section className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3">
                 <SectionHeader label="By person" />
                 <ReportsByPersonTable rows={team.rows} />
-              </section>
-              <section className="flex flex-col gap-3">
-                <SectionHeader label="By project" />
-                <Card padding="md">
-                  <div className="flex flex-col gap-3.5">
-                    {projects.rows.map((p) => (
-                      <BarMeter
-                        key={p.projectId ?? 'none'}
-                        label={p.name}
-                        value={formatDuration(p.trackedSeconds)}
-                        fills={[
-                          {
-                            pct: (p.trackedSeconds / projectsMax) * 100,
-                            color: 'var(--tt-accent)',
-                          },
-                        ]}
-                      />
-                    ))}
-                  </div>
-                </Card>
-              </section>
+              </div>
+              <Card padding="md">
+                <CardTitle className="mb-2">By project</CardTitle>
+                <ul className="m-0 flex list-none flex-col p-0">
+                  {projects.rows.map((p) => (
+                    <li
+                      key={p.projectId ?? 'none'}
+                      className="border-separator flex items-center gap-3 border-t py-3"
+                    >
+                      <span className="flex-1 truncate text-[13px] font-semibold">{p.name}</span>
+                      <Meter pct={(p.trackedSeconds / projectsMax) * 100} width={280} />
+                      <span className="tt-numeric text-text-secondary w-[70px] text-right text-[13px]">
+                        {formatDuration(p.trackedSeconds)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
             </>
           ) : (
             <p className="text-text-secondary text-body">No data in this range.</p>
