@@ -136,7 +136,7 @@ export function LineChart({ values, max, axis, dayLetters, color, unit, labels }
               textAlign: 'center',
               fontSize: 9,
               fontVariantNumeric: 'tabular-nums',
-              color: d.weekend ? 'var(--tt-destructive)' : 'var(--tt-text-secondary)',
+              color: d.weekend ? 'var(--tt-neutral)' : 'var(--tt-text-secondary)',
             }}
           >
             {d.letter}
