@@ -1,7 +1,17 @@
 import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { getSession } from '../../../lib/session';
 import { api } from '../../../lib/api-client';
-import { personDayView, resolveDayDate } from '../../../lib/person-day-view';
+import {
+  personDayView,
+  resolveDayDate,
+  weekRangeFor,
+  weekStrip,
+} from '../../../lib/person-day-view';
+import { WeekStrip } from '../../../components/day/WeekStrip';
+import { IdlePanel } from '../../../components/day/IdlePanel';
+import { CategoryMixBar } from '../../../components/day/CategoryMixBar';
+import { Card, CardTitle } from '../../../components/ui/Card';
+import { categoryMix, idleRows } from '../../../lib/idle-view';
 import { PersonDayView } from '../../../components/day/PersonDayView';
 import { ScreenshotsPanel } from './ScreenshotsPanel';
 import { toScreenshotView } from './screenshot-view';
@@ -11,9 +21,11 @@ import { DayAppUsage } from '../../../components/day/DayAppUsage';
 import { selfApprovals } from '../../../lib/approvals-view';
 import type {
   ActivitySample,
+  IdleEvent,
   Project,
   Screenshot,
   TeamAppUsage,
+  TeamTrends,
   TimeEntry,
   TimesheetApproval,
 } from '@timetrack/contracts';
@@ -40,24 +52,36 @@ export default async function MyDataPage({
     to: `${date}T23:59:59.999Z`,
   });
 
+  const week = weekRangeFor(date);
+  const weekParams = new URLSearchParams({
+    userId: session.userId,
+    from: week.from,
+    to: week.to,
+  });
+
   // Self-scoped; each read is independent — a failure in one degrades to an empty panel.
-  const [entries, samples, screenshots, approvals, projects, appUsage] = await Promise.all([
-    api.listTimeEntries(session.accessToken, todayParams).catch((): TimeEntry[] => []),
-    api.listActivitySamples(session.accessToken, todayParams).catch((): ActivitySample[] => []),
-    api.listScreenshots(session.accessToken, todayParams).catch((): Screenshot[] => []),
-    // The API self-scopes only an EMPLOYEE; a MANAGER/ADMIN gets team/all rows, so we
-    // filter to self below (selfApprovals) — this is the employee self-view.
-    api
-      .listApprovals(session.accessToken, new URLSearchParams())
-      .catch((): TimesheetApproval[] | null => null),
-    // Names for the entries: an entry carries a projectId/taskId, not names. includeArchived so a
-    // historical entry on a since-archived project still resolves instead of falling to "Untitled".
-    api.listProjects(session.accessToken, { includeArchived: true }).catch((): Project[] => []),
-    // Explicitly self-scoped. The API pins an EMPLOYEE to themselves regardless, but a
-    // MANAGER/ADMIN reading their OWN page would otherwise fall through to a team-wide
-    // rollup rendered under a heading that says it is theirs.
-    api.appUsage(session.accessToken, todayParams).catch((): TeamAppUsage | null => null),
-  ]);
+  const [entries, samples, screenshots, approvals, projects, appUsage, idle, trends] =
+    await Promise.all([
+      api.listTimeEntries(session.accessToken, todayParams).catch((): TimeEntry[] => []),
+      api.listActivitySamples(session.accessToken, todayParams).catch((): ActivitySample[] => []),
+      api.listScreenshots(session.accessToken, todayParams).catch((): Screenshot[] => []),
+      // The API self-scopes only an EMPLOYEE; a MANAGER/ADMIN gets team/all rows, so we
+      // filter to self below (selfApprovals) — this is the employee self-view.
+      api
+        .listApprovals(session.accessToken, new URLSearchParams())
+        .catch((): TimesheetApproval[] | null => null),
+      // Names for the entries: an entry carries a projectId/taskId, not names. includeArchived so a
+      // historical entry on a since-archived project still resolves instead of falling to "Untitled".
+      api.listProjects(session.accessToken, { includeArchived: true }).catch((): Project[] => []),
+      // Explicitly self-scoped. The API pins an EMPLOYEE to themselves regardless, but a
+      // MANAGER/ADMIN reading their OWN page would otherwise fall through to a team-wide
+      // rollup rendered under a heading that says it is theirs.
+      api.appUsage(session.accessToken, todayParams).catch((): TeamAppUsage | null => null),
+      // Idle periods for the day. Resolution happens on the Mac app and syncs up — this is a
+      // read-only report of how each one was answered.
+      api.listIdleEvents(session.accessToken, todayParams).catch((): IdleEvent[] => []),
+      api.trends(session.accessToken, weekParams).catch((): TeamTrends | null => null),
+    ]);
 
   const myApprovals = selfApprovals(approvals, session.userId);
 
@@ -86,7 +110,27 @@ export default async function MyDataPage({
               onRedact={redactScreenshotAction}
             />
           }
+          weekStrip={
+            trends ? (
+              <WeekStrip
+                days={weekStrip(date, trends.days, new Date().toISOString().slice(0, 10))}
+              />
+            ) : undefined
+          }
         />
+
+        <div className="grid items-start gap-[22px] [grid-template-columns:repeat(auto-fit,minmax(360px,1fr))]">
+          <Card padding="md">
+            <CardTitle className="mb-3.5">How the day broke down</CardTitle>
+            <CategoryMixBar mix={categoryMix(samples)} />
+          </Card>
+          <Card padding="md">
+            <CardTitle className="mb-2" note="over your team's idle threshold">
+              Idle periods
+            </CardTitle>
+            <IdlePanel rows={idleRows(idle)} />
+          </Card>
+        </div>
       </div>
     </>
   );

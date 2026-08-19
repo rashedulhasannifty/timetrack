@@ -166,7 +166,7 @@ function Tile({
   if (mode === 'redacted') {
     return (
       <figure className="m-0 flex flex-col gap-1.5">
-        <div className="bg-surface border-separator flex aspect-[16/10] w-full items-center justify-center rounded-lg border">
+        <div className="bg-surface border-separator flex aspect-[16/10] w-full items-center justify-center rounded-[10px] border">
           <span className="bg-surface-raised text-text-secondary text-caption rounded px-1.5 py-0.5 font-medium">
             Redacted
           </span>
@@ -182,7 +182,7 @@ function Tile({
   if (mode === 'pending') {
     return (
       <figure className="m-0 flex flex-col gap-1.5">
-        <div className="bg-surface border-separator flex aspect-[16/10] w-full items-center justify-center rounded-lg border">
+        <div className="bg-surface border-separator flex aspect-[16/10] w-full items-center justify-center rounded-[10px] border">
           <span className="text-caption text-text-secondary">{shot.status}</span>
         </div>
         <figcaption className="tt-numeric text-caption text-text-secondary">
@@ -208,7 +208,7 @@ function Tile({
 
   return (
     <figure className="m-0 flex flex-col gap-1.5">
-      <div className="border-separator relative aspect-[16/10] w-full overflow-hidden rounded-lg border">
+      <div className="border-separator relative aspect-[16/10] w-full overflow-hidden rounded-[10px] border">
         {/* Presigned MinIO URL, not a static asset — next/image is not applicable here. */}
         {onOpen ? (
           <button
