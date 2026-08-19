@@ -72,6 +72,10 @@ model RefreshToken {
   id           String    @id @default(uuid(7))
   userId       String
   tokenHash    String    @unique
+  /// Every token minted from one login shares this. Rotation carries it to the successor, so
+  /// replaying a rotated token can revoke that whole chain without touching the user's other
+  /// devices — each login starts its own family.
+  familyId     String
   expiresAt    DateTime
   revokedAt    DateTime?
   replacedById String?
@@ -79,6 +83,8 @@ model RefreshToken {
   user         User      @relation(fields: [userId], references: [id])
 
   @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
   @@map("refresh_tokens")
 }
 

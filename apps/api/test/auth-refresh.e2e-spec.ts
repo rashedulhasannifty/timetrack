@@ -104,6 +104,56 @@ describe.runIf(RUN_E2E)('auth refresh — grace window (real Postgres)', () => {
     }
   });
 
+  it('replaying a long-rotated token kills the whole chain, not just that token', async () => {
+    const svc = service();
+    const pair1 = await seedUserAndLogin(svc);
+    const pair2 = await svc.refresh({ refreshToken: pair1.refreshToken });
+    const pair3 = await svc.refresh({ refreshToken: pair2.refreshToken });
+    // pair3 is the live token; the attacker holds pair1 and presents it after the grace
+    // window has passed.
+    await db.prisma.refreshToken.updateMany({
+      where: { revokedAt: { not: null } },
+      data: { revokedAt: new Date(Date.now() - 60_000) },
+    });
+
+    await expect(svc.refresh({ refreshToken: pair1.refreshToken })).rejects.toMatchObject({
+      status: 401,
+    });
+
+    // The tripwire: the current, uncompromised token is dead too, so the thief's chain is
+    // worthless and the real user has to log in again rather than sharing a session.
+    await expect(svc.refresh({ refreshToken: pair3.refreshToken })).rejects.toMatchObject({
+      status: 401,
+    });
+    const live = await db.prisma.refreshToken.count({ where: { revokedAt: null } });
+    expect(live).toBe(0);
+  });
+
+  it('a compromised chain does not sign the user out of their other devices', async () => {
+    // Each login is its own family, which is what keeps reuse detection from being a
+    // whole-account logout.
+    const svc = service();
+    const laptop = await seedUserAndLogin(svc);
+    const phone = await svc.login({ email: 'ada@example.com', password: 'password12' });
+
+    const laptop2 = await svc.refresh({ refreshToken: laptop.refreshToken });
+    await db.prisma.refreshToken.updateMany({
+      where: { revokedAt: { not: null } },
+      data: { revokedAt: new Date(Date.now() - 60_000) },
+    });
+    await expect(svc.refresh({ refreshToken: laptop.refreshToken })).rejects.toMatchObject({
+      status: 401,
+    });
+
+    // laptop's chain is gone...
+    await expect(svc.refresh({ refreshToken: laptop2.refreshToken })).rejects.toMatchObject({
+      status: 401,
+    });
+    // ...and the phone is untouched.
+    const stillWorks = await svc.refresh({ refreshToken: phone.refreshToken });
+    expect(stillWorks.accessToken).toBeTruthy();
+  });
+
   it('accepts a just-rotated token again within the grace window', async () => {
     const svc = service();
     const pair1 = await seedUserAndLogin(svc);

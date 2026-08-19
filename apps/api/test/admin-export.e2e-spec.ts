@@ -26,7 +26,12 @@ async function seedFullUser(
   });
   const ts = new Date('2026-07-20T10:00:00Z');
   await db.prisma.refreshToken.create({
-    data: { userId: user.id, tokenHash: `h-${user.id}`, expiresAt: new Date('2026-12-01') },
+    data: {
+      userId: user.id,
+      tokenHash: `h-${user.id}`,
+      expiresAt: new Date('2026-12-01'),
+      familyId: `fam-${user.id}`,
+    },
   });
   await db.prisma.timeEntry.create({
     data: {
