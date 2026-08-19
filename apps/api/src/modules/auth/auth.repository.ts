@@ -45,6 +45,7 @@ export interface AuthIdentity {
 export interface StoredRefreshToken {
   id: string;
   userId: string;
+  familyId: string;
   expiresAt: Date;
   revokedAt: Date | null;
   replacedById: string | null;
@@ -128,9 +129,14 @@ export class AuthRepository {
     }
   }
 
-  async createRefreshToken(userId: string, tokenHash: string, expiresAt: Date): Promise<string> {
+  async createRefreshToken(
+    userId: string,
+    tokenHash: string,
+    expiresAt: Date,
+    familyId: string,
+  ): Promise<string> {
     const row = await this.prisma.refreshToken.create({
-      data: { userId, tokenHash, expiresAt },
+      data: { userId, tokenHash, expiresAt, familyId },
       select: { id: true },
     });
     return row.id;
@@ -139,7 +145,14 @@ export class AuthRepository {
   findRefreshToken(tokenHash: string): Promise<StoredRefreshToken | null> {
     return this.prisma.refreshToken.findUnique({
       where: { tokenHash },
-      select: { id: true, userId: true, expiresAt: true, revokedAt: true, replacedById: true },
+      select: {
+        id: true,
+        userId: true,
+        familyId: true,
+        expiresAt: true,
+        revokedAt: true,
+        replacedById: true,
+      },
     });
   }
 
@@ -166,6 +179,7 @@ export class AuthRepository {
     tokenHash: string,
     expiresAt: Date,
     revokedAt: Date,
+    familyId: string,
   ): Promise<string | null> {
     return this.prisma.$transaction(
       async (tx) => {
@@ -175,7 +189,7 @@ export class AuthRepository {
         });
         if (claimed.count !== 1) return null;
         const successor = await tx.refreshToken.create({
-          data: { userId, tokenHash, expiresAt },
+          data: { userId, tokenHash, expiresAt, familyId },
           select: { id: true },
         });
         await tx.refreshToken.update({ where: { id }, data: { replacedById: successor.id } });
@@ -183,5 +197,19 @@ export class AuthRepository {
       },
       { timeout: 10_000, maxWait: 5_000 },
     );
+  }
+
+  /**
+   * Reuse detection: kill every token still live in one family, and report how many.
+   *
+   * Scoped to the family, NOT the user — each login starts its own — so a replay on one
+   * compromised machine does not sign the same person out everywhere else.
+   */
+  async revokeFamily(familyId: string, revokedAt: Date): Promise<number> {
+    const { count } = await this.prisma.refreshToken.updateMany({
+      where: { familyId, revokedAt: null },
+      data: { revokedAt },
+    });
+    return count;
   }
 }
