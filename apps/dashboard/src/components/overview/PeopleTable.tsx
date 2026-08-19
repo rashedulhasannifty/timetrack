@@ -38,8 +38,8 @@ export function PeopleTable({ rows }: { rows: PeopleRow[] }) {
                 <Avatar name={row.name} size={26} />
                 <span className="text-text font-medium">{row.name}</span>
                 {row.tracking ? (
-                  <span className="text-good text-caption inline-flex items-center gap-1.5">
-                    <span className="bg-good tt-pulse h-[7px] w-[7px] flex-none rounded-full" />
+                  <span className="text-recording text-caption inline-flex items-center gap-1.5">
+                    <span className="bg-recording tt-pulse h-[7px] w-[7px] flex-none rounded-full" />
                     tracking now
                   </span>
                 ) : null}

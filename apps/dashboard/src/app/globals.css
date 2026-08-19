@@ -8,10 +8,16 @@
    preference (falling back to the OS setting) before first paint.
 
    The handoff carries five colour roles (accent / good / warn / bad / neutral)
-   where we carry nine names, so several names now alias one value on purpose:
-   category-productive and recording both resolve to `good`, and manual resolves
-   to `category-unproductive`. Keeping the names means callers still say what
-   they mean, and splitting a role apart later is a one-line value change.
+   where we carry nine names, so two names alias one value on purpose:
+   category-productive resolves to `good`, and manual to `category-unproductive`.
+   Keeping the names means callers still say what they mean, and splitting a role
+   apart later is a one-line value change.
+
+   `recording` deliberately does NOT alias anything. It is a state role — tracking
+   is happening right now — not a category, and it is the brand mark's elapsed arc
+   and the colour of the app icon in `icon.svg`. The handoff has no teal, but the
+   handoff does not own the favicon; folding this into `good` turned the mark into
+   a solid green ring and split it from the icon in the browser tab.
    ============================================================================ */
 
 @import 'tailwindcss';
@@ -32,7 +38,7 @@
   --tt-category-productive: #127a52;
   --tt-category-neutral: #98a0ac;
   --tt-category-unproductive: #b26a05;
-  --tt-recording: #127a52;
+  --tt-recording: #30b0c7;
   --tt-good: #127a52;
   --tt-manual: #b26a05;
 
@@ -54,7 +60,7 @@
   --tt-category-productive: #3ecf95;
   --tt-category-neutral: #6c7683;
   --tt-category-unproductive: #e0a33a;
-  --tt-recording: #3ecf95;
+  --tt-recording: #40cbe0;
   --tt-good: #3ecf95;
   --tt-manual: #e0a33a;
 
