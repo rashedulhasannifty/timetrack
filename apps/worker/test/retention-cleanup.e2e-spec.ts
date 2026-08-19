@@ -185,6 +185,55 @@ describe.runIf(RUN_E2E)('retention-cleanup processor — real Postgres + MinIO',
     expect(await exists(key)).toBe(false);
   });
 
+  it('prunes EXPIRED refresh tokens but keeps revoked ones the reuse tripwire needs', async () => {
+    const team = await makeTeam(30);
+    const userId = await makeUser(team, 'rt-prune@x.com');
+    const past = new Date('2026-07-01T00:00:00.000Z'); // before NOW
+    const future = new Date('2026-09-01T00:00:00.000Z'); // after NOW
+
+    await env.prisma.refreshToken.createMany({
+      data: [
+        // expired → prune, whether or not it was revoked
+        { userId, tokenHash: 'p-expired-live', familyId: 'f1', expiresAt: past },
+        {
+          userId,
+          tokenHash: 'p-expired-revoked',
+          familyId: 'f1',
+          expiresAt: past,
+          revokedAt: past,
+        },
+        // unexpired but REVOKED → keep: this is the row reuse detection matches on. Pruning
+        // it would make a replay read as "unknown token" and silently disarm the tripwire.
+        {
+          userId,
+          tokenHash: 'p-revoked-live',
+          familyId: 'f2',
+          expiresAt: future,
+          revokedAt: past,
+          replacedById: null,
+        },
+        // the current token
+        { userId, tokenHash: 'p-current', familyId: 'f2', expiresAt: future },
+      ],
+    });
+
+    await run(job(s3).processor);
+
+    const left = await env.prisma.refreshToken.findMany({
+      where: { userId },
+      select: { tokenHash: true },
+      orderBy: { tokenHash: 'asc' },
+    });
+    expect(left.map((r) => r.tokenHash)).toEqual(['p-current', 'p-revoked-live']);
+
+    const audit = await env.prisma.auditLog.findFirst({
+      where: { action: 'retention.cleanup' },
+      orderBy: { timestamp: 'desc' },
+      select: { diff: true },
+    });
+    expect((audit?.diff as Record<string, unknown>).expiredRefreshTokens).toBe(2);
+  });
+
   it('keeps rows within retention untouched (no unbounded delete)', async () => {
     const t90 = await makeTeam(90);
     const u = await makeUser(t90, 'keep-u@x.com');

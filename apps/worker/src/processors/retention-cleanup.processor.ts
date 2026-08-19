@@ -61,10 +61,11 @@ export class RetentionCleanupProcessor extends WorkerHost {
       settings: TeamSettingsSchema.parse(t.settings ?? {}),
     }));
 
-    const diff: Record<string, TableReport> = {};
+    const diff: Record<string, TableReport | number> = {};
     for (const table of TABLES) {
       diff[table.parent] = await this.sweepTable(table, parsed, now);
     }
+    diff['expiredRefreshTokens'] = await this.pruneExpiredRefreshTokens(now);
 
     await this.prisma.auditLog.create({
       data: {
@@ -76,6 +77,23 @@ export class RetentionCleanupProcessor extends WorkerHost {
       },
     });
     this.logger.log({ diff }, 'retention cleanup complete');
+  }
+
+  /**
+   * Drop refresh tokens whose own expiry has passed. Nothing created them but logins and
+   * rotations, and nothing has kept them in check: at a 15-minute access TTL a single
+   * client mints roughly 96 rows a day, all of which used to live forever.
+   *
+   * Strictly by expiresAt — a REVOKED token is deliberately kept until it expires, because
+   * that is the row reuse detection matches on. Pruning revoked rows early would quietly
+   * disarm the tripwire: a replayed token would read as unknown rather than as reuse, and
+   * the compromised family would never be revoked.
+   */
+  private async pruneExpiredRefreshTokens(now: Date): Promise<number> {
+    const { count } = await this.prisma.refreshToken.deleteMany({
+      where: { expiresAt: { lt: now } },
+    });
+    return count;
   }
 
   private async sweepTable(
