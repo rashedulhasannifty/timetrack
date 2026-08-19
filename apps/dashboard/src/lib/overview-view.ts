@@ -410,10 +410,15 @@ export function attentionItems(input: {
   activity: TeamActivity;
   apps: TeamAppUsage;
   pendingApprovals: number;
-  /** Idle share, in percent, at or above which a person is worth surfacing. */
-  idleThresholdPct?: number;
+  /**
+   * Display cutoff: the idle share below which nobody is worth surfacing. This is a
+   * presentation choice, NOT the team's configured policy — `TeamSettings` carries
+   * `idleThresholdMinutes`, a duration, which is a different quantity from a share of tracked
+   * time and is not comparable to it. The copy below is careful not to call this a threshold.
+   */
+  minIdlePct?: number;
 }): AttentionItem[] {
-  const { overview, activity, apps, pendingApprovals, idleThresholdPct = 10 } = input;
+  const { overview, activity, apps, pendingApprovals, minIdlePct = 10 } = input;
   const items: AttentionItem[] = [];
 
   const untracked = overview.filter((r) => r.trackedSecondsToday === 0);
@@ -445,11 +450,11 @@ export function attentionItems(input: {
   }
 
   const worstIdle = [...activity.rows].sort((a, b) => b.idlePct - a.idlePct)[0];
-  if (worstIdle && worstIdle.idlePct >= idleThresholdPct) {
+  if (worstIdle && worstIdle.idlePct >= minIdlePct) {
     items.push({
       id: 'idle',
       title: `${worstIdle.name} idle ${worstIdle.idlePct}% of tracked time`,
-      detail: `${worstIdle.idleMinutes}m idle · threshold is ${idleThresholdPct}%`,
+      detail: `${worstIdle.idleMinutes}m idle · the highest share on the team this period`,
       action: 'Open',
       href: `/people/${worstIdle.userId}`,
       tone: 'warn',

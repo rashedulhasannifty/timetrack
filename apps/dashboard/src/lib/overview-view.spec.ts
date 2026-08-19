@@ -555,13 +555,19 @@ describe('attentionItems', () => {
     );
   });
 
-  it('surfaces only the worst idler, and only over the threshold', () => {
+  it('surfaces only the worst idler, and only above the display cutoff', () => {
     const item = attentionItems(base).find((i) => i.id === 'idle')!;
     expect(item.title).toContain('Alice');
     expect(item.href).toBe('/people/1');
-    expect(attentionItems({ ...base, idleThresholdPct: 20 }).some((i) => i.id === 'idle')).toBe(
-      false,
-    );
+    expect(attentionItems({ ...base, minIdlePct: 20 }).some((i) => i.id === 'idle')).toBe(false);
+  });
+
+  it('does not describe the idle cutoff as a configured policy threshold', () => {
+    // TeamSettings carries idleThresholdMinutes -- a duration, not a share of tracked time.
+    // Calling the display cutoff a "threshold" would state an invented policy as fact.
+    const item = attentionItems(base).find((i) => i.id === 'idle')!;
+    expect(item.detail).not.toMatch(/threshold/i);
+    expect(item.detail).toContain('highest share');
   });
 
   it('scopes the unrated claim to the top apps it can actually see', () => {

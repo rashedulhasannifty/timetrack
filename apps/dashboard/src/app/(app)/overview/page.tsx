@@ -40,6 +40,11 @@ import {
   trendsToProductivityBars,
 } from '../../../lib/overview-view';
 
+// Widget ids are persisted per user in localStorage['tt-widgets'] as a hidden-map. The
+// redesign retired `havent`, `apps-used`, `apps-unproductive`, `apps-unrated` and the five
+// `top-*` ids, and added `attention`, `people` and `apps`. Stale keys are simply ignored and
+// the new widgets default to visible, so an existing preference degrades to "everything on"
+// rather than breaking -- but someone who had hidden `top-idle` will see its replacement.
 const GROUPS: WidgetGroup[] = [
   { label: 'Overview', items: [{ id: 'kpis', label: 'Headline + KPI tiles' }] },
   {
