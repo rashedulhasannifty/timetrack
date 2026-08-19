@@ -10,32 +10,33 @@ the §11 gate line).
 
 ---
 
-## 1. Automatable gates — ✅ verified on current `main` (`2a28f50`, 2026-08-18)
+## 1. Automatable gates — ✅ verified on current `main` (`d2d031f`, 2026-08-19)
 
 Server-side gates cite the CI run rather than a hand-copied count, so this table cannot go
 stale again the way it did between 2026-08-06 and 2026-08-18.
 
-| Gate                                                           | Result                                                                  |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Monorepo `pnpm lint && typecheck && test && build`             | green — CI run [32135018994][ci] (`verify`, 2m25s)                      |
-| API + contracts coverage gates (Testcontainers, real PG/Redis) | green — same run; ≥80% enforced, build fails below it                   |
-| Worker e2e (BullMQ processors, real PG/Redis/MinIO)            | ⚠️ **not covered by CI** — see the note below                           |
-| Client `swift build -c release` (Xcode toolchain)              | clean, ~20s from cold                                                   |
-| Client `swift test`                                            | **294/294**, 0 failures                                                 |
-| `scripts/package-app.sh` → `dist/Nifty Timer.app` assembles    | ✓ — bundle id `com.niftyitsolution.niftytimer`, production URLs stamped |
-| Bundle launch smoke (starts, stays alive, no startup crash)    | ✓                                                                       |
+| Gate                                                           | Result                                                       |
+| -------------------------------------------------------------- | ------------------------------------------------------------ |
+| Monorepo `pnpm lint && typecheck && test && build`             | green — CI run [32222643420][ci] (`verify`, 3m58s)           |
+| API + contracts coverage gates (Testcontainers, real PG/Redis) | green — same run; ≥80% enforced, build fails below it        |
+| Worker e2e (BullMQ processors, real PG/Redis/MinIO)            | green — same run; **26/26**, ~39s                            |
+| Client `swift build -c release` (Xcode toolchain)              | green — Client run [32220228986][client] (Swift 6.2.4)       |
+| Client `swift test`                                            | green — same run; **294/294**, 0 failures                    |
+| `scripts/package-app.sh` → `dist/Nifty Timer.app` assembles    | green — same run; bundle id `com.niftyitsolution.niftytimer` |
+| Bundle launch smoke (starts, stays alive, no startup crash)    | ✓ (manual — a runner has no GUI session)                     |
 
-[ci]: https://github.com/rashedulhasannifty/timetrack/actions/runs/32135018994
+[ci]: https://github.com/rashedulhasannifty/timetrack/actions/runs/32222643420
+[client]: https://github.com/rashedulhasannifty/timetrack/actions/runs/32220228986
 
-> ⚠️ **Worker e2e never runs in CI.** Every worker e2e spec is `describe.runIf(RUN_E2E)`, and
-> no workflow sets `RUN_E2E=1` outside the api's own `test:coverage` script — so `pnpm test`
-> skips all of them and the run still reports green. They have to be run by hand:
-> `RUN_E2E=1 pnpm --filter @timetrack/worker test:e2e` (needs Docker). Treat the worker as
-> unverified by CI until that is wired up.
+> Every row above is now enforced by a workflow rather than by someone remembering. The client
+> rows come from `client.yml`, which is path-filtered to `apps/client-macos/**` (macOS minutes
+> bill at 10x), so it runs on client changes only — the run cited above is the one triggered by
+> the last commit that touched the client.
 
 > Build note: on a dev Mac `xcode-select -p` often points at CommandLineTools, which has no
 > XCTest, so local runs need `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`. CI
-> runners default to a full Xcode and need no override.
+> selects the newest Xcode on the image instead — the client needs a Swift 6 toolchain even
+> though `Package.swift` still declares `swift-tools-version:5.10`.
 
 The 2026-07/08 dependency upgrades (eslint 10, boundaries 7, testcontainers 12, aws-sdk, CI
 actions) do **not** touch the Swift client — it is outside the pnpm graph.
