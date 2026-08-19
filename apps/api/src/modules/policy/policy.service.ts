@@ -1,5 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { EffectivePolicySchema, TeamSettingsSchema, type EffectivePolicy } from '@timetrack/contracts';
+import {
+  EffectivePolicySchema,
+  TeamSettingsSchema,
+  type EffectivePolicy,
+} from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { PolicyRepository } from './policy.repository.js';
 
@@ -22,11 +26,13 @@ export class PolicyService {
     const row = await this.repo.getUserPolicy(user.id);
     if (!row) throw new NotFoundException({ title: 'User not found', status: 404 });
     return EffectivePolicySchema.parse({
+      // Consent is currently per-user, not per-revision: an acknowledgement is a single
+      // timestamp, so someone who has acknowledged stays acknowledged even if POLICY_TEXT
+      // below later changes. Making a revision re-trigger this needs a policy-revision
+      // record and a re-ack rollout — tracked in #122, deliberately not done here.
       ackRequired: row.monitoringAckAt === null,
       policyVersion: POLICY_VERSION,
       policyText: POLICY_TEXT,
-      // TODO(scaffold): move POLICY_VERSION/TEXT to a versioned policy record so a new
-      //                 policy revision re-triggers ackRequired for everyone.
       settings: TeamSettingsSchema.parse(row.team.settings ?? {}),
     });
   }
