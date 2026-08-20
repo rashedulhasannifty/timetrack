@@ -1,6 +1,8 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import {
   dayOf,
+  dayStartInstant,
+  shiftDay,
   ProjectSummarySchema,
   TeamActivitySchema,
   TeamAppUsageSchema,
@@ -23,8 +25,6 @@ import { ReportsRepository, type ReportScope } from './reports.repository.js';
 import { csvHeaderLine, formatCsvRow } from './csv-writer.js';
 import { TRACKING_FRESHNESS_SECONDS } from './reports.tokens.js';
 
-const DAY_MS = 86_400_000;
-
 @Injectable()
 export class ReportsService {
   // All three params carry an explicit @Inject token. Mixing a token-injected param with
@@ -40,9 +40,14 @@ export class ReportsService {
   ) {}
 
   async overview(query: TeamOverviewQuery, user: SessionUser): Promise<TeamOverview> {
+    // `query.date` is already constrained to a real 'YYYY-MM-DD' calendar date by
+    // TeamOverviewQuerySchema's `z.iso.date()` (rejects e.g. '2026-02-30' the same way
+    // `isValidDay` does) before the controller's ZodValidationPipe lets it reach here, so
+    // `dayStartInstant`/`shiftDay` — which throw on a malformed label — can't throw on this
+    // input. No extra guard needed.
     const date = query.date ?? dayOf(new Date());
-    const dayStart = new Date(`${date}T00:00:00.000Z`);
-    const dayEnd = new Date(dayStart.getTime() + DAY_MS);
+    const dayStart = dayStartInstant(date);
+    const dayEnd = dayStartInstant(shiftDay(date, 1));
 
     // EMPLOYEE sees only themselves; MANAGER/ADMIN see their own team. The scope is fixed
     // by the actor's identity — no client parameter can widen it (CLAUDE.md §4).

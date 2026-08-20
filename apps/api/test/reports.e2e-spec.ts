@@ -1,7 +1,10 @@
 import './test-env.js'; // must run before anything that calls loadEnv()
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { ReportsRepository } from '../src/modules/reports/reports.repository.js';
+import { ReportsService } from '../src/modules/reports/reports.service.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
+import type { SessionUser } from '../src/common/decorators/current-user.decorator.js';
+import type { ResourceAccessService } from '../src/common/authz/resource-access.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
 
 const RUN_E2E = process.env.RUN_E2E === '1';
@@ -255,6 +258,36 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     // no sample seeded
     const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
     expect(row.tracking).toBe(false);
+  });
+
+  describe('overview via ReportsService (Dhaka day window)', () => {
+    function service(): ReportsService {
+      return new ReportsService(repo(), {} as unknown as ResourceAccessService, WINDOW);
+    }
+
+    it('buckets an 18:30 UTC entry (00:30 Dhaka the next day) onto that Dhaka day, not the UTC one', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      const manager: SessionUser = { id: 'm1', role: 'MANAGER', teamId: team.id };
+      // 2026-08-19T18:30Z is 2026-08-20 00:30 in Dhaka.
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000eb01',
+          userId: user.id,
+          source: 'MANUAL',
+          startTime: new Date('2026-08-19T18:30:00.000Z'),
+          endTime: new Date('2026-08-19T18:45:00.000Z'), // 15 minutes
+        },
+      });
+
+      const aug20 = await service().overview({ date: '2026-08-20' }, manager);
+      const aug20Row = aug20.rows.find((r) => r.userId === user.id);
+      expect(aug20Row?.trackedSecondsToday).toBe(900);
+
+      const aug19 = await service().overview({ date: '2026-08-19' }, manager);
+      const aug19Row = aug19.rows.find((r) => r.userId === user.id);
+      expect(aug19Row?.trackedSecondsToday).toBe(0);
+    });
   });
 
   describe('trends', () => {
