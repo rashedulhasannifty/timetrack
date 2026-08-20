@@ -19,12 +19,17 @@ export const ScreenshotSchema = z.object({
    * Shared by every display captured in the same tick, so a multi-monitor desk reads as one
    * group. Null on captures taken before multi-display support — treat those as a group of one,
    * which is exactly what they were.
+   *
+   * All three grouping fields `.default(null)` rather than being plain required-nullable. The
+   * dashboard parses API responses through this schema, so an API that has not been deployed yet
+   * would otherwise fail the parse outright instead of degrading to ungrouped tiles. The INFERRED
+   * type stays required, so a producer that forgets a field is still a compile error.
    */
-  captureGroupId: z.string().nullable(),
+  captureGroupId: z.string().nullable().default(null),
   /** Position in the group: 0 is the main display, then by display id. Null on legacy rows. */
-  displayIndex: z.number().int().nullable(),
+  displayIndex: z.number().int().nullable().default(null),
   /** Displays the client tried to capture that tick — fewer rows than this means a partial capture. */
-  displayCount: z.number().int().nullable(),
+  displayCount: z.number().int().nullable().default(null),
   /** Presigned GET URL (5 min TTL). Present only on read responses. */
   url: z.url().optional(),
   /** Presigned full-res GET URL (5 min TTL). Present only on READY reads with a raw object. */
