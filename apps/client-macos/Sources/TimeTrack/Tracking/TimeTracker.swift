@@ -113,46 +113,13 @@ final class TimeTracker {
             id: id,
             projectId: projectId,
             taskId: taskId,
-            startTime: Self.iso.string(from: start),
-            endTime: Self.iso.string(from: end),
+            startTime: TimeEntryPayload.iso.string(from: start),
+            endTime: TimeEntryPayload.iso.string(from: end),
             source: source.rawValue,
             note: nil
         )
         if let data = try? JSONEncoder().encode(payload) {
             buffer.enqueue(id: id, kind: .timeEntry, payload: data)
         }
-    }
-
-    private static let iso: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
-}
-
-/// Matches `CreateTimeEntrySchema` in @timetrack/contracts. projectId/taskId are `.nullable()`
-/// (present, may be null) → encoded with `encodeNil`; note is `.optional()` → omitted when nil.
-private struct TimeEntryPayload: Encodable {
-    let id: String
-    let projectId: String?
-    let taskId: String?
-    let startTime: String
-    let endTime: String
-    let source: String
-    let note: String?
-
-    enum CodingKeys: String, CodingKey {
-        case id, projectId, taskId, startTime, endTime, source, note
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        if let projectId { try c.encode(projectId, forKey: .projectId) } else { try c.encodeNil(forKey: .projectId) }
-        if let taskId { try c.encode(taskId, forKey: .taskId) } else { try c.encodeNil(forKey: .taskId) }
-        try c.encode(startTime, forKey: .startTime)
-        try c.encode(endTime, forKey: .endTime)
-        try c.encode(source, forKey: .source)
-        try c.encodeIfPresent(note, forKey: .note)
     }
 }
