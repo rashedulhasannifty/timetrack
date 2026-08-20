@@ -64,6 +64,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activitySync: ActivityBatchSyncEngine?
     private var heartbeatTimer: Timer?
     private var hasAttemptedRecovery = false
+    /// One-shot-per-session guard on `RecentSelectionClient`'s fresh-install fallback (same
+    /// shape as `hasAttemptedRecovery` just above). Without it, a user with nothing in the
+    /// lookback window (or whose returned selection immediately fails `SelectionResolver` and
+    /// gets cleared by `restoreSelection`) would never populate `selectionStore`, so the
+    /// `selectionStore.load(userId:) == nil` gate alone would stay open and re-fire the fetch
+    /// on every throttled menu-open, indefinitely, against the API's global throttler. Reset
+    /// on sign-out in `stopAutoTracking()`, alongside `hasAttemptedRecovery`, so the next user
+    /// on this Mac gets their own single attempt.
+    private var hasAttemptedRecentSelectionFallback = false
     private var updateCoordinator: UpdateCoordinator?
     private var updateStatusObserver: AnyCancellable?
     /// Rate-limits the menu-open project re-fetch so opening the dropdown repeatedly doesn't
@@ -321,24 +330,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Fresh-install fallback: nothing stored locally for this user (new Mac, reinstall) —
         // ask the server what they were last tracking against. Gated on `selectionStore.load`
-        // so this never fires on a routine (throttled) menu-open refresh once something is
-        // stored, and never overrides an existing local selection. Best-effort: any failure
-        // (offline, 401, empty history) just leaves nothing pre-selected. Written to
-        // `selectionStore` so the existing `restoreSelection(userId:)` below picks it up
-        // through the normal path — no second, parallel apply path.
+        // so this never overrides an existing local selection, AND on
+        // `hasAttemptedRecentSelectionFallback` so it fires at most once per session per user —
+        // the store gate alone doesn't self-close (a user with no history in the lookback
+        // window, or a returned selection that immediately fails to resolve and gets cleared,
+        // would otherwise re-trigger the fetch on every throttled menu-open forever). Best-effort:
+        // any failure (offline, 401, empty history) just leaves nothing pre-selected, and the
+        // attempt still only happens once. Written to `selectionStore` so the existing
+        // `restoreSelection(userId:)` below picks it up through the normal path — no second,
+        // parallel apply path.
         //
         // `userId` here is resolved independently of `menuViewModel.currentUserId` (read only
         // below, inside `MainActor.run`, atomically with the restore) so a concurrent sign-out's
         // `reset()` — which nils `currentUserId` — can't be raced into restoring a stale
         // selection; at worst this writes a best-effort fallback under a user who has since
         // signed out, which sits inert under their namespaced key.
-        if let userId = await session.userId(), selectionStore.load(userId: userId) == nil,
-           let remote = await recentSelectionClient.mostRecentSelection() {
-            selectionStore.save(remote, userId: userId)
+        if let userId = await session.userId() {
+            let shouldAttemptFallback = await MainActor.run { () -> Bool in
+                guard !hasAttemptedRecentSelectionFallback, selectionStore.load(userId: userId) == nil else {
+                    return false
+                }
+                // Mark the attempt now, before the network call — a failed/empty result still
+                // counts as "attempted" so the guard actually closes.
+                hasAttemptedRecentSelectionFallback = true
+                return true
+            }
+            if shouldAttemptFallback, let remote = await recentSelectionClient.mostRecentSelection() {
+                selectionStore.save(remote, userId: userId)
+            }
         }
 
         await MainActor.run {
             menuViewModel.projects = fresh
+            // Deliberately re-reads `menuViewModel.currentUserId` here rather than reusing the
+            // `userId` captured above: this block is the same MainActor hop that assigns
+            // `projects`, so it's atomic with a concurrent sign-out's `reset()` (which nils
+            // `currentUserId`). Writing `menuViewModel.currentUserId = userId` here — as an
+            // earlier draft of this method did — would resurrect it after `reset()`, reopening
+            // the cross-user leak `reset()` exists to close (CLAUDE.md §1). Do not add that
+            // write-back.
             if let userId = menuViewModel.currentUserId {
                 menuViewModel.restoreSelection(userId: userId)
             }
@@ -706,6 +736,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // of being silently skipped because a prior user already "used" the attempt.
         RecoveryWindowController.dismissIfShowing()
         hasAttemptedRecovery = false
+        // Same one-shot-per-session reset, same reason: the next user who signs in on this Mac
+        // gets their own single fresh-install fallback attempt (`refreshProjects()`) instead of
+        // inheriting the outgoing user's "already tried" state.
+        hasAttemptedRecentSelectionFallback = false
         // Invalidate the interval timer so no NEW cycle is scheduled. A cycle already in flight is
         // NOT cancelled by this — `flushAndClearBuffer()` joins it via `finishInFlight()` before
         // clearing the buffer, so the reference must survive here (do not nil it).
