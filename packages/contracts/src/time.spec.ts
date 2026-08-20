@@ -54,6 +54,14 @@ describe('shiftDay', () => {
     expect(shiftDay('2026-01-01', -1)).toBe('2025-12-31');
     expect(shiftDay('2026-03-01', -1)).toBe('2026-02-28');
   });
+
+  it('throws on malformed or impossible days rather than returning a wrong label', () => {
+    // Number('') is 0, not NaN — a bare Number.isFinite guard lets these through silently.
+    expect(() => shiftDay('--', 0)).toThrow(RangeError);
+    expect(() => shiftDay('-2026-08-20', 0)).toThrow(RangeError);
+    expect(() => shiftDay('2026-02-30', 0)).toThrow(RangeError);
+    expect(() => shiftDay('', 0)).toThrow(RangeError);
+  });
 });
 
 describe('clockOf', () => {

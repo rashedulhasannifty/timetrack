@@ -62,15 +62,16 @@ export function isValidDay(day: string): boolean {
 /**
  * Shift a 'YYYY-MM-DD' day label by `days`. Pure calendar arithmetic on the label — no zone
  * is involved, because a label is not an instant.
+ *
+ * Precondition: `day` must satisfy `isValidDay`. Throws a `RangeError` otherwise, rather than
+ * silently returning a plausible-looking but wrong day label.
  */
 export function shiftDay(day: string, days: number): string {
+  if (!isValidDay(day)) throw new RangeError(`shiftDay: not a YYYY-MM-DD day: ${day}`);
   const parts = day.split('-');
   const year = Number(parts[0]);
   const month = Number(parts[1]);
   const dayOfMonth = Number(parts[2]);
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(dayOfMonth)) {
-    throw new RangeError(`shiftDay: not a YYYY-MM-DD day: ${day}`);
-  }
   return new Date(Date.UTC(year, month - 1, dayOfMonth + days)).toISOString().slice(0, 10);
 }
 
