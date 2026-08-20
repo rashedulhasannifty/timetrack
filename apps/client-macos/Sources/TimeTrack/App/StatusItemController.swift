@@ -62,21 +62,18 @@ final class StatusItemController: NSObject {
             closePopover()
             return
         }
-        guard let button = item.button, let buttonWindow = button.window else { return }
+        guard let button = item.button, button.window != nil else { return }
         onOpen?()   // refresh on-demand data (e.g. the project list) as the dropdown opens
         // Activate BEFORE showing so the popover doesn't drift when the app comes forward.
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        // NSPopover's auto-anchoring is confused by the flipped status-bar button and drops the
-        // dropdown ~180pt down the screen. Pin the popover window directly beneath the icon using
-        // the button's on-screen frame: centered horizontally, its top flush under the button.
-        if let popWindow = popover.contentViewController?.view.window {
-            let b = buttonWindow.frame   // status button's frame, in screen coordinates
-            let origin = NSPoint(
-                x: b.midX - popWindow.frame.width / 2,
-                y: b.minY - popWindow.frame.height)
-            popWindow.setFrameOrigin(origin)
-        }
+        pinPopover()
+        // When the frontmost app is FULLSCREEN, the activate() above starts a Space transition and
+        // the status bar re-lays out during it (the fullscreen app's own menu items appear/
+        // disappear), so the frame read a moment ago is not where the icon ends up — the dropdown
+        // landed offset to the right. Re-pin once the transition has settled, reading a FRESH
+        // button frame. Cheap and idempotent on the common (non-fullscreen) path.
+        DispatchQueue.main.async { [weak self] in self?.pinPopover() }
         // Global monitor fires only for events in OTHER apps, so a click on the icon or inside the
         // dropdown won't trip it — only a genuine click-away dismisses.
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -84,6 +81,39 @@ final class StatusItemController: NSObject {
         ) { [weak self] _ in
             self?.closePopover()
         }
+    }
+
+    /// Pin the dropdown directly beneath the status icon. NSPopover's own auto-anchoring is
+    /// confused by the flipped status-bar button and drops the dropdown ~180pt down the screen,
+    /// so the window is positioned by hand from the button's live on-screen frame.
+    ///
+    /// `.fullScreenAuxiliary` lets the dropdown render over a fullscreen app's Space at all —
+    /// without it the popover can only appear once macOS has switched away from that Space,
+    /// which is the relayout that moved it in the first place.
+    private func pinPopover() {
+        guard let button = item.button,
+              let buttonFrame = button.window?.frame,
+              let popWindow = popover.contentViewController?.view.window else { return }
+        popWindow.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // The screen the ICON is on — not NSScreen.main, which is the screen with the key window
+        // and so points at the wrong display as soon as a second monitor is attached.
+        let screen = NSScreen.screens.first { $0.frame.intersects(buttonFrame) } ?? NSScreen.main
+        popWindow.setFrameOrigin(Self.popoverOrigin(
+            buttonFrame: buttonFrame,
+            popoverSize: popWindow.frame.size,
+            visibleFrame: screen?.visibleFrame ?? buttonFrame))
+    }
+
+    /// Where the dropdown sits: centered under the status icon, its top flush beneath the menu
+    /// bar, clamped so a popover near the right edge of the screen (or a narrow display) is
+    /// nudged back on-screen instead of running off it. Pure so the geometry is testable without
+    /// a status bar — the AppKit wiring in `pinPopover()` is manual-verify only.
+    static func popoverOrigin(buttonFrame: NSRect, popoverSize: NSSize, visibleFrame: NSRect) -> NSPoint {
+        let rightmost = max(visibleFrame.minX, visibleFrame.maxX - popoverSize.width)
+        let x = min(max(buttonFrame.midX - popoverSize.width / 2, visibleFrame.minX), rightmost)
+        // Hangs below the icon; never pushed off the bottom of a short display.
+        let y = max(visibleFrame.minY, buttonFrame.minY - popoverSize.height)
+        return NSPoint(x: x, y: y)
     }
 
     /// Set idle or tracking. Pass the tracking start so the menu bar shows a live elapsed count;
