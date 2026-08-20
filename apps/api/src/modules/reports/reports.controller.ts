@@ -9,6 +9,7 @@ import {
   type TeamActivity,
   type TeamAppUsage,
   type TeamOverview,
+  type SelfTotals,
   type TeamOverviewQuery,
   type TeamSummary,
   type ProjectSummary,
@@ -31,6 +32,22 @@ export class ReportsController {
     @CurrentUser() user: SessionUser,
   ): Promise<TeamOverview> {
     return this.service.overview(query, user);
+  }
+
+  /**
+   * The signed-in person's own tracked totals (today / this week / this month) for the Mac app.
+   *
+   * `@Roles` MUST be repeated here. The class-level decorator restricts this controller to
+   * MANAGER/ADMIN, and an employee reading their OWN totals would otherwise get a 403 — a
+   * failure that is easy to miss in review because the restriction is not visible on the route.
+   *
+   * No `@ResourceScope`: there is no userId parameter to scope. The service reads `user.id`
+   * directly, so the scope is fixed by identity and cannot be widened by any client input.
+   */
+  @Get('my-totals')
+  @Roles('EMPLOYEE', 'MANAGER', 'ADMIN')
+  myTotals(@CurrentUser() user: SessionUser): Promise<SelfTotals> {
+    return this.service.selfTotals(user);
   }
 
   @Get('team-summary')

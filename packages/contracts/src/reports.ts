@@ -46,6 +46,31 @@ export type TeamOverviewQuery = z.infer<typeof TeamOverviewQuerySchema>;
 export type TeamOverviewRow = z.infer<typeof TeamOverviewRowSchema>;
 export type TeamOverview = z.infer<typeof TeamOverviewSchema>;
 
+/**
+ * The signed-in person's OWN tracked totals, for the Mac app's dropdown. Always self-scoped —
+ * there is no userId parameter, so no one can read anyone else's totals through it.
+ *
+ * Seconds, not minutes: the client renders "8h 12m" and rounding twice (here and again in the
+ * UI) loses a minute at the boundary for no benefit.
+ *
+ * `weekSeconds` CAN exceed `monthSeconds`. A Monday-start week straddling a month boundary —
+ * Monday Aug 31 with today Sep 2 — puts two days of that week in the previous month. The
+ * ranges overlap; they do not nest.
+ */
+export const SelfTotalsSchema = z.object({
+  /** The Dhaka day the totals are anchored to. */
+  day: z.iso.date(),
+  /** Monday of the week containing `day`. Sent so the client labels the row without doing date math. */
+  weekStart: z.iso.date(),
+  /** First of the month containing `day`. */
+  monthStart: z.iso.date(),
+  todaySeconds: z.number().int().nonnegative(),
+  weekSeconds: z.number().int().nonnegative(),
+  monthSeconds: z.number().int().nonnegative(),
+});
+
+export type SelfTotals = z.infer<typeof SelfTotalsSchema>;
+
 export const ProjectSummaryRowSchema = z.object({
   projectId: z.uuid().nullable(), // null → the "No project" bucket
   name: z.string(), // project name, or "No project"

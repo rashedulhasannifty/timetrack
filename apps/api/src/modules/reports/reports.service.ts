@@ -2,16 +2,20 @@ import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import {
   dayOf,
   dayStartInstant,
+  monthStartDay,
   shiftDay,
+  weekStartDay,
   ProjectSummarySchema,
   TeamActivitySchema,
   TeamAppUsageSchema,
+  SelfTotalsSchema,
   TeamOverviewSchema,
   TeamSummarySchema,
   TeamTrendsSchema,
   type AppUsageQuery,
   type ProjectSummary,
   type ReportRangeQuery,
+  type SelfTotals,
   type TeamActivity,
   type TeamAppUsage,
   type TeamOverview,
@@ -62,6 +66,60 @@ export class ReportsService {
           );
 
     return TeamOverviewSchema.parse({ date, rows });
+  }
+
+  /**
+   * The signed-in person's own today / this-week / this-month totals, for the Mac app's
+   * dropdown.
+   *
+   * Self-scoped by IDENTITY, like `overview` above: there is no userId parameter, so no client
+   * input can widen it and no `@ResourceScope` is needed on the route (CLAUDE.md §4).
+   *
+   * All three boundaries are resolved here, in Dhaka, and the labels are returned with the
+   * numbers. The Mac client does no date arithmetic at all — a second implementation of "when
+   * does the week start" living in Swift is exactly what would drift out of step with the
+   * dashboard and the approvals period.
+   *
+   * The totals already include a currently-running entry (clamped by `ENTRY_END`), so a client
+   * must NOT add its live elapsed counter on top.
+   */
+  async selfTotals(user: SessionUser): Promise<SelfTotals> {
+    const day = dayOf(new Date());
+    const weekStart = weekStartDay(day);
+    const monthStart = monthStartDay(day);
+    // Every range ends at the end of today: nothing can be tracked in the future, so a
+    // week-to-date and the whole calendar week are the same sum.
+    const end = dayStartInstant(shiftDay(day, 1));
+
+    const [todaySeconds, weekSeconds, monthSeconds] = await Promise.all([
+      this.repo.trackedSecondsForUser(
+        user.id,
+        dayStartInstant(day),
+        end,
+        this.trackingFreshnessSeconds,
+      ),
+      this.repo.trackedSecondsForUser(
+        user.id,
+        dayStartInstant(weekStart),
+        end,
+        this.trackingFreshnessSeconds,
+      ),
+      this.repo.trackedSecondsForUser(
+        user.id,
+        dayStartInstant(monthStart),
+        end,
+        this.trackingFreshnessSeconds,
+      ),
+    ]);
+
+    return SelfTotalsSchema.parse({
+      day,
+      weekStart,
+      monthStart,
+      todaySeconds,
+      weekSeconds,
+      monthSeconds,
+    });
   }
 
   private async resolveScope(query: ReportRangeQuery, user: SessionUser): Promise<ReportScope> {

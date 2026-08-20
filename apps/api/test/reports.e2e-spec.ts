@@ -5,6 +5,12 @@ import { ReportsService } from '../src/modules/reports/reports.service.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import type { SessionUser } from '../src/common/decorators/current-user.decorator.js';
 import type { ResourceAccessService } from '../src/common/authz/resource-access.service.js';
+import {
+  dayOf,
+  dayStartInstant,
+  monthStartDay,
+  weekStartDay,
+} from '@timetrack/contracts';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
 
 const RUN_E2E = process.env.RUN_E2E === '1';
@@ -287,6 +293,143 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       const aug19 = await service().overview({ date: '2026-08-19' }, manager);
       const aug19Row = aug19.rows.find((r) => r.userId === user.id);
       expect(aug19Row?.trackedSecondsToday).toBe(0);
+    });
+  });
+
+  describe('trackedSecondsForUser / selfTotals', () => {
+    function service(): ReportsService {
+      return new ReportsService(repo(), {} as unknown as ResourceAccessService, WINDOW);
+    }
+
+    let entrySeq = 0;
+    async function seedEntry(userId: string, start: Date, end: Date | null) {
+      await db.prisma.timeEntry.create({
+        data: {
+          id: `01920000-0000-7000-8000-00000000ec${String(entrySeq++).padStart(2, '0')}`,
+          userId,
+          source: 'MANUAL',
+          startTime: start,
+          endTime: end,
+        },
+      });
+    }
+
+    it('clips an entry to the range rather than counting it whole', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      // 2 hours, of which only the last 30 minutes fall inside the range.
+      await seedEntry(
+        user.id,
+        new Date('2026-08-19T08:00:00.000Z'),
+        new Date('2026-08-19T10:00:00.000Z'),
+      );
+
+      const seconds = await repo().trackedSecondsForUser(
+        user.id,
+        new Date('2026-08-19T09:30:00.000Z'),
+        new Date('2026-08-19T12:00:00.000Z'),
+        WINDOW,
+      );
+
+      expect(seconds).toBe(1800);
+    });
+
+    it('counts nobody else: another user in the same team is excluded', async () => {
+      const team = await seedTeam();
+      const ada = await seedUser(team.id, 'Ada', 'ada@example.com');
+      const bob = await seedUser(team.id, 'Bob', 'bob@example.com');
+      await seedEntry(
+        bob.id,
+        new Date('2026-08-19T08:00:00.000Z'),
+        new Date('2026-08-19T09:00:00.000Z'),
+      );
+
+      const seconds = await repo().trackedSecondsForUser(
+        ada.id,
+        new Date('2026-08-19T00:00:00.000Z'),
+        new Date('2026-08-20T00:00:00.000Z'),
+        WINDOW,
+      );
+
+      expect(seconds).toBe(0);
+    });
+
+    /**
+     * A Monday-start week can BEGIN IN THE PREVIOUS MONTH — Monday 2026-08-31 with "today"
+     * 2026-09-02. The week and month ranges then overlap without nesting, and the week total
+     * legitimately exceeds the month total. That inequality reads like a bug in the UI, so it is
+     * pinned here: the two sums are computed over independent ranges, not derived from each other.
+     */
+    it('week and month ranges overlap without nesting across a month boundary', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      // Monday 2026-08-31, 10:00 Dhaka — inside that week, but in AUGUST.
+      await seedEntry(
+        user.id,
+        new Date('2026-08-31T04:00:00.000Z'),
+        new Date('2026-08-31T06:00:00.000Z'), // 2h
+      );
+      // Wednesday 2026-09-02, 10:00 Dhaka — same week, and in September.
+      await seedEntry(
+        user.id,
+        new Date('2026-09-02T04:00:00.000Z'),
+        new Date('2026-09-02T05:00:00.000Z'), // 1h
+      );
+
+      const end = dayStartInstant('2026-09-03');
+      const weekSeconds = await repo().trackedSecondsForUser(
+        user.id,
+        dayStartInstant(weekStartDay('2026-09-02')),
+        end,
+        WINDOW,
+      );
+      const monthSeconds = await repo().trackedSecondsForUser(
+        user.id,
+        dayStartInstant(monthStartDay('2026-09-02')),
+        end,
+        WINDOW,
+      );
+
+      expect(weekStartDay('2026-09-02')).toBe('2026-08-31');
+      expect(weekSeconds).toBe(3 * 3600);
+      expect(monthSeconds).toBe(1 * 3600);
+      expect(weekSeconds).toBeGreaterThan(monthSeconds); // correct, not a bug
+    });
+
+    /**
+     * The totals ALREADY include a running entry, clamped by the freshness window. That is why
+     * the Mac client must not add its live elapsed counter on top of what it renders.
+     */
+    it('includes a running entry, clamped to the freshness window', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      const now = new Date();
+      const start = new Date(now.getTime() - 60 * 60 * 1000); // open an hour ago
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000ecff',
+          userId: user.id,
+          source: 'AUTO',
+          startTime: start,
+          endTime: null,
+          heartbeatAt: new Date(now.getTime() - 30 * 60 * 1000), // last seen 30 min ago
+        },
+      });
+
+      const totals = await service().selfTotals({
+        id: user.id,
+        role: 'EMPLOYEE',
+        teamId: team.id,
+      });
+
+      // start -> heartbeat is 30 min, plus the 300s freshness window: 1800 + 300 = 2100s.
+      expect(totals.todaySeconds).toBe(2100);
+      expect(totals.day).toBe(dayOf(now));
+      expect(totals.weekStart).toBe(weekStartDay(dayOf(now)));
+      expect(totals.monthStart).toBe(monthStartDay(dayOf(now)));
+      // Today is inside both wider ranges, so they can only be at least as large.
+      expect(totals.weekSeconds).toBeGreaterThanOrEqual(totals.todaySeconds);
+      expect(totals.monthSeconds).toBeGreaterThanOrEqual(totals.todaySeconds);
     });
   });
 
