@@ -7,7 +7,11 @@ cd "$(dirname "$0")/.."
 
 # The .app is user-visible and carries the product name; the executable inside keeps the
 # SwiftPM target's name, which nobody sees. CFBundleExecutable must match EXEC_NAME.
-BUNDLE_NAME="Nifty Timer"
+#
+# BUNDLE_NAME is overridable so a side-by-side dev build gets a DIFFERENT .app filename. Without
+# that, packaging a dev build overwrites dist/"Nifty Timer".app and installing it replaces the
+# released app in /Applications — see scripts/package-dev-app.sh.
+BUNDLE_NAME="${BUNDLE_NAME:-Nifty Timer}"
 EXEC_NAME="TimeTrack"
 RELEASE_BIN=".build/release/${EXEC_NAME}"
 APP="dist/${BUNDLE_NAME}.app"
@@ -54,6 +58,12 @@ PB=/usr/libexec/PlistBuddy
 "$PB" -c "Set :CFBundleIdentifier ${BUNDLE_ID}" "$APP/Contents/Info.plist"
 "$PB" -c "Set :TimeTrackAPIBaseURL ${API_BASE_URL}" "$APP/Contents/Info.plist"
 "$PB" -c "Set :TimeTrackDashboardURL ${DASHBOARD_URL}" "$APP/Contents/Info.plist"
+# The displayed name follows BUNDLE_NAME, so a dev build is distinguishable in the Screen
+# Recording pane, Login Items, and notification banners — where two identically named entries
+# would be worse than useless.
+"$PB" -c "Set :CFBundleName ${BUNDLE_NAME}" "$APP/Contents/Info.plist"
+"$PB" -c "Set :CFBundleDisplayName ${BUNDLE_NAME}" "$APP/Contents/Info.plist"
+echo "  name:       ${BUNDLE_NAME}"
 echo "  bundle id:  ${BUNDLE_ID}"
 echo "  api base:   ${API_BASE_URL}"
 echo "  dashboard:  ${DASHBOARD_URL}"

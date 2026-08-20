@@ -26,11 +26,9 @@ final class BufferStore {
         sweepTemporaries()
     }
 
-    /// ~/Library/Application Support/TimeTrack/buffer/
+    /// ~/Library/Application Support/<container>/buffer/ — per-install; see `AppInstall`.
     static func defaultDirectory() -> URL {
-        FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("TimeTrack/buffer", isDirectory: true)
+        AppInstall.supportDirectory("buffer")
     }
 
     /// Atomic enqueue: write to `.tmp-<id>`, then rename to the final `<millis>__<kind>__<id>.json`.

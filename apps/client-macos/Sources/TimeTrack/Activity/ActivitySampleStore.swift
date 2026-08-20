@@ -26,11 +26,9 @@ final class ActivitySampleStore: ActivitySampleBuffering {
         sweepTemporaries()
     }
 
-    /// ~/Library/Application Support/TimeTrack/activity/
+    /// ~/Library/Application Support/<container>/activity/ — per-install; see `AppInstall`.
     static func defaultDirectory() -> URL {
-        FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("TimeTrack/activity", isDirectory: true)
+        AppInstall.supportDirectory("activity")
     }
 
     func enqueue(_ sample: ActivitySample) {

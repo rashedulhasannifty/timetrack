@@ -205,14 +205,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openReleases: { NSWorkspace.shared.open($0) },
             onQuit: { NSApp.terminate(nil) }
         )
-        updateCoordinator = updates
-        // Escalate to the status item only once the grace period has elapsed; the menu row
-        // carries the advisory case on its own.
-        updateStatusObserver = updates.$status.sink { [weak self] status in
-            self?.statusItem.setUpdateOverdue(status.isOverdue,
-                                              version: status.manifest?.version.description)
+        // Only the released build tracks the public release feed. A dev or staging build shares
+        // neither its version line nor its purpose with that feed: it would report itself
+        // permanently out of date, and installing the "update" swaps Bundle.main.bundleURL —
+        // destroying the very build under test. Left unstarted the coordinator never fetches, so
+        // its status has no manifest and the menu's update row simply never appears.
+        //
+        // Nothing about capture or tracking is gated here; this is the advisory updater only
+        // (CLAUDE.md §1 — no kill switch, and the indicator is unaffected).
+        if AppInstall.isProduction {
+            updateCoordinator = updates
+            // Escalate to the status item only once the grace period has elapsed; the menu row
+            // carries the advisory case on its own.
+            updateStatusObserver = updates.$status.sink { [weak self] status in
+                self?.statusItem.setUpdateOverdue(status.isOverdue,
+                                                  version: status.manifest?.version.description)
+            }
+            updates.start()
         }
-        updates.start()
 
         statusItem.install(content: MenuBarView(viewModel: menuViewModel, updates: updates))
         statusItem.onOpen = { [weak self] in self?.menuDidOpen() }
