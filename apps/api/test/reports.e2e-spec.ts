@@ -97,6 +97,29 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     expect(row.trackedSecondsToday).toBeLessThan(120);
   });
 
+  it('an open entry with a stale heartbeat stops accruing trackedSecondsToday', async () => {
+    const team = await seedTeam();
+    const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+    const dayStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const dayEnd = new Date(Date.now() + 60 * 60 * 1000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '01920000-0000-7000-8000-00000000fc03',
+        userId: user.id,
+        source: 'MANUAL',
+        startTime: new Date(Date.now() - 90 * 60 * 1000), // 90 min ago
+        endTime: null,
+        heartbeatAt: new Date(Date.now() - 60 * 60 * 1000), // stale, 1h ago
+      },
+    });
+
+    const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
+    // 30 min start->heartbeat + 300s freshness = 2100s, not the ~5400s an unclamped now()
+    // would give.
+    expect(row.trackedSecondsToday).toBeGreaterThanOrEqual(2000);
+    expect(row.trackedSecondsToday).toBeLessThanOrEqual(2200);
+  });
+
   it('clamps an entry that started before the window', async () => {
     const team = await seedTeam();
     const user = await seedUser(team.id, 'Ada', 'ada@example.com');
@@ -641,6 +664,7 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
 
   const FROM = new Date('2026-07-01T00:00:00.000Z');
   const TO = new Date('2026-07-08T00:00:00.000Z');
+  const FRESHNESS = 300; // freshnessSeconds for these assertions
 
   function repo(): ReportsRepository {
     return new ReportsRepository(db.prisma as unknown as PrismaService);
@@ -709,7 +733,7 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
     await summary(u.id, '2026-07-02', 80, 100);
     await summary(u.id, '2026-07-03', 40, 300);
 
-    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows).toEqual([{ userId: u.id, name: 'Ada', trackedSeconds: 9000, activityPct: 50 }]);
   });
 
@@ -723,7 +747,7 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
       '2026-07-02T10:00:00Z',
     );
 
-    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows).toEqual([{ userId: u.id, name: 'Bea', trackedSeconds: 3600, activityPct: 0 }]);
   });
 
@@ -746,7 +770,7 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
       '2026-07-02T09:30:00Z',
     );
 
-    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows.map((r) => r.name)).toEqual(['Cara']);
     expect(rows[0]?.trackedSeconds).toBe(1800);
   });
@@ -762,8 +786,31 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
       '2026-07-01T01:00:00Z',
     );
 
-    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows[0]?.trackedSeconds).toBe(3600);
+  });
+
+  it('an open entry with a stale heartbeat stops accruing trackedSeconds', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const to = new Date(Date.now() + 60 * 60 * 1000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '01920000-0000-7000-8000-00000000fc04',
+        userId: u.id,
+        source: 'MANUAL',
+        startTime: new Date(Date.now() - 90 * 60 * 1000), // 90 min ago
+        endTime: null,
+        heartbeatAt: new Date(Date.now() - 60 * 60 * 1000), // stale, 1h ago
+      },
+    });
+
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, from, to, FRESHNESS);
+    // 30 min start->heartbeat + 300s freshness = 2100s, not the ~5400s an unclamped now()
+    // would give.
+    expect(rows[0]?.trackedSeconds).toBeGreaterThanOrEqual(2000);
+    expect(rows[0]?.trackedSeconds).toBeLessThanOrEqual(2200);
   });
 
   it('kind=user scopes to a single user; kind=all spans teams', async () => {
@@ -784,10 +831,10 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
       '2026-07-02T10:00:00Z',
     );
 
-    const self = await repo().teamSummary({ kind: 'user', userId: a.id }, FROM, TO);
+    const self = await repo().teamSummary({ kind: 'user', userId: a.id }, FROM, TO, FRESHNESS);
     expect(self.map((r) => r.name)).toEqual(['Ada']);
 
-    const all = await repo().teamSummary({ kind: 'all' }, FROM, TO);
+    const all = await repo().teamSummary({ kind: 'all' }, FROM, TO, FRESHNESS);
     expect(all.map((r) => r.name).sort()).toEqual(['Ada', 'Zoe']);
   });
 
@@ -810,7 +857,7 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
       '2026-06-15T10:00:00Z',
     );
 
-    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows.map((r) => r.name)).toEqual(['Ada']);
   });
 });
@@ -829,6 +876,7 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
 
   const FROM = new Date('2026-07-01T00:00:00.000Z');
   const TO = new Date('2026-07-08T00:00:00.000Z');
+  const FRESHNESS = 300; // freshnessSeconds for these assertions
   function repo(): ReportsRepository {
     return new ReportsRepository(db.prisma as unknown as PrismaService);
   }
@@ -868,13 +916,43 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
       },
     });
 
-    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows).toEqual([
       { projectId: p.id, name: 'Acme', trackedSeconds: 3600 },
       { projectId: null, name: 'No project', trackedSeconds: 1800 },
     ]);
     // reconciles to the user's total tracked seconds (3600 + 1800)
     expect(rows.reduce((s, r) => s + r.trackedSeconds, 0)).toBe(5400);
+  });
+
+  it('an open entry with a stale heartbeat stops accruing trackedSeconds', async () => {
+    const t = await db.prisma.team.create({
+      data: { name: 'Eng', settings: {} },
+      select: { id: true },
+    });
+    const u = await db.prisma.user.create({
+      data: { email: 'ada@example.com', name: 'Ada', passwordHash: 'x', teamId: t.id },
+      select: { id: true },
+    });
+    const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const to = new Date(Date.now() + 60 * 60 * 1000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '01920000-0000-7000-8000-00000000fc05',
+        userId: u.id,
+        projectId: null,
+        source: 'MANUAL',
+        startTime: new Date(Date.now() - 90 * 60 * 1000), // 90 min ago
+        endTime: null,
+        heartbeatAt: new Date(Date.now() - 60 * 60 * 1000), // stale, 1h ago
+      },
+    });
+
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, from, to, FRESHNESS);
+    // 30 min start->heartbeat + 300s freshness = 2100s, not the ~5400s an unclamped now()
+    // would give.
+    expect(rows[0]?.trackedSeconds).toBeGreaterThanOrEqual(2000);
+    expect(rows[0]?.trackedSeconds).toBeLessThanOrEqual(2200);
   });
 
   it('honors an explicit projectId filter', async () => {
@@ -915,7 +993,7 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
       },
     });
 
-    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, p1.id);
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS, p1.id);
     expect(rows).toEqual([{ projectId: p1.id, name: 'Acme', trackedSeconds: 3600 }]);
   });
 
@@ -966,7 +1044,7 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
       },
     });
 
-    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows.every((r) => r.trackedSeconds === 3600)).toBe(true);
     // Ties on trackedSeconds break by projectId ASC — the smaller id sorts first.
     expect(rows.map((r) => r.projectId)).toEqual([p1.id, p2.id]);

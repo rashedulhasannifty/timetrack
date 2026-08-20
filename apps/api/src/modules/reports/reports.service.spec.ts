@@ -96,6 +96,7 @@ describe('ReportsService.teamSummary scope resolution', () => {
       { kind: 'team', teamId: 't1' },
       new Date(range.from),
       new Date(range.to),
+      300,
     );
   });
 
@@ -106,6 +107,7 @@ describe('ReportsService.teamSummary scope resolution', () => {
       { kind: 'all' },
       expect.any(Date),
       expect.any(Date),
+      300,
     );
   });
 
@@ -116,6 +118,7 @@ describe('ReportsService.teamSummary scope resolution', () => {
       { kind: 'team', teamId: 't2' },
       expect.any(Date),
       expect.any(Date),
+      300,
     );
   });
 
@@ -135,6 +138,7 @@ describe('ReportsService.teamSummary scope resolution', () => {
       { kind: 'user', userId: 'uX' },
       expect.any(Date),
       expect.any(Date),
+      300,
     );
   });
 
@@ -155,6 +159,7 @@ describe('ReportsService.teamSummary scope resolution', () => {
       { kind: 'team', teamId: 't1' },
       expect.any(Date),
       expect.any(Date),
+      300,
       undefined,
     );
     expect(result).toEqual({ from: range.from, to: range.to, rows: [] });

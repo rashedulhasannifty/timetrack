@@ -97,7 +97,7 @@ export class ReportsRepository {
           CASE WHEN te.id IS NULL THEN 0
                ELSE GREATEST(
                  EXTRACT(EPOCH FROM (
-                   LEAST(COALESCE(te."endTime", now()), ${dayEnd}::timestamptz)
+                   LEAST(${ENTRY_END(freshnessSeconds)}, ${dayEnd}::timestamptz)
                    - GREATEST(te."startTime", ${dayStart}::timestamptz)
                  )),
                  0
@@ -144,7 +144,12 @@ export class ReportsRepository {
    * keyed by userId first, and only those pre-aggregated single rows-per-user are joined
    * onto the scoped user set.
    */
-  async teamSummary(scope: ReportScope, from: Date, to: Date): Promise<TeamSummaryRepoRow[]> {
+  async teamSummary(
+    scope: ReportScope,
+    from: Date,
+    to: Date,
+    freshnessSeconds: number,
+  ): Promise<TeamSummaryRepoRow[]> {
     const rows = await this.prisma.$queryRaw<
       Array<{
         userId: string;
@@ -157,7 +162,7 @@ export class ReportsRepository {
         SELECT te."userId",
                FLOOR(SUM(GREATEST(
                  EXTRACT(EPOCH FROM (
-                   LEAST(COALESCE(te."endTime", now()), ${to}::timestamptz)
+                   LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz)
                    - GREATEST(te."startTime", ${from}::timestamptz)
                  )), 0
                )))::int AS "trackedSeconds"
@@ -210,6 +215,7 @@ export class ReportsRepository {
     scope: ReportScope,
     from: Date,
     to: Date,
+    freshnessSeconds: number,
     projectId?: string,
   ): Promise<ProjectSummaryRepoRow[]> {
     const projectFilter = projectId ? Prisma.sql`AND te."projectId" = ${projectId}` : Prisma.empty;
@@ -220,7 +226,7 @@ export class ReportsRepository {
              COALESCE(p.name, 'No project') AS "name",
              FLOOR(SUM(GREATEST(
                EXTRACT(EPOCH FROM (
-                 LEAST(COALESCE(te."endTime", now()), ${to}::timestamptz)
+                 LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz)
                  - GREATEST(te."startTime", ${from}::timestamptz)
                )), 0
              )))::int AS "trackedSeconds"

@@ -85,7 +85,12 @@ export class ReportsService {
 
   async teamSummary(query: ReportRangeQuery, user: SessionUser): Promise<TeamSummary> {
     const scope = await this.resolveScope(query, user);
-    const rows = await this.repo.teamSummary(scope, new Date(query.from), new Date(query.to));
+    const rows = await this.repo.teamSummary(
+      scope,
+      new Date(query.from),
+      new Date(query.to),
+      this.trackingFreshnessSeconds,
+    );
     return TeamSummarySchema.parse({ from: query.from, to: query.to, rows });
   }
 
@@ -95,6 +100,7 @@ export class ReportsService {
       scope,
       new Date(query.from),
       new Date(query.to),
+      this.trackingFreshnessSeconds,
       query.projectId,
     );
     return ProjectSummarySchema.parse({ from: query.from, to: query.to, rows });
