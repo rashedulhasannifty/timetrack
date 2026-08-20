@@ -35,6 +35,8 @@ export interface ProjectSummaryRepoRow {
  *
  * Rows written before `heartbeatAt` existed have null, and fall back to `startTime`.
  *
+ * Assumes the `time_entries` table is aliased `te` in the surrounding query.
+ *
  * NOTE: deliberately NOT used by `approvals.repository.ts`, whose open end is bounded by the
  * approval period and whose totals a manager may already have signed off (spec §10.1).
  */
