@@ -62,9 +62,10 @@ export class TimeEntriesRepository {
         update: {
           // The close is MONOTONE: an open payload arriving after the close (a retry, or a
           // heartbeat queued behind it) must NOT null a stored endTime and re-open the entry.
-          // Corrections go through the audited PATCH path, not here.
+          // The same reasoning covers `note`: a heartbeat re-POST that omits it must not erase
+          // a note set earlier. Corrections go through the audited PATCH path, not here.
           ...(dto.endTime ? { endTime: new Date(dto.endTime) } : {}),
-          note: dto.note ?? null,
+          ...(dto.note !== undefined ? { note: dto.note } : {}),
           heartbeatAt: now,
         },
         select: TIME_ENTRY_SELECT,

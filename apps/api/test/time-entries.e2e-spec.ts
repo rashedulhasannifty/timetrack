@@ -226,6 +226,20 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     expect(row.heartbeatAt).not.toBeNull();
     expect(row.heartbeatAt!.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
   });
+
+  it('an upsert that omits note (e.g. a heartbeat re-POST) does not erase a stored note', async () => {
+    const user = await seedUser();
+    const id = '019797a0-0000-7000-8000-0000000000c3';
+
+    // 1. The note is set (e.g. the client sent it on open, or a dashboard correction landed).
+    await repo().upsert(createDto(id, { note: 'client call' }), user.id);
+
+    // 2. A later payload omits `note` entirely, the way the 60s heartbeat re-POST does.
+    const reheartbeat = await repo().upsert(createDto(id), user.id);
+
+    // Without the fix this is undefined/null and the note is silently erased.
+    expect(reheartbeat.note).toBe('client call');
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.
