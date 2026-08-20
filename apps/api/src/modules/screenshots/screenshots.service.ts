@@ -99,5 +99,8 @@ function toScreenshot(r: ScreenshotRow): Screenshot {
     blurred: r.blurred,
     status: r.status,
     redactedReason: r.redactedReason,
+    captureGroupId: r.captureGroupId,
+    displayIndex: r.displayIndex,
+    displayCount: r.displayCount,
   };
 }

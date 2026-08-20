@@ -38,6 +38,46 @@ describe('ScreenshotsController.upload', () => {
     expect(res.status).toBe('PENDING');
   });
 
+  /**
+   * Multi-display capture sends three more text fields. They are picked out by name, so a typo
+   * here would silently drop the grouping and every capture would read as its own group — a
+   * failure that looks exactly like working software.
+   */
+  it('forwards the capture group fields, coercing the multipart string numerics', async () => {
+    const upload = vi.fn().mockResolvedValue({ id: ID, status: 'PENDING' });
+    const controller = new ScreenshotsController({ upload } as unknown as ScreenshotsService);
+    const groupId = '019797a0-0000-7000-8000-0000000000f0';
+    const part = pngPart({
+      id: { value: ID },
+      timestamp: { value: TS },
+      captureGroupId: { value: groupId },
+      displayIndex: { value: '1' },
+      displayCount: { value: '2' },
+    });
+
+    await controller.upload(fakeReq(part), USER);
+
+    expect(upload).toHaveBeenCalledWith(
+      part.file,
+      { id: ID, timestamp: TS, captureGroupId: groupId, displayIndex: 1, displayCount: 2 },
+      USER,
+    );
+  });
+
+  /**
+   * A Mac client older than multi-display capture sends none of them, and /v1 cannot break for a
+   * client that is already shipped and cannot be rolled back.
+   */
+  it('accepts an upload from a client that sends no capture group at all', async () => {
+    const upload = vi.fn().mockResolvedValue({ id: ID, status: 'PENDING' });
+    const controller = new ScreenshotsController({ upload } as unknown as ScreenshotsService);
+    const part = pngPart({ id: { value: ID }, timestamp: { value: TS } });
+
+    await controller.upload(fakeReq(part), USER);
+
+    expect(upload).toHaveBeenCalledWith(part.file, { id: ID, timestamp: TS }, USER);
+  });
+
   it('rejects a missing file part', async () => {
     const controller = new ScreenshotsController({
       upload: vi.fn(),

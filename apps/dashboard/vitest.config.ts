@@ -7,4 +7,8 @@ export default defineConfig({
     exclude: ['e2e/**', 'node_modules/**', '.next/**'],
     environment: 'node',
   },
+  // Match Next's JSX transform so a .tsx spec can render a component without importing React.
+  // Still node-env: renderToStaticMarkup needs no DOM, and anything that needs one belongs in
+  // the Playwright suite.
+  esbuild: { jsx: 'automatic' },
 });

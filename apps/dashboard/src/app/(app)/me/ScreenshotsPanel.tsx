@@ -2,12 +2,17 @@
 
 import { useCallback, useEffect, useState, useTransition } from 'react';
 import {
+  groupLabel,
+  groupShots,
   isOpenable,
   openableShots,
+  shotDescription,
   shotTime,
   stepIndex,
+  tileCaption,
   tileMode,
   type ScreenshotView,
+  type ShotGroup,
 } from './screenshot-view';
 import type { RedactResult } from './actions';
 import { buttonClasses } from '../../../components/ui/Button';
@@ -24,7 +29,12 @@ export function ScreenshotsPanel({
 }) {
   // Only shots with a full-res object can be opened, and the lightbox pages through exactly
   // those — so its indices must come from the same filtered list the tiles look themselves up in.
+  // It pages across the whole day, not within a group: stopping at a group boundary would be a
+  // surprise, and the displays of one tick sit next to each other in that order anyway.
   const openable = openableShots(shots);
+  // Each capture tick is one group — on a multi-monitor desk that is every attached display,
+  // shown together instead of scattered through the grid as unrelated tiles.
+  const groups = groupShots(shots);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   if (shots.length === 0) {
@@ -32,18 +42,26 @@ export function ScreenshotsPanel({
   }
   return (
     <>
-      <ul className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]">
-        {shots.map((s) => (
-          <li key={s.id}>
-            <Tile
-              shot={s}
-              onRedact={onRedact}
-              onOpen={
-                isOpenable(s)
-                  ? () => setOpenIndex(openable.findIndex((o) => o.id === s.id))
-                  : undefined
-              }
-            />
+      <ul className="flex flex-col gap-5">
+        {groups.map((group) => (
+          <li key={group.key}>
+            <GroupHeader group={group} />
+            <ul className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]">
+              {group.shots.map((s) => (
+                <li key={s.id}>
+                  <Tile
+                    shot={s}
+                    caption={tileCaption(s, group)}
+                    onRedact={onRedact}
+                    onOpen={
+                      isOpenable(s)
+                        ? () => setOpenIndex(openable.findIndex((o) => o.id === s.id))
+                        : undefined
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
           </li>
         ))}
       </ul>
@@ -56,6 +74,36 @@ export function ScreenshotsPanel({
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * The capture time, plus how many displays that tick covered. A single-display capture gets no
+ * badge — most desks are one screen and a "1 display" chip on every row would be noise.
+ */
+function GroupHeader({ group }: { group: ShotGroup }) {
+  const label = groupLabel(group);
+  const incomplete = label !== null && group.shots.length < (group.attempted ?? 0);
+  return (
+    <div className="mb-1.5 flex items-baseline gap-2">
+      <span className="tt-numeric text-caption text-text-secondary">
+        {shotTime(group.timestamp)}
+      </span>
+      {label ? (
+        <span
+          className={`text-caption rounded px-1.5 py-0.5 font-medium ${
+            incomplete
+              ? 'bg-surface-raised text-category-unproductive'
+              : 'bg-surface-raised text-text-secondary'
+          }`}
+          // Said out loud rather than left to the colour: a display that failed to capture is a
+          // gap in the record, and a gap that looks complete is worse than a visible one.
+          title={incomplete ? 'A display failed to capture in this interval.' : undefined}
+        >
+          {label}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -99,13 +147,13 @@ function Lightbox({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={`Screenshot at ${shotTime(shot.timestamp)}`}
+      aria-label={`Screenshot at ${shotDescription(shot)}`}
       onClick={onClose}
       className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/80 p-6"
     >
       <div className="flex w-full max-w-5xl items-center justify-between gap-3">
         <span className="tt-numeric text-body text-white/80">
-          {shotTime(shot.timestamp)} · {index + 1} of {shots.length}
+          {shotDescription(shot)} · {index + 1} of {shots.length}
         </span>
         <button
           type="button"
@@ -119,7 +167,7 @@ function Lightbox({
       {/* Presigned MinIO URL, not a static asset — next/image is not applicable here. */}
       <img
         src={shot.fullUrl}
-        alt={`Screenshot at ${shotTime(shot.timestamp)}`}
+        alt={`Screenshot at ${shotDescription(shot)}`}
         onClick={(e) => e.stopPropagation()}
         className="max-h-[80vh] max-w-5xl rounded-lg object-contain shadow-e1"
       />
@@ -149,10 +197,13 @@ function Lightbox({
 
 function Tile({
   shot,
+  caption,
   onRedact,
   onOpen,
 }: {
   shot: ScreenshotView;
+  /** "Display 2" inside a multi-display group, else the capture time. */
+  caption: string;
   onRedact?: RedactFn | undefined;
   /** Absent when there is no full-res object to open (redacted, pending, or no fullUrl). */
   onOpen?: (() => void) | undefined;
@@ -173,7 +224,7 @@ function Tile({
         </div>
         <figcaption className="text-caption text-text-secondary flex flex-col gap-0.5">
           {shot.redactedReason ? <span>{shot.redactedReason}</span> : null}
-          <span className="tt-numeric">{shotTime(shot.timestamp)}</span>
+          <span className="tt-numeric">{caption}</span>
         </figcaption>
       </figure>
     );
@@ -185,9 +236,7 @@ function Tile({
         <div className="bg-surface border-separator flex aspect-[16/10] w-full items-center justify-center rounded-[10px] border">
           <span className="text-caption text-text-secondary">{shot.status}</span>
         </div>
-        <figcaption className="tt-numeric text-caption text-text-secondary">
-          {shotTime(shot.timestamp)}
-        </figcaption>
+        <figcaption className="tt-numeric text-caption text-text-secondary">{caption}</figcaption>
       </figure>
     );
   }
@@ -214,7 +263,7 @@ function Tile({
           <button
             type="button"
             onClick={onOpen}
-            aria-label={`View screenshot at ${shotTime(shot.timestamp)} full size`}
+            aria-label={`View screenshot at ${shotDescription(shot)} full size`}
             className="focus:outline-accent block h-full w-full cursor-zoom-in"
           >
             <img
@@ -245,9 +294,7 @@ function Tile({
           </button>
         ) : null}
       </div>
-      <figcaption className="tt-numeric text-caption text-text-secondary">
-        {shotTime(shot.timestamp)}
-      </figcaption>
+      <figcaption className="tt-numeric text-caption text-text-secondary">{caption}</figcaption>
       {open ? (
         <div className="flex flex-col gap-1">
           <input

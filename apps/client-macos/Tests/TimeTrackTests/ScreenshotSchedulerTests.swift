@@ -55,6 +55,45 @@ final class ScreenshotSchedulerTests: XCTestCase {
         XCTAssertTrue(succeeded, "capture-succeeded surfaced (clears the permission warning)")
     }
 
+    /// The multi-monitor case: one tick, one capture time, one group id, one row per display.
+    /// A group whose members disagreed on the capture time or the group id would be scattered
+    /// across the dashboard as unrelated screenshots — the exact bug this feature removes.
+    func testCapturesEveryDisplayIntoOneGroup() async {
+        let buffer = tempBuffer()
+        let grabber = FakeDisplayGrabber(.displays([Data([1]), Data([2])], attempted: 2))
+        let sched = makeScheduler(ackRequired: false, grabber: grabber, buffer: buffer,
+                                  isTracking: { true })
+
+        await sched.captureTick()
+
+        let taken = buffer.take(limit: 10)
+        XCTAssertEqual(taken.count, 2, "one record per attached display")
+        XCTAssertEqual(Set(taken.map { $0.group?.id }).count, 1, "both displays share one group id")
+        XCTAssertEqual(taken.compactMap { $0.group?.displayIndex }.sorted(), [0, 1])
+        XCTAssertEqual(taken.compactMap { $0.group?.displayCount }, [2, 2])
+        XCTAssertEqual(Set(taken.map { $0.id }).count, 2, "distinct server ids — the PK is per shot")
+        XCTAssertEqual(Set(taken.map { $0.capturedAt }).count, 1, "one capture instant for the tick")
+    }
+
+    /// A display that failed on its own must not take the rest of the desk down with it: the
+    /// captures that worked are still enqueued, and `displayCount` records what was attempted so
+    /// the group reads as incomplete rather than as the whole desk.
+    func testEnqueuesTheDisplaysThatCapturedWhenOneFails() async {
+        let buffer = tempBuffer()
+        let grabber = FakeDisplayGrabber(.displays([Data([1])], attempted: 2))
+        var succeeded = false
+        let sched = makeScheduler(ackRequired: false, grabber: grabber, buffer: buffer,
+                                  isTracking: { true },
+                                  onCaptureSucceeded: { succeeded = true })
+
+        await sched.captureTick()
+
+        let taken = buffer.take(limit: 10)
+        XCTAssertEqual(taken.count, 1)
+        XCTAssertEqual(taken[0].group?.displayCount, 2, "records what was attempted, not what landed")
+        XCTAssertTrue(succeeded, "a partial capture is still a capture — no permission warning")
+    }
+
     func testSkipsWhenNotTracking() async {
         let buffer = tempBuffer()
         let grabber = FakeDisplayGrabber(.bytes(Data([1])))
@@ -122,7 +161,7 @@ final class ScreenshotSchedulerTests: XCTestCase {
     /// until the enqueue lands proves teardown cannot clear the buffer out from under an in-flight
     /// capture (which would otherwise leak into the next user's upload).
     ///
-    /// Deterministic: `BlockingGrabber` is an actor whose `grab()` suspends until the test calls
+    /// Deterministic: `BlockingGrabber` is an actor whose `grabAll()` suspends until the test calls
     /// `release()`, and `finishInFlight()` awaits `currentCycle.value`, which structurally cannot
     /// return until the cycle (including `enqueue`) has completed — no sleeps, no polling.
     func testFinishInFlightAwaitsInFlightEnqueueBeforeReturning() async {
@@ -158,14 +197,14 @@ private actor BlockingGrabber: DisplayGrabbing {
 
     init(bytes: Data) { self.bytes = bytes }
 
-    func grab() async throws -> Data {
+    func grabAll() async throws -> DisplayGrabResult {
         isGrabbing = true
         grabbingSignal?.resume()
         grabbingSignal = nil
         if !isReleased {
             await withCheckedContinuation { releaseSignal = $0 }
         }
-        return bytes
+        return DisplayGrabResult(captures: [DisplayCapture(index: 0, jpeg: bytes)], attempted: 1)
     }
 
     /// Returns once `grab()` has been entered (immediately if it already has).

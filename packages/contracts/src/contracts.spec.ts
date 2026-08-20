@@ -167,6 +167,9 @@ describe('screenshot', () => {
         blurred: false,
         status: 'PENDING',
         redactedReason: null,
+        captureGroupId: null,
+        displayIndex: null,
+        displayCount: null,
       }).success,
     ).toBe(true);
     expect(RedactScreenshotSchema.safeParse({ reason: '' }).success).toBe(false);

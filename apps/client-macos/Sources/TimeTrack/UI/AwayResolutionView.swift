@@ -4,28 +4,24 @@ import SwiftUI
 /// PRD §6.1 — on resume from idle: "You were away for X minutes — keep or discard?" Discard is
 /// the default action (and the result if the panel is dismissed). Always a visible window; no
 /// stealth. `resolve` is guaranteed to fire exactly once.
+/// PRD §6.1 — on resume from idle: "You were away for X minutes — keep or discard?" Discard is
+/// the default action (and the result if the panel is dismissed). Always a visible window; no
+/// stealth. `resolve` is guaranteed to fire exactly once. The card itself is `TimePromptView`,
+/// shared with the recovery prompt; only the copy and the DEFAULT differ.
 struct AwayResolutionView: View {
     let minutes: Int
     let onKeep: () -> Void
     let onDiscard: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: TT.Space.x4) {
-            Text("You were away")
-                .font(.ttH2)
-            Text("Away for \(minutes) minute\(minutes == 1 ? "" : "s") while tracking. Keep this time or discard it?")
-                .font(.ttBody)
-                .foregroundStyle(TT.Palette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Spacer()
-                Button("Keep", action: onKeep)
-                Button("Discard", action: onDiscard)
-                    .keyboardShortcut(.defaultAction)   // Discard is the default (PRD §6.1)
-            }
-        }
-        .padding(TT.Space.x6)
-        .frame(width: 320)
+        TimePromptView(
+            symbol: "moon.zzz.fill",
+            title: "You were away",
+            minutes: minutes,
+            message: "The clock kept running while your Mac was idle. Keep this time or discard it?",
+            defaultChoice: .discard,          // PRD §6.1 — never invent time by default
+            onKeep: onKeep,
+            onDiscard: onDiscard)
     }
 }
 
@@ -51,20 +47,14 @@ final class AwayResolutionWindowController: NSWindowController, NSWindowDelegate
 
     private init(minutes: Int, resolve: @escaping (AwayResolution) -> Void) {
         self.resolve = resolve
-        let window = NSWindow(
-            contentRect: .init(x: 0, y: 0, width: 320, height: 160),
-            styleMask: [.titled, .closable],
-            backing: .buffered, defer: false
-        )
-        window.center()
-        window.isReleasedWhenClosed = false
+        let window = TimePromptWindow.make(width: 340, height: 300)
         super.init(window: window)
         window.delegate = self
-        window.contentView = NSHostingView(rootView: AwayResolutionView(
+        TimePromptWindow.fit(window, to: NSHostingView(rootView: AwayResolutionView(
             minutes: minutes,
             onKeep: { [weak self] in self?.finish(.keep) },
             onDiscard: { [weak self] in self?.finish(.discard) }
-        ))
+        )))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

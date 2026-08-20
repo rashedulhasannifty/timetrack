@@ -43,6 +43,53 @@ describe.runIf(RUN_E2E)('screenshots repository — real Postgres', () => {
     expect(await db.prisma.screenshot.count({ where: { id } })).toBe(1);
   });
 
+  /**
+   * Multi-display capture: one tick writes one row per attached display, all sharing a
+   * captureGroupId. The grouping fields have to survive the round-trip through BOTH the write
+   * and the list read — an earlier version of this repository kept a second, inline select list
+   * for reads, where a newly added column silently vanished.
+   */
+  it('round-trips the capture group across a write and a list read', async () => {
+    const groupId = '019797a0-0000-7000-8000-0000000000f0';
+    const left = '019797a0-0000-7000-8000-0000000000f1';
+    const right = '019797a0-0000-7000-8000-0000000000f2';
+    await repo().create(
+      { id: left, timestamp: TS, captureGroupId: groupId, displayIndex: 0, displayCount: 2 },
+      'user-1',
+      `raw/user-1/${left}`,
+    );
+    await repo().create(
+      { id: right, timestamp: TS, captureGroupId: groupId, displayIndex: 1, displayCount: 2 },
+      'user-1',
+      `raw/user-1/${right}`,
+    );
+
+    const rows = await repo().listByUser(
+      'user-1',
+      new Date('2026-07-16T00:00:00.000Z'),
+      new Date('2026-07-17T00:00:00.000Z'),
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.captureGroupId)).toEqual([groupId, groupId]);
+    // Displays of one tick share a timestamp, so ordering falls to displayIndex — the main
+    // display first, so the same monitor keeps its place between groups.
+    expect(rows.map((r) => r.displayIndex)).toEqual([0, 1]);
+    expect(rows[0]?.displayCount).toBe(2);
+  });
+
+  /**
+   * A Mac client older than multi-display capture sends no grouping fields at all, and /v1 has
+   * to keep accepting it. Those rows read back as nulls — a group of one, which is exactly what
+   * a single-display capture always was.
+   */
+  it('stores nulls for an upload with no grouping fields (older client)', async () => {
+    const row = await repo().create({ id, timestamp: TS }, 'user-1', `raw/user-1/${id}`);
+    expect(row.captureGroupId).toBeNull();
+    expect(row.displayIndex).toBeNull();
+    expect(row.displayCount).toBeNull();
+  });
+
   it('rejects a same-PK upload from a different user (409), leaves the original row untouched', async () => {
     await repo().create({ id, timestamp: TS }, 'user-1', `raw/user-1/${id}`);
     await expect(

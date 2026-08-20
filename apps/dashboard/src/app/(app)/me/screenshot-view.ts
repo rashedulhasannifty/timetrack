@@ -13,7 +13,15 @@ export type TileMode = 'redactable' | 'redacted' | 'pending';
  */
 export type ScreenshotView = Pick<
   Screenshot,
-  'id' | 'status' | 'url' | 'fullUrl' | 'redactedReason' | 'timestamp'
+  | 'id'
+  | 'status'
+  | 'url'
+  | 'fullUrl'
+  | 'redactedReason'
+  | 'timestamp'
+  | 'captureGroupId'
+  | 'displayIndex'
+  | 'displayCount'
 >;
 
 export function toScreenshotView(s: Screenshot): ScreenshotView {
@@ -24,7 +32,72 @@ export function toScreenshotView(s: Screenshot): ScreenshotView {
     fullUrl: s.fullUrl,
     redactedReason: s.redactedReason,
     timestamp: s.timestamp,
+    captureGroupId: s.captureGroupId,
+    displayIndex: s.displayIndex,
+    displayCount: s.displayCount,
   };
+}
+
+/** One capture instant: every display grabbed in the same tick, shown together. */
+export interface ShotGroup {
+  key: string;
+  /** Shared by the whole group — one tick stamps one capture time. */
+  timestamp: string;
+  shots: ScreenshotView[];
+  /**
+   * Displays the client tried to capture. Null when the client didn't say (any capture taken
+   * before multi-display support). When it exceeds `shots.length`, a display failed to capture
+   * and the group says so rather than passing itself off as the whole desk.
+   */
+  attempted: number | null;
+}
+
+/**
+ * Group a day's captures by the tick that produced them, preserving the order they arrive in
+ * (newest first, main display first within a tick).
+ *
+ * A shot with no `captureGroupId` becomes its own group. That is not a fallback so much as the
+ * truth about those rows: before multi-display capture the client only ever recorded the main
+ * display, so every one of them genuinely is a group of one.
+ */
+export function groupShots(shots: ScreenshotView[]): ShotGroup[] {
+  const groups: ShotGroup[] = [];
+  const byId = new Map<string, ShotGroup>();
+
+  for (const shot of shots) {
+    const existing = shot.captureGroupId ? byId.get(shot.captureGroupId) : undefined;
+    if (existing) {
+      existing.shots.push(shot);
+      // Trust the largest count any member reports: a group is only ever under-reported when a
+      // display drops out mid-tick, never over-reported.
+      if (shot.displayCount !== null) {
+        existing.attempted = Math.max(existing.attempted ?? 0, shot.displayCount);
+      }
+      continue;
+    }
+    // Keyed by id, not group id, so ungrouped legacy rows can never collide with each other.
+    const group: ShotGroup = {
+      key: shot.captureGroupId ?? shot.id,
+      timestamp: shot.timestamp,
+      shots: [shot],
+      attempted: shot.displayCount,
+    };
+    groups.push(group);
+    if (shot.captureGroupId) byId.set(shot.captureGroupId, group);
+  }
+  return groups;
+}
+
+/**
+ * How a group labels itself: "2 displays", or "1 of 2 displays" when one failed to capture.
+ * Null for an ordinary single-display capture, which needs no label at all.
+ */
+export function groupLabel(group: ShotGroup): string | null {
+  const captured = group.shots.length;
+  const attempted = group.attempted ?? captured;
+  if (attempted <= 1 && captured <= 1) return null;
+  if (captured < attempted) return `${captured} of ${attempted} displays`;
+  return `${captured} displays`;
 }
 
 /**
@@ -66,4 +139,24 @@ export function stepIndex(count: number, current: number, delta: number): number
 /** `2026-08-14T12:43:47.000Z` → Dhaka wall-clock `18:43`. The grid and the lightbox caption share this. */
 export function shotTime(timestamp: string): string {
   return clockOf(new Date(timestamp));
+}
+
+/**
+ * What a single tile says under itself. Inside a multi-display group the shared capture time is
+ * already on the group header, so the tile names its display instead — otherwise every tile in
+ * the group would repeat the same clock time.
+ */
+export function tileCaption(shot: ScreenshotView, group: ShotGroup): string {
+  if (group.shots.length <= 1 || shot.displayIndex === null) return shotTime(shot.timestamp);
+  return `Display ${shot.displayIndex + 1}`;
+}
+
+/**
+ * How a shot names itself outside its group: the capture time, plus the display when the client
+ * recorded one. The lightbox pages across the whole day, so without the display two shots from
+ * the same tick would read as the same capture twice.
+ */
+export function shotDescription(shot: ScreenshotView): string {
+  const time = shotTime(shot.timestamp);
+  return shot.displayIndex === null ? time : `${time} · Display ${shot.displayIndex + 1}`;
 }
