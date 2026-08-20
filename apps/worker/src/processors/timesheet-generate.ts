@@ -31,10 +31,13 @@ const ENTRY_END = (freshnessSeconds: number): Prisma.Sql => Prisma.sql`
  * prevent this: `ENTRY_END - startTime` is strictly positive for an open entry either way, so
  * a `> 0` test cannot tell the two apart. The clamp bounds the MAGNITUDE; this predicate
  * decides CANDIDACY. Both are needed — neither substitutes for the other.
+ *
+ * Self-parenthesised: it is an `OR`, and the `FILTER (WHERE …)` it sits in today supplies its own
+ * delimiters — but dropped into a `WHERE` beside an `AND` the precedence would silently invert.
  */
 const IS_EVIDENCE = (freshnessSeconds: number): Prisma.Sql => Prisma.sql`
-  te."endTime" IS NOT NULL
-  OR COALESCE(te."heartbeatAt", te."startTime") + make_interval(secs => ${freshnessSeconds}) >= now()`;
+  (te."endTime" IS NOT NULL
+   OR COALESCE(te."heartbeatAt", te."startTime") + make_interval(secs => ${freshnessSeconds}) >= now())`;
 
 /**
  * Regenerate PENDING timesheet approvals for the last `lookbackWeeks` CLOSED ISO weeks.
