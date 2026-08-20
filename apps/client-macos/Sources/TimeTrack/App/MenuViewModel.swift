@@ -61,7 +61,7 @@ final class MenuViewModel: ObservableObject {
         onSignIn: @escaping () -> Void,
         onSignOut: @escaping () -> Void,
         onQuit: @escaping () -> Void,
-        selectionStore: SelectionStore = SelectionStore()
+        selectionStore: SelectionStore
     ) {
         self.tracker = tracker
         self.dashboardURL = dashboardURL
