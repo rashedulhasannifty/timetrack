@@ -22,3 +22,7 @@ apps/client-macos/.swiftpm/
 # already-generated copy on someone's disk can never be committed by `git add -A`.
 apps/dashboard/AGENTS.md
 apps/dashboard/CLAUDE.md
+
+# Playwright run artifacts
+test-results/
+playwright-report/

@@ -55,7 +55,8 @@ test.describe('day view — screenshots and date navigation', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     const caption = await dialog.locator('span').first().innerText();
-    expect(caption).toMatch(/\d{2}:\d{2} · 1 of \d+/);
+    // The display segment appears only for a capture that came from a multi-display group.
+    expect(caption).toMatch(/\d{2}:\d{2}( · Display \d+)? · 1 of \d+/);
 
     // The overlay shows the full-res object, not the thumbnail it was opened from.
     const img = dialog.locator('img');
