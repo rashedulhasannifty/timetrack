@@ -57,7 +57,8 @@ final class ScreenshotSyncEngine {
                 buffer.remove(id: record.id)   // unreadable file can't be uploaded — drop it
                 continue
             }
-            switch await uploader.upload(id: record.id, capturedAt: record.capturedAt, jpeg: jpeg) {
+            switch await uploader.upload(id: record.id, capturedAt: record.capturedAt,
+                                         group: record.group, jpeg: jpeg) {
             case .success:
                 buffer.remove(id: record.id)
                 backoff.reset()

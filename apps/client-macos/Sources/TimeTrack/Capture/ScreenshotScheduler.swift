@@ -2,7 +2,8 @@ import Foundation
 
 /// PRD §6.2 — the capture trigger. A single self-gating interval timer (mirrors the heartbeat
 /// timer's `guard isTracking`): each tick, only while the clock runs and only through `AckGate`,
-/// it grabs the screen, writes to the durable image buffer, and kicks the upload drain. Capture is
+/// it grabs EVERY attached display, writes each to the durable image buffer under a shared
+/// capture-group id, and kicks the upload drain. Capture is
 /// tied to time tracking (design decision: no screenshots on a stopped clock). The interval and
 /// enablement are an install-time snapshot — the caller builds this only when `screenshotsEnabled`,
 /// and ack-revocation is caught per tick by the gate. Never captures on a closed gate; a missing
@@ -22,6 +23,7 @@ final class ScreenshotScheduler {
     private let isTracking: () -> Bool
     private let isPermitted: () -> Bool
     private let idGen: (Date) -> String
+    private let groupIdGen: (Date) -> String
     private let clock: () -> Date
     private let onCaptured: () -> Void
     private let onPermissionDenied: () -> Void
@@ -36,6 +38,7 @@ final class ScreenshotScheduler {
          intervalMinutes: Int, isTracking: @escaping () -> Bool,
          isPermitted: @escaping () -> Bool = ScreenRecordingPermission.isGranted,
          idGen: @escaping (Date) -> String = { UUIDv7.generate(now: $0) },
+         groupIdGen: @escaping (Date) -> String = { UUIDv7.generate(now: $0) },
          clock: @escaping () -> Date = Date.init,
          onCaptured: @escaping () -> Void = {},
          onPermissionDenied: @escaping () -> Void = {},
@@ -47,6 +50,7 @@ final class ScreenshotScheduler {
         self.isTracking = isTracking
         self.isPermitted = isPermitted
         self.idGen = idGen
+        self.groupIdGen = groupIdGen
         self.clock = clock
         self.onCaptured = onCaptured
         self.onPermissionDenied = onPermissionDenied
@@ -83,9 +87,20 @@ final class ScreenshotScheduler {
                     return
                 }
                 let capturedAt = clock()
-                let id = idGen(capturedAt)
-                let jpeg = try await grabber.grab()
-                buffer.enqueue(id: id, capturedAt: capturedAt, jpeg: jpeg)
+                // Every attached display, grabbed as one tick and stamped with one capture time
+                // and one group id, so the dashboard can show a multi-monitor desk as a single
+                // moment rather than as unrelated screenshots. The fan-out is INSIDE the gate.
+                let result = try await grabber.grabAll()
+                let groupId = groupIdGen(capturedAt)
+                for capture in result.captures {
+                    buffer.enqueue(
+                        id: idGen(capturedAt),
+                        capturedAt: capturedAt,
+                        jpeg: capture.jpeg,
+                        group: CaptureGroup(id: groupId,
+                                            displayIndex: capture.index,
+                                            displayCount: result.attempted))
+                }
                 onCaptureSucceeded()
                 onCaptured()
             }

@@ -27,6 +27,33 @@ final class ScreenshotSyncEngineTests: XCTestCase {
         XCTAssertTrue(buffer.take(limit: 10).isEmpty, "delivered images removed")
     }
 
+    /// The group is stamped at capture time and has to reach the server through the durable
+    /// buffer — a drain that dropped it would upload the displays of one tick as unrelated
+    /// screenshots, which is precisely what the grouping exists to prevent.
+    func testCarriesTheCaptureGroupThroughTheDrain() async {
+        let buffer = tempBuffer()
+        let group = CaptureGroup(id: "g1", displayIndex: 1, displayCount: 2)
+        buffer.enqueue(id: "a", capturedAt: t0, jpeg: Data("1".utf8), group: group)
+        let uploader = FakeScreenshotUploader(results: [.success])
+
+        await ScreenshotSyncEngine(buffer: buffer, uploader: uploader).syncNow()
+
+        XCTAssertEqual(uploader.uploadedGroups, [group])
+    }
+
+    /// A capture buffered by the previous build has no group. It still uploads — dropping it
+    /// after an update would lose recorded time.
+    func testUploadsAnUngroupedRecordFromTheOlderBuild() async {
+        let buffer = tempBuffer()
+        buffer.enqueue(id: "a", capturedAt: t0, jpeg: Data("1".utf8))
+        let uploader = FakeScreenshotUploader(results: [.success])
+
+        await ScreenshotSyncEngine(buffer: buffer, uploader: uploader).syncNow()
+
+        XCTAssertEqual(uploader.uploadedIds, ["a"])
+        XCTAssertEqual(uploader.uploadedGroups, [nil])
+    }
+
     func testTransientStopsCycleAndKeepsRecords() async {
         let buffer = tempBuffer()
         buffer.enqueue(id: "a", capturedAt: t0, jpeg: Data("1".utf8))

@@ -1,12 +1,26 @@
 import Foundation
 
+/// The multi-display grouping stamped on a buffered capture: which tick it belongs to, and where
+/// it sat in that tick. Nil for records written by a build older than multi-display capture.
+struct CaptureGroup: Equatable {
+    let id: String
+    let displayIndex: Int
+    let displayCount: Int
+}
+
 /// PRD §6.2 / §7.4 — durable, file-backed binary buffer for captured screenshots. Mirrors
 /// `BufferStore`'s durability model (atomic write-tmp-then-rename, startup sweep of `.tmp-*`,
 /// one file per record) but stores raw JPEG bytes, not JSON — screenshots are binary multipart
 /// (2.2a §13), so they get their own store and their own uploader/engine. The filename
-/// `<capturedAtMillis>__<uuidv7>.jpg` carries FIFO order, identity (the server `id`), AND the
-/// capture time (half the server PK `[id, timestamp]` + the partition key) WITHOUT reading the
-/// file — so the capture time is stamped once and reused verbatim on every upload retry.
+/// `<capturedAtMillis>__<uuidv7>__<groupId>__<displayIndex>__<displayCount>.jpg` carries FIFO
+/// order, identity (the server `id`), the capture time (half the server PK `[id, timestamp]` +
+/// the partition key), AND the multi-display grouping — all WITHOUT reading the file, so the
+/// capture time is stamped once and reused verbatim on every upload retry.
+///
+/// The two-component form `<capturedAtMillis>__<uuidv7>.jpg` is still parsed: it is what the
+/// build currently on pilot Macs writes, and those pending captures must still drain after an
+/// update rather than being silently dropped on the floor. They carry no group, which is
+/// accurate — they were single main-display grabs.
 final class ImageBufferStore {
     static let shared = ImageBufferStore(directory: ImageBufferStore.defaultDirectory())
 
@@ -27,10 +41,14 @@ final class ImageBufferStore {
             .appendingPathComponent("TimeTrack/screenshots", isDirectory: true)
     }
 
-    /// Atomic enqueue: write `.tmp-<id>`, then rename to `<capturedAtMillis>__<id>.jpg`.
-    func enqueue(id: String, capturedAt: Date, jpeg: Data) {
+    /// Atomic enqueue: write `.tmp-<id>`, then rename to the encoded record name.
+    ///
+    /// `group` is nil only for a capture with no display context to record. Every current caller
+    /// passes one; the parameter stays optional so a record can still be written (and drained) in
+    /// the shape the previous build used.
+    func enqueue(id: String, capturedAt: Date, jpeg: Data, group: CaptureGroup? = nil) {
         let millis = Int64(capturedAt.timeIntervalSince1970 * 1000)
-        let dst = directory.appendingPathComponent("\(millis)__\(id).jpg")
+        let dst = directory.appendingPathComponent(Self.filename(millis: millis, id: id, group: group))
         let tmp = directory.appendingPathComponent(".tmp-\(id)")
         do {
             try jpeg.write(to: tmp, options: .atomic)
@@ -42,10 +60,11 @@ final class ImageBufferStore {
     }
 
     /// FIFO (capture time asc) records, up to `limit`. Returns file URLs — callers read bytes lazily.
-    func take(limit: Int) -> [(id: String, capturedAt: Date, url: URL)] {
+    func take(limit: Int) -> [(id: String, capturedAt: Date, group: CaptureGroup?, url: URL)] {
         allRecords().prefix(limit).map {
             (id: $0.id,
              capturedAt: Date(timeIntervalSince1970: Double($0.capturedAtMillis) / 1000),
+             group: $0.group,
              url: $0.url)
         }
     }
@@ -78,7 +97,16 @@ final class ImageBufferStore {
 
     // MARK: - internals
 
-    private struct Record { let url: URL; let capturedAtMillis: Int64; let id: String }
+    private struct Record {
+        let url: URL; let capturedAtMillis: Int64; let id: String; let group: CaptureGroup?
+    }
+
+    /// The record name. Underscore-pair separated; a UUID contains no `__`, so the components
+    /// can never be ambiguous.
+    static func filename(millis: Int64, id: String, group: CaptureGroup?) -> String {
+        guard let group else { return "\(millis)__\(id).jpg" }
+        return "\(millis)__\(id)__\(group.id)__\(group.displayIndex)__\(group.displayCount).jpg"
+    }
 
     private func contents() -> [URL] {
         (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
@@ -88,8 +116,17 @@ final class ImageBufferStore {
         let name = url.lastPathComponent
         guard name.hasSuffix(".jpg") else { return nil }
         let parts = String(name.dropLast(4)).components(separatedBy: "__")  // strip ".jpg"
-        guard parts.count == 2, let millis = Int64(parts[0]) else { return nil }
-        return Record(url: url, capturedAtMillis: millis, id: parts[1])
+        guard let millis = Int64(parts.first ?? "") else { return nil }
+        // Two components: written by a build older than multi-display capture. Still drainable,
+        // and genuinely ungrouped — it was a single main-display grab.
+        if parts.count == 2 {
+            return Record(url: url, capturedAtMillis: millis, id: parts[1], group: nil)
+        }
+        guard parts.count == 5, let index = Int(parts[3]), let count = Int(parts[4]) else {
+            return nil
+        }
+        return Record(url: url, capturedAtMillis: millis, id: parts[1],
+                      group: CaptureGroup(id: parts[2], displayIndex: index, displayCount: count))
     }
 
     private func allRecords() -> [Record] {
