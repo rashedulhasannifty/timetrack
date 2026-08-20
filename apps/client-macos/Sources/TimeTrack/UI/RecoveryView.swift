@@ -48,9 +48,10 @@ final class RecoveryWindowController: NSWindowController, NSWindowDelegate {
 
     /// Close the prompt if it's still on screen (e.g. on sign-out, so a prior user's recovery
     /// window never survives into the next user's session). Closing routes through
-    /// `windowWillClose` → `resolve(.discard)`, which best-effort closes the still-open server
-    /// row (never enqueued to `BufferStore`) and clears the live-span file — the only local
-    /// state left behind is the panel having been on screen.
+    /// `windowWillClose` → `resolve(.discard)`, which enqueues a zero-duration close for the
+    /// still-open server row and clears the live-span file — the only local state left behind is
+    /// the panel having been on screen. On sign-out this runs BEFORE the final buffer drain, so
+    /// that close uploads under the still-valid token of the user it belongs to.
     static func dismissIfShowing() {
         live?.window?.close()
     }

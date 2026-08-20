@@ -382,28 +382,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let minutes = max(1, Int((span.lastAlive.timeIntervalSince(span.startTime) / 60).rounded()))
-        RecoveryWindowController.present(minutes: minutes) { [weak self] action in
-            guard let self else { return }
-            // Defense-in-depth: the prompt is non-modal and can outlive the user who opened it
-            // (e.g. left open across a sign-out/sign-in). Re-check against the CURRENT
-            // logged-in user (the live `userIdBox` value, not the `currentUserId` captured when
-            // this closure was built) so a stale action from a prior user's prompt can
-            // never be attributed to whoever is signed in now.
-            let stillOurs = LiveSpanStore.shouldRecover(span: span, currentUserId: self.userIdBox.value)
-            if action == .keep, stillOurs {
-                self.timeTracker.recordSpan(
-                    id: span.entryId, start: span.startTime, end: span.lastAlive,
-                    projectId: span.projectId, taskId: span.taskId,
-                    source: TimeTracker.Source(rawValue: span.source) ?? .manual
-                )
-            } else if action == .discard, stillOurs {
-                // The span may already be an OPEN row on the server (spec §4.1). Clearing only
-                // the local file would leave it open forever and 409 every future Start, so
-                // close it as a zero-duration entry at its own start time (never at lastAlive —
-                // that would silently KEEP the time the user chose to discard).
-                Task { await self.liveEntryPublisher.publishDiscarded(span) }
-            }
-            self.liveSpanStore.clear()
+        // Both outcomes close the span through the DURABLE buffer, and the live `userIdBox`
+        // value (not the `currentUserId` captured when this closure was built) is what the
+        // cross-user re-check reads. See `LiveSpanRecovery` for why Discard is buffered too.
+        let recovery = LiveSpanRecovery(
+            tracker: timeTracker, store: liveSpanStore,
+            currentUserId: { [weak self] in self?.userIdBox.value }
+        )
+        RecoveryWindowController.present(minutes: minutes) { action in
+            recovery.apply(action, to: span)
         }
     }
 

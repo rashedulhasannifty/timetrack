@@ -88,32 +88,3 @@ final class LiveEntryPublisherTests: XCTestCase {
         XCTAssertEqual(spy.bodies.count, 1)
     }
 }
-
-extension LiveEntryPublisherTests {
-    func testDiscardClosesTheRowAtItsOwnStart() async throws {
-        let spy = SpyUploader()
-        let publisher = LiveEntryPublisher(uploader: spy)
-        let start = Date(timeIntervalSince1970: 1_787_000_000)
-        let span = LiveSpan(
-            entryId: "01920000-0000-7000-8000-000000000020",
-            startTime: start,
-            projectId: nil, taskId: nil,
-            source: "MANUAL",
-            lastAlive: start.addingTimeInterval(1800),
-            userId: nil
-        )
-
-        await publisher.publishDiscarded(span)
-
-        let body = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: XCTUnwrap(spy.bodies.first)) as? [String: Any]
-        )
-        // Zero duration: releases the one-open-entry index slot, contributes nothing,
-        // and is filtered out of every server-side list and export.
-        XCTAssertEqual(body["startTime"] as? String, body["endTime"] as? String)
-        XCTAssertEqual(body["id"] as? String, span.entryId)
-        // NOT closed at lastAlive — that would silently KEEP the time the user discarded.
-        XCTAssertNotEqual(body["endTime"] as? String,
-                          TimeEntryPayload.iso.string(from: span.lastAlive))
-    }
-}

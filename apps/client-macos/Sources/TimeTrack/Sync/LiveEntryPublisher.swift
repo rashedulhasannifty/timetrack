@@ -5,7 +5,9 @@ import Foundation
 ///
 /// Deliberately does NOT go through `BufferStore`: that buffer appends one file per enqueue
 /// (`{millis}__{kind}__{id}.json`), so the same id enqueued twice leaves two records, and a
-/// stale open payload draining after the close would null a real `endTime`.
+/// stale OPEN payload draining after the close would null a real `endTime`. That hazard is
+/// specific to the open payloads this type sends — a CLOSED payload is safe to buffer, and the
+/// recovery close does exactly that (see `LiveSpanRecovery`).
 ///
 /// Best-effort by design. Every failure is swallowed — the authoritative record is still the
 /// CLOSED entry that `TimeTracker.close` enqueues to the buffer, so offline behaviour is
@@ -40,22 +42,6 @@ final class LiveEntryPublisher {
             taskId: span.taskId,
             startTime: TimeEntryPayload.iso.string(from: span.startTime),
             endTime: nil,
-            source: span.source,
-            note: nil
-        ))
-    }
-
-    /// Close the server row for a span the user chose to DISCARD, by ending it at its own start.
-    /// A zero-duration row releases the one-open-entry index slot and is filtered out of every
-    /// list and export server-side (spec §4.4). Used by recovery Discard.
-    func publishDiscarded(_ span: LiveSpan) async {
-        let at = TimeEntryPayload.iso.string(from: span.startTime)
-        await send(TimeEntryPayload(
-            id: span.entryId,
-            projectId: span.projectId,
-            taskId: span.taskId,
-            startTime: at,
-            endTime: at,
             source: span.source,
             note: nil
         ))
