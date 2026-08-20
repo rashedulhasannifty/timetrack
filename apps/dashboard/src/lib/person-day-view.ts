@@ -83,9 +83,15 @@ const HOUR_MS = 3_600_000;
 const MIN_WINDOW_MS = 4 * HOUR_MS;
 
 /**
- * How long after a client's last activity sample we still consider it live. Mirrors the API's
- * TRACKING_FRESHNESS_SECONDS default (packages/config/src/index.ts:76) and the server-side
- * clamp in reports.repository.ts, so the pill and the duration agree with the reports.
+ * How long after a client's last activity sample we still consider it live. This APPROXIMATES
+ * the server-side clamp in reports.repository.ts using the only signal `/v1` exposes to the
+ * dashboard (`heartbeatAt` is server-internal, never sent to a client) — it doesn't reproduce
+ * it exactly, since the API clamps on `heartbeatAt` (written on every client write, including
+ * an un-acked one) while this clamps on activity-sample recency (written only once capture is
+ * ack-gated on). The two agree only when capture and manual tracking are both live. This is a
+ * mirrored literal of the API's TRACKING_FRESHNESS_SECONDS default
+ * (packages/config/src/index.ts:76) — raising that env var above 300 silently desyncs this
+ * constant from it.
  */
 const TRACKING_FRESHNESS_MS = 300_000;
 
@@ -228,15 +234,6 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
 
   // The client's last provable sign of life today. An open entry cannot accrue past this —
   // otherwise a shut-down Mac's entry grows forever and the pill never goes out (spec §4.3).
-  //
-  // Absence of samples is absence of evidence, not evidence of death: a user who hasn't
-  // satisfied `monitoringAckAt` produces NO activity samples at all (capture is gated off
-  // entirely), yet can still track time manually. There is no staleness signal to clamp
-  // against for them, so the horizon stays unbounded (+Infinity) rather than collapsing to
-  // -Infinity — an open entry with zero samples grows to `now()` exactly as it did before
-  // this liveness gate existed. The authoritative numbers of record are the server's, clamped
-  // on `heartbeatAt` regardless of ack (manual tracking never routes through AckGate), so this
-  // client-side fallback cannot inflate what actually gets reported.
   const newestSampleMs = samples.reduce(
     (max, s) => Math.max(max, Date.parse(s.timestamp)),
     Number.NEGATIVE_INFINITY,
@@ -244,19 +241,25 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
   const liveHorizonMs = Number.isFinite(newestSampleMs)
     ? newestSampleMs + TRACKING_FRESHNESS_MS
     : Number.POSITIVE_INFINITY;
-  const openEndMs = Math.min(nowMs, liveHorizonMs);
-  // Whether the client is currently within its liveness window — with no samples at all,
-  // liveHorizonMs is +Infinity, so this (and everything gated on it) is unconditionally true.
-  const isLive = nowMs <= liveHorizonMs;
 
   const parsed = entries.map((e) => {
     const startMs = Date.parse(e.startTime);
     const open = e.endTime === null;
     const endMs = open ? null : Date.parse(e.endTime as string);
-    // Math.max(startMs, ...) keeps the duration non-negative — e.g. if the only samples
-    // predate the entry's own start, the horizon could fall before startMs.
+    // Liveness is a PER-ENTRY property, not a single day-level comparison: `liveHorizonMs`
+    // only counts as evidence for THIS entry if it falls at or after the entry's own start.
+    // A horizon before startMs means every sample predates the entry entirely — e.g. capture
+    // died or the ack was withdrawn earlier in the day and the user started a fresh entry
+    // afterwards — which is absence of evidence for this entry, not evidence it's dead. Just
+    // like the zero-samples case, it falls back to `nowMs` and counts as live (no un-clamped
+    // day-level `isLive` — that produced 0m/"not running" for a live entry the API was
+    // simultaneously reporting at its true length).
+    const entryLiveHorizonMs = liveHorizonMs >= startMs ? liveHorizonMs : Number.POSITIVE_INFINITY;
+    const isLive = nowMs <= entryLiveHorizonMs;
+    const openEndMs = Math.min(nowMs, entryLiveHorizonMs);
+    // Math.max(startMs, ...) keeps the duration non-negative as a final safety net.
     const effectiveEnd = endMs ?? (isToday ? Math.max(startMs, openEndMs) : startMs);
-    return { entry: e, startMs, endMs, open, effectiveEnd };
+    return { entry: e, startMs, endMs, open, effectiveEnd, isLive };
   });
 
   // Window: collect every timestamp of interest.
@@ -327,9 +330,9 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
         );
 
   // An open entry alone is not proof of life — a crashed or shut-down client leaves one behind.
-  // Require a recent activity sample too (or no staleness signal at all — see `isLive` above),
-  // the same signal the Overview `tracking` flag uses.
-  const recordingNow = isToday && parsed.some((p) => p.open) && isLive;
+  // Require that entry's own liveness too (or no staleness signal at all for it — see
+  // `isLive` on `parsed` above), the same signal the Overview `tracking` flag uses.
+  const recordingNow = isToday && parsed.some((p) => p.open && p.isLive);
 
   const entryRows: DayEntryRow[] = parsed
     .map((p) => {
@@ -342,7 +345,7 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
         durationSeconds,
         // Gated the same way as `recordingNow` — a stale open entry's duration is frozen, so
         // its "running" label must not keep claiming otherwise.
-        running: p.open && isToday && isLive,
+        running: p.open && isToday && p.isLive,
       };
     })
     .sort((a, b) => a.startMs - b.startMs);
@@ -362,8 +365,8 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
         const startPct = pct(seg.startMs);
         const widthPct = Math.max(0, pct(seg.endMs) - startPct);
         const isLast = i === segments.length - 1;
-        // Gated the same way as `recordingNow`/entryRows.running (see `isLive` above).
-        const running = p.open && isToday && isLast && isLive;
+        // Gated the same way as `recordingNow`/entryRows.running (see `isLive` on `parsed`).
+        const running = p.open && isToday && isLast && p.isLive;
         return {
           id: `${p.entry.id}#${i}`,
           startPct,

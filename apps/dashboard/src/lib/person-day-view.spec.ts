@@ -46,15 +46,7 @@ describe('personDayView — core', () => {
 
   it('counts an open entry to now on today and flags recordingNow', () => {
     const now = new Date('2026-07-13T15:30:00.000Z');
-    const vm = personDayView({
-      ...base,
-      date: '2026-07-13',
-      now,
-      entries: [entry('a', 14, null)],
-      // recordingNow now requires a recent activity sample as proof of life, not just an
-      // open entry — a crashed/shut-down client can leave one behind (spec §4.3).
-      samples: [sample(15, 29, 'NEUTRAL', 50)],
-    });
+    const vm = personDayView({ ...base, date: '2026-07-13', now, entries: [entry('a', 14, null)] });
     expect(vm.recordingNow).toBe(true);
     expect(vm.isToday).toBe(true);
     expect(vm.stats.trackedSeconds).toBe(90 * 60); // 14:00 → 15:30
@@ -327,5 +319,24 @@ describe('personDayView — open-entry liveness', () => {
     });
     expect(vm.entries[0]?.running).toBe(false);
     expect(vm.ribbon.tracked.at(-1)?.running).toBe(false);
+  });
+
+  // RULING D (fix round 2): liveness is PER-ENTRY, not a single day-level comparison. A
+  // stale sample from earlier in the day must not freeze/hide an entry that started AFTER
+  // that sample's horizon -- there is no staleness evidence for THIS entry (capture died or
+  // the ack was withdrawn, then the user started a fresh entry), so it falls back to `nowMs`
+  // and counts as live, same as the zero-samples case.
+  it('counts an entry that starts after the last sample stopped covering it', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10, 30)),
+      // starts at 10:00 -- AFTER the 09:00 sample's 09:05 horizon, so that sample is not
+      // evidence about this entry at all.
+      entries: [entry('a', 10, null)],
+      samples: [sample(9, 0, 'NEUTRAL', 50)],
+    });
+    expect(vm.recordingNow).toBe(true);
+    expect(vm.entries[0]?.running).toBe(true);
+    expect(vm.entries[0]?.durationSeconds).toBe(1800); // 10:00 -> 10:30, unclamped
   });
 });
