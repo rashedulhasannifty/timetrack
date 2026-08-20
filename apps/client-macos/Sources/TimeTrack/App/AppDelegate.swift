@@ -38,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let ackMarker: AckMarker
     private let projectClient: ProjectClient
     private let projectCache: ProjectCache
+    /// Fresh-install fallback only — consulted from `refreshProjects()` when `selectionStore`
+    /// has nothing for the current user. See `RecentSelectionClient`.
+    private let recentSelectionClient: RecentSelectionClient
     /// The single instance shared with `MenuViewModel` (Task 4 needs AppDelegate to consult the
     /// same store directly) — two separately-constructed `SelectionStore`s would agree only by
     /// accident.
@@ -101,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.projectClient = ProjectClient(baseURL: baseURL, session: session)
         let projectCache = ProjectCache(fileURL: ProjectCache.defaultURL())
         self.projectCache = projectCache
+        self.recentSelectionClient = RecentSelectionClient(baseURL: baseURL, session: session)
         let selectionStore = SelectionStore()
         self.selectionStore = selectionStore
 
@@ -314,6 +318,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshProjects() async {
         guard let fresh = try? await projectClient.list() else { return }
         projectCache.save(fresh)
+
+        // Fresh-install fallback: nothing stored locally for this user (new Mac, reinstall) —
+        // ask the server what they were last tracking against. Gated on `selectionStore.load`
+        // so this never fires on a routine (throttled) menu-open refresh once something is
+        // stored, and never overrides an existing local selection. Best-effort: any failure
+        // (offline, 401, empty history) just leaves nothing pre-selected. Written to
+        // `selectionStore` so the existing `restoreSelection(userId:)` below picks it up
+        // through the normal path — no second, parallel apply path.
+        //
+        // `userId` here is resolved independently of `menuViewModel.currentUserId` (read only
+        // below, inside `MainActor.run`, atomically with the restore) so a concurrent sign-out's
+        // `reset()` — which nils `currentUserId` — can't be raced into restoring a stale
+        // selection; at worst this writes a best-effort fallback under a user who has since
+        // signed out, which sits inert under their namespaced key.
+        if let userId = await session.userId(), selectionStore.load(userId: userId) == nil,
+           let remote = await recentSelectionClient.mostRecentSelection() {
+            selectionStore.save(remote, userId: userId)
+        }
+
         await MainActor.run {
             menuViewModel.projects = fresh
             if let userId = menuViewModel.currentUserId {
