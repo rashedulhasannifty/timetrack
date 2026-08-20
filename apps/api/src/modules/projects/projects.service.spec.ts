@@ -5,6 +5,8 @@ import type { ProjectsRepository } from './projects.repository.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 
 const manager: SessionUser = { id: 'm1', role: 'MANAGER', teamId: 't1' };
+// TRACKING_FRESHNESS_SECONDS' default (packages/config); the service threads it to the repo.
+const FRESHNESS = 300;
 
 function makeService(overrides: Partial<ProjectsRepository> = {}) {
   const repo = {
@@ -24,7 +26,7 @@ function makeService(overrides: Partial<ProjectsRepository> = {}) {
     setTeam: vi.fn(),
     ...overrides,
   } as unknown as ProjectsRepository;
-  return { svc: new ProjectsService(repo), repo };
+  return { svc: new ProjectsService(repo, FRESHNESS), repo };
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -249,6 +251,7 @@ describe('ProjectsService.topApps', () => {
       projectId,
       new Date(query.from),
       new Date(query.to),
+      FRESHNESS,
     );
     expect(result).toEqual({
       from: query.from,

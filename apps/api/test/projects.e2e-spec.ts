@@ -208,6 +208,31 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
 
   const FROM = new Date('2026-07-13T00:00:00.000Z');
   const TO = new Date('2026-07-20T00:00:00.000Z');
+  // TRACKING_FRESHNESS_SECONDS' default (packages/config). ProjectsService threads the injected
+  // value down; the repository takes it as a parameter so a spec can state the window it asserts.
+  const FRESHNESS = 300;
+
+  /** A STRANDED open entry: started, never stopped, client no longer heartbeating. */
+  async function seedStranded(
+    userId: string,
+    projectId: string,
+    taskId: string | null,
+    startIso: string,
+    heartbeatIso: string | null,
+  ) {
+    await db.prisma.timeEntry.create({
+      data: {
+        id: crypto.randomUUID(),
+        userId,
+        projectId,
+        taskId,
+        startTime: new Date(startIso),
+        endTime: null,
+        heartbeatAt: heartbeatIso === null ? null : new Date(heartbeatIso),
+        source: 'MANUAL',
+      },
+    });
+  }
 
   it('membersForProject sums per user, descending, with names', async () => {
     const team = await seedTeam();
@@ -216,7 +241,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     const project = await repo().createProject(team.id, 'Website', 'actor1');
     await seedEntry(jane.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T11:00:00Z'); // 2h
     await seedEntry(john.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T10:00:00Z'); // 1h
-    const rows = await repo().membersForProject(project.id, FROM, TO);
+    const rows = await repo().membersForProject(project.id, FROM, TO, FRESHNESS);
     expect(rows).toEqual([
       { userId: jane.id, name: 'Jane', trackedSeconds: 7200 },
       { userId: john.id, name: 'John', trackedSeconds: 3600 },
@@ -231,7 +256,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     await seedEntry(jane.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T11:00:00Z'); // 2h
     // Ghost's ONLY entry is a discarded recovery span (spec §4.4, Task 7's Discard path).
     await seedEntry(ghost.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T09:00:00Z');
-    const rows = await repo().membersForProject(project.id, FROM, TO);
+    const rows = await repo().membersForProject(project.id, FROM, TO, FRESHNESS);
     // Without the fix, Ghost would appear as a phantom { trackedSeconds: 0 } row.
     expect(rows).toEqual([{ userId: jane.id, name: 'Jane', trackedSeconds: 7200 }]);
   });
@@ -253,7 +278,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
         endTime: null,
       },
     });
-    const rows = await repo().membersForProject(project.id, from, to);
+    const rows = await repo().membersForProject(project.id, from, to, FRESHNESS);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ userId: cy.id, name: 'Cy' });
     expect(rows[0]?.trackedSeconds).toBeGreaterThan(0);
@@ -266,7 +291,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     const task = await repo().createTask(project.id, 'Homepage', 'actor1');
     await seedEntry(jane.id, project.id, task.id, '2026-07-14T09:00:00Z', '2026-07-14T11:00:00Z'); // 2h Homepage
     await seedEntry(jane.id, project.id, null, '2026-07-14T13:00:00Z', '2026-07-14T13:30:00Z'); // 30m No task
-    const rows = await repo().tasksForProject(project.id, FROM, TO);
+    const rows = await repo().tasksForProject(project.id, FROM, TO, FRESHNESS);
     expect(rows).toEqual([
       { taskId: task.id, name: 'Homepage', trackedSeconds: 7200 },
       { taskId: null, name: 'No task', trackedSeconds: 1800 },
@@ -288,7 +313,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       '2026-07-14T13:00:00Z',
       '2026-07-14T13:00:00Z',
     );
-    const rows = await repo().tasksForProject(project.id, FROM, TO);
+    const rows = await repo().tasksForProject(project.id, FROM, TO, FRESHNESS);
     // Without the fix, "Ghost task" would appear as a phantom { trackedSeconds: 0 } row.
     expect(rows).toEqual([{ taskId: task.id, name: 'Homepage', trackedSeconds: 7200 }]);
   });
@@ -311,7 +336,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
         endTime: null,
       },
     });
-    const rows = await repo().tasksForProject(project.id, from, to);
+    const rows = await repo().tasksForProject(project.id, from, to, FRESHNESS);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ taskId: task.id, name: 'Homepage' });
     expect(rows[0]?.trackedSeconds).toBeGreaterThan(0);
@@ -325,7 +350,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     await seedEntry(jane.id, project.id, null, '2026-07-15T09:00:00Z', '2026-07-15T11:00:00Z'); // 2h on 15th
     // An entry starting before the window: clamped to FROM, bucketed on the window's first day.
     await seedEntry(jane.id, project.id, null, '2026-07-12T23:00:00Z', '2026-07-13T01:00:00Z'); // 1h inside window
-    const rows = await repo().hoursByDay(project.id, FROM, TO);
+    const rows = await repo().hoursByDay(project.id, FROM, TO, FRESHNESS);
     expect(rows).toEqual([
       { day: '2026-07-13', trackedSeconds: 3600 },
       { day: '2026-07-14', trackedSeconds: 3600 },
@@ -350,7 +375,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       },
     });
     await seedEntry(jane.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T10:00:00Z'); // 1h on 14th
-    const rows = await repo().hoursByDay(project.id, FROM, TO);
+    const rows = await repo().hoursByDay(project.id, FROM, TO, FRESHNESS);
     // Without the fix, the 16th would appear as a phantom { day: '2026-07-16', trackedSeconds: 0 } row.
     expect(rows).toEqual([{ day: '2026-07-14', trackedSeconds: 3600 }]);
   });
@@ -358,9 +383,9 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
   it('aggregations return empty for a project with no entries in range', async () => {
     const team = await seedTeam();
     const project = await repo().createProject(team.id, 'Empty', 'actor1');
-    expect(await repo().membersForProject(project.id, FROM, TO)).toEqual([]);
-    expect(await repo().tasksForProject(project.id, FROM, TO)).toEqual([]);
-    expect(await repo().hoursByDay(project.id, FROM, TO)).toEqual([]);
+    expect(await repo().membersForProject(project.id, FROM, TO, FRESHNESS)).toEqual([]);
+    expect(await repo().tasksForProject(project.id, FROM, TO, FRESHNESS)).toEqual([]);
+    expect(await repo().hoursByDay(project.id, FROM, TO, FRESHNESS)).toEqual([]);
   });
 
   async function seedSample(
@@ -381,6 +406,57 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       },
     });
   }
+
+  it('bounds a stranded open entry the same way /reports does, in every project aggregate', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    // Started 09:00, last heartbeat 09:03, then the Mac went away. Unclamped, every aggregate
+    // below reports TO - startTime (5d15h) and grows every day the row stays open — while
+    // /reports shows the same entry bounded at 480s. One entry, two pages, two numbers.
+    await seedStranded(jane.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T09:03:00Z');
+
+    const bounded = 3 * 60 + FRESHNESS; // 480
+
+    expect(await repo().membersForProject(project.id, FROM, TO, FRESHNESS)).toEqual([
+      { userId: jane.id, name: 'Jane', trackedSeconds: bounded },
+    ]);
+    expect(await repo().tasksForProject(project.id, FROM, TO, FRESHNESS)).toEqual([
+      { taskId: null, name: 'No task', trackedSeconds: bounded },
+    ]);
+    expect(await repo().hoursByDay(project.id, FROM, TO, FRESHNESS)).toEqual([
+      { day: '2026-07-14', trackedSeconds: bounded },
+    ]);
+    expect((await repo().topAppsForProject(project.id, FROM, TO, FRESHNESS)).totalSeconds).toBe(
+      bounded,
+    );
+  });
+
+  it('falls back to startTime for an entry written before heartbeatAt existed', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    await seedStranded(jane.id, project.id, null, '2026-07-14T09:00:00Z', null);
+
+    expect(await repo().membersForProject(project.id, FROM, TO, FRESHNESS)).toEqual([
+      { userId: jane.id, name: 'Jane', trackedSeconds: FRESHNESS },
+    ]);
+  });
+
+  it('topAppsForProject: a stranded entry does not claim coverage past its freshness window', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    await seedStranded(jane.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T09:03:00Z');
+    // Inside the clamped span [09:00, 09:08) — genuinely covered by the entry.
+    await seedSample(jane.id, 'Chrome', '2026-07-14T09:01:00Z');
+    // Hours later. The user was not tracking this project any more; only an unclamped
+    // `COALESCE(endTime, now())` would sweep it in and inflate coveredSeconds.
+    await seedSample(jane.id, 'Slack', '2026-07-14T12:00:00Z');
+
+    const result = await repo().topAppsForProject(project.id, FROM, TO, FRESHNESS);
+    expect(result.apps).toEqual([{ appName: 'Chrome', trackedSeconds: 60 }]);
+  });
 
   it('topAppsForProject: MANUAL entry with no samples is a real, measurable gap', async () => {
     const team = await seedTeam();
@@ -409,7 +485,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     // MANUAL entry, 30 min, no samples at all — a real gap (e.g. offline/manually logged work).
     await seedEntry(jane.id, project.id, null, '2026-07-14T13:00:00Z', '2026-07-14T13:30:00Z');
 
-    const result = await repo().topAppsForProject(project.id, FROM, TO);
+    const result = await repo().topAppsForProject(project.id, FROM, TO, FRESHNESS);
 
     expect(result.apps).toEqual([
       { appName: 'Chrome', trackedSeconds: 360 },
@@ -447,7 +523,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       await seedSample(jane.id, 'Chrome', `2026-07-14T09:0${m}:00Z`);
     }
 
-    const result = await repo().topAppsForProject(project.id, FROM, TO);
+    const result = await repo().topAppsForProject(project.id, FROM, TO, FRESHNESS);
 
     // Each of the 10 samples counted exactly once, not twice.
     expect(result.apps).toEqual([{ appName: 'Chrome', trackedSeconds: 600 }]);

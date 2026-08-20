@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type {
   CreateProject,
   CreateTask,
@@ -13,6 +13,7 @@ import type {
 import { ProjectDetailSchema } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { ProjectsRepository } from './projects.repository.js';
+import { TRACKING_FRESHNESS_SECONDS } from './projects.tokens.js';
 
 /**
  * CLAUDE.md §4 — own-team-only for BOTH MANAGER and ADMIN (the `setActive` precedent).
@@ -21,7 +22,14 @@ import { ProjectsRepository } from './projects.repository.js';
  */
 @Injectable()
 export class ProjectsService {
-  constructor(private readonly repo: ProjectsRepository) {}
+  // BOTH params carry an explicit @Inject token, for the reason spelled out in
+  // reports.service.ts: once Nest sees ANY explicit @Inject on the constructor it stops falling
+  // back to type reflection for the others, and under this repo's vitest e2e transform (esbuild,
+  // no `emitDecoratorMetadata`) a bare class-typed param would then resolve to nothing.
+  constructor(
+    @Inject(ProjectsRepository) private readonly repo: ProjectsRepository,
+    @Inject(TRACKING_FRESHNESS_SECONDS) private readonly trackingFreshnessSeconds: number,
+  ) {}
 
   /**
    * Which team's projects to read. Mirrors ReportsService.resolveScope, deliberately: ADMIN is
@@ -105,9 +113,9 @@ export class ProjectsService {
     const from = new Date(query.from);
     const to = new Date(query.to);
     const [trend, members, tasks] = await Promise.all([
-      this.repo.hoursByDay(id, from, to),
-      this.repo.membersForProject(id, from, to),
-      this.repo.tasksForProject(id, from, to),
+      this.repo.hoursByDay(id, from, to, this.trackingFreshnessSeconds),
+      this.repo.membersForProject(id, from, to, this.trackingFreshnessSeconds),
+      this.repo.tasksForProject(id, from, to, this.trackingFreshnessSeconds),
     ]);
     const totalSeconds = members.reduce((sum, m) => sum + m.trackedSeconds, 0);
 
@@ -135,6 +143,7 @@ export class ProjectsService {
       id,
       new Date(dto.from),
       new Date(dto.to),
+      this.trackingFreshnessSeconds,
     );
     const coveredSeconds = apps.reduce((sum, a) => sum + a.trackedSeconds, 0);
     const coveragePct =
