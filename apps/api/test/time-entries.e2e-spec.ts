@@ -196,6 +196,36 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
       ),
     ).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it('a late open payload cannot re-open a closed entry (close is monotone)', async () => {
+    const user = await seedUser();
+    const id = '019797a0-0000-7000-8000-0000000000c1';
+
+    // 1. The client opens the entry.
+    await repo().upsert(createDto(id), user.id);
+
+    // 2. The client closes it.
+    const closed = await repo().upsert(createDto(id, { endTime: '2026-07-11T10:00:00Z' }), user.id);
+    expect(closed.endTime).toBe('2026-07-11T10:00:00.000Z');
+
+    // 3. A stale open payload arrives late (retry, slow network, queued heartbeat).
+    const stale = await repo().upsert(createDto(id), user.id);
+
+    // Without the fix this is null and the entry is wedged as permanently running.
+    expect(stale.endTime).toBe('2026-07-11T10:00:00.000Z');
+  });
+
+  it('stamps heartbeatAt on every upsert', async () => {
+    const user = await seedUser();
+    const id = '019797a0-0000-7000-8000-0000000000c2';
+    const before = new Date();
+
+    await repo().upsert(createDto(id), user.id);
+
+    const row = await db.prisma.timeEntry.findUniqueOrThrow({ where: { id } });
+    expect(row.heartbeatAt).not.toBeNull();
+    expect(row.heartbeatAt!.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.

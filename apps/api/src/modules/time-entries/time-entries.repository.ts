@@ -45,6 +45,7 @@ export class TimeEntriesRepository {
 
   async upsert(dto: CreateTimeEntry, userId: string): Promise<TimeEntry> {
     try {
+      const now = new Date();
       const row = await this.prisma.timeEntry.upsert({
         where: { id: dto.id },
         create: {
@@ -56,8 +57,16 @@ export class TimeEntriesRepository {
           note: dto.note ?? null,
           startTime: new Date(dto.startTime),
           endTime: dto.endTime ? new Date(dto.endTime) : null,
+          heartbeatAt: now,
         },
-        update: { endTime: dto.endTime ? new Date(dto.endTime) : null, note: dto.note ?? null },
+        update: {
+          // The close is MONOTONE: an open payload arriving after the close (a retry, or a
+          // heartbeat queued behind it) must NOT null a stored endTime and re-open the entry.
+          // Corrections go through the audited PATCH path, not here.
+          ...(dto.endTime ? { endTime: new Date(dto.endTime) } : {}),
+          note: dto.note ?? null,
+          heartbeatAt: now,
+        },
         select: TIME_ENTRY_SELECT,
       });
       return serialize(row);
