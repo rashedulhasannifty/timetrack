@@ -84,6 +84,13 @@ export async function trackedSecondsByUser(
  * UNPARTITIONED `activity_daily_summaries` (the worker's own rollup), not `activity_samples`.
  * A user with no rolled-up active minutes is absent from the map, not zero: "no data" and
  * "idle all week" are different facts and the email says so.
+ *
+ * `s.day` is a Dhaka calendar day (`rollup-daily.util.ts`'s `dhakaWindow`), so the query
+ * projects `from`/`to` through `Asia/Dhaka`, not `UTC`, to match. `from`/`to` themselves stay
+ * the UTC-anchored closed week (`closed-week.ts`) — deliberately, so `weekLabel` and
+ * `TimesheetApproval.periodStart` stay self-consistent (see `CLAMPED_SECONDS` above). That
+ * leaves an accepted mismatch: at each week edge this activity % is computed over a window
+ * six hours off from the tracked-seconds figure in the same email. Not to be "fixed" here.
  */
 export async function weightedActivityPctByUser(
   prisma: PrismaClient,
@@ -99,9 +106,10 @@ export async function weightedActivityPctByUser(
              SUM(s."avgActivityPct"::numeric * s."activeMinutes") / SUM(s."activeMinutes")
            )::int AS "pct"
     FROM activity_daily_summaries s
+    -- Dhaka day labels — see the doc comment above.
     WHERE s."userId" IN (${Prisma.join(userIds)})
-      AND s.day >= (${from}::timestamptz AT TIME ZONE 'UTC')::date
-      AND s.day <  (${to}::timestamptz AT TIME ZONE 'UTC')::date
+      AND s.day >= (${from}::timestamptz AT TIME ZONE 'Asia/Dhaka')::date
+      AND s.day <  (${to}::timestamptz AT TIME ZONE 'Asia/Dhaka')::date
     GROUP BY s."userId"
     HAVING SUM(s."activeMinutes") > 0
   `;
