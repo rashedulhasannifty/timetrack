@@ -143,8 +143,9 @@ a **day** is derived from an instant, or an instant from a day:
 `:253` converts instant→day, `:272` converts day→instant. Swapping the literal `'UTC'` for
 `'Asia/Dhaka'` is correct in both cases, but each site must be read to confirm which direction it is
 before it is changed. Each converted query gets a Testcontainers assertion on a boundary instant
-(23:30 and 00:30 Dhaka, which are 17:30 and 18:30 UTC of the _previous_ UTC day) to prove the bucket
-moved.
+to prove the bucket moved. Use the pair 23:30 and 00:30 Dhaka on consecutive Dhaka days: 23:30 Dhaka
+is 17:30 UTC the **same** date, while 00:30 Dhaka is 18:30 UTC the **previous** date. They are two
+different Dhaka days but the same UTC day, which is precisely the case today's code gets wrong.
 
 ### 3.4 Worker rollup — the migration
 
@@ -228,7 +229,25 @@ Without this, §4.1 is a **regression**: an open row on the server plus
 "Recording now" pill stays lit forever. That expression appears at `reports.repository.ts:272,279,487`
 and `approvals.repository.ts:28`.
 
-Every one of those sites clamps the open end to the last heartbeat plus the freshness window:
+**The sweep is not uniform.** The discriminating question per site is _what bounds the open end_:
+
+| Site                                         | Open end bounded by                                 | Clamp?                                                                                                                                        |
+| -------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reports.repository.ts:272,279` (trends)     | `now()` — the current day is open-ended             | **Yes**                                                                                                                                       |
+| `reports.repository.ts:487` (CSV / timeline) | `LEAST(..., ${to})`, a report range the user chose  | **Yes** — for a range ending now it is the same live case, and for a past range it correctly stops a stranded entry from inflating the export |
+| `person-day-view.ts:297` (`recordingNow`)    | nothing — any open entry lights the pill            | **Yes**                                                                                                                                       |
+| `approvals.repository.ts:28`                 | `LEAST(..., ${toCol})`, the **approval period end** | **No — excluded, see below**                                                                                                                  |
+
+**Approvals is deliberately excluded.** `CLAMPED_SECONDS` backs `trackedSeconds` on a submitted
+timesheet — a number a manager reads when approving, and has often already approved. Applying the
+clamp would retroactively reduce the total for any period containing a stranded open entry, so the
+same submitted period would compute differently before and after this migration. That a stranded
+entry currently inflates an approval total is a real and separate defect; correcting it means deciding
+what happens to already-decided approvals (the model has a stored `totalSeconds` alongside the live
+`trackedSeconds`, so a snapshot may already exist for decided rows). **That decision is out of scope
+here and is recorded as follow-up §10.1.** This slice must not change a number a manager has signed.
+
+The remaining sites clamp the open end to the last heartbeat plus the freshness window:
 
 ```sql
 COALESCE(
@@ -262,8 +281,16 @@ is a matching open row on the server. `recoverLiveSpanIfNeeded` must therefore r
 - **Discard** — currently clears `live-span.json` only, which would leave the server row open
   **forever**, and the partial unique index would then 409 every subsequent Start. Discard therefore
   POSTs the same id with `endTime == startTime`, closing it as a zero-duration entry through the normal
-  path. The day view filters `endTime > startTime` so a discarded span renders nowhere and contributes
-  zero to every total.
+  path. This does release the unique-index slot, since that index is `WHERE "endTime" IS NULL`.
+
+A zero-duration row is a **new row shape**, and hiding it is a **repository-level concern, not a view
+one** — filtering it in the day view alone would leave it visible in the CSV export
+(`reports.repository.ts:482-488`) and countable in the trends join (`:272-279`). The predicate
+`te."endTime" IS NULL OR te."endTime" > te."startTime"` is therefore added to the entry-selecting
+queries in `time-entries.repository.ts` (`list`), `reports.repository.ts` (trends, CSV stream), and
+`projects.repository.ts:161`. Durations are unaffected either way — a zero-length span sums to zero —
+so this is about not showing the user a phantom 0m row, and the tests assert it in the export as well
+as the day view.
 
 The considered alternative was a new audited `DELETE /v1/time-entries/:id`. It is semantically cleaner
 — a discarded span arguably should not exist — but it is a new endpoint with its own guard, its own
@@ -305,17 +332,19 @@ Step 3 means the restore is applied _after_ the project refresh completes, not a
 
 ## 7. Testing
 
-| Area                  | Level                                                                         | Case                                                                                                                                                                            |
-| --------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `contracts/time.ts`   | Vitest unit                                                                   | `dayOf`/`dayStartInstant`/`shiftDay`/`clockOf` across a Dhaka midnight; 23:30 and 00:30 Dhaka map to different days despite the same UTC day                                    |
-| Dashboard view models | Vitest unit (node env — no jsdom, per `dashboard-vitest-node-and-tabbed-ssr`) | `person-day-view` buckets a 00:30-Dhaka entry onto the correct day; `?date=` validation accepts a valid Dhaka day                                                               |
-| Reports SQL           | Testcontainers                                                                | An entry at 18:30 UTC lands on the _next_ Dhaka day in trends; idle series likewise                                                                                             |
-| Rollup                | Testcontainers                                                                | Samples either side of Dhaka midnight land in the right `ActivityDailySummary.day` (timestamps inside the seeded partition months, per `partitioned-table-e2e-timestamp-range`) |
-| Staleness clamp       | Testcontainers                                                                | **Regression, fails without the fix**: an open entry with `heartbeatAt` 1 hour stale reports a bounded duration, and `recordingNow` is false                                    |
-| Monotone close        | Testcontainers                                                                | **Regression, fails without the fix**: POST close, then POST the same id with `endTime: null` → `endTime` survives                                                              |
-| Discard path          | Testcontainers                                                                | A zero-duration entry contributes 0 and does not block a subsequent open (no 409)                                                                                               |
-| `TimeEntryPayload`    | Swift unit                                                                    | `endTime: nil` encodes as explicit `null`, not an omitted key                                                                                                                   |
-| Selection restore     | Swift unit                                                                    | A persisted choice absent from the refreshed `ProjectCache` is dropped and its key cleared; a choice for user A is not restored for user B                                      |
+| Area                           | Level                                                                         | Case                                                                                                                                                                            |
+| ------------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contracts/time.ts`            | Vitest unit                                                                   | `dayOf`/`dayStartInstant`/`shiftDay`/`clockOf` across a Dhaka midnight; 23:30 and 00:30 Dhaka map to different days despite the same UTC day                                    |
+| Dashboard view models          | Vitest unit (node env — no jsdom, per `dashboard-vitest-node-and-tabbed-ssr`) | `person-day-view` buckets a 00:30-Dhaka entry onto the correct day; `?date=` validation accepts a valid Dhaka day                                                               |
+| Reports SQL                    | Testcontainers                                                                | An entry at 18:30 UTC lands on the _next_ Dhaka day in trends; idle series likewise                                                                                             |
+| Rollup                         | Testcontainers                                                                | Samples either side of Dhaka midnight land in the right `ActivityDailySummary.day` (timestamps inside the seeded partition months, per `partitioned-table-e2e-timestamp-range`) |
+| Staleness clamp                | Testcontainers                                                                | **Regression, fails without the fix**: an open entry with `heartbeatAt` 1 hour stale reports a bounded duration, and `recordingNow` is false                                    |
+| Monotone close                 | Testcontainers                                                                | **Regression, fails without the fix**: POST close, then POST the same id with `endTime: null` → `endTime` survives                                                              |
+| Discard path                   | Testcontainers                                                                | A zero-duration entry contributes 0 and does not block a subsequent open (no 409)                                                                                               |
+| Zero-duration filter           | Testcontainers                                                                | A discarded (zero-duration) entry appears in neither the day list nor the CSV export, and the approvals total is unchanged by this slice                                        |
+| Open-entry POST classification | Swift unit                                                                    | 429 and 503 classify as transient (ignored, tracking continues); tracking never stops on an upload failure                                                                      |
+| `TimeEntryPayload`             | Swift unit                                                                    | `endTime: nil` encodes as explicit `null`, not an omitted key                                                                                                                   |
+| Selection restore              | Swift unit                                                                    | A persisted choice absent from the refreshed `ProjectCache` is dropped and its key cleared; a choice for user A is not restored for user B                                      |
 
 Swift tests run with `DEVELOPER_DIR` pointed at Xcode (`client-macos-swift-test-developer-dir`), and
 qualify `TimeTrack.Category` where relevant (`client-test-category-objc-ambiguity`).
@@ -338,12 +367,13 @@ One logical change each, per CLAUDE.md §6:
    with their regression tests.
 7. `feat(client): publish the in-progress entry while tracking` — nullable `endTime`, the direct POST,
    the heartbeat re-POST.
-8. `fix(client): close the server row when recovery is discarded` — the §4.4 Discard path.
-9. `fix(client): default interrupted-time recovery to Keep` — the one-line shortcut move.
-10. `feat(client): remember the last project selection` — persistence, fallback, validation.
+8. `fix(api): hide zero-duration entries from lists and exports` — the §4.4 repository predicate.
+9. `fix(client): close the server row when recovery is discarded` — the §4.4 Discard path.
+10. `fix(client): default interrupted-time recovery to Keep` — the one-line shortcut move.
+11. `feat(client): remember the last project selection` — persistence, fallback, validation.
 
 Commits 5 and 6 must land **before or with** 7; shipping 7 alone is the unbounded-duration regression
-described in §4.3.
+described in §4.3. Commit 8 must land before or with 9, which is what first creates a zero-duration row.
 
 ## 9. Risks
 
@@ -352,9 +382,21 @@ described in §4.3.
   than mid-day ones.
 - **Backfill coverage (§3.4).** Purged samples mean some historical activity rollups stay UTC-shaped.
   Accepted; mitigated by reporting the trustworthy-from date rather than leaving it implicit.
-- **Live entries widen the write path.** A per-heartbeat POST per tracking client adds steady write
-  load, and the API has a global throttler at 100/60s (`client-sync-throttler-retry`). The heartbeat
-  interval must stay well inside that budget, and a 429 must be treated as transient and ignored, never
-  as a reason to stop tracking.
-- **Zero-duration entries (§4.4)** are a new row shape. Every consumer that lists or sums entries must
-  tolerate them; the day view filters them explicitly.
+- **Live entries widen the write path.** The heartbeat timer is **60 seconds**
+  (`AppDelegate.swift:192`, `Timer(timeInterval: 60, repeats: true)`) and its body already early-returns
+  unless `timeTracker.isRunning`. The open-entry re-POST rides that same tick, so the added load is
+  **at most one request per minute per actively-tracking client** — well inside the API's 100/60s
+  throttler (`client-sync-throttler-retry`). **Do not shorten the heartbeat to make the UI feel
+  smoother**; the dashboard renders elapsed time from `startTime`, so a faster POST buys nothing.
+  A 429 or 5xx on the open-entry POST is classified **transient and ignored** — never `permanent`, and
+  never a reason to stop tracking. This is the classification that has been got wrong twice
+  (`client-uploader-classify-2xx`, `client-sync-throttler-retry`), so it gets an explicit unit test.
+- **Zero-duration entries (§4.4)** are a new row shape, filtered at the repository layer so no consumer
+  has to remember to.
+
+## 10. Follow-ups (explicitly out of scope)
+
+**10.1 Stranded open entries inflate approval totals.** `approvals.repository.ts:28` counts an open
+entry from `startTime` to the period end. The staleness clamp would fix it but would also change
+totals on already-decided approvals (§4.3). Deciding that — clamp only `PENDING` rows, snapshot
+`totalSeconds` at submission, or accept the change — needs a product call and its own slice.
