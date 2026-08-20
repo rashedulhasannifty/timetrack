@@ -9,11 +9,10 @@ final class ProjectCache {
         self.fileURL = fileURL
     }
 
-    /// Default location: ~/Library/Application Support/TimeTrack/projects.json
+    /// Default location: ~/Library/Application Support/<container>/projects.json — per-install;
+    /// see `AppInstall`.
     static func defaultURL() -> URL {
-        let dir = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("TimeTrack", isDirectory: true)
+        let dir = AppInstall.supportDirectory()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("projects.json")
     }

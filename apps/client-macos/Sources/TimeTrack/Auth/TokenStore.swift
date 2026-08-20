@@ -14,7 +14,9 @@ final class KeychainTokenStore: TokenStore {
     private let service: String
     private let account: String
 
-    init(service: String = "com.timetrack.client", account: String = "refreshToken") {
+    /// The service is per-install (`AppInstall`): shared with the released app, a dev sign-in
+    /// would overwrite the token production is using and sign the employee out.
+    init(service: String = AppInstall.keychainService, account: String = "refreshToken") {
         self.service = service
         self.account = account
     }

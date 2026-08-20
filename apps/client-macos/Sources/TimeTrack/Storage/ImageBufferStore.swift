@@ -20,11 +20,10 @@ final class ImageBufferStore {
         sweepTemporaries()
     }
 
-    /// ~/Library/Application Support/TimeTrack/screenshots/
+    /// ~/Library/Application Support/<container>/screenshots/ — the container is per-install, so
+    /// a dev build never drains the released app's pending captures. See `AppInstall`.
     static func defaultDirectory() -> URL {
-        FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("TimeTrack/screenshots", isDirectory: true)
+        AppInstall.supportDirectory("screenshots")
     }
 
     /// Atomic enqueue: write `.tmp-<id>`, then rename to `<capturedAtMillis>__<id>.jpg`.
