@@ -300,4 +300,32 @@ describe('personDayView — open-entry liveness', () => {
     });
     expect(vm.entries[0]?.durationSeconds).toBe(7200);
   });
+
+  // RULING A (fix round 1): absence of samples is absence of evidence, not evidence of
+  // death. A user who hasn't satisfied `monitoringAckAt` produces NO activity samples at
+  // all — capture is gated off entirely — yet can still track time manually. Freezing their
+  // duration to zero (the original fix's behavior) would misreport every entry they log.
+  it('reports a real growing duration and recordingNow when there are no samples at all', () => {
+    const vm = personDayView({
+      ...base, // base already carries samples: []
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+    });
+    expect(vm.recordingNow).toBe(true);
+    expect(vm.entries[0]?.durationSeconds).toBe(7200); // 08:00 -> 10:00, unclamped
+  });
+
+  // RULING C (fix round 1): the per-entry/per-block "running" label must not contradict the
+  // top-level recordingNow pill — a stale open entry's duration is frozen, so its row and
+  // ribbon tooltip must stop claiming "running" too.
+  it('is not marked running once stale, even though it is still open', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+      samples: [sample(9, 0, 'NEUTRAL', 50)], // an hour old
+    });
+    expect(vm.entries[0]?.running).toBe(false);
+    expect(vm.ribbon.tracked.at(-1)?.running).toBe(false);
+  });
 });

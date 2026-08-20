@@ -228,22 +228,33 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
 
   // The client's last provable sign of life today. An open entry cannot accrue past this —
   // otherwise a shut-down Mac's entry grows forever and the pill never goes out (spec §4.3).
+  //
+  // Absence of samples is absence of evidence, not evidence of death: a user who hasn't
+  // satisfied `monitoringAckAt` produces NO activity samples at all (capture is gated off
+  // entirely), yet can still track time manually. There is no staleness signal to clamp
+  // against for them, so the horizon stays unbounded (+Infinity) rather than collapsing to
+  // -Infinity — an open entry with zero samples grows to `now()` exactly as it did before
+  // this liveness gate existed. The authoritative numbers of record are the server's, clamped
+  // on `heartbeatAt` regardless of ack (manual tracking never routes through AckGate), so this
+  // client-side fallback cannot inflate what actually gets reported.
   const newestSampleMs = samples.reduce(
     (max, s) => Math.max(max, Date.parse(s.timestamp)),
     Number.NEGATIVE_INFINITY,
   );
   const liveHorizonMs = Number.isFinite(newestSampleMs)
     ? newestSampleMs + TRACKING_FRESHNESS_MS
-    : Number.NEGATIVE_INFINITY;
+    : Number.POSITIVE_INFINITY;
   const openEndMs = Math.min(nowMs, liveHorizonMs);
+  // Whether the client is currently within its liveness window — with no samples at all,
+  // liveHorizonMs is +Infinity, so this (and everything gated on it) is unconditionally true.
+  const isLive = nowMs <= liveHorizonMs;
 
   const parsed = entries.map((e) => {
     const startMs = Date.parse(e.startTime);
     const open = e.endTime === null;
     const endMs = open ? null : Date.parse(e.endTime as string);
-    // Math.max(startMs, ...) keeps the duration non-negative when there are no samples at all
-    // (a manual entry with monitoring paused), in which case the entry reads as zero-length
-    // rather than negative.
+    // Math.max(startMs, ...) keeps the duration non-negative — e.g. if the only samples
+    // predate the entry's own start, the horizon could fall before startMs.
     const effectiveEnd = endMs ?? (isToday ? Math.max(startMs, openEndMs) : startMs);
     return { entry: e, startMs, endMs, open, effectiveEnd };
   });
@@ -316,8 +327,9 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
         );
 
   // An open entry alone is not proof of life — a crashed or shut-down client leaves one behind.
-  // Require a recent activity sample too, the same signal the Overview `tracking` flag uses.
-  const recordingNow = isToday && parsed.some((p) => p.open) && nowMs <= liveHorizonMs;
+  // Require a recent activity sample too (or no staleness signal at all — see `isLive` above),
+  // the same signal the Overview `tracking` flag uses.
+  const recordingNow = isToday && parsed.some((p) => p.open) && isLive;
 
   const entryRows: DayEntryRow[] = parsed
     .map((p) => {
@@ -328,7 +340,9 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
         endMs: p.endMs,
         label: entryLabel(p.entry, projectNames, taskNames),
         durationSeconds,
-        running: p.open && isToday,
+        // Gated the same way as `recordingNow` — a stale open entry's duration is frozen, so
+        // its "running" label must not keep claiming otherwise.
+        running: p.open && isToday && isLive,
       };
     })
     .sort((a, b) => a.startMs - b.startMs);
@@ -348,7 +362,8 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
         const startPct = pct(seg.startMs);
         const widthPct = Math.max(0, pct(seg.endMs) - startPct);
         const isLast = i === segments.length - 1;
-        const running = p.open && isToday && isLast;
+        // Gated the same way as `recordingNow`/entryRows.running (see `isLive` above).
+        const running = p.open && isToday && isLast && isLive;
         return {
           id: `${p.entry.id}#${i}`,
           startPct,
