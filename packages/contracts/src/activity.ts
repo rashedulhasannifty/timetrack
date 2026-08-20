@@ -37,7 +37,8 @@ export type ActivityIngestResult = z.infer<typeof ActivityIngestResultSchema>;
 export type ListActivityQuery = z.infer<typeof ListActivityQuerySchema>;
 
 /**
- * PRD §6.3 — the worker rolls each user's samples into one row per UTC day. Each sample
+ * PRD §6.3 — the worker rolls each user's samples into one row per Dhaka day (APP_TIMEZONE,
+ * see `time.ts`), NOT per UTC day. Each sample
  * represents one fixed sampling interval, so minutes = count × interval / 60.
  * The client (Swift, 2.3b) mirrors this constant by convention; it cannot import this file.
  */
