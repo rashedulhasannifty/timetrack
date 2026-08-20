@@ -311,6 +311,7 @@ export class ReportsRepository {
           ON te."startTime" < ((d.day + 1)::timestamp) AT TIME ZONE 'UTC'
          AND ${ENTRY_END(freshnessSeconds)} > (d.day::timestamp) AT TIME ZONE 'UTC'
          AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
+         AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
         GROUP BY d.day
       )
       SELECT to_char(d.day, 'YYYY-MM-DD') AS "day",
@@ -533,6 +534,7 @@ export class ReportsRepository {
         WHERE te."startTime" < ${to}::timestamptz
           AND COALESCE(te."endTime", now()) > ${from}::timestamptz
           AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
+          AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
           ${projectFilter}
           ${keyset}
         ORDER BY te."startTime" ASC, te.id ASC

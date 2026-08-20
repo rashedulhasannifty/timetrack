@@ -240,6 +240,36 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     // Without the fix this is undefined/null and the note is silently erased.
     expect(reheartbeat.note).toBe('client call');
   });
+
+  it('a zero-duration entry is hidden from the list and does not block a new open entry', async () => {
+    const user = await seedUser();
+    const discardedId = '019797a0-0000-7000-8000-0000000000fd';
+    const at = '2026-07-11T09:00:00.000Z';
+
+    // A discarded recovery span: closed at its own start (spec §4.4, Task 7's Discard path).
+    await repo().upsert(createDto(discardedId, { endTime: at }), user.id);
+
+    const listed = await repo().list({
+      userId: user.id,
+      from: '2026-07-10T00:00:00.000Z',
+      to: '2026-07-12T00:00:00.000Z',
+    });
+    expect(listed.map((e) => e.id)).not.toContain(discardedId);
+
+    // It released the one-open-entry index slot, so a new open entry can be created.
+    const openedId = '019797a0-0000-7000-8000-0000000000fe';
+    const opened = await repo().upsert(createDto(openedId, { endTime: null }), user.id);
+    expect(opened.endTime).toBeNull();
+
+    // The critical property: the OPEN entry must still survive the same filter that hid
+    // the discarded one — the whole live-entry feature depends on this.
+    const listedAfter = await repo().list({
+      userId: user.id,
+      from: '2026-07-10T00:00:00.000Z',
+      to: '2026-07-12T00:00:00.000Z',
+    });
+    expect(listedAfter.map((e) => e.id)).toContain(openedId);
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.

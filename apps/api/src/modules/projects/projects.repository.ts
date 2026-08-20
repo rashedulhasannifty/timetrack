@@ -167,6 +167,7 @@ export class ProjectsRepository {
       WHERE te."projectId" = ${projectId}
         AND te."startTime" < ${to}::timestamptz
         AND COALESCE(te."endTime", now()) > ${from}::timestamptz
+        AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
       GROUP BY 1
       ORDER BY 1 ASC
     `;

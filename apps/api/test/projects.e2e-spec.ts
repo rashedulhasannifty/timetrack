@@ -253,6 +253,28 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     ]);
   });
 
+  it('hoursByDay excludes a zero-duration (discarded recovery) entry — no phantom day row', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    // A discarded recovery span, alone on its day: closed at its own start (spec §4.4).
+    await db.prisma.timeEntry.create({
+      data: {
+        id: crypto.randomUUID(),
+        userId: jane.id,
+        projectId: project.id,
+        taskId: null,
+        startTime: new Date('2026-07-16T09:00:00Z'),
+        endTime: new Date('2026-07-16T09:00:00Z'),
+        source: 'MANUAL',
+      },
+    });
+    await seedEntry(jane.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T10:00:00Z'); // 1h on 14th
+    const rows = await repo().hoursByDay(project.id, FROM, TO);
+    // Without the fix, the 16th would appear as a phantom { day: '2026-07-16', trackedSeconds: 0 } row.
+    expect(rows).toEqual([{ day: '2026-07-14', trackedSeconds: 3600 }]);
+  });
+
   it('aggregations return empty for a project with no entries in range', async () => {
     const team = await seedTeam();
     const project = await repo().createProject(team.id, 'Empty', 'actor1');

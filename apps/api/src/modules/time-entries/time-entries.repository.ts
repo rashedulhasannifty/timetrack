@@ -91,7 +91,12 @@ export class TimeEntriesRepository {
       orderBy: { startTime: 'asc' },
       select: TIME_ENTRY_SELECT,
     });
-    return rows.map(serialize);
+    // A zero-duration row is a discarded recovery span (spec §4.4) — never shown. Filtered
+    // in JS, not the `where`: a Prisma field-reference predicate (`NOT: { endTime: { equals:
+    // fields.startTime } }`) evaluates to UNKNOWN under SQL's three-valued logic when
+    // endTime IS NULL, which would silently drop every OPEN entry too. `list` is un-paginated
+    // (plain findMany), so filtering after the query changes no semantics.
+    return rows.filter((r) => r.endTime === null || r.endTime > r.startTime).map(serialize);
   }
 
   /** The running entry (endTime IS NULL) for a user, or null. Backs the overview (1.6). */

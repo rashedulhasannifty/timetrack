@@ -425,6 +425,48 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       const total = days.reduce((sum, d) => sum + d.trackedSeconds, 0);
       expect(total).toBeLessThanOrEqual(400); // falls back to startTime + 300s
     });
+
+    // NOTE: this is a GUARD, not a regression test for the new predicate — a zero-duration
+    // entry already contributes 0 to the SUM whether or not the join admits it (verified:
+    // this test still passes with the `te."endTime" > te."startTime"` join predicate removed).
+    // Its purpose is to prove the added predicate does NOT collaterally exclude a real open
+    // entry sharing the same day, which the trends join has no other direct test for.
+    it('a zero-duration entry contributes nothing extra; an open entry the same day still accrues', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Cy', 'cy@example.com');
+      const at = new Date('2026-07-12T09:00:00.000Z');
+      // A discarded recovery span: closed at its own start (spec §4.4, Task 7's Discard path).
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000fc03',
+          userId: user.id,
+          source: 'MANUAL',
+          startTime: at,
+          endTime: at,
+        },
+      });
+      // A genuinely open entry the same day — must still accrue (the clamp is unaffected).
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000fc04',
+          userId: user.id,
+          source: 'AUTO',
+          startTime: new Date('2026-07-12T10:00:00.000Z'),
+          endTime: null,
+          heartbeatAt: new Date('2026-07-12T10:30:00.000Z'),
+        },
+      });
+
+      const days = await repo().trends(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-07-12T00:00:00.000Z'),
+        new Date('2026-07-13T00:00:00.000Z'),
+        WINDOW,
+      );
+      const d12 = days.find((d) => d.day === '2026-07-12')!;
+      // 30 min open + 300s freshness window = 2100s. The zero-duration entry adds nothing.
+      expect(d12.trackedSeconds).toBe(30 * 60 + WINDOW);
+    });
   });
 
   describe('team-activity', () => {
@@ -1318,5 +1360,34 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
     expect(((r.endTime as Date).getTime() - (r.startTime as Date).getTime()) / 1000).toBe(
       r.durationSeconds,
     );
+  });
+
+  it('excludes a zero-duration (discarded recovery) entry but keeps an open entry alongside it', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    const at = new Date('2026-07-02T09:00:00.000Z');
+    // A discarded recovery span: closed at its own start (spec §4.4, Task 7's Discard path).
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000450',
+        userId: u.id,
+        source: 'MANUAL',
+        startTime: at,
+        endTime: at,
+      },
+    });
+    // A genuinely open entry in the same window — must still appear (spec's whole point).
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000451',
+        userId: u.id,
+        source: 'AUTO',
+        startTime: new Date('2026-07-02T10:00:00.000Z'),
+        endTime: null,
+      },
+    });
+    const ids = (await collect({ kind: 'team', teamId: t.id })).map((r) => r.entryId);
+    expect(ids).not.toContain('019797a0-0000-7000-8000-000000000450');
+    expect(ids).toContain('019797a0-0000-7000-8000-000000000451');
   });
 });
