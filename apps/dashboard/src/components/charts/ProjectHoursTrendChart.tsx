@@ -7,7 +7,7 @@ export interface HoursTrendPoint {
   hours: number;
 }
 
-/** Hours tracked per UTC day for one project. One bar per day; no fixed Y domain. */
+/** Hours tracked per Dhaka day for one project. One bar per day; no fixed Y domain. */
 export function ProjectHoursTrendChart({ data }: { data: HoursTrendPoint[] }) {
   if (data.length === 0) {
     return <p className="text-text-secondary text-body">No time in this range.</p>;
