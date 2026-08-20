@@ -86,18 +86,34 @@ struct MenuBarView: View {
     /// Shown whether or not the clock is running: "how much have I worked" is the question this
     /// answers, and it does not stop being interesting when tracking stops.
     ///
-    /// These come from the server, which already counts a currently-running entry (clamped to the
-    /// last heartbeat). The live elapsed counter above must NOT be added on top of them — that
-    /// would count the current session twice.
+    /// LIVE while tracking. The server's figure already counts the running entry up to the moment
+    /// it was fetched, so `liveTotal` adds only the time elapsed since — the current session is
+    /// included exactly once, and the numbers move as the person works. The same increment
+    /// applies to all three: a minute worked now is a minute of today, of this week, and of this
+    /// month.
     @ViewBuilder private var totalsView: some View {
-        HStack(spacing: 0) {
-            totalCell("Today", seconds: viewModel.totals?.todaySeconds)
-            divider
-            totalCell("This week", seconds: viewModel.totals?.weekSeconds)
-            divider
-            totalCell("This month", seconds: viewModel.totals?.monthSeconds)
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            HStack(spacing: 0) {
+                totalCell("Today", seconds: live(viewModel.totals?.todaySeconds, context.date))
+                divider
+                totalCell("This week", seconds: live(viewModel.totals?.weekSeconds, context.date))
+                divider
+                totalCell("This month", seconds: live(viewModel.totals?.monthSeconds, context.date))
+            }
         }
         .padding(.top, TT.Space.x2)
+    }
+
+    /// Nil stays nil — an unknown total does not become a known one by having tracked time added
+    /// to it.
+    private func live(_ base: Int?, _ now: Date) -> Int? {
+        guard let base else { return nil }
+        return MenuViewModel.liveTotal(
+            base: base,
+            phase: viewModel.phase,
+            fetchedAt: viewModel.totalsFetchedAt,
+            startedAt: viewModel.startedAt,
+            now: now)
     }
 
     private var divider: some View {

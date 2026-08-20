@@ -204,7 +204,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Keep the indicator in sync with tracking state (always visible; no kill switch).
         // onPhaseChanged fires on the main thread (from a SwiftUI button action).
         menuViewModel.onPhaseChanged = { [weak self] isTracking, startedAt in
-            self?.statusItem.setState(isTracking ? .tracking : .idle, startedAt: startedAt)
+            guard let self else { return }
+            self.statusItem.setState(isTracking ? .tracking : .idle, startedAt: startedAt)
+            // Stopping ends the live increment the dropdown was adding to each total. Without a
+            // refresh the figures would drop back to whatever was last fetched — time visibly
+            // going backwards the moment someone stops the clock. The server still counts the
+            // entry (its close may not have uploaded yet, and the staleness clamp keeps it
+            // running until then), so re-reading now returns the full figure.
+            if !isTracking { self.refreshTotals() }
         }
         let updates = UpdateCoordinator(
             openReleases: { NSWorkspace.shared.open($0) },
@@ -425,7 +432,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A failure leaves the previous values alone — the row shows what was last true rather than
     /// blanking on a dropped connection.
     @MainActor private func refreshTotalsOnMenuOpen() {
-        guard menuViewModel.isSignedIn, totalsRefreshThrottle.shouldRefresh() else { return }
+        guard totalsRefreshThrottle.shouldRefresh() else { return }
+        refreshTotals()
+    }
+
+    @MainActor private func refreshTotals() {
+        guard menuViewModel.isSignedIn else { return }
         Task { [weak self] in
             guard let self, let totals = try? await self.selfTotalsClient.fetch() else { return }
             // Sign-out can land while the fetch is in flight; dropping the result then keeps one
@@ -433,6 +445,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await MainActor.run {
                 guard self.menuViewModel.isSignedIn else { return }
                 self.menuViewModel.totals = totals
+                // Stamped from the same instant the value became true, so the view can add the
+                // tracked time accrued since without double-counting the running session.
+                self.menuViewModel.totalsFetchedAt = Date()
             }
         }
     }

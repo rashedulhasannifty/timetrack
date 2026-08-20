@@ -59,6 +59,74 @@ final class SelfTotalsDecodingTests: XCTestCase {
     }
 }
 
+/// The arithmetic that makes the dropdown's totals tick. The trap it exists to avoid: the
+/// server's figure ALREADY counts the running entry up to the moment it was fetched (while
+/// heartbeats are fresh the staleness clamp resolves to `now()`), so adding the session's whole
+/// elapsed time on top would count most of it twice.
+final class LiveTotalTests: XCTestCase {
+    private let fetched = Date(timeIntervalSince1970: 1_000_000)
+
+    func testAddsOnlyTheTimeSinceTheFetch() {
+        // Session started 10 minutes BEFORE the fetch; 60s have passed since.
+        let total = MenuViewModel.liveTotal(
+            base: 3600,
+            phase: .tracking,
+            fetchedAt: fetched,
+            startedAt: fetched.addingTimeInterval(-600),
+            now: fetched.addingTimeInterval(60))
+
+        // 3600 + 60, NOT 3600 + 660: the first 10 minutes are already inside `base`.
+        XCTAssertEqual(total, 3660)
+    }
+
+    /// A session that began after the fetch has only run since it started. Counting from the
+    /// fetch would add idle minutes nobody tracked.
+    func testCountsFromTheSessionStartWhenTrackingBeganAfterTheFetch() {
+        let total = MenuViewModel.liveTotal(
+            base: 3600,
+            phase: .tracking,
+            fetchedAt: fetched,
+            startedAt: fetched.addingTimeInterval(300),   // started 5 min after the fetch
+            now: fetched.addingTimeInterval(360))         // 60s of actual tracking
+
+        XCTAssertEqual(total, 3660)
+    }
+
+    func testAStoppedOrPausedClockAccruesNothing() {
+        for phase in [MenuViewModel.Phase.idle, .paused] {
+            let total = MenuViewModel.liveTotal(
+                base: 3600,
+                phase: phase,
+                fetchedAt: fetched,
+                startedAt: fetched.addingTimeInterval(-600),
+                now: fetched.addingTimeInterval(600))
+            XCTAssertEqual(total, 3600, "\(phase) must not accrue time")
+        }
+    }
+
+    func testFallsBackToTheBaseWhenThereIsNothingToAnchorOn() {
+        XCTAssertEqual(
+            MenuViewModel.liveTotal(base: 42, phase: .tracking, fetchedAt: nil,
+                                    startedAt: fetched, now: fetched.addingTimeInterval(60)),
+            42)
+        XCTAssertEqual(
+            MenuViewModel.liveTotal(base: 42, phase: .tracking, fetchedAt: fetched,
+                                    startedAt: nil, now: fetched.addingTimeInterval(60)),
+            42)
+    }
+
+    /// A clock skew that puts `now` behind the anchor must never subtract from a total.
+    func testNeverGoesBackwards() {
+        let total = MenuViewModel.liveTotal(
+            base: 3600,
+            phase: .tracking,
+            fetchedAt: fetched,
+            startedAt: fetched,
+            now: fetched.addingTimeInterval(-90))
+        XCTAssertEqual(total, 3600)
+    }
+}
+
 final class MenuViewModelTotalsTests: XCTestCase {
     private func totals(today: Int) -> SelfTotals {
         SelfTotals(day: "2026-08-21", weekStart: "2026-08-17", monthStart: "2026-08-01",
@@ -84,9 +152,11 @@ final class MenuViewModelTotalsTests: XCTestCase {
         )
         defer { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
         vm.totals = totals(today: 3600)
+        vm.totalsFetchedAt = Date()
 
         vm.reset()
 
         XCTAssertNil(vm.totals, "a prior user's totals must not survive sign-out")
+        XCTAssertNil(vm.totalsFetchedAt, "and neither must the instant they were true at")
     }
 }

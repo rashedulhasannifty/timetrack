@@ -37,10 +37,18 @@ final class MenuViewModel: ObservableObject {
     /// refresh that FAILS leaves the last successful value in place: it was true when it was
     /// fetched, and that is more useful than blanking the row on a dropped connection.
     ///
-    /// Deliberately a snapshot, not a live figure. It is taken when the dropdown opens and then
-    /// left alone; the ticking second-by-second truth is the elapsed counter directly above it,
-    /// and a second number racing it would be noise.
+    /// These tick. The server's sum already counts a running entry up to the moment of the
+    /// fetch — while heartbeats are fresh the clamp resolves to `now()` — so the view adds only
+    /// the wall time elapsed SINCE the fetch, and today's figure moves as the person works.
+    /// See `totalsFetchedAt`.
     @Published var totals: SelfTotals?
+
+    /// When `totals` was fetched. This is what makes them live rather than a snapshot: the base
+    /// number was true at this instant, so the running session's contribution since then is
+    /// exactly `now - max(this, startedAt)`. Anchoring on the fetch instead of the session start
+    /// is what keeps the current session from being counted twice — the base already contains it
+    /// up to here.
+    @Published var totalsFetchedAt: Date?
 
     /// The signed-in user, set by AppDelegate once the session resolves. Selection persistence is
     /// namespaced by it so one user can never inherit another's (possibly wrong-team) project.
@@ -205,6 +213,23 @@ final class MenuViewModel: ObservableObject {
         currentUserId = nil
         // A previous user's tracked time must never be visible to whoever signs in next.
         totals = nil
+        totalsFetchedAt = nil
+    }
+
+    /// A total as it stands right now: the figure the server returned, plus the tracked time that
+    /// has accrued since it was fetched.
+    ///
+    /// Anchored on `max(fetchedAt, startedAt)`, which is the whole trick:
+    ///  * the base ALREADY includes the running session up to `fetchedAt`, so counting from the
+    ///    session start would count most of it twice;
+    ///  * a session that began AFTER the fetch has only run since `startedAt`, so counting from
+    ///    the fetch would add idle time that was never tracked.
+    ///
+    /// Only while the clock is actually running — a paused or stopped clock accrues nothing.
+    static func liveTotal(base: Int, phase: Phase, fetchedAt: Date?, startedAt: Date?, now: Date) -> Int {
+        guard phase == .tracking, let fetchedAt, let startedAt else { return base }
+        let since = max(fetchedAt, startedAt)
+        return base + max(0, Int(now.timeIntervalSince(since)))
     }
 
     /// Bring the sign-in window forward from the signed-out dropdown (the login window is
