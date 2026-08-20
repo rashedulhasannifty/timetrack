@@ -31,8 +31,8 @@ final class LiveEntryPublisher {
         ))
     }
 
-    /// Re-publish from the persisted span — used by the heartbeat, which is the only thing that
-    /// knows the span survived a restart of the publish path.
+    /// Re-publish from the persisted span. Called each heartbeat tick while tracking so the
+    /// server's `heartbeatAt` stays fresh and the entry keeps showing as running.
     func publish(_ span: LiveSpan) async {
         await send(TimeEntryPayload(
             id: span.entryId,

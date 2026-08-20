@@ -219,4 +219,50 @@ final class TimeTrackerTests: XCTestCase {
         XCTAssertEqual(closed.first?.0, Date(timeIntervalSince1970: 2000))
         XCTAssertEqual(closed.first?.1, Date(timeIntervalSince1970: 2500))
     }
+
+    // Regression test for the live-publish bug (spec §4.1): the dashboard showed screenshots but
+    // no time entry until Stop, because nothing observed a span OPENING. `onSpanOpened` is the
+    // seam AppDelegate wires to LiveEntryPublisher; deleting the call site in `open(_:source:)`
+    // must fail this test.
+    func testOnSpanOpenedFiresOnStart() {
+        let clock = MutableClock(t0)
+        let tracker = TimeTracker(buffer: BufferSpy(), clock: clock.read, idGen: sequentialIdGen())
+        var opened: [(String, Date, TimeTracker.Selection, TimeTracker.Source)] = []
+        tracker.onSpanOpened = { id, start, selection, source in
+            opened.append((id, start, selection, source))
+        }
+
+        tracker.start(projectId: "p1", taskId: "k1", source: .auto)
+
+        XCTAssertEqual(opened.count, 1)
+        XCTAssertEqual(opened.first?.0, "id-1")
+        XCTAssertEqual(opened.first?.1, t0)
+        XCTAssertEqual(opened.first?.2, .init(projectId: "p1", taskId: "k1"))
+        XCTAssertEqual(opened.first?.3, .auto)
+    }
+
+    // resume() is a SEPARATE path into open() (pause → resume mints a new entry with the same
+    // selection). If a future refactor bypassed open() on this path only, the reported bug would
+    // come back for pause/resume users specifically — the hardest case to notice by inspection.
+    func testOnSpanOpenedFiresOnResume() {
+        let clock = MutableClock(t0)
+        let tracker = TimeTracker(buffer: BufferSpy(), clock: clock.read, idGen: sequentialIdGen())
+        var opened: [(String, Date, TimeTracker.Selection, TimeTracker.Source)] = []
+        tracker.onSpanOpened = { id, start, selection, source in
+            opened.append((id, start, selection, source))
+        }
+
+        tracker.start(projectId: "p1", taskId: "k1")   // opened #1: id-1 @ t0
+        clock.advance(30); tracker.pause()
+        clock.advance(30); tracker.resume()             // opened #2: id-2 @ t0+60
+
+        guard opened.count == 2 else {
+            XCTFail("expected onSpanOpened to fire twice (start + resume), got \(opened.count)")
+            return
+        }
+        XCTAssertEqual(opened[1].0, "id-2")
+        XCTAssertEqual(opened[1].1, t0.addingTimeInterval(60))
+        XCTAssertEqual(opened[1].2, .init(projectId: "p1", taskId: "k1"))
+        XCTAssertEqual(opened[1].3, .manual)   // pause/resume is a manual-only affordance
+    }
 }
