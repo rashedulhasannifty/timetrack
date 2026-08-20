@@ -146,6 +146,38 @@ export class ReportsRepository {
    * keyed by userId first, and only those pre-aggregated single rows-per-user are joined
    * onto the scoped user set.
    */
+  /**
+   * Total tracked seconds for ONE user across an arbitrary range. Same overlap arithmetic as
+   * every other tracked-time sum here: an entry is clipped to the range, and an open entry ends
+   * at the clamped `ENTRY_END` so a client that stopped heartbeating cannot accrue time forever.
+   *
+   * Called once per range rather than folded into one query with conditional aggregates: the
+   * week and month ranges OVERLAP without nesting (a Monday-start week can begin in the previous
+   * month), so the clever version needs per-range clamping repeated three times over — more
+   * surface for an off-by-one than three obviously-correct scans of an indexed range.
+   */
+  async trackedSecondsForUser(
+    userId: string,
+    from: Date,
+    to: Date,
+    freshnessSeconds: number,
+  ): Promise<number> {
+    const rows = await this.prisma.$queryRaw<Array<{ trackedSeconds: number | bigint }>>`
+      SELECT COALESCE(FLOOR(SUM(GREATEST(
+               EXTRACT(EPOCH FROM (
+                 LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz)
+                 - GREATEST(te."startTime", ${from}::timestamptz)
+               )), 0
+             ))), 0)::int AS "trackedSeconds"
+      FROM time_entries te
+      WHERE te."userId" = ${userId}
+        AND te."startTime" < ${to}::timestamptz
+        AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
+        AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+    `;
+    return Number(rows[0]?.trackedSeconds ?? 0);
+  }
+
   async teamSummary(
     scope: ReportScope,
     from: Date,

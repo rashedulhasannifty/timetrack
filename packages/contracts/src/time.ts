@@ -75,6 +75,29 @@ export function shiftDay(day: string, days: number): string {
   return new Date(Date.UTC(year, month - 1, dayOfMonth + days)).toISOString().slice(0, 10);
 }
 
+/**
+ * The 'YYYY-MM-DD' label of the MONDAY starting the week containing `day`.
+ *
+ * The weekday is read from a UTC-midnight reading of the label rather than from a real Dhaka
+ * instant. That is safe, not a shortcut: under a fixed-offset zone the UTC calendar date of that
+ * reading always equals the label itself, so no zone conversion can change which weekday it is.
+ *
+ * Monday-start, matching every other week in the product — the approvals period and the
+ * dashboard's week strip are both Monday-anchored, and a week that started on a different day
+ * here would quietly disagree with both.
+ */
+export function weekStartDay(day: string): string {
+  if (!isValidDay(day)) throw new RangeError(`weekStartDay: not a YYYY-MM-DD day: ${day}`);
+  const dow = new Date(`${day}T00:00:00.000Z`).getUTCDay(); // Sunday-based
+  return shiftDay(day, -((dow + 6) % 7));
+}
+
+/** The 'YYYY-MM-DD' label of the first day of the month containing `day`. */
+export function monthStartDay(day: string): string {
+  if (!isValidDay(day)) throw new RangeError(`monthStartDay: not a YYYY-MM-DD day: ${day}`);
+  return `${day.slice(0, 8)}01`;
+}
+
 /** The UTC instant at which the Dhaka day `day` begins. */
 export function dayStartInstant(day: string): Date {
   if (!isValidDay(day)) throw new RangeError(`dayStartInstant: not a YYYY-MM-DD day: ${day}`);

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { APP_TIMEZONE, clockOf, dayOf, dayStartInstant, isValidDay, shiftDay } from './time.js';
+import {
+  APP_TIMEZONE,
+  clockOf,
+  dayOf,
+  dayStartInstant,
+  isValidDay,
+  monthStartDay,
+  shiftDay,
+  weekStartDay,
+} from './time.js';
 
 describe('APP_TIMEZONE', () => {
   it('is Dhaka', () => {
@@ -86,5 +95,41 @@ describe('isValidDay', () => {
     expect(isValidDay('2026-02-30')).toBe(false);
     expect(isValidDay('not-a-day')).toBe(false);
     expect(isValidDay('')).toBe(false);
+  });
+});
+
+describe('weekStartDay', () => {
+  it('returns the day itself for a Monday', () => {
+    expect(weekStartDay('2026-08-17')).toBe('2026-08-17'); // a Monday
+  });
+
+  it('walks back to Monday from mid-week', () => {
+    expect(weekStartDay('2026-08-21')).toBe('2026-08-17'); // Friday → Monday
+  });
+
+  /** Sunday is the LAST day of a Monday-start week, not the first. Off-by-one here would put
+   *  Sunday's work in next week and disagree with the approvals period. */
+  it('treats Sunday as the end of the week it closes, not the start of the next', () => {
+    expect(weekStartDay('2026-08-23')).toBe('2026-08-17');
+    expect(weekStartDay('2026-08-24')).toBe('2026-08-24'); // the following Monday
+  });
+
+  it('crosses a month boundary backwards', () => {
+    expect(weekStartDay('2026-09-02')).toBe('2026-08-31');
+  });
+
+  it('rejects a malformed day rather than inventing one', () => {
+    expect(() => weekStartDay('2026-02-30')).toThrow(RangeError);
+  });
+});
+
+describe('monthStartDay', () => {
+  it('returns the first of the month', () => {
+    expect(monthStartDay('2026-08-21')).toBe('2026-08-01');
+    expect(monthStartDay('2026-08-01')).toBe('2026-08-01');
+  });
+
+  it('rejects a malformed day', () => {
+    expect(() => monthStartDay('nope')).toThrow(RangeError);
   });
 });

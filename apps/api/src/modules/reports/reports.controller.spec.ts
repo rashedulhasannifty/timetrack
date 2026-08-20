@@ -115,6 +115,19 @@ describe('ReportsController authorization metadata', () => {
     ]);
   });
 
+  /**
+   * my-totals is the Mac app's dropdown. Without this override the class-level MANAGER/ADMIN
+   * applies and every employee gets a 403 reading their OWN totals — invisible in review,
+   * because nothing on the route says it is restricted.
+   */
+  it('opens my-totals to EMPLOYEE so the Mac app can show a person their own time', () => {
+    expect(rolesFor(ReportsController.prototype.myTotals)).toEqual([
+      'EMPLOYEE',
+      'MANAGER',
+      'ADMIN',
+    ]);
+  });
+
   it('leaves the team-wide reports closed to EMPLOYEE', () => {
     // These read across people; only the self-scoped ones are widened.
     expect(rolesFor(ReportsController.prototype.teamSummary)).toBeUndefined();
