@@ -155,6 +155,10 @@ model TimeEntry {
   note       String?
   editedById String?
   editedAt   DateTime?
+  /// Server-stamped on every upsert. Drives the staleness clamp: an open entry whose client
+  /// has stopped heartbeating stops accruing duration (spec §4.3). Null on rows written before
+  /// this column existed — readers fall back to `startTime`.
+  heartbeatAt DateTime?
   user       User        @relation(fields: [userId], references: [id])
 
   @@index([userId, startTime])
