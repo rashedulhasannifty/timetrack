@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { dayOf } from '@timetrack/contracts';
 import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { SectionHeader } from '../../../../components/ui/SectionHeader';
 import { buttonClasses } from '../../../../components/ui/Button';
@@ -84,7 +85,7 @@ export default async function ProjectDetailPage({
         title={detail?.name ?? 'Project'}
         kicker={
           detail
-            ? `${formatDuration(detail.totalSeconds)} tracked · ${from.slice(0, 10)} – ${to.slice(0, 10)}`
+            ? `${formatDuration(detail.totalSeconds)} tracked · ${dayOf(new Date(from))} – ${to.slice(0, 10)}`
             : 'Project'
         }
       />
@@ -121,7 +122,7 @@ export default async function ProjectDetailPage({
               </span>
             )}
             <span className="tt-numeric text-text-secondary text-label ml-auto">
-              {formatDuration(detail.totalSeconds)} tracked · {from.slice(0, 10)} –{' '}
+              {formatDuration(detail.totalSeconds)} tracked · {dayOf(new Date(from))} –{' '}
               {to.slice(0, 10)}
             </span>
           </div>

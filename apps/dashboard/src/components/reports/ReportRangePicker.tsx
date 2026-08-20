@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import { dayOf } from '@timetrack/contracts';
 import { reportRangeBound } from '../../lib/reports-view';
 
 /** Writes the selected range to the URL so the Server Component refetches. Date-only inputs
@@ -35,7 +36,7 @@ export function ReportRangePicker({
         From
         <input
           type="date"
-          defaultValue={from.slice(0, 10)}
+          defaultValue={dayOf(new Date(from))}
           onChange={(e) => update('from', e.target.value)}
           className="bg-surface-raised border-separator text-text focus:border-accent mt-1 rounded-md border px-2 py-1 text-label outline-none transition-colors"
         />

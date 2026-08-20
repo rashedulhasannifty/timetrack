@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { personDayView, resolveDayDate } from './person-day-view';
+import { dayRangeFor, personDayView, resolveDayDate, weekStrip } from './person-day-view';
 import type { TimeEntry, ActivitySample, Screenshot, Project } from '@timetrack/contracts';
 
 const D = '2026-07-13';
@@ -368,5 +368,85 @@ describe('personDayView — open-entry liveness', () => {
     expect(vm.recordingNow).toBe(true);
     expect(vm.entries[0]?.running).toBe(true);
     expect(vm.entries[0]?.durationSeconds).toBe(1800); // 10:00 -> 10:30, unclamped
+  });
+});
+
+describe('weekStrip', () => {
+  it('builds seven consecutive Monday-start days with correct weekday letters and day-of-month', () => {
+    const rows = weekStrip('2026-07-15', [], '2026-07-20');
+    expect(rows.map((r) => r.date)).toEqual([
+      '2026-07-13',
+      '2026-07-14',
+      '2026-07-15',
+      '2026-07-16',
+      '2026-07-17',
+      '2026-07-18',
+      '2026-07-19',
+    ]);
+    expect(rows.map((r) => r.dow)).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
+    expect(rows.map((r) => r.num)).toEqual([13, 14, 15, 16, 17, 18, 19]);
+  });
+
+  // The discriminating case for the `mondayOf`/`shiftDay` refactor: a naive re-derivation from
+  // a stepped instant (the pre-refactor approach) is exactly where a month rollover could shift
+  // a day, since day-of-month and weekday come from independent sources.
+  it('carries a month boundary correctly (day-of-month resets, weekday keeps advancing)', () => {
+    const rows = weekStrip('2026-07-30', [], '2026-08-02');
+    expect(rows.map((r) => r.date)).toEqual([
+      '2026-07-27',
+      '2026-07-28',
+      '2026-07-29',
+      '2026-07-30',
+      '2026-07-31',
+      '2026-08-01',
+      '2026-08-02',
+    ]);
+    expect(rows.map((r) => r.dow)).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
+    expect(rows.map((r) => r.num)).toEqual([27, 28, 29, 30, 31, 1, 2]);
+  });
+
+  it('marks the selected day and flags days after today as future', () => {
+    const rows = weekStrip('2026-07-15', [], '2026-07-16');
+    expect(rows.find((r) => r.date === '2026-07-15')!.selected).toBe(true);
+    expect(rows.find((r) => r.date === '2026-07-16')!.future).toBe(false); // == today
+    expect(rows.find((r) => r.date === '2026-07-17')!.future).toBe(true);
+  });
+
+  it('fills hours from the trends series and zero-fills a day the series omits', () => {
+    const rows = weekStrip(
+      '2026-07-15',
+      [{ day: '2026-07-14', trackedSeconds: 7200 }],
+      '2026-07-20',
+    );
+    expect(rows.find((r) => r.date === '2026-07-14')!.hours).toBe(2);
+    expect(rows.find((r) => r.date === '2026-07-13')!.hours).toBe(0);
+  });
+
+  it("scales fillPct against the week's busiest day", () => {
+    const rows = weekStrip(
+      '2026-07-15',
+      [
+        { day: '2026-07-13', trackedSeconds: 3600 },
+        { day: '2026-07-14', trackedSeconds: 7200 },
+      ],
+      '2026-07-20',
+    );
+    expect(rows.find((r) => r.date === '2026-07-14')!.fillPct).toBe(100);
+    expect(rows.find((r) => r.date === '2026-07-13')!.fillPct).toBe(50);
+  });
+});
+
+describe('dayRangeFor', () => {
+  it('spans a single Dhaka day, inclusive of both ends', () => {
+    const { from, to } = dayRangeFor('2026-08-20');
+    // Dhaka midnight on 2026-08-20 is 2026-08-19T18:00:00.000Z (UTC+6, no DST).
+    expect(from).toBe('2026-08-19T18:00:00.000Z');
+    expect(to).toBe('2026-08-20T17:59:59.999Z');
+  });
+
+  it('does not overlap the following day (1ms before its start)', () => {
+    const day1 = dayRangeFor('2026-08-20');
+    const day2 = dayRangeFor('2026-08-21');
+    expect(new Date(day1.to).getTime()).toBe(new Date(day2.from).getTime() - 1);
   });
 });

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { dayOf } from '@timetrack/contracts';
 import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { Card } from '../../../components/ui/Card';
 import { Meter } from '../../../components/ui/Meter';
@@ -77,7 +78,7 @@ export default async function ProjectsPage({
       {/* The shell header already renders the page title; this only supplies the range line. */}
       <SetPageTitle
         title="Projects"
-        kicker={`Tracked hours · ${from.slice(0, 10)} – ${to.slice(0, 10)}`}
+        kicker={`Tracked hours · ${dayOf(new Date(from))} – ${to.slice(0, 10)}`}
       />
       {forbidden ? (
         <p className="text-text-secondary text-body">You’re not permitted to view projects.</p>
