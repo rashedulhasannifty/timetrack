@@ -225,6 +225,16 @@ model Screenshot {
   blurred        Boolean    @default(false)
   status         ShotStatus @default(PENDING)
   redactedReason String?
+  /// Shared by every display captured in the same tick, so the dashboard can show a
+  /// multi-monitor desk as one group. Null on rows written before multi-display capture —
+  /// those are a group of one, which is what they always were.
+  captureGroupId String?
+  /// Position within the group: 0 is the main display, then by display id. Stable ordering
+  /// so the same physical monitor keeps its place across groups.
+  displayIndex   Int?
+  /// How many displays the client tried to capture in that tick. A group holding fewer rows
+  /// than this is a partial capture, and says so rather than looking complete.
+  displayCount   Int?
 
   @@id([id, timestamp])
   @@index([userId, timestamp])
