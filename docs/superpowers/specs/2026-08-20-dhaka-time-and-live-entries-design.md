@@ -317,9 +317,11 @@ second close path that could race the recovery flow.
 **Local cache, server fallback.**
 
 `MenuViewModel` persists `{projectId, taskId}` to `UserDefaults` on every selection change, under a key
-**namespaced by userId**. `AppDelegate` (~line 141) deliberately clears selection and project state on
-sign-out so a user cannot inherit another user's wrong-team project; per-user keying preserves that
-guarantee while still surviving a relaunch. Sign-out clears the current user's key.
+**namespaced by userId**. `MenuViewModel.reset()`, called on sign-out, clears the in-memory selection
+and the current user id so a user cannot inherit another user's wrong-team project — but it
+deliberately leaves the persisted, per-user key alone. Clearing it on every sign-out would defeat the
+feature for anyone who signs out at the end of the day; per-user namespacing is what makes it safe to
+keep, without reopening the cross-user leak `reset()` exists to close.
 
 On launch, in order:
 
