@@ -119,12 +119,7 @@ describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
     const t = await team();
     const ada = await user(t.id, 'Ada', 'ada@example.com');
     // Started in a closed week and never stopped; the client stopped heartbeating.
-    await entry(
-      ada.id,
-      '019797a0-0000-7000-8000-00000000a007',
-      '2026-06-30T09:00:00Z',
-      null,
-    );
+    await entry(ada.id, '019797a0-0000-7000-8000-00000000a007', '2026-06-30T09:00:00Z', null);
 
     expect(await generatePendingTimesheets(env.prisma, NOW, FRESHNESS)).toBe(0);
     expect(await env.prisma.timesheetApproval.count()).toBe(0);

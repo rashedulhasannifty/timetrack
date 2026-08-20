@@ -270,9 +270,9 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
       const eng = await team('Engineering', 20);
       await user(eng.id, 'Newbie', { createdAt: new Date('2026-08-05T09:00:00Z') });
       await user(eng.id, 'Ada'); // joined long before, tracked nothing → reminded
-      expect((await collectMissingTimesheets(env.prisma, WEEK, FRESHNESS)).map((t) => t.name)).toEqual([
-        'Ada',
-      ]);
+      expect(
+        (await collectMissingTimesheets(env.prisma, WEEK, FRESHNESS)).map((t) => t.name),
+      ).toEqual(['Ada']);
     });
 
     it('does not let a stranded open entry satisfy the threshold', async () => {
@@ -291,9 +291,9 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
       const ada = await user(eng.id, 'Ada');
       // A big week AFTER the reported one does not excuse the reported one.
       await entry(ada.id, '2026-08-11T09:00:00Z', '2026-08-11T19:00:00Z');
-      expect((await collectMissingTimesheets(env.prisma, WEEK, FRESHNESS)).map((t) => t.name)).toEqual([
-        'Ada',
-      ]);
+      expect(
+        (await collectMissingTimesheets(env.prisma, WEEK, FRESHNESS)).map((t) => t.name),
+      ).toEqual(['Ada']);
     });
   });
 });

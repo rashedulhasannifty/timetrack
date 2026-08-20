@@ -135,11 +135,9 @@ describe.runIf(RUN_E2E)('screenshot-process processor — real Postgres + MinIO'
         findUnique: (args: unknown) => env.prisma.user.findUnique(args as never),
       },
     } as unknown as WorkerPrisma;
-    const raced = new ScreenshotProcessProcessor(
-      rigged,
-      s3,
-      { log: () => {} } as unknown as Logger,
-    );
+    const raced = new ScreenshotProcessProcessor(rigged, s3, {
+      log: () => {},
+    } as unknown as Logger);
 
     await raced.process({ id: 'job', data: { id, timestamp: TS } } as never);
 
