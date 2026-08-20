@@ -387,9 +387,10 @@ describe('weekStrip', () => {
     expect(rows.map((r) => r.num)).toEqual([13, 14, 15, 16, 17, 18, 19]);
   });
 
-  // The discriminating case for the `mondayOf`/`shiftDay` refactor: a naive re-derivation from
-  // a stepped instant (the pre-refactor approach) is exactly where a month rollover could shift
-  // a day, since day-of-month and weekday come from independent sources.
+  // NOT a second discriminator for the naive-instant-stepping bug the basic test above
+  // targets -- that bug fails at `dow` index 0 regardless of which week, so this case doesn't
+  // add coverage for it. Its independent value is pinning the `num` field's 31 -> 1 -> 2
+  // month rollover against the correct label-arithmetic implementation.
   it('carries a month boundary correctly (day-of-month resets, weekday keeps advancing)', () => {
     const rows = weekStrip('2026-07-30', [], '2026-08-02');
     expect(rows.map((r) => r.date)).toEqual([
