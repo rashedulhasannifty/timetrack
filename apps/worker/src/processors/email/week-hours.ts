@@ -9,13 +9,46 @@ import { Prisma, type PrismaClient } from '@timetrack/db';
  */
 
 /**
- * Whole-second duration of one entry clamped to [from, to) — the same expression the API's
- * approvals repository snapshots with, so an email and the dashboard agree to the second.
- * A still-open entry is clamped at `now()`, which for a closed week is simply `to`.
+ * The effective end of a time entry. A CLOSED entry ends at its `endTime`. An OPEN entry ends
+ * at whichever comes first: now, or its last heartbeat plus the freshness window — so a client
+ * that has stopped heartbeating (crash, sleep, shutdown) stops accruing duration instead of
+ * growing without bound (spec §4.3).
+ *
+ * Rows written before `heartbeatAt` existed have null, and fall back to `startTime`.
+ *
+ * DUPLICATED, deliberately, from the CANONICAL `ENTRY_END` at
+ * `apps/api/src/modules/reports/reports.repository.ts:32`. `apps/worker` may not import from
+ * `apps/api` (CLAUDE.md §3), so the two copies are kept identical by hand — change one, change
+ * the other. This file already mirrors an API expression for the same reason.
+ *
+ * Assumes the `time_entries` table is aliased `te` in the surrounding query.
  */
-const CLAMPED_SECONDS = (from: Prisma.Sql, to: Prisma.Sql): Prisma.Sql => Prisma.sql`
+const ENTRY_END = (freshnessSeconds: number): Prisma.Sql => Prisma.sql`
+  COALESCE(
+    te."endTime",
+    LEAST(
+      now(),
+      COALESCE(te."heartbeatAt", te."startTime") + make_interval(secs => ${freshnessSeconds})
+    )
+  )`;
+
+/**
+ * Whole-second duration of one entry clamped to [from, to) — the same expression the API's
+ * REPORTS repository measures with, so a weekly email and the dashboard agree to the second.
+ *
+ * A still-open entry ends at the staleness clamp above, NOT at `now()`: for a CLOSED week an
+ * unclamped `now()` resolves to `to`, so one entry a user forgot to stop reported the whole
+ * period — roughly 159 hours for a Monday-morning start — in an automated email with no human
+ * in the loop.
+ *
+ * It is deliberately NOT the expression `approvals.repository.ts` snapshots with any more:
+ * approvals is excluded from the clamp on purpose (spec §10.1 — its totals back timesheets a
+ * manager may already have signed). Do not "restore consistency" by dropping the clamp here.
+ */
+const CLAMPED_SECONDS = (from: Prisma.Sql, to: Prisma.Sql, freshnessSeconds: number): Prisma.Sql =>
+  Prisma.sql`
   FLOOR(GREATEST(EXTRACT(EPOCH FROM (
-    date_trunc('second', LEAST(COALESCE(te."endTime", now()), ${to}))
+    date_trunc('second', LEAST(${ENTRY_END(freshnessSeconds)}, ${to}))
     - date_trunc('second', GREATEST(te."startTime", ${from}))
   )), 0))::int`;
 
@@ -25,6 +58,7 @@ export async function trackedSecondsByUser(
   userIds: string[],
   from: Date,
   to: Date,
+  freshnessSeconds: number,
 ): Promise<Map<string, number>> {
   if (userIds.length === 0) return new Map();
 
@@ -33,11 +67,12 @@ export async function trackedSecondsByUser(
            COALESCE(SUM(${CLAMPED_SECONDS(
              Prisma.sql`${from}::timestamptz`,
              Prisma.sql`${to}::timestamptz`,
+             freshnessSeconds,
            )}), 0)::int AS "seconds"
     FROM time_entries te
     WHERE te."userId" IN (${Prisma.join(userIds)})
       AND te."startTime" < ${to}::timestamptz
-      AND COALESCE(te."endTime", now()) > ${from}::timestamptz
+      AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
     GROUP BY te."userId"
   `;
   return new Map(rows.map((r) => [r.userId, Number(r.seconds)]));

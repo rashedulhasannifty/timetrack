@@ -13,6 +13,9 @@ const WEEK = closedWeek(NOW);
 // Everyone in the fixture joined well before the week, unless a test says otherwise: the
 // reminder only considers people who were on the roster for the whole week.
 const JOINED = new Date('2026-01-01T00:00:00.000Z');
+// TRACKING_FRESHNESS_SECONDS' default (packages/config). The processor reads it from env; the
+// collectors take it as a parameter so a spec can state the window it is asserting against.
+const FRESHNESS = 300;
 
 describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
   let env: WorkerTestEnv;
@@ -73,6 +76,25 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
     });
   }
 
+  /**
+   * A STRANDED open entry: started, never stopped, and the client stopped heartbeating (crash,
+   * shutdown, sleep). `heartbeatAt: null` models a row written before the heartbeat migration,
+   * which falls back to `startTime`.
+   */
+  async function openEntry(userId: string, startIso: string, heartbeatIso: string | null) {
+    entrySeq += 1;
+    await env.prisma.timeEntry.create({
+      data: {
+        id: `019797a0-0000-7000-8000-${String(entrySeq).padStart(12, '0')}`,
+        userId,
+        source: 'MANUAL',
+        startTime: new Date(startIso),
+        endTime: null,
+        heartbeatAt: heartbeatIso === null ? null : new Date(heartbeatIso),
+      },
+    });
+  }
+
   async function daySummary(userId: string, day: string, pct: number, activeMinutes: number) {
     await env.prisma.activityDailySummary.create({
       data: {
@@ -96,7 +118,7 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
       await user(sup.id, 'Sup', { role: 'MANAGER' });
       await user(sup.id, 'Admin', { role: 'ADMIN' });
 
-      const summaries = await collectWeeklySummaries(env.prisma, WEEK);
+      const summaries = await collectWeeklySummaries(env.prisma, WEEK, FRESHNESS);
       const byName = new Map(summaries.map((s) => [s.teamName, s]));
 
       expect([...byName.keys()].sort()).toEqual(['Engineering', 'Support']);
@@ -129,12 +151,30 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
       await entry(ada.id, '2026-08-11T09:00:00Z', '2026-08-11T17:00:00Z');
       await entry(zoe.id, '2026-08-05T09:00:00Z', '2026-08-05T10:00:00Z');
 
-      const [summary] = await collectWeeklySummaries(env.prisma, WEEK);
+      const [summary] = await collectWeeklySummaries(env.prisma, WEEK, FRESHNESS);
       expect(summary!.members.map((m) => [m.name, m.trackedSeconds])).toEqual([
         ['Ada', 6 * 3600],
         ['Zoe', 3600],
         ['Mgr', 0], // a member who tracked nothing is still reported
       ]);
+    });
+
+    it('bounds a stranded open entry at its last heartbeat, not at the period end', async () => {
+      const eng = await team('Engineering');
+      await user(eng.id, 'Mgr', { role: 'MANAGER' });
+      const ada = await user(eng.id, 'Ada');
+      const zoe = await user(eng.id, 'Zoe');
+
+      // Started 09:00 Monday, last heartbeat 09:03, then the Mac went away. Unclamped this
+      // reports periodEnd - startTime (~159 hours) in an automated email nobody reviews.
+      await openEntry(ada.id, '2026-08-03T09:00:00Z', '2026-08-03T09:03:00Z');
+      // A row predating the heartbeat migration falls back to startTime.
+      await openEntry(zoe.id, '2026-08-03T09:00:00Z', null);
+
+      const [summary] = await collectWeeklySummaries(env.prisma, WEEK, FRESHNESS);
+      const byName = new Map(summary!.members.map((m) => [m.name, m.trackedSeconds]));
+      expect(byName.get('Ada')).toBe(3 * 60 + FRESHNESS);
+      expect(byName.get('Zoe')).toBe(FRESHNESS);
     });
 
     it('weights activity by each day’s active minutes and ignores days outside the week', async () => {
@@ -147,7 +187,7 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
       // periodEnd is 08-10, exclusive. A big 0% day there must not drag the average down.
       await daySummary(ada.id, '2026-08-10', 0, 500);
 
-      const [summary] = await collectWeeklySummaries(env.prisma, WEEK);
+      const [summary] = await collectWeeklySummaries(env.prisma, WEEK, FRESHNESS);
       const ada2 = summary!.members.find((m) => m.name === 'Ada')!;
       // (80*300 + 40*100) / 400 = 70
       expect(ada2.activityPct).toBe(70);
@@ -177,7 +217,7 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
       await approval(zoe.id, '2026-08-03T00:00:00Z', 'APPROVED'); // already decided
       await approval(ada.id, '2026-07-27T00:00:00Z', 'PENDING'); // a different week
 
-      const summaries = await collectWeeklySummaries(env.prisma, WEEK);
+      const summaries = await collectWeeklySummaries(env.prisma, WEEK, FRESHNESS);
       const byName = new Map(summaries.map((s) => [s.teamName, s]));
       expect(byName.get('Engineering')!.pendingApprovals).toBe(1);
       expect(byName.get('Support')!.pendingApprovals).toBe(0);
@@ -186,7 +226,7 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
     it('returns nothing when there are no active users at all', async () => {
       const eng = await team('Engineering');
       await user(eng.id, 'Gone', { deactivated: true });
-      expect(await collectWeeklySummaries(env.prisma, WEEK)).toEqual([]);
+      expect(await collectWeeklySummaries(env.prisma, WEEK, FRESHNESS)).toEqual([]);
     });
   });
 
@@ -194,13 +234,13 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
     it('is off for a team that has not set a threshold', async () => {
       const eng = await team('Engineering'); // settings {} → timesheetReminderHours 0
       await user(eng.id, 'Ada');
-      expect(await collectMissingTimesheets(env.prisma, WEEK)).toEqual([]);
+      expect(await collectMissingTimesheets(env.prisma, WEEK, FRESHNESS)).toEqual([]);
     });
 
     it('is off when an admin explicitly sets the threshold to 0', async () => {
       const eng = await team('Engineering', 0);
       await user(eng.id, 'Ada');
-      expect(await collectMissingTimesheets(env.prisma, WEEK)).toEqual([]);
+      expect(await collectMissingTimesheets(env.prisma, WEEK, FRESHNESS)).toEqual([]);
     });
 
     it('targets only employees under their own team’s threshold', async () => {
@@ -218,7 +258,7 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
       await entry(busy.id, '2026-08-04T00:00:00Z', '2026-08-04T20:00:00Z');
       await entry(busy.id, '2026-08-05T00:00:00Z', '2026-08-05T04:00:00Z');
 
-      const targets = await collectMissingTimesheets(env.prisma, WEEK);
+      const targets = await collectMissingTimesheets(env.prisma, WEEK, FRESHNESS);
       expect(targets.map((t) => [t.name, t.trackedSeconds])).toEqual([
         ['Ada', 4 * 3600],
         ['Zoe', 0],
@@ -230,9 +270,20 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
       const eng = await team('Engineering', 20);
       await user(eng.id, 'Newbie', { createdAt: new Date('2026-08-05T09:00:00Z') });
       await user(eng.id, 'Ada'); // joined long before, tracked nothing → reminded
-      expect((await collectMissingTimesheets(env.prisma, WEEK)).map((t) => t.name)).toEqual([
+      expect((await collectMissingTimesheets(env.prisma, WEEK, FRESHNESS)).map((t) => t.name)).toEqual([
         'Ada',
       ]);
+    });
+
+    it('does not let a stranded open entry satisfy the threshold', async () => {
+      const eng = await team('Engineering', 20);
+      const ada = await user(eng.id, 'Ada');
+      // Unclamped this is ~159 hours, so Ada clears any threshold and is never chased for the
+      // timesheet she in fact never filled in.
+      await openEntry(ada.id, '2026-08-03T09:00:00Z', '2026-08-03T09:03:00Z');
+
+      const targets = await collectMissingTimesheets(env.prisma, WEEK, FRESHNESS);
+      expect(targets.map((t) => [t.name, t.trackedSeconds])).toEqual([['Ada', 3 * 60 + FRESHNESS]]);
     });
 
     it('does not count time tracked outside the closed week toward the threshold', async () => {
@@ -240,7 +291,7 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
       const ada = await user(eng.id, 'Ada');
       // A big week AFTER the reported one does not excuse the reported one.
       await entry(ada.id, '2026-08-11T09:00:00Z', '2026-08-11T19:00:00Z');
-      expect((await collectMissingTimesheets(env.prisma, WEEK)).map((t) => t.name)).toEqual([
+      expect((await collectMissingTimesheets(env.prisma, WEEK, FRESHNESS)).map((t) => t.name)).toEqual([
         'Ada',
       ]);
     });
