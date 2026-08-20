@@ -54,10 +54,12 @@ describe.runIf(RUN_E2E)('activity summary repository read — real Postgres', ()
     await summary(u1.id, '2026-07-20', 99); // out of window
     await summary(u2.id, '2026-07-11', 10); // other user
 
+    // Full ISO datetimes: ListActivityQuerySchema declares `z.iso.datetime()`, so a bare
+    // 'YYYY-MM-DD' is an input shape production can never send.
     const rows = await repo().listSummaries({
       userId: u1.id,
-      from: '2026-07-11',
-      to: '2026-07-12',
+      from: '2026-07-11T00:00:00.000Z',
+      to: '2026-07-12T00:00:00.000Z',
     });
 
     expect(rows.map((r) => r.avgActivityPct)).toEqual([40, 70]); // ordered, windowed, own-only
