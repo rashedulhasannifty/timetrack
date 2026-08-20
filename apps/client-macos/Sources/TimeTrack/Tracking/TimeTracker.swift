@@ -42,6 +42,11 @@ final class TimeTracker {
     /// is main-thread-only), after the entry is enqueued.
     var onSpanClosed: ((_ start: Date, _ end: Date) -> Void)?
 
+    /// Optional observer of each span OPENING (spec §4.1 live publish). Default nil → no
+    /// behavioural change and no call-site change. Invoked on the main thread (this type is
+    /// main-thread-only), after the live span is recorded.
+    var onSpanOpened: ((_ entryId: String, _ start: Date, _ selection: Selection, _ source: Source) -> Void)?
+
     init(
         buffer: TimeEntryBuffering,
         clock: @escaping () -> Date = Date.init,
@@ -97,6 +102,7 @@ final class TimeTracker {
         let id = idGen(now)
         state = .tracking(entryId: id, startedAt: now, selection: selection, source: source)
         liveSpan.begin(entryId: id, startTime: now, selection: selection, source: source)
+        onSpanOpened?(id, now, selection, source)
     }
 
     private func close(at endTime: Date) {

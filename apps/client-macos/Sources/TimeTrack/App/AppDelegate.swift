@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let timeTracker: TimeTracker
     private let menuViewModel: MenuViewModel
     private let liveSpanStore: LiveSpanStore
+    private let liveEntryPublisher: LiveEntryPublisher
     private let userIdBox: UserIdBox
 
     private var loginWindow: LoginWindowController?
@@ -106,6 +107,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         self.liveSpanStore = liveSpanStore
 
+        self.liveEntryPublisher = LiveEntryPublisher(
+            uploader: TimeEntryUploader(baseURL: baseURL, session: session)
+        )
+
         let tracker = TimeTracker(buffer: BufferStore.shared, liveSpan: liveSpanStore)
         self.timeTracker = tracker
 
@@ -162,6 +167,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presentLoginBox.call = { [weak self] in self?.presentLogin() }
         stopAutoBox.call = { [weak self] in self?.stopAutoTracking() }
         flushBufferBox.call = { [weak self] in await self?.flushAndClearBuffer() }
+        tracker.onSpanOpened = { [weak self] entryId, start, selection, source in
+            guard let self else { return }
+            Task { await self.liveEntryPublisher.publish(
+                entryId: entryId, start: start, selection: selection, source: source
+            ) }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -193,6 +204,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
             guard let self, self.timeTracker.isRunning else { return }
             self.liveSpanStore.heartbeat(at: Date())
+            // Re-publish the OPEN entry so the server's heartbeatAt stays fresh and the
+            // dashboard keeps showing it as running (spec §4.1/§4.3). Best-effort.
+            if let span = self.liveSpanStore.load() {
+                Task { await self.liveEntryPublisher.publish(span) }
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         heartbeatTimer = timer
