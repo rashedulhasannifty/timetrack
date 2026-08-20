@@ -15,22 +15,14 @@ struct RecoveryView: View {
     let onDiscard: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: TT.Space.x4) {
-            Text("Recover interrupted time?")
-                .font(.ttH2)
-            Text("Nifty Timer was tracking for about \(minutes) minute\(minutes == 1 ? "" : "s") when it last closed. Keep this time or discard it?")
-                .font(.ttBody)
-                .foregroundStyle(TT.Palette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Spacer()
-                Button("Keep", action: onKeep)
-                    .keyboardShortcut(.defaultAction)
-                Button("Discard", action: onDiscard)
-            }
-        }
-        .padding(TT.Space.x6)
-        .frame(width: 320)
+        TimePromptView(
+            symbol: "clock.arrow.circlepath",
+            title: "Recover interrupted time?",
+            minutes: minutes,
+            message: "Nifty Timer was still tracking when it last closed. Keep this time or discard it?",
+            defaultChoice: .keep,             // Enter must not throw away real work
+            onKeep: onKeep,
+            onDiscard: onDiscard)
     }
 }
 
@@ -58,20 +50,14 @@ final class RecoveryWindowController: NSWindowController, NSWindowDelegate {
 
     private init(minutes: Int, resolve: @escaping (AwayResolution) -> Void) {
         self.resolve = resolve
-        let window = NSWindow(
-            contentRect: .init(x: 0, y: 0, width: 320, height: 170),
-            styleMask: [.titled, .closable],
-            backing: .buffered, defer: false
-        )
-        window.center()
-        window.isReleasedWhenClosed = false
+        let window = TimePromptWindow.make(width: 340, height: 310)
         super.init(window: window)
         window.delegate = self
-        window.contentView = NSHostingView(rootView: RecoveryView(
+        TimePromptWindow.fit(window, to: NSHostingView(rootView: RecoveryView(
             minutes: minutes,
             onKeep: { [weak self] in self?.finish(.keep) },
             onDiscard: { [weak self] in self?.finish(.discard) }
-        ))
+        )))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
