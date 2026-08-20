@@ -28,6 +28,26 @@ export interface ProjectSummaryRepoRow {
 }
 
 /**
+ * The effective end of a time entry. A CLOSED entry ends at its `endTime`. An OPEN entry ends
+ * at whichever comes first: now, or its last heartbeat plus the freshness window — so a client
+ * that has stopped heartbeating (crash, sleep, shutdown) stops accruing duration instead of
+ * growing without bound (spec §4.3).
+ *
+ * Rows written before `heartbeatAt` existed have null, and fall back to `startTime`.
+ *
+ * NOTE: deliberately NOT used by `approvals.repository.ts`, whose open end is bounded by the
+ * approval period and whose totals a manager may already have signed off (spec §10.1).
+ */
+const ENTRY_END = (freshnessSeconds: number): Prisma.Sql => Prisma.sql`
+  COALESCE(
+    te."endTime",
+    LEAST(
+      now(),
+      COALESCE(te."heartbeatAt", te."startTime") + make_interval(secs => ${freshnessSeconds})
+    )
+  )`;
+
+/**
  * CLAUDE.md §3 — Prisma lives HERE. The overview aggregate is ONE raw query: Prisma
  * `groupBy` cannot express the interval clamp (a running entry uses now(); an entry that
  * crosses the window boundary is trimmed to it). Starting from `users` and LEFT JOINing
@@ -238,7 +258,12 @@ export class ReportsRepository {
    *     instant `to`, so `Σ trends.days[].trackedSeconds` will NOT reconcile exactly with the
    *     instant-clamped `teamSummary.trackedSeconds` total.
    */
-  async trends(scope: ReportScope, from: Date, to: Date): Promise<TeamTrendDay[]> {
+  async trends(
+    scope: ReportScope,
+    from: Date,
+    to: Date,
+    freshnessSeconds: number,
+  ): Promise<TeamTrendDay[]> {
     const rows = await this.prisma.$queryRaw<
       Array<{
         day: string;
@@ -269,14 +294,14 @@ export class ReportsRepository {
         SELECT d.day,
                FLOOR(SUM(GREATEST(
                  EXTRACT(EPOCH FROM (
-                   LEAST(COALESCE(te."endTime", now()), ((d.day + 1)::timestamp) AT TIME ZONE 'UTC')
+                   LEAST(${ENTRY_END(freshnessSeconds)}, ((d.day + 1)::timestamp) AT TIME ZONE 'UTC')
                    - GREATEST(te."startTime", (d.day::timestamp) AT TIME ZONE 'UTC')
                  )), 0
                )))::int AS "trackedSeconds"
         FROM days d
         JOIN time_entries te
           ON te."startTime" < ((d.day + 1)::timestamp) AT TIME ZONE 'UTC'
-         AND COALESCE(te."endTime", now()) > (d.day::timestamp) AT TIME ZONE 'UTC'
+         AND ${ENTRY_END(freshnessSeconds)} > (d.day::timestamp) AT TIME ZONE 'UTC'
          AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
         GROUP BY d.day
       )
@@ -436,13 +461,16 @@ export class ReportsRepository {
    * milliseconds (e.g. end-of-day `T23:59:59.999Z`), and without truncating the clamped
    * edge a boundary-crossing entry's emitted endTime would retain the `.999` while
    * durationSeconds (FLOORed) would not, breaking the invariant. A running entry (endTime
-   * NULL) yields a null endTime and a duration clamped to now(). `batchSize` exists so
-   * tests can force multi-batch continuation; production uses the default.
+   * NULL) yields a null endTime and a duration clamped via `ENTRY_END` — bounded by now(),
+   * but by the last heartbeat plus the freshness window if the client has stopped
+   * heartbeating (spec §4.3). `batchSize` exists so tests can force multi-batch
+   * continuation; production uses the default.
    */
   async *streamEntries(
     scope: ReportScope,
     from: Date,
     to: Date,
+    freshnessSeconds: number,
     projectId?: string,
     batchSize = 500,
   ): AsyncGenerator<CsvEntryRow> {
@@ -484,7 +512,7 @@ export class ReportsRepository {
                     ELSE date_trunc('second', LEAST(te."endTime", ${to}::timestamptz)) END AS "endTime",
                FLOOR(GREATEST(
                  EXTRACT(EPOCH FROM (
-                   date_trunc('second', LEAST(COALESCE(te."endTime", now()), ${to}::timestamptz))
+                   date_trunc('second', LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz))
                    - date_trunc('second', GREATEST(te."startTime", ${from}::timestamptz))
                  )), 0
                ))::int AS "durationSeconds",

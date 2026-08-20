@@ -82,6 +82,13 @@ export interface PersonDayViewModel {
 const HOUR_MS = 3_600_000;
 const MIN_WINDOW_MS = 4 * HOUR_MS;
 
+/**
+ * How long after a client's last activity sample we still consider it live. Mirrors the API's
+ * TRACKING_FRESHNESS_SECONDS default (packages/config/src/index.ts:76) and the server-side
+ * clamp in reports.repository.ts, so the pill and the duration agree with the reports.
+ */
+const TRACKING_FRESHNESS_MS = 300_000;
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -219,11 +226,25 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
   const dayEndMs = Date.parse(`${date}T23:59:59.999Z`);
   const nowMs = now.getTime();
 
+  // The client's last provable sign of life today. An open entry cannot accrue past this —
+  // otherwise a shut-down Mac's entry grows forever and the pill never goes out (spec §4.3).
+  const newestSampleMs = samples.reduce(
+    (max, s) => Math.max(max, Date.parse(s.timestamp)),
+    Number.NEGATIVE_INFINITY,
+  );
+  const liveHorizonMs = Number.isFinite(newestSampleMs)
+    ? newestSampleMs + TRACKING_FRESHNESS_MS
+    : Number.NEGATIVE_INFINITY;
+  const openEndMs = Math.min(nowMs, liveHorizonMs);
+
   const parsed = entries.map((e) => {
     const startMs = Date.parse(e.startTime);
     const open = e.endTime === null;
     const endMs = open ? null : Date.parse(e.endTime as string);
-    const effectiveEnd = endMs ?? (isToday ? nowMs : startMs);
+    // Math.max(startMs, ...) keeps the duration non-negative when there are no samples at all
+    // (a manual entry with monitoring paused), in which case the entry reads as zero-length
+    // rather than negative.
+    const effectiveEnd = endMs ?? (isToday ? Math.max(startMs, openEndMs) : startMs);
     return { entry: e, startMs, endMs, open, effectiveEnd };
   });
 
@@ -294,7 +315,9 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
           (samples.filter((s) => s.category === 'PRODUCTIVE').length * 100) / samples.length,
         );
 
-  const recordingNow = isToday && parsed.some((p) => p.open);
+  // An open entry alone is not proof of life — a crashed or shut-down client leaves one behind.
+  // Require a recent activity sample too, the same signal the Overview `tracking` flag uses.
+  const recordingNow = isToday && parsed.some((p) => p.open) && nowMs <= liveHorizonMs;
 
   const entryRows: DayEntryRow[] = parsed
     .map((p) => {

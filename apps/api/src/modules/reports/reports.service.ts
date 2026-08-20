@@ -102,7 +102,12 @@ export class ReportsService {
 
   async trends(query: ReportRangeQuery, user: SessionUser): Promise<TeamTrends> {
     const scope = await this.resolveScope(query, user);
-    const days = await this.repo.trends(scope, new Date(query.from), new Date(query.to));
+    const days = await this.repo.trends(
+      scope,
+      new Date(query.from),
+      new Date(query.to),
+      this.trackingFreshnessSeconds,
+    );
     return TeamTrendsSchema.parse({ from: query.from, to: query.to, days });
   }
 
@@ -143,7 +148,13 @@ export class ReportsService {
     projectId?: string,
   ): AsyncGenerator<string> {
     yield csvHeaderLine();
-    for await (const row of this.repo.streamEntries(scope, from, to, projectId)) {
+    for await (const row of this.repo.streamEntries(
+      scope,
+      from,
+      to,
+      this.trackingFreshnessSeconds,
+      projectId,
+    )) {
       yield formatCsvRow(row);
     }
   }

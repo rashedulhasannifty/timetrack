@@ -271,6 +271,7 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
         { kind: 'team', teamId: team.id },
         new Date('2026-07-11T00:00:00.000Z'),
         new Date('2026-07-13T00:00:00.000Z'),
+        WINDOW,
       );
 
       expect(days.map((d) => d.day)).toEqual(['2026-07-11', '2026-07-12', '2026-07-13']);
@@ -308,6 +309,7 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
         { kind: 'team', teamId: team.id },
         new Date('2026-07-12T00:00:00.000Z'),
         new Date('2026-07-13T00:00:00.000Z'),
+        WINDOW,
       );
       expect(days.find((d) => d.day === '2026-07-12')!.trackedSeconds).toBe(3600);
       expect(days.find((d) => d.day === '2026-07-13')!.trackedSeconds).toBe(3600);
@@ -342,10 +344,63 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
         { kind: 'team', teamId: teamA.id },
         new Date('2026-07-12T00:00:00.000Z'),
         new Date('2026-07-12T00:00:00.000Z'),
+        WINDOW,
       );
       const d12 = days.find((d) => d.day === '2026-07-12')!;
       expect(d12.trackedSeconds).toBe(3600); // only team A's hour
       expect(d12.productiveSeconds).toBe(0); // team B's category summary excluded
+    });
+
+    it('an open entry with a stale heartbeat stops accruing duration', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      const staleHeartbeat = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+      const startTime = new Date(Date.now() - 90 * 60 * 1000); // 90 minutes ago
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000fc01',
+          userId: user.id,
+          projectId: null,
+          taskId: null,
+          source: 'MANUAL',
+          startTime,
+          endTime: null,
+          heartbeatAt: staleHeartbeat,
+        },
+      });
+
+      const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const to = new Date(Date.now() + 60 * 60 * 1000);
+      const days = await repo().trends({ kind: 'team', teamId: team.id }, from, to, WINDOW);
+      const total = days.reduce((sum, d) => sum + d.trackedSeconds, 0);
+
+      // start -> heartbeat is 30 min, plus the 300s freshness window = 1800 + 300 = 2100s.
+      // Without the clamp this is ~5400s and climbing every second the process runs.
+      expect(total).toBeGreaterThanOrEqual(2000);
+      expect(total).toBeLessThanOrEqual(2200);
+    });
+
+    it('a legacy open entry with no heartbeatAt contributes at most the freshness window', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Bea', 'bea@example.com');
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000fc02',
+          userId: user.id,
+          projectId: null,
+          taskId: null,
+          source: 'MANUAL',
+          startTime: new Date(Date.now() - 90 * 60 * 1000),
+          endTime: null,
+          heartbeatAt: null, // written before the column existed
+        },
+      });
+
+      const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const to = new Date(Date.now() + 60 * 60 * 1000);
+      const days = await repo().trends({ kind: 'team', teamId: team.id }, from, to, WINDOW);
+      const total = days.reduce((sum, d) => sum + d.trackedSeconds, 0);
+      expect(total).toBeLessThanOrEqual(400); // falls back to startTime + 300s
     });
   });
 
@@ -932,6 +987,7 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
 
   const FROM = new Date('2026-07-01T00:00:00.000Z');
   const TO = new Date('2026-07-08T00:00:00.000Z');
+  const FRESHNESS = 300; // freshnessSeconds for these assertions
   function repo(): ReportsRepository {
     return new ReportsRepository(db.prisma as unknown as PrismaService);
   }
@@ -941,7 +997,14 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
     batchSize?: number,
   ) {
     const out: Array<Record<string, unknown>> = [];
-    for await (const row of repo().streamEntries(scope, FROM, TO, projectId, batchSize)) {
+    for await (const row of repo().streamEntries(
+      scope,
+      FROM,
+      TO,
+      FRESHNESS,
+      projectId,
+      batchSize,
+    )) {
       out.push(row);
     }
     return out;
@@ -1021,13 +1084,51 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
       },
     });
     const out: Array<Record<string, unknown>> = [];
-    for await (const row of repo().streamEntries({ kind: 'team', teamId: t.id }, from, to)) {
+    for await (const row of repo().streamEntries(
+      { kind: 'team', teamId: t.id },
+      from,
+      to,
+      FRESHNESS,
+    )) {
       out.push(row);
     }
     expect(out).toHaveLength(1);
     expect(out[0]!.endTime).toBeNull();
     expect(out[0]!.durationSeconds as number).toBeGreaterThanOrEqual(59);
     expect(out[0]!.durationSeconds as number).toBeLessThan(120);
+  });
+
+  it('clamps an open entry with a stale heartbeat, but leaves endTime null', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const to = new Date(Date.now() + 60 * 60 * 1000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000403',
+        userId: u.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 90 * 60 * 1000), // 90 min ago
+        endTime: null,
+        heartbeatAt: new Date(Date.now() - 60 * 60 * 1000), // stale, 1h ago
+      },
+    });
+    const out: Array<Record<string, unknown>> = [];
+    for await (const row of repo().streamEntries(
+      { kind: 'team', teamId: t.id },
+      from,
+      to,
+      FRESHNESS,
+    )) {
+      out.push(row);
+    }
+    expect(out).toHaveLength(1);
+    // the projection still shows an open entry's end as blank, never a synthesised clamp
+    expect(out[0]!.endTime).toBeNull();
+    // duration is clamped to heartbeat + freshness (30min + 300s = 2100s), not the ~5400s
+    // it would be if bounded by now().
+    expect(out[0]!.durationSeconds as number).toBeGreaterThanOrEqual(2000);
+    expect(out[0]!.durationSeconds as number).toBeLessThanOrEqual(2200);
   });
 
   it('applies the projectId filter', async () => {
@@ -1123,7 +1224,12 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
       },
     });
     const out: Array<Record<string, unknown>> = [];
-    for await (const row of repo().streamEntries({ kind: 'team', teamId: t.id }, FROM, TO_MS)) {
+    for await (const row of repo().streamEntries(
+      { kind: 'team', teamId: t.id },
+      FROM,
+      TO_MS,
+      FRESHNESS,
+    )) {
       out.push(row);
     }
     expect(out).toHaveLength(1);

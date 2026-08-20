@@ -169,6 +169,7 @@ describe('ReportsService.trends', () => {
       { kind: 'team', teamId: 't1' },
       new Date(range.from),
       new Date(range.to),
+      300,
     );
   });
 
@@ -182,7 +183,12 @@ describe('ReportsService.trends', () => {
   it('gives an ADMIN the all-teams scope', async () => {
     const { svc, repo } = makeReports();
     await svc.trends(range, admin);
-    expect(repo.trends).toHaveBeenCalledWith({ kind: 'all' }, expect.any(Date), expect.any(Date));
+    expect(repo.trends).toHaveBeenCalledWith(
+      { kind: 'all' },
+      expect.any(Date),
+      expect.any(Date),
+      300,
+    );
   });
 });
 
@@ -322,6 +328,7 @@ describe('ReportsService.exportCsv', () => {
       { kind: 'all' },
       new Date(range.from),
       new Date(range.to),
+      300,
       undefined,
     );
   });

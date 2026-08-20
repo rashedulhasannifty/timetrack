@@ -46,7 +46,15 @@ describe('personDayView — core', () => {
 
   it('counts an open entry to now on today and flags recordingNow', () => {
     const now = new Date('2026-07-13T15:30:00.000Z');
-    const vm = personDayView({ ...base, date: '2026-07-13', now, entries: [entry('a', 14, null)] });
+    const vm = personDayView({
+      ...base,
+      date: '2026-07-13',
+      now,
+      entries: [entry('a', 14, null)],
+      // recordingNow now requires a recent activity sample as proof of life, not just an
+      // open entry — a crashed/shut-down client can leave one behind (spec §4.3).
+      samples: [sample(15, 29, 'NEUTRAL', 50)],
+    });
     expect(vm.recordingNow).toBe(true);
     expect(vm.isToday).toBe(true);
     expect(vm.stats.trackedSeconds).toBe(90 * 60); // 14:00 → 15:30
@@ -248,5 +256,48 @@ describe('resolveDayDate', () => {
 
   it.each(['2026-13-45', '2026-02-30'])('falls back to today on impossible date %s', (raw) => {
     expect(resolveDayDate(raw, now)).toBe('2026-07-13');
+  });
+});
+
+describe('personDayView — open-entry liveness', () => {
+  it('is not recording when the newest sample has gone stale', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+      samples: [sample(9, 0, 'NEUTRAL', 50)], // an hour old
+    });
+    expect(vm.recordingNow).toBe(false);
+  });
+
+  it('is recording while samples keep arriving', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+      samples: [sample(9, 59, 'NEUTRAL', 50)],
+    });
+    expect(vm.recordingNow).toBe(true);
+  });
+
+  it("stops growing a stale open entry's duration", () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+      samples: [sample(9, 0, 'NEUTRAL', 50)],
+    });
+    // 08:00 -> 09:00 heartbeat + 300s freshness = 3900s, NOT the 7200s to `now`.
+    expect(vm.entries[0]?.durationSeconds).toBeLessThanOrEqual(4000);
+  });
+
+  it('runs a live entry to now', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+      samples: [sample(9, 59, 'NEUTRAL', 50)],
+    });
+    expect(vm.entries[0]?.durationSeconds).toBe(7200);
   });
 });
