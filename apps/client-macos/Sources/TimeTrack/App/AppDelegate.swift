@@ -387,14 +387,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Defense-in-depth: the prompt is non-modal and can outlive the user who opened it
             // (e.g. left open across a sign-out/sign-in). Re-check against the CURRENT
             // logged-in user (the live `userIdBox` value, not the `currentUserId` captured when
-            // this closure was built) so a stale "Keep" click from a prior user's prompt can
-            // never enqueue that user's span into whoever is signed in now.
-            if action == .keep, LiveSpanStore.shouldRecover(span: span, currentUserId: self.userIdBox.value) {
+            // this closure was built) so a stale action from a prior user's prompt can
+            // never be attributed to whoever is signed in now.
+            let stillOurs = LiveSpanStore.shouldRecover(span: span, currentUserId: self.userIdBox.value)
+            if action == .keep, stillOurs {
                 self.timeTracker.recordSpan(
                     id: span.entryId, start: span.startTime, end: span.lastAlive,
                     projectId: span.projectId, taskId: span.taskId,
                     source: TimeTracker.Source(rawValue: span.source) ?? .manual
                 )
+            } else if action == .discard, stillOurs {
+                // The span may already be an OPEN row on the server (spec §4.1). Clearing only
+                // the local file would leave it open forever and 409 every future Start, so
+                // close it as a zero-duration entry at its own start time (never at lastAlive —
+                // that would silently KEEP the time the user chose to discard).
+                Task { await self.liveEntryPublisher.publishDiscarded(span) }
             }
             self.liveSpanStore.clear()
         }
@@ -659,11 +666,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         autoCoordinator = nil
         manualIdleCoordinator = nil
         signalFanOut = nil
-        // Cross-user integrity (CLAUDE.md §1): this runs on sign-out. A still-open recovery
-        // prompt belongs to the user who's signing out, so tear it down here too (its discard
-        // path clears the live-span file — nothing gets enqueued) rather than leaving it on
-        // screen for the next user to act on. Reset the one-shot flag as well, so the NEXT
-        // user who signs in gets their own span evaluated by `recoverLiveSpanIfNeeded` instead
+        // Cross-user integrity (CLAUDE.md §1): this runs on sign-out, BEFORE userIdBox is
+        // cleared, so a still-open recovery prompt belongs to the user who's signing out. Tear
+        // it down here too — its discard path best-effort closes their own still-open server
+        // row (never enqueued to BufferStore) and clears the live-span file — rather than
+        // leaving it on screen for the next user to act on. Reset the one-shot flag as well, so
+        // the NEXT user who signs in gets their own span evaluated by `recoverLiveSpanIfNeeded` instead
         // of being silently skipped because a prior user already "used" the attempt.
         RecoveryWindowController.dismissIfShowing()
         hasAttemptedRecovery = false
