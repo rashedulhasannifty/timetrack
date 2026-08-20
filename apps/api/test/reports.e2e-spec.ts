@@ -902,6 +902,31 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
     const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows.map((r) => r.name)).toEqual(['Ada']);
   });
+
+  it('a zero-duration entry does not surface a phantom user row (has-data predicate)', async () => {
+    const t = await team();
+    const a = await user(t.id, 'Ada', 'ada@example.com');
+    const b = await user(t.id, 'Bea', 'bea@example.com');
+    // Ada has a real, in-range entry.
+    await entry(
+      a.id,
+      '019797a0-0000-7000-8000-000000000211',
+      '2026-07-02T09:00:00Z',
+      '2026-07-02T10:00:00Z',
+    );
+    // Bea's ONLY entry in range is a discarded recovery span (spec §4.4, Task 7's Discard
+    // path): closed at its own start, and no activity summary at all.
+    await entry(
+      b.id,
+      '019797a0-0000-7000-8000-000000000212',
+      '2026-07-02T09:00:00Z',
+      '2026-07-02T09:00:00Z',
+    );
+
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
+    // Without the fix, Bea would appear as a phantom { trackedSeconds: 0, activityPct: 0 } row.
+    expect(rows.map((r) => r.name)).toEqual(['Ada']);
+  });
 });
 
 describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () => {
@@ -965,6 +990,51 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
     ]);
     // reconciles to the user's total tracked seconds (3600 + 1800)
     expect(rows.reduce((s, r) => s + r.trackedSeconds, 0)).toBe(5400);
+  });
+
+  it('a project whose only entry is zero-duration does not surface a phantom project row', async () => {
+    const t = await db.prisma.team.create({
+      data: { name: 'Eng', settings: {} },
+      select: { id: true },
+    });
+    const u = await db.prisma.user.create({
+      data: { email: 'ada@example.com', name: 'Ada', passwordHash: 'x', teamId: t.id },
+      select: { id: true },
+    });
+    const real = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Acme' },
+      select: { id: true },
+    });
+    const discarded = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Ghost' },
+      select: { id: true },
+    });
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000303',
+        userId: u.id,
+        projectId: real.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T09:00:00Z'),
+        endTime: new Date('2026-07-02T10:00:00Z'),
+      },
+    });
+    // "Ghost" project's ONLY entry in range is a discarded recovery span (spec §4.4,
+    // Task 7's Discard path): closed at its own start.
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000304',
+        userId: u.id,
+        projectId: discarded.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T11:00:00Z'),
+        endTime: new Date('2026-07-02T11:00:00Z'),
+      },
+    });
+
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
+    // Without the fix, "Ghost" would appear as a phantom { trackedSeconds: 0 } row.
+    expect(rows).toEqual([{ projectId: real.id, name: 'Acme', trackedSeconds: 3600 }]);
   });
 
   it('an open entry with a stale heartbeat stops accruing trackedSeconds', async () => {

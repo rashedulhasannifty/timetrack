@@ -223,6 +223,42 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     ]);
   });
 
+  it('membersForProject excludes a member whose only entry is zero-duration (no phantom row)', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const ghost = await seedUser(team.id, 'Ghost', 'ghost@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    await seedEntry(jane.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T11:00:00Z'); // 2h
+    // Ghost's ONLY entry is a discarded recovery span (spec §4.4, Task 7's Discard path).
+    await seedEntry(ghost.id, project.id, null, '2026-07-14T09:00:00Z', '2026-07-14T09:00:00Z');
+    const rows = await repo().membersForProject(project.id, FROM, TO);
+    // Without the fix, Ghost would appear as a phantom { trackedSeconds: 0 } row.
+    expect(rows).toEqual([{ userId: jane.id, name: 'Jane', trackedSeconds: 7200 }]);
+  });
+
+  it('membersForProject still includes a genuinely open entry (the critical property)', async () => {
+    const team = await seedTeam();
+    const cy = await seedUser(team.id, 'Cy', 'cy@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    const from = new Date(Date.now() - 60 * 60 * 1000);
+    const to = new Date(Date.now() + 60 * 60 * 1000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: crypto.randomUUID(),
+        userId: cy.id,
+        projectId: project.id,
+        taskId: null,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 30 * 60 * 1000),
+        endTime: null,
+      },
+    });
+    const rows = await repo().membersForProject(project.id, from, to);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ userId: cy.id, name: 'Cy' });
+    expect(rows[0]?.trackedSeconds).toBeGreaterThan(0);
+  });
+
   it('tasksForProject buckets by task and rolls null taskId into "No task"', async () => {
     const team = await seedTeam();
     const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
@@ -235,6 +271,50 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       { taskId: task.id, name: 'Homepage', trackedSeconds: 7200 },
       { taskId: null, name: 'No task', trackedSeconds: 1800 },
     ]);
+  });
+
+  it('tasksForProject excludes a task whose only entry is zero-duration (no phantom row)', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    const task = await repo().createTask(project.id, 'Homepage', 'actor1');
+    const ghostTask = await repo().createTask(project.id, 'Ghost task', 'actor1');
+    await seedEntry(jane.id, project.id, task.id, '2026-07-14T09:00:00Z', '2026-07-14T11:00:00Z'); // 2h
+    // "Ghost task"'s ONLY entry is a discarded recovery span (spec §4.4, Task 7's Discard path).
+    await seedEntry(
+      jane.id,
+      project.id,
+      ghostTask.id,
+      '2026-07-14T13:00:00Z',
+      '2026-07-14T13:00:00Z',
+    );
+    const rows = await repo().tasksForProject(project.id, FROM, TO);
+    // Without the fix, "Ghost task" would appear as a phantom { trackedSeconds: 0 } row.
+    expect(rows).toEqual([{ taskId: task.id, name: 'Homepage', trackedSeconds: 7200 }]);
+  });
+
+  it('tasksForProject still includes a genuinely open entry (the critical property)', async () => {
+    const team = await seedTeam();
+    const cy = await seedUser(team.id, 'Cy', 'cy@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    const task = await repo().createTask(project.id, 'Homepage', 'actor1');
+    const from = new Date(Date.now() - 60 * 60 * 1000);
+    const to = new Date(Date.now() + 60 * 60 * 1000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: crypto.randomUUID(),
+        userId: cy.id,
+        projectId: project.id,
+        taskId: task.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 30 * 60 * 1000),
+        endTime: null,
+      },
+    });
+    const rows = await repo().tasksForProject(project.id, from, to);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ taskId: task.id, name: 'Homepage' });
+    expect(rows[0]?.trackedSeconds).toBeGreaterThan(0);
   });
 
   it('hoursByDay buckets by UTC start-day and clamps to the window', async () => {

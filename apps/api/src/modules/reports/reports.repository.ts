@@ -171,6 +171,7 @@ export class ReportsRepository {
         FROM time_entries te
         WHERE te."startTime" < ${to}::timestamptz
           AND COALESCE(te."endTime", now()) > ${from}::timestamptz
+          AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
         GROUP BY te."userId"
       ),
       activity AS (
@@ -237,6 +238,7 @@ export class ReportsRepository {
       WHERE te."startTime" < ${to}::timestamptz
         AND COALESCE(te."endTime", now()) > ${from}::timestamptz
         AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
+        AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
         ${projectFilter}
       GROUP BY te."projectId", p.name
       ORDER BY "trackedSeconds" DESC, "projectId" ASC NULLS LAST
