@@ -731,6 +731,24 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
       },
     });
   }
+  /** A STRANDED open entry: started, never stopped, client no longer heartbeating. */
+  async function strandedEntry(
+    userId: string,
+    id: string,
+    startIso: string,
+    heartbeatIso: string | null,
+  ) {
+    await db.prisma.timeEntry.create({
+      data: {
+        id,
+        userId,
+        source: 'MANUAL',
+        startTime: new Date(startIso),
+        endTime: null,
+        heartbeatAt: heartbeatIso === null ? null : new Date(heartbeatIso),
+      },
+    });
+  }
   async function summary(
     userId: string,
     day: string,
@@ -927,6 +945,51 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
     // Without the fix, Bea would appear as a phantom { trackedSeconds: 0, activityPct: 0 } row.
     expect(rows.map((r) => r.name)).toEqual(['Ada']);
   });
+
+  it('a stranded open entry from before the range does not surface a phantom user row', async () => {
+    const t = await team();
+    const a = await user(t.id, 'Ada', 'ada@example.com');
+    const b = await user(t.id, 'Bea', 'bea@example.com');
+    await entry(
+      a.id,
+      '019797a0-0000-7000-8000-000000000213',
+      '2026-07-02T09:00:00Z',
+      '2026-07-02T10:00:00Z',
+    );
+    // Bea's ONLY entry started well BEFORE the range and was never stopped, and she has no
+    // activity summary. The row-selection predicate used to read `COALESCE(endTime, now()) >
+    // from` — true for any open row, whenever it started — so Bea passed the has-data check,
+    // then summed to 0 because the duration expression IS clamped. The result was a row saying
+    // "Bea: 0% active", which is a different claim from "no data for Bea".
+    await strandedEntry(
+      b.id,
+      '019797a0-0000-7000-8000-000000000214',
+      '2026-06-15T09:00:00Z',
+      '2026-06-15T09:03:00Z',
+    );
+
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
+    expect(rows.map((r) => r.name)).toEqual(['Ada']);
+  });
+
+  it('a LIVE open entry still surfaces its user (the critical property)', async () => {
+    const t = await team();
+    const b = await user(t.id, 'Bea', 'bea@example.com');
+    // The counterpart of the test above: a timer running RIGHT NOW must still be reported, so
+    // the clamped selection predicate can never be simplified to "closed entries only".
+    const from = new Date(Date.now() - 60 * 60 * 1000);
+    const to = new Date(Date.now() + 60 * 60 * 1000);
+    await strandedEntry(
+      b.id,
+      '019797a0-0000-7000-8000-000000000215',
+      new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      new Date().toISOString(),
+    );
+
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, from, to, FRESHNESS);
+    expect(rows.map((r) => r.name)).toEqual(['Bea']);
+    expect(rows[0]!.trackedSeconds).toBeGreaterThan(0);
+  });
 });
 
 describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () => {
@@ -990,6 +1053,51 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
     ]);
     // reconciles to the user's total tracked seconds (3600 + 1800)
     expect(rows.reduce((s, r) => s + r.trackedSeconds, 0)).toBe(5400);
+  });
+
+  it('a project whose only entry is stranded open does not surface a phantom project row', async () => {
+    const t = await db.prisma.team.create({
+      data: { name: 'Eng', settings: {} },
+      select: { id: true },
+    });
+    const u = await db.prisma.user.create({
+      data: { email: 'ada@example.com', name: 'Ada', passwordHash: 'x', teamId: t.id },
+      select: { id: true },
+    });
+    const real = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Acme' },
+      select: { id: true },
+    });
+    const ghost = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Ghost' },
+      select: { id: true },
+    });
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000311',
+        userId: u.id,
+        projectId: real.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T09:00:00Z'),
+        endTime: new Date('2026-07-02T10:00:00Z'),
+      },
+    });
+    // Ghost's only entry started in JUNE and was never stopped. An unclamped
+    // `COALESCE(endTime, now()) > from` selected it into this July range, where it summed to 0.
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000312',
+        userId: u.id,
+        projectId: ghost.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-06-15T09:00:00Z'),
+        endTime: null,
+        heartbeatAt: new Date('2026-06-15T09:03:00Z'),
+      },
+    });
+
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
+    expect(rows).toEqual([{ projectId: real.id, name: 'Acme', trackedSeconds: 3600 }]);
   });
 
   it('a project whose only entry is zero-duration does not surface a phantom project row', async () => {
@@ -1212,6 +1320,26 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
   it('yields nothing for an empty set', async () => {
     const t = await team();
     await user(t.id, 'Ada', 'ada@example.com');
+    expect(await collect({ kind: 'team', teamId: t.id })).toEqual([]);
+  });
+
+  it('omits a stranded open entry that ended before the range began', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    // Started in June, never stopped. The row-selection predicate used to read
+    // `COALESCE(endTime, now()) > from`, true for ANY open row whenever it started, so this
+    // entry landed in the CSV export of an unrelated July range as a 0-second line.
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-0000000004a1',
+        userId: u.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-06-15T09:00:00Z'),
+        endTime: null,
+        heartbeatAt: new Date('2026-06-15T09:03:00Z'),
+      },
+    });
+
     expect(await collect({ kind: 'team', teamId: t.id })).toEqual([]);
   });
 

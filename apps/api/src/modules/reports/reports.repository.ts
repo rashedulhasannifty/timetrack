@@ -110,7 +110,7 @@ export class ReportsRepository {
       LEFT JOIN time_entries te
         ON te."userId" = u.id
         AND te."startTime" < ${dayEnd}::timestamptz
-        AND COALESCE(te."endTime", now()) > ${dayStart}::timestamptz
+        AND ${ENTRY_END(freshnessSeconds)} > ${dayStart}::timestamptz
       WHERE (${scope}) AND u."deactivatedAt" IS NULL
       GROUP BY u.id, u.name
       ORDER BY u.name ASC
@@ -170,7 +170,7 @@ export class ReportsRepository {
                )))::int AS "trackedSeconds"
         FROM time_entries te
         WHERE te."startTime" < ${to}::timestamptz
-          AND COALESCE(te."endTime", now()) > ${from}::timestamptz
+          AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
           AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
         GROUP BY te."userId"
       ),
@@ -236,7 +236,7 @@ export class ReportsRepository {
       FROM time_entries te
       LEFT JOIN projects p ON p.id = te."projectId"
       WHERE te."startTime" < ${to}::timestamptz
-        AND COALESCE(te."endTime", now()) > ${from}::timestamptz
+        AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
         AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
         AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
         ${projectFilter}
@@ -534,7 +534,7 @@ export class ReportsRepository {
         LEFT JOIN projects p ON p.id = te."projectId"
         LEFT JOIN tasks t ON t.id = te."taskId"
         WHERE te."startTime" < ${to}::timestamptz
-          AND COALESCE(te."endTime", now()) > ${from}::timestamptz
+          AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
           AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
           AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
           ${projectFilter}
