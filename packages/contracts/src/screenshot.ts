@@ -15,6 +15,16 @@ export const ScreenshotSchema = z.object({
   blurred: z.boolean(),
   status: ShotStatus,
   redactedReason: z.string().nullable(),
+  /**
+   * Shared by every display captured in the same tick, so a multi-monitor desk reads as one
+   * group. Null on captures taken before multi-display support — treat those as a group of one,
+   * which is exactly what they were.
+   */
+  captureGroupId: z.string().nullable(),
+  /** Position in the group: 0 is the main display, then by display id. Null on legacy rows. */
+  displayIndex: z.number().int().nullable(),
+  /** Displays the client tried to capture that tick — fewer rows than this means a partial capture. */
+  displayCount: z.number().int().nullable(),
   /** Presigned GET URL (5 min TTL). Present only on read responses. */
   url: z.url().optional(),
   /** Presigned full-res GET URL (5 min TTL). Present only on READY reads with a raw object. */
@@ -43,6 +53,18 @@ export const ListScreenshotsQuerySchema = z.object({
 export const UploadScreenshotMetaSchema = z.object({
   id: z.uuid(), // client-minted UUIDv7 → idempotency key
   timestamp: z.iso.datetime(), // capture time — also the partition key
+  /**
+   * Multi-display grouping. All three are OPTIONAL: a client built before multi-display capture
+   * sends neither, and /v1 must keep accepting it (a shipped Mac client cannot be rolled back).
+   * Absent → the API stores nulls and the shot reads back as a group of one.
+   *
+   * These arrive as multipart TEXT fields, so the numerics are strings on the wire and are
+   * coerced here. `.optional()` wraps the coercion, so an absent field stays undefined rather
+   * than coercing to NaN.
+   */
+  captureGroupId: z.uuid().optional(),
+  displayIndex: z.coerce.number().int().min(0).max(15).optional(),
+  displayCount: z.coerce.number().int().min(1).max(16).optional(),
 });
 
 export type Screenshot = z.infer<typeof ScreenshotSchema>;

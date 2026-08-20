@@ -20,6 +20,9 @@ function pendingRow(): ScreenshotRow {
     blurred: false,
     status: 'PENDING',
     redactedReason: null,
+    captureGroupId: null,
+    displayIndex: null,
+    displayCount: null,
   };
 }
 

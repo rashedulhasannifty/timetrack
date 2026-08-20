@@ -50,10 +50,20 @@ export class ScreenshotsController {
     }
     // Text fields MUST precede the file part in the body (see spec §5 client contract) —
     // req.file() only exposes fields parsed before the file.
+    // Named fields are picked out one by one rather than passing the whole form through: the
+    // pipe parses bodies strictly, and a client that adds a field before the API knows about it
+    // would otherwise 422 on every upload. Unknown fields are ignored instead.
+    const field = (name: string): string | undefined =>
+      (part.fields[name] as { value?: string } | undefined)?.value;
     const meta = this.metaPipe.transform(
       {
-        id: (part.fields.id as { value?: string } | undefined)?.value,
-        timestamp: (part.fields.timestamp as { value?: string } | undefined)?.value,
+        id: field('id'),
+        timestamp: field('timestamp'),
+        // Multi-display grouping. Absent from any client older than multi-display capture, and
+        // optional in the schema for exactly that reason.
+        captureGroupId: field('captureGroupId'),
+        displayIndex: field('displayIndex'),
+        displayCount: field('displayCount'),
       },
       { type: 'body' },
     ) as UploadScreenshotMeta;
