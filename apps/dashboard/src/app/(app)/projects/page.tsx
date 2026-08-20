@@ -73,13 +73,21 @@ export default async function ProjectsPage({
   if (!includeArchived) toggle.set('includeArchived', 'true');
   const toggleHref = `/projects?${toggle.toString()}`;
 
+  // `from` is a raw, unvalidated query-string ISO instant (unlike a resolveDayDate-style
+  // 'YYYY-MM-DD' label, so `isValidDay` doesn't apply here). `dayOf` calls
+  // Intl.DateTimeFormat.format(), which throws RangeError on an unparseable Date — and this
+  // kicker renders unconditionally, above the forbidden/view-null branches below, so a stale
+  // bookmark or hand-edited ?from= must not reach it un-guarded. By the time `from` is this
+  // broken, the API has already rejected the same value and `view` is already null, so falling
+  // back to the pre-Dhaka raw slice here is enough to avoid crashing the render; the page's
+  // existing "Something went wrong" branch takes it from there.
+  const fromMs = new Date(from).getTime();
+  const fromLabel = Number.isNaN(fromMs) ? from.slice(0, 10) : dayOf(new Date(fromMs));
+
   return (
     <>
       {/* The shell header already renders the page title; this only supplies the range line. */}
-      <SetPageTitle
-        title="Projects"
-        kicker={`Tracked hours · ${dayOf(new Date(from))} – ${to.slice(0, 10)}`}
-      />
+      <SetPageTitle title="Projects" kicker={`Tracked hours · ${fromLabel} – ${to.slice(0, 10)}`} />
       {forbidden ? (
         <p className="text-text-secondary text-body">You’re not permitted to view projects.</p>
       ) : view === null ? (
