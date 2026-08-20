@@ -30,6 +30,10 @@ final class MenuViewModel: ObservableObject {
     @Published var projects: [Project] = []
     @Published var query: String = ""
 
+    /// The signed-in user, set by AppDelegate once the session resolves. Selection persistence is
+    /// namespaced by it so one user can never inherit another's (possibly wrong-team) project.
+    var currentUserId: String?
+
     /// Called on every tracking-state change with `iconIsTracking` and the tracking start (nil
     /// when not tracking), so AppDelegate can update the always-visible status icon — including
     /// its live elapsed count — without a Combine subscription.
@@ -41,6 +45,7 @@ final class MenuViewModel: ObservableObject {
     private let onSignIn: () -> Void
     private let onSignOut: () -> Void
     private let onQuit: () -> Void
+    private let selectionStore: SelectionStore
 
     /// A display-only clock anchor that overrides the live entry's real start. Set when manual idle
     /// Discard shifts the clock forward by the idle gap so it keeps reading accumulated *worked*
@@ -55,7 +60,8 @@ final class MenuViewModel: ObservableObject {
         openURL: @escaping (URL) -> Void,
         onSignIn: @escaping () -> Void,
         onSignOut: @escaping () -> Void,
-        onQuit: @escaping () -> Void
+        onQuit: @escaping () -> Void,
+        selectionStore: SelectionStore = SelectionStore()
     ) {
         self.tracker = tracker
         self.dashboardURL = dashboardURL
@@ -63,6 +69,7 @@ final class MenuViewModel: ObservableObject {
         self.onSignIn = onSignIn
         self.onSignOut = onSignOut
         self.onQuit = onQuit
+        self.selectionStore = selectionStore
     }
 
     /// The indicator reads as active whenever a session is open (tracking or paused) — it is
@@ -103,7 +110,37 @@ final class MenuViewModel: ObservableObject {
     }
     func markNotReady() { isReady = false }
 
-    func select(_ choice: Choice) { selectedChoice = choice }
+    func select(_ choice: Choice) {
+        selectedChoice = choice
+        guard let currentUserId else { return }
+        selectionStore.save(StoredSelection(projectId: choice.projectId, taskId: choice.taskId),
+                            userId: currentUserId)
+    }
+
+    /// Apply the persisted selection for `userId`, if it still exists in the CURRENT project
+    /// list. Called by AppDelegate AFTER the project refresh — restoring against a stale or
+    /// empty cache would either drop a valid selection or apply one the user has since lost
+    /// access to.
+    ///
+    /// Only ever fills an EMPTY picker (`selectedChoice == nil`): `refreshProjects()` runs both
+    /// at launch and on every menu open, so an unguarded restore would re-run each time and could
+    /// overwrite a selection the user just made by hand.
+    ///
+    /// A selection that no longer resolves is dropped, but the stored key is cleared only when
+    /// there is a non-empty project list to judge it against. `ProjectCache` is a single global
+    /// file cleared wholesale on sign-out, so `projects` reads empty on every offline re-login
+    /// until a network refresh succeeds — indistinguishable, to `SelectionResolver`, from "the
+    /// project was archived". Clearing on an empty list would permanently delete a user's saved
+    /// selection on an offline re-login instead of merely deferring the restore.
+    func restoreSelection(userId: String) {
+        guard selectedChoice == nil else { return }
+        guard let stored = selectionStore.load(userId: userId) else { return }
+        if let restored = SelectionResolver.resolve(stored, in: choices) {
+            selectedChoice = restored
+        } else if !choices.isEmpty {
+            selectionStore.clear(userId: userId)
+        }
+    }
 
     func start() {
         guard isReady else { return }
@@ -141,6 +178,11 @@ final class MenuViewModel: ObservableObject {
     /// drives phase→idle + icon via `sync()`) and clears everything selection/search/project
     /// related so a different user's next login can't inherit a stale, wrong-team selection
     /// (CLAUDE.md §1 fail-safe posture).
+    ///
+    /// Deliberately asymmetric: this clears the IN-MEMORY selection and drops `currentUserId`
+    /// (so a stray `select()` before the next sign-in can never write under the old user), but
+    /// does NOT clear the PERSISTED key — the per-user namespacing is what lets the same user get
+    /// their project back on their next sign-in without reopening the cross-user leak this guards.
     func reset() {
         stop()
         isReady = false
@@ -148,6 +190,7 @@ final class MenuViewModel: ObservableObject {
         selectedChoice = nil
         query = ""
         projects = []
+        currentUserId = nil
     }
 
     /// Bring the sign-in window forward from the signed-out dropdown (the login window is

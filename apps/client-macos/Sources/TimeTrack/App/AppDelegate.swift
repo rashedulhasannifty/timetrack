@@ -38,6 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let ackMarker: AckMarker
     private let projectClient: ProjectClient
     private let projectCache: ProjectCache
+    /// The single instance shared with `MenuViewModel` (Task 4 needs AppDelegate to consult the
+    /// same store directly) — two separately-constructed `SelectionStore`s would agree only by
+    /// accident.
+    private let selectionStore: SelectionStore
     private let timeTracker: TimeTracker
     private let menuViewModel: MenuViewModel
     private let liveSpanStore: LiveSpanStore
@@ -97,6 +101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.projectClient = ProjectClient(baseURL: baseURL, session: session)
         let projectCache = ProjectCache(fileURL: ProjectCache.defaultURL())
         self.projectCache = projectCache
+        let selectionStore = SelectionStore()
+        self.selectionStore = selectionStore
 
         let userIdBox = UserIdBox()
         self.userIdBox = userIdBox
@@ -160,7 +166,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await MainActor.run { presentLoginBox.call?() }
                 }
             },
-            onQuit: { NSApp.terminate(nil) }
+            onQuit: { NSApp.terminate(nil) },
+            selectionStore: selectionStore
         )
         self.menuViewModel = menuViewModel
         super.init()
@@ -283,6 +290,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentUserId = await session.userId()
         await MainActor.run {
             userIdBox.value = currentUserId
+            // Namespaces `select()`/`restoreSelection()` persistence to this user; set before
+            // `refreshProjects()` below so its post-refresh restore has a user id to resolve.
+            menuViewModel.currentUserId = currentUserId
             menuViewModel.markReady()
         }
         await MainActor.run { self.installNudgeInfra() }
@@ -295,10 +305,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Re-fetch the team's projects (network → cache), replacing the picker list. Failures are
     /// swallowed — the last cached list stays. Called at ready and, throttled, on menu open so a
     /// project added in the dashboard appears without restarting the client.
+    ///
+    /// Restoring the persisted selection happens HERE, after the assignment, never at
+    /// construction or from the instant cache-load in `becomeReady()` — resolving against a
+    /// stale or empty list would either drop a valid selection or apply one the user has since
+    /// lost access to. `MenuViewModel.restoreSelection` itself guards against overwriting a
+    /// hand-made selection and against clearing the stored key on an empty list (Task 3 rulings).
     private func refreshProjects() async {
         guard let fresh = try? await projectClient.list() else { return }
         projectCache.save(fresh)
-        await MainActor.run { menuViewModel.projects = fresh }
+        await MainActor.run {
+            menuViewModel.projects = fresh
+            if let userId = menuViewModel.currentUserId {
+                menuViewModel.restoreSelection(userId: userId)
+            }
+        }
     }
 
     /// Menu-open hook: refresh the project list, but only when signed in and not more than once
