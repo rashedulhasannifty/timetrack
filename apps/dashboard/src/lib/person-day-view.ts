@@ -1,9 +1,10 @@
 import type { TimeEntry, ActivitySample, Screenshot, Project } from '@timetrack/contracts';
+import { dayOf, dayStartInstant, isValidDay, shiftDay } from '@timetrack/contracts';
 
 export type DayCategory = 'PRODUCTIVE' | 'NEUTRAL' | 'UNPRODUCTIVE';
 
 export interface PersonDayInput {
-  date: string; // 'YYYY-MM-DD' (UTC day being viewed)
+  date: string; // 'YYYY-MM-DD' (Dhaka day being viewed)
   now: Date; // for isToday, recordingNow, open-entry duration
   isSelf: boolean;
   subjectName: string; // 'You' (self) or the person's name
@@ -95,22 +96,15 @@ const MIN_WINDOW_MS = 4 * HOUR_MS;
  */
 const TRACKING_FRESHNESS_MS = 300_000;
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 /**
- * Resolve a `?date=` query param to a safe 'YYYY-MM-DD'. `raw` is kept only if it matches the
- * date-only format AND round-trips through `Date` (rejects both unparseable strings and
- * JS's silent day/month overflow normalization, e.g. '2026-13-45' -> '2027-01-14'). Otherwise
- * falls back to `now`'s UTC date.
+ * Resolve a `?date=` query param to a safe 'YYYY-MM-DD'. `raw` is kept only if it names a real
+ * calendar date (rejects both unparseable strings and JS's silent day/month overflow
+ * normalization, e.g. '2026-13-45' -> '2027-01-14'). Otherwise falls back to the Dhaka day
+ * containing `now`.
  */
 export function resolveDayDate(raw: string | undefined, now: Date): string {
-  if (raw && DATE_RE.test(raw)) {
-    const parsed = new Date(`${raw}T00:00:00.000Z`);
-    if (!Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === raw) {
-      return raw;
-    }
-  }
-  return now.toISOString().slice(0, 10);
+  if (raw && isValidDay(raw)) return raw;
+  return dayOf(now);
 }
 
 /** Floor an epoch-ms timestamp down to the start of its UTC hour. */
@@ -227,9 +221,9 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
     projects.flatMap((p) => (p.tasks ?? []).map((t) => [t.id, t.name] as const)),
   );
 
-  const isToday = date === now.toISOString().slice(0, 10);
-  const dayStartMs = Date.parse(`${date}T00:00:00.000Z`);
-  const dayEndMs = Date.parse(`${date}T23:59:59.999Z`);
+  const isToday = date === dayOf(now);
+  const dayStartMs = dayStartInstant(date).getTime();
+  const dayEndMs = dayStartInstant(shiftDay(date, 1)).getTime();
   const nowMs = now.getTime();
 
   // The client's last provable sign of life today. An open entry cannot accrue past this —
@@ -278,8 +272,8 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
   let windowStartMs: number;
   let windowEndMs: number;
   if (timestamps.length === 0) {
-    windowStartMs = Date.parse(`${date}T09:00:00.000Z`);
-    windowEndMs = Date.parse(`${date}T18:00:00.000Z`);
+    windowStartMs = dayStartMs + 9 * HOUR_MS;
+    windowEndMs = dayStartMs + 18 * HOUR_MS;
   } else {
     const min = Math.min(...timestamps);
     const max = Math.max(...timestamps);
@@ -452,7 +446,6 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
    --------------------------------------------------------------------------- */
 
 const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-const WEEK_DAY_MS = 86_400_000;
 
 export interface WeekStripDay {
   /** 'YYYY-MM-DD' — the link target. */
@@ -469,16 +462,37 @@ export interface WeekStripDay {
   future: boolean;
 }
 
-/** The Monday-start week containing `date`, as a [from, to] pair of ISO instants. */
-export function weekRangeFor(date: string): { from: string; to: string } {
-  const dayMs = Date.parse(`${date}T00:00:00.000Z`);
-  const dow = new Date(dayMs).getUTCDay();
+/**
+ * The 'YYYY-MM-DD' label of the Monday starting the week containing `date`. Pure label
+ * arithmetic (`shiftDay`) — the weekday extraction itself is safe done against a UTC-midnight
+ * reading of the label rather than a real Dhaka instant: under a fixed-offset zone the UTC
+ * calendar date of that reading always equals the label, so it needs no zone conversion.
+ */
+function mondayOf(date: string): string {
+  const dow = new Date(`${date}T00:00:00.000Z`).getUTCDay();
   // getUTCDay() is Sunday-based; shift so Monday is the first column.
   const mondayOffset = (dow + 6) % 7;
-  const from = dayMs - mondayOffset * WEEK_DAY_MS;
+  return shiftDay(date, -mondayOffset);
+}
+
+/** The Monday-start week containing `date`, as a [from, to] pair of Dhaka-day instants. */
+export function weekRangeFor(date: string): { from: string; to: string } {
+  const monday = mondayOf(date);
   return {
-    from: new Date(from).toISOString(),
-    to: new Date(from + 7 * WEEK_DAY_MS - 1).toISOString(),
+    from: dayStartInstant(monday).toISOString(),
+    to: new Date(dayStartInstant(shiftDay(monday, 7)).getTime() - 1).toISOString(),
+  };
+}
+
+/**
+ * The single Dhaka day `date`, as a [from, to] pair of instants for the API's inclusive
+ * (`lte`) range filters — `to` is 1ms before the next Dhaka day begins, not that day's start,
+ * or an entry starting exactly at midnight would be double-counted in both days.
+ */
+export function dayRangeFor(date: string): { from: string; to: string } {
+  return {
+    from: dayStartInstant(date).toISOString(),
+    to: new Date(dayStartInstant(shiftDay(date, 1)).getTime() - 1).toISOString(),
   };
 }
 
@@ -492,18 +506,17 @@ export function weekStrip(
   days: ReadonlyArray<{ day: string; trackedSeconds: number }>,
   today: string,
 ): WeekStripDay[] {
-  const { from } = weekRangeFor(selectedDate);
-  const mondayMs = Date.parse(from);
+  const monday = mondayOf(selectedDate);
   const byDay = new Map(days.map((d) => [d.day, d.trackedSeconds]));
 
   const raw = Array.from({ length: 7 }, (_, i) => {
-    const ms = mondayMs + i * WEEK_DAY_MS;
-    const date = new Date(ms).toISOString().slice(0, 10);
+    const date = shiftDay(monday, i);
     const seconds = byDay.get(date) ?? 0;
+    const dowIndex = new Date(`${date}T00:00:00.000Z`).getUTCDay();
     return {
       date,
-      dow: DOW[new Date(ms).getUTCDay()]!,
-      num: new Date(ms).getUTCDate(),
+      dow: DOW[dowIndex]!,
+      num: Number(date.slice(8, 10)),
       hours: Math.round((seconds / 3600) * 10) / 10,
       fillPct: 0,
       selected: date === selectedDate,

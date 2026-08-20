@@ -3,10 +3,11 @@ import { defaultReportRange, toProjectBars, hasReportData, sortTeamRows } from '
 import type { TeamSummaryRow } from '@timetrack/contracts';
 
 describe('defaultReportRange', () => {
-  it('spans the last 7 UTC days inclusive of today', () => {
+  it('spans the last 7 Dhaka days inclusive of today', () => {
     const { from, to } = defaultReportRange(new Date('2026-07-19T15:30:00.000Z'));
-    expect(from).toBe('2026-07-13T00:00:00.000Z');
-    expect(to).toBe('2026-07-19T23:59:59.999Z');
+    // Dhaka midnight on 2026-07-19 is 2026-07-18T18:00:00.000Z (UTC+6, no DST).
+    expect(from).toBe('2026-07-12T18:00:00.000Z');
+    expect(to).toBe('2026-07-19T17:59:59.999Z');
   });
 });
 

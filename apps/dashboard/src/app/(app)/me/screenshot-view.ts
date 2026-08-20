@@ -1,4 +1,4 @@
-import type { Screenshot } from '@timetrack/contracts';
+import { clockOf, type Screenshot } from '@timetrack/contracts';
 
 export type TileMode = 'redactable' | 'redacted' | 'pending';
 
@@ -63,7 +63,7 @@ export function stepIndex(count: number, current: number, delta: number): number
   return next;
 }
 
-/** `2026-08-14T12:43:47.000Z` → `12:43`. The grid and the lightbox caption share this. */
+/** `2026-08-14T12:43:47.000Z` → Dhaka wall-clock `18:43`. The grid and the lightbox caption share this. */
 export function shotTime(timestamp: string): string {
-  return timestamp.slice(11, 16);
+  return clockOf(new Date(timestamp));
 }

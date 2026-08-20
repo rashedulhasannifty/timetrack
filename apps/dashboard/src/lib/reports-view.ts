@@ -1,12 +1,13 @@
 import type { ProjectSummaryRow, TeamSummaryRow } from '@timetrack/contracts';
+import { dayOf, dayStartInstant } from '@timetrack/contracts';
 
 const DAY_MS = 86_400_000;
 
-/** Last 7 UTC days, inclusive of the day `now` falls in. */
+/** Last 7 Dhaka days, inclusive of the day `now` falls in. */
 export function defaultReportRange(now: Date): { from: string; to: string } {
-  const dayStart = new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const dayStart = dayStartInstant(dayOf(now));
   const from = new Date(dayStart.getTime() - 6 * DAY_MS);
-  const to = new Date(dayStart.getTime() + DAY_MS - 1); // ...T23:59:59.999Z
+  const to = new Date(dayStart.getTime() + DAY_MS - 1); // ...end of the Dhaka day
   return { from: from.toISOString(), to: to.toISOString() };
 }
 

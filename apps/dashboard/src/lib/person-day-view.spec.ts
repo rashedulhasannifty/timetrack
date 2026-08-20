@@ -26,10 +26,11 @@ describe('personDayView — core', () => {
     expect((vm.window.endMs - vm.window.startMs) / 3_600_000).toBe(4);
   });
 
-  it('empty day falls back to 09:00–18:00', () => {
+  it('empty day falls back to 09:00–18:00 Dhaka', () => {
     const vm = personDayView({ ...base, now: new Date(iso(20)), entries: [] });
-    expect(new Date(vm.window.startMs).toISOString()).toBe(iso(9));
-    expect(new Date(vm.window.endMs).toISOString()).toBe(iso(18));
+    // Dhaka midnight on D is 2026-07-12T18:00:00.000Z; +9h/+18h from there.
+    expect(new Date(vm.window.startMs).toISOString()).toBe('2026-07-13T03:00:00.000Z');
+    expect(new Date(vm.window.endMs).toISOString()).toBe('2026-07-13T12:00:00.000Z');
     expect(vm.stats.trackedSeconds).toBe(0);
   });
 
@@ -232,6 +233,7 @@ describe('personDayView — entry labels', () => {
 });
 
 describe('resolveDayDate', () => {
+  // 20:00 UTC on the 13th is already 02:00 Dhaka on the 14th.
   const now = new Date('2026-07-13T20:00:00.000Z');
 
   it('keeps a valid date', () => {
@@ -239,15 +241,31 @@ describe('resolveDayDate', () => {
   });
 
   it('falls back to today when raw is undefined', () => {
-    expect(resolveDayDate(undefined, now)).toBe('2026-07-13');
+    expect(resolveDayDate(undefined, now)).toBe('2026-07-14');
   });
 
   it.each(['2026-7-1', 'garbage'])('falls back to today on bad format %s', (raw) => {
-    expect(resolveDayDate(raw, now)).toBe('2026-07-13');
+    expect(resolveDayDate(raw, now)).toBe('2026-07-14');
   });
 
   it.each(['2026-13-45', '2026-02-30'])('falls back to today on impossible date %s', (raw) => {
-    expect(resolveDayDate(raw, now)).toBe('2026-07-13');
+    expect(resolveDayDate(raw, now)).toBe('2026-07-14');
+  });
+});
+
+describe('resolveDayDate (Dhaka)', () => {
+  it('defaults to the Dhaka day, not the UTC day', () => {
+    // 18:30Z is already tomorrow in Dhaka.
+    expect(resolveDayDate(undefined, new Date('2026-08-19T18:30:00.000Z'))).toBe('2026-08-20');
+  });
+
+  it('accepts an explicit valid day', () => {
+    expect(resolveDayDate('2026-08-20', new Date('2026-08-19T18:30:00.000Z'))).toBe('2026-08-20');
+  });
+
+  it('falls back to today when the param is not a real day', () => {
+    expect(resolveDayDate('2026-02-30', new Date('2026-08-19T18:30:00.000Z'))).toBe('2026-08-20');
+    expect(resolveDayDate('garbage', new Date('2026-08-19T18:30:00.000Z'))).toBe('2026-08-20');
   });
 });
 

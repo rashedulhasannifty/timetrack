@@ -1,4 +1,4 @@
-import type { IdleEvent } from '@timetrack/contracts';
+import { clockOf, type IdleEvent } from '@timetrack/contracts';
 
 /**
  * Pure view-transforms for the idle-periods panel. No React, no I/O.
@@ -16,7 +16,7 @@ export interface IdleRow {
   /** The original ISO window, re-posted verbatim when resolving (the upsert rewrites it). */
   startTime: string;
   endTime: string;
-  /** "10:48 – 11:05" in UTC, matching the rest of the day view. */
+  /** "10:48 – 11:05" in Dhaka wall-clock time, matching the rest of the day view. */
   range: string;
   durationSeconds: number;
   outcome: IdleOutcome;
@@ -37,7 +37,7 @@ const TONE: Record<IdleOutcome, IdleRow['tone']> = {
 };
 
 function hhmm(iso: string): string {
-  return new Date(iso).toISOString().slice(11, 16);
+  return clockOf(new Date(iso));
 }
 
 /**

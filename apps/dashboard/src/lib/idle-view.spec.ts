@@ -28,8 +28,9 @@ describe('idleRows', () => {
     expect(idleRows(events).map((r) => r.durationSeconds)).toEqual([2700, 1020, 540]);
   });
 
-  it('renders the range as UTC HH:MM', () => {
-    expect(idleRows(events)[1]!.range).toBe('10:48 – 11:05');
+  it('renders the range as Dhaka HH:MM', () => {
+    // 10:48–11:05 UTC === 16:48–17:05 Dhaka (UTC+6).
+    expect(idleRows(events)[1]!.range).toBe('16:48 – 17:05');
   });
 
   it('maps each outcome to its own note and tone', () => {
