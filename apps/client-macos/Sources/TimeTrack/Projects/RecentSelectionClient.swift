@@ -6,6 +6,21 @@ import Foundation
 /// fallback: only consulted when `SelectionStore` has nothing for this user, and a failure
 /// simply leaves nothing pre-selected rather than blocking the UI. Not a capture path.
 final class RecentSelectionClient {
+    /// What `mostRecentSelection()` learned. Split from a bare `StoredSelection?` so the
+    /// caller can tell "the server answered and there's nothing to restore" apart from
+    /// "no answer was obtained" — a 429 from the global throttler or a 503 mid-deploy
+    /// shouldn't burn the caller's one-shot fallback attempt the way a real answer should.
+    enum FallbackOutcome {
+        /// The server answered (2xx) and named a project to restore.
+        case found(StoredSelection)
+        /// The server answered (2xx) but there was nothing usable in the window.
+        case notFound
+        /// No answer was obtained: no token, offline, or a non-2xx status (429/503/etc).
+        /// Says nothing about the user's history, so it should not be treated as a real
+        /// attempt.
+        case transientFailure
+    }
+
     private let baseURL: URL
     private let session: AuthSession
     /// How far back to look for a previous entry. A fortnight covers a holiday or a new Mac
@@ -17,8 +32,13 @@ final class RecentSelectionClient {
         self.session = session
     }
 
-    func mostRecentSelection() async -> StoredSelection? {
-        guard let token = try? await session.accessToken() else { return nil }
+    /// No 401 → forceRefresh → retry-once dance here, unlike `ProjectClient.list()`
+    /// (`ProjectClient.swift:22-26`): `refreshProjects()` always calls `projectClient.list()`
+    /// first, and that call already forces a token refresh on a 401, so by the time this
+    /// fallback runs the token is already fresh. Adding the same retry here would be
+    /// redundant, not a missing safeguard.
+    func mostRecentSelection() async -> FallbackOutcome {
+        guard let token = try? await session.accessToken() else { return .transientFailure }
         let now = Date()
         let from = now.addingTimeInterval(-Double(Self.lookbackDays) * 86_400)
 
@@ -30,16 +50,17 @@ final class RecentSelectionClient {
             URLQueryItem(name: "from", value: TimeEntryPayload.iso.string(from: from)),
             URLQueryItem(name: "to", value: TimeEntryPayload.iso.string(from: now)),
         ]
-        guard let url = components?.url else { return nil }
+        guard let url = components?.url else { return .transientFailure }
 
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse,
               (200...299).contains(http.statusCode)
-        else { return nil }
+        else { return .transientFailure }
 
-        return Self.newestSelection(in: data)
+        guard let selection = Self.newestSelection(in: data) else { return .notFound }
+        return .found(selection)
     }
 
     /// Pure decode + pick (unit-tested; the async orchestration above is build-verified).

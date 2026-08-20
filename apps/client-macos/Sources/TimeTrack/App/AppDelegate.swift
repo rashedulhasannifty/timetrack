@@ -343,20 +343,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `userId` here is resolved independently of `menuViewModel.currentUserId` (read only
         // below, inside `MainActor.run`, atomically with the restore) so a concurrent sign-out's
         // `reset()` — which nils `currentUserId` — can't be raced into restoring a stale
-        // selection; at worst this writes a best-effort fallback under a user who has since
-        // signed out, which sits inert under their namespaced key.
+        // selection. `mostRecentSelection()` independently re-reads a FRESH access token, so a
+        // complete sign-out and sign-in-as-B inside that network round-trip would return B's
+        // history for save under A's key. The `session.userId() == userId` re-check immediately before the save below
+        // narrows that window to the handful of instructions between the check and the write —
+        // it does NOT close it outright, so don't read it as eliminating the race. Even inside
+        // that residual sliver the blast radius stays bounded: on A's next sign-in,
+        // `SelectionResolver` matches the restored value against A's freshly-fetched project
+        // list, so a different-team project is dropped and the key cleared before any wrong-team
+        // `projectId` can reach a `Start`.
         if let userId = await session.userId() {
             let shouldAttemptFallback = await MainActor.run { () -> Bool in
                 guard !hasAttemptedRecentSelectionFallback, selectionStore.load(userId: userId) == nil else {
                     return false
                 }
                 // Mark the attempt now, before the network call — a failed/empty result still
-                // counts as "attempted" so the guard actually closes.
+                // counts as "attempted" so the guard actually closes. Exception: a transient
+                // failure (`RecentSelectionClient.FallbackOutcome.transientFailure` — no token,
+                // offline, or ANY non-2xx status, including a 401 as well as a 429 from the
+                // throttler or a 503 mid-deploy) un-marks it below, so it doesn't permanently
+                // burn the session's only fresh-install attempt on an answer the server never
+                // actually gave.
                 hasAttemptedRecentSelectionFallback = true
                 return true
             }
-            if shouldAttemptFallback, let remote = await recentSelectionClient.mostRecentSelection() {
-                selectionStore.save(remote, userId: userId)
+            if shouldAttemptFallback {
+                switch await recentSelectionClient.mostRecentSelection() {
+                case .found(let remote):
+                    // Re-check immediately before the save — see the comment above.
+                    if await session.userId() == userId {
+                        selectionStore.save(remote, userId: userId)
+                    }
+                case .notFound:
+                    break
+                case .transientFailure:
+                    await MainActor.run { hasAttemptedRecentSelectionFallback = false }
+                }
             }
         }
 
