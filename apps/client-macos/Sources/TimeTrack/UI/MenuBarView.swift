@@ -73,10 +73,51 @@ struct MenuBarView: View {
                 .foregroundStyle(TT.Palette.accent)
                 elapsedView
             }
+            totalsView
         }
         .padding(.horizontal, TT.Space.x4)
         .padding(.top, TT.Space.x3)
         .padding(.bottom, TT.Space.x2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: Totals — today / this week / this month
+
+    /// Shown whether or not the clock is running: "how much have I worked" is the question this
+    /// answers, and it does not stop being interesting when tracking stops.
+    ///
+    /// These come from the server, which already counts a currently-running entry (clamped to the
+    /// last heartbeat). The live elapsed counter above must NOT be added on top of them — that
+    /// would count the current session twice.
+    @ViewBuilder private var totalsView: some View {
+        HStack(spacing: 0) {
+            totalCell("Today", seconds: viewModel.totals?.todaySeconds)
+            divider
+            totalCell("This week", seconds: viewModel.totals?.weekSeconds)
+            divider
+            totalCell("This month", seconds: viewModel.totals?.monthSeconds)
+        }
+        .padding(.top, TT.Space.x2)
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(TT.Palette.separator)
+            .frame(width: 1, height: 22)
+    }
+
+    /// `nil` seconds renders an em dash, not "0m". The totals are unknown until the first
+    /// successful fetch, and a confident zero would misreport someone's day.
+    @ViewBuilder private func totalCell(_ label: String, seconds: Int?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label.uppercased())
+                .font(.ttCaption)
+                .tracking(0.5)
+                .foregroundStyle(TT.Palette.textSecondary)
+            Text(seconds.map(WorkTotalFormat.short) ?? "—")
+                .font(.ttNumeric(15, weight: .semibold))
+                .foregroundStyle(TT.Palette.text)
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

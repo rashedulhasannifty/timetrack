@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let ackClient: AckClient
     private let ackMarker: AckMarker
     private let projectClient: ProjectClient
+    private let selfTotalsClient: SelfTotalsFetching
     private let projectCache: ProjectCache
     /// Fresh-install fallback only — consulted from `refreshProjects()` when `selectionStore`
     /// has nothing for the current user. See `RecentSelectionClient`.
@@ -78,6 +79,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Rate-limits the menu-open project re-fetch so opening the dropdown repeatedly doesn't
     /// hammer GET /v1/projects. First open always refreshes.
     private let projectRefreshThrottle = RefreshThrottle(minInterval: 60)
+    /// Shorter than the project throttle: the totals are the thing the person opened the menu to
+    /// look at, and they move minute by minute while the clock runs.
+    private let totalsRefreshThrottle = RefreshThrottle(minInterval: 20)
 
     private var notifier: LocalNotifying?
     private var dailyTotal: DailyTotalAccumulator?
@@ -111,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ackMarker = AckMarker()
         self.ackMarker = ackMarker
         self.projectClient = ProjectClient(baseURL: baseURL, session: session)
+        self.selfTotalsClient = SelfTotalsClient(baseURL: baseURL, session: session)
         let projectCache = ProjectCache(fileURL: ProjectCache.defaultURL())
         self.projectCache = projectCache
         self.recentSelectionClient = RecentSelectionClient(baseURL: baseURL, session: session)
@@ -402,6 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Everything that should be re-checked because a person is looking at the menu right now.
     @MainActor private func menuDidOpen() {
         refreshProjectsOnMenuOpen()
+        refreshTotalsOnMenuOpen()
         // The 6h background poll is the floor, not the whole story: a release published just
         // after this app launched would otherwise sit unseen until the next tick.
         updateCoordinator?.checkOnMenuOpen()
@@ -410,6 +416,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private func refreshProjectsOnMenuOpen() {
         guard menuViewModel.isReady, projectRefreshThrottle.shouldRefresh() else { return }
         Task { await refreshProjects() }
+    }
+
+    /// Refresh the day/week/month totals as the dropdown opens.
+    ///
+    /// Gated on being signed in, not on `isReady`: the totals are a report of time already
+    /// recorded, not a capture path, so an un-acknowledged policy has no bearing on them.
+    /// A failure leaves the previous values alone — the row shows what was last true rather than
+    /// blanking on a dropped connection.
+    @MainActor private func refreshTotalsOnMenuOpen() {
+        guard menuViewModel.isSignedIn, totalsRefreshThrottle.shouldRefresh() else { return }
+        Task { [weak self] in
+            guard let self, let totals = try? await self.selfTotalsClient.fetch() else { return }
+            // Sign-out can land while the fetch is in flight; dropping the result then keeps one
+            // user's tracked time from surfacing in the next user's dropdown.
+            await MainActor.run {
+                guard self.menuViewModel.isSignedIn else { return }
+                self.menuViewModel.totals = totals
+            }
+        }
     }
 
     /// Local-notification infra (not a capture path — safe on both ready paths). Idempotent.

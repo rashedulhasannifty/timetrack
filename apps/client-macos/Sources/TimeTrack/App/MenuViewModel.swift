@@ -30,6 +30,18 @@ final class MenuViewModel: ObservableObject {
     @Published var projects: [Project] = []
     @Published var query: String = ""
 
+    /// The server's own today / this-week / this-month totals, refreshed when the dropdown opens.
+    ///
+    /// Nil means "not known yet" and renders as an em dash — never as 0h, which would be a lie
+    /// about someone's tracked time on the one screen where that number is the whole point. A
+    /// refresh that FAILS leaves the last successful value in place: it was true when it was
+    /// fetched, and that is more useful than blanking the row on a dropped connection.
+    ///
+    /// Deliberately a snapshot, not a live figure. It is taken when the dropdown opens and then
+    /// left alone; the ticking second-by-second truth is the elapsed counter directly above it,
+    /// and a second number racing it would be noise.
+    @Published var totals: SelfTotals?
+
     /// The signed-in user, set by AppDelegate once the session resolves. Selection persistence is
     /// namespaced by it so one user can never inherit another's (possibly wrong-team) project.
     var currentUserId: String?
@@ -191,6 +203,8 @@ final class MenuViewModel: ObservableObject {
         query = ""
         projects = []
         currentUserId = nil
+        // A previous user's tracked time must never be visible to whoever signs in next.
+        totals = nil
     }
 
     /// Bring the sign-in window forward from the signed-out dropdown (the login window is
