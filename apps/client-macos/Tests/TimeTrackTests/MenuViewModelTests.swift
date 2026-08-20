@@ -115,7 +115,8 @@ final class MenuViewModelTests: XCTestCase {
         let tracker = TimeTracker(buffer: BufferSpy(), clock: { now }, idGen: { _ in UUID().uuidString })
         let vm = MenuViewModel(tracker: tracker,
                                dashboardURL: URL(string: "http://localhost:3000")!,
-                               openURL: { _ in }, onSignIn: {}, onSignOut: {}, onQuit: {})
+                               openURL: { _ in }, onSignIn: {}, onSignOut: {}, onQuit: {},
+                               selectionStore: makeIsolatedStore())
         var iconStart: Date?
         vm.onPhaseChanged = { _, startedAt in iconStart = startedAt }
         vm.markReady()
@@ -147,7 +148,8 @@ final class MenuViewModelTests: XCTestCase {
         let tracker = TimeTracker(buffer: BufferSpy(), clock: { now }, idGen: { _ in UUID().uuidString })
         let vm = MenuViewModel(tracker: tracker,
                                dashboardURL: URL(string: "http://localhost:3000")!,
-                               openURL: { _ in }, onSignIn: {}, onSignOut: {}, onQuit: {})
+                               openURL: { _ in }, onSignIn: {}, onSignOut: {}, onQuit: {},
+                               selectionStore: makeIsolatedStore())
         vm.markReady()
         vm.start()
         now = Date(timeIntervalSince1970: 1_500)
@@ -170,7 +172,8 @@ final class MenuViewModelTests: XCTestCase {
         var opened: URL?
         let vm = MenuViewModel(tracker: tracker,
                                dashboardURL: URL(string: "http://localhost:3000")!,
-                               openURL: { opened = $0 }, onSignIn: {}, onSignOut: {}, onQuit: {})
+                               openURL: { opened = $0 }, onSignIn: {}, onSignOut: {}, onQuit: {},
+                               selectionStore: makeIsolatedStore())
         vm.openMyData()
         XCTAssertEqual(opened?.absoluteString, "http://localhost:3000/me",
                        "My Data must open the /me self-view, not the dashboard root")
