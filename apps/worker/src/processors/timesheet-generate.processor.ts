@@ -2,6 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 import type { Job } from 'bullmq';
+import { loadEnv } from '@timetrack/config';
 import { WorkerPrisma } from '../infra/prisma.provider.js';
 import { generatePendingTimesheets } from './timesheet-generate.js';
 
@@ -13,6 +14,8 @@ import { generatePendingTimesheets } from './timesheet-generate.js';
 @Injectable()
 @Processor('timesheet-generate')
 export class TimesheetGenerateProcessor extends WorkerHost {
+  private readonly env = loadEnv();
+
   constructor(
     private readonly prisma: WorkerPrisma,
     private readonly logger: Logger,
@@ -22,7 +25,11 @@ export class TimesheetGenerateProcessor extends WorkerHost {
 
   async process(job: Job<{ at?: string }>): Promise<void> {
     const now = job.data?.at ? new Date(job.data.at) : new Date();
-    const created = await generatePendingTimesheets(this.prisma, now);
+    const created = await generatePendingTimesheets(
+      this.prisma,
+      now,
+      this.env.TRACKING_FRESHNESS_SECONDS,
+    );
     this.logger.log({ created }, 'timesheet-generate run complete');
   }
 }

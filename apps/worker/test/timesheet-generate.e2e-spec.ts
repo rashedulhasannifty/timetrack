@@ -7,6 +7,7 @@ const RUN_E2E = process.env.RUN_E2E === '1'; // worker e2e specs gate on this (s
 // A fixed "now" on a Wednesday so the current (in-progress) week is excluded and the
 // four prior CLOSED ISO weeks are the window. Monday of now's week = 2026-07-13.
 const NOW = new Date('2026-07-15T12:00:00.000Z'); // Wed 2026-07-15
+const FRESHNESS = 300; // TRACKING_FRESHNESS_SECONDS' default (packages/config)
 // Closed weeks in the 4-week window start on: 2026-06-15, 06-22, 06-29, 07-06 (Mondays).
 
 describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
@@ -39,7 +40,13 @@ describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
       select: { id: true },
     });
   }
-  async function entry(userId: string, id: string, startIso: string, endIso: string | null) {
+  async function entry(
+    userId: string,
+    id: string,
+    startIso: string,
+    endIso: string | null,
+    heartbeatAt: Date | null = null,
+  ) {
     await env.prisma.timeEntry.create({
       data: {
         id,
@@ -47,6 +54,7 @@ describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
         source: 'MANUAL',
         startTime: new Date(startIso),
         endTime: endIso ? new Date(endIso) : null,
+        heartbeatAt,
       },
     });
   }
@@ -68,7 +76,7 @@ describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
       '2026-07-07T10:30:00Z',
     );
 
-    const created = await generatePendingTimesheets(env.prisma, NOW);
+    const created = await generatePendingTimesheets(env.prisma, NOW, FRESHNESS);
     expect(created).toBe(2);
 
     const rows = await env.prisma.timesheetApproval.findMany({
@@ -102,9 +110,42 @@ describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
       '2026-07-14T10:00:00Z',
     );
 
-    const created = await generatePendingTimesheets(env.prisma, NOW);
+    const created = await generatePendingTimesheets(env.prisma, NOW, FRESHNESS);
     expect(created).toBe(0);
     expect(await env.prisma.timesheetApproval.count()).toBe(0);
+  });
+
+  it('does not manufacture an approval for a week whose only entry is stranded open', async () => {
+    const t = await team();
+    const ada = await user(t.id, 'Ada', 'ada@example.com');
+    // Started in a closed week and never stopped; the client stopped heartbeating.
+    await entry(
+      ada.id,
+      '019797a0-0000-7000-8000-00000000a007',
+      '2026-06-30T09:00:00Z',
+      null,
+    );
+
+    expect(await generatePendingTimesheets(env.prisma, NOW, FRESHNESS)).toBe(0);
+    expect(await env.prisma.timesheetApproval.count()).toBe(0);
+  });
+
+  it('still generates for a LIVE open entry that started before the week closed', async () => {
+    const t = await team();
+    const ada = await user(t.id, 'Ada', 'ada@example.com');
+    // The counterpart of the test above, and the reason candidacy keys on STALENESS rather
+    // than on `endTime IS NULL`: a timer that is still running and still heartbeating is real
+    // work. The staleness predicate compares the heartbeat against the SQL clock, so this
+    // fixture heartbeats at wall-clock now even though the entry starts in a closed week.
+    await entry(
+      ada.id,
+      '019797a0-0000-7000-8000-00000000a008',
+      '2026-06-30T09:00:00Z',
+      null,
+      new Date(),
+    );
+
+    expect(await generatePendingTimesheets(env.prisma, NOW, FRESHNESS)).toBe(1);
   });
 
   it('is idempotent, never clobbers a decided row, and backfills a late-arriving entry', async () => {
@@ -117,7 +158,7 @@ describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
       '2026-06-30T10:00:00Z',
     );
 
-    expect(await generatePendingTimesheets(env.prisma, NOW)).toBe(1);
+    expect(await generatePendingTimesheets(env.prisma, NOW, FRESHNESS)).toBe(1);
     // decide the generated row
     const gen = await env.prisma.timesheetApproval.findFirstOrThrow({ where: { userId: ada.id } });
     await env.prisma.timesheetApproval.update({
@@ -134,7 +175,7 @@ describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
     );
 
     // re-run: adds the missing week only, leaves APPROVED row untouched
-    expect(await generatePendingTimesheets(env.prisma, NOW)).toBe(1);
+    expect(await generatePendingTimesheets(env.prisma, NOW, FRESHNESS)).toBe(1);
     const rows = await env.prisma.timesheetApproval.findMany({
       where: { userId: ada.id },
       orderBy: { periodStart: 'asc' },
@@ -142,6 +183,6 @@ describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
     expect(rows).toHaveLength(2);
     const approved = rows.find((r) => r.periodStart.toISOString() === '2026-06-29T00:00:00.000Z')!;
     expect(approved.status).toBe('APPROVED'); // not clobbered
-    expect(await generatePendingTimesheets(env.prisma, NOW)).toBe(0); // fully idempotent now
+    expect(await generatePendingTimesheets(env.prisma, NOW, FRESHNESS)).toBe(0); // fully idempotent now
   });
 });
