@@ -19,11 +19,12 @@ const entry = (id: string, sh: number, eh: number | null, note = 'work'): TimeEn
 const base = { date: D, isSelf: true, subjectName: 'You', samples: [], screenshots: [] };
 
 describe('personDayView — core', () => {
-  it('derives the window from data, snapped to the hour with a 4h minimum', () => {
+  it('derives the window from data, snapped to the hour with an 8h minimum', () => {
     const vm = personDayView({ ...base, now: new Date(iso(20)), entries: [entry('a', 9, 10)] });
     expect(new Date(vm.window.startMs).toISOString()).toBe(iso(9));
-    // 09:00 tracked one hour → window must be >= 4h, so end extends to 13:00
-    expect((vm.window.endMs - vm.window.startMs) / 3_600_000).toBe(4);
+    // 09:00 tracked one hour → window must be >= 8h, so the end extends to 17:00. The padding
+    // is a DRAWING concern; untrackedSeconds is measured against elapsed time, not against it.
+    expect((vm.window.endMs - vm.window.startMs) / 3_600_000).toBe(8);
   });
 
   it('empty day falls back to 09:00–18:00 Dhaka', () => {
@@ -58,6 +59,47 @@ describe('personDayView — core', () => {
     expect(vm.stats.activePct).toBeNull();
   });
 
+  /**
+   * REGRESSION. The window is padded out to the 8h minimum so the ribbon has a readable scale,
+   * and on TODAY that padding runs into the future. Measuring untracked against the padded
+   * window reported hours that had not happened yet — the reported symptom was "Untracked 3h23m"
+   * at 4am, most of it still to come.
+   *
+   * Here: one hour tracked 09:00–10:00, the window padded to 09:00–17:00, and it is now 11:00.
+   * Only two hours have elapsed, one of them tracked, so exactly one hour is untracked. Against
+   * the padded window it would have read 7h.
+   */
+  it('measures untracked against elapsed time, not the padding, on today', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(11)), // 17:00 Dhaka on D — the same Dhaka day, mid-window
+      entries: [entry('a', 9, 10)],
+    });
+    expect((vm.window.endMs - vm.window.startMs) / 3_600_000).toBe(8); // still drawn at 8h
+    expect(vm.stats.trackedSeconds).toBe(3600);
+    expect(vm.stats.untrackedSeconds).toBe(3600);
+  });
+
+  /** Never negative: nothing has elapsed yet at the very start of the window. */
+  it('reports no untracked time before the window has begun', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(9)),
+      entries: [entry('a', 9, 10)],
+    });
+    expect(vm.stats.untrackedSeconds).toBe(0);
+  });
+
+  /** A past day is unaffected — every hour of its window has elapsed by definition. */
+  it('leaves a past day measured against the whole window', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(20)), // 02:00 Dhaka on the NEXT day, so D is in the past
+      entries: [entry('a', 9, 10)],
+    });
+    expect(vm.stats.untrackedSeconds).toBe(7 * 3600); // 8h window - 1h tracked
+  });
+
   it('merges overlapping entries so trackedSeconds is not double-counted', () => {
     const vm = personDayView({
       ...base,
@@ -66,8 +108,9 @@ describe('personDayView — core', () => {
       entries: [entry('a', 9, 13), entry('b', 11, 15)],
     });
     expect(vm.stats.trackedSeconds).toBe(6 * 3600); // merged, not the naive 4h+4h=8h
-    // window is exactly the merged tracked span (09:00–15:00), so there's no gap.
-    expect(vm.stats.untrackedSeconds).toBe(0);
+    // The merged span is 6h, and the window is padded to the 8h minimum (09:00–17:00), so 2h
+    // of the drawn window carries no entry. This is a past day, so all 8h have elapsed.
+    expect(vm.stats.untrackedSeconds).toBe(2 * 3600);
   });
 });
 
@@ -87,7 +130,7 @@ describe('personDayView — ribbon', () => {
     const vm = personDayView({
       ...base,
       now: new Date(iso(20)),
-      entries: [entry('a', 9, 13)], // fills the 4h min window exactly (09–13)
+      entries: [entry('a', 9, 13)], // 4h of the 8h min window (09–17)
       samples: [
         sample(9, 0, 'PRODUCTIVE', 80),
         sample(9, 30, 'PRODUCTIVE', 60),
@@ -97,10 +140,10 @@ describe('personDayView — ribbon', () => {
     // productive 09:00–10:00, then unproductive 10:00–13:00 → two segments.
     expect(vm.ribbon.tracked).toHaveLength(2);
     expect(vm.ribbon.tracked[0]).toMatchObject({ category: 'PRODUCTIVE', startPct: 0 });
-    expect(Math.round(vm.ribbon.tracked[0]!.widthPct)).toBe(25); // 1h of 4h
+    expect(Math.round(vm.ribbon.tracked[0]!.widthPct)).toBe(13); // 1h of 8h
     expect(vm.ribbon.tracked[1]!.category).toBe('UNPRODUCTIVE');
-    expect(Math.round(vm.ribbon.tracked[1]!.startPct)).toBe(25);
-    expect(Math.round(vm.ribbon.tracked[1]!.widthPct)).toBe(75); // 3h of 4h
+    expect(Math.round(vm.ribbon.tracked[1]!.startPct)).toBe(13);
+    expect(Math.round(vm.ribbon.tracked[1]!.widthPct)).toBe(38); // 3h of 8h
   });
 
   it('surfaces a brief unproductive stretch inside a neutral entry as its own segment', () => {
@@ -126,7 +169,7 @@ describe('personDayView — ribbon', () => {
     const vm = personDayView({ ...base, now: new Date(iso(20)), entries: [entry('a', 9, 13)] });
     expect(vm.ribbon.tracked).toHaveLength(1);
     expect(vm.ribbon.tracked[0]).toMatchObject({ category: 'NEUTRAL', startPct: 0 });
-    expect(Math.round(vm.ribbon.tracked[0]!.widthPct)).toBe(100);
+    expect(Math.round(vm.ribbon.tracked[0]!.widthPct)).toBe(50); // the 4h entry fills half of 8h
   });
 
   it('emits an untracked gap between two blocks', () => {
@@ -145,8 +188,18 @@ describe('personDayView — ribbon', () => {
       entries: [entry('a', 9, 13)],
       samples: [sample(9, 0, 'NEUTRAL', 50)],
     });
-    // 09:00-13:00Z === 15:00-19:00 Dhaka.
-    expect(vm.ribbon.hourTicks.map((t) => t.label)).toEqual(['15', '16', '17', '18', '19']);
+    // The window is padded to 8h: 09:00-17:00Z === 15:00-23:00 Dhaka.
+    expect(vm.ribbon.hourTicks.map((t) => t.label)).toEqual([
+      '15',
+      '16',
+      '17',
+      '18',
+      '19',
+      '20',
+      '21',
+      '22',
+      '23',
+    ]);
     expect(vm.activityBuckets[0]).toMatchObject({
       label: '15',
       activityPct: 50,
@@ -163,7 +216,19 @@ describe('personDayView — ribbon', () => {
       now: new Date(iso(23)),
       entries: [entry('a', 17, 21)],
     });
-    expect(vm.ribbon.hourTicks.map((t) => t.label)).toEqual(['23', '00', '01', '02', '03']);
+    // Padding to 8h cannot run past the end of the Dhaka day, so the window is pulled BACK to
+    // 10:00-18:00Z. The discriminating tick is the last one: 18:00Z reads "00", not "18".
+    expect(vm.ribbon.hourTicks.map((t) => t.label)).toEqual([
+      '16',
+      '17',
+      '18',
+      '19',
+      '20',
+      '21',
+      '22',
+      '23',
+      '00',
+    ]);
   });
 
   it('places a capture mark at the screenshot time', () => {
@@ -184,7 +249,7 @@ describe('personDayView — ribbon', () => {
       screenshots: [shot],
     });
     expect(vm.ribbon.captures).toHaveLength(1);
-    expect(Math.round(vm.ribbon.captures[0]!.atPct)).toBe(50); // 11:00 is midpoint of 09–13
+    expect(Math.round(vm.ribbon.captures[0]!.atPct)).toBe(25); // 11:00 is 2h into the 8h window
   });
 });
 

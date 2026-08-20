@@ -81,7 +81,15 @@ export interface PersonDayViewModel {
 }
 
 const HOUR_MS = 3_600_000;
-const MIN_WINDOW_MS = 4 * HOUR_MS;
+/**
+ * The narrowest span the day ribbon will draw. A day holding one short entry would otherwise
+ * render as a single fat block with no surrounding context; padding it out to a working day's
+ * worth of scale keeps the entry readable AS a portion of a day.
+ *
+ * This pads the DRAWING only. `untrackedSeconds` is measured against the elapsed part of the
+ * window, never the padding — see below.
+ */
+const MIN_WINDOW_MS = 8 * HOUR_MS;
 
 /**
  * How long after a client's last activity sample we still consider it live. This APPROXIMATES
@@ -303,9 +311,18 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
   );
   const trackedSeconds = mergedTrackedMs.reduce((sum, iv) => sum + (iv.end - iv.start) / 1000, 0);
 
+  // Untracked is measured against time that has actually ELAPSED, not against the drawn window.
+  //
+  // The window is padded out to MIN_WINDOW_MS so the ribbon has a readable scale, and on today
+  // that padding runs into the future: a day whose entries end at 03:37 draws through to 11:00.
+  // Counting that padding made "Untracked" report hours that had not happened yet — 3h23m of
+  // untracked time at 4am, most of it still to come.
+  //
+  // Only today needs the clamp. On a past day every hour of the window is elapsed by definition.
+  const elapsedEndMs = isToday ? Math.min(windowEndMs, nowMs) : windowEndMs;
   const untrackedSeconds = Math.max(
     0,
-    Math.round((windowEndMs - windowStartMs) / 1000) - trackedSeconds,
+    Math.round((Math.max(windowStartMs, elapsedEndMs) - windowStartMs) / 1000) - trackedSeconds,
   );
 
   const activePct =
