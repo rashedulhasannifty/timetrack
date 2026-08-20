@@ -342,7 +342,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     expect(rows[0]?.trackedSeconds).toBeGreaterThan(0);
   });
 
-  it('hoursByDay buckets by UTC start-day and clamps to the window', async () => {
+  it('hoursByDay buckets by Dhaka start-day and clamps to the window', async () => {
     const team = await seedTeam();
     const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
     const project = await repo().createProject(team.id, 'Website', 'actor1');
@@ -356,6 +356,25 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       { day: '2026-07-14', trackedSeconds: 3600 },
       { day: '2026-07-15', trackedSeconds: 7200 },
     ]);
+  });
+
+  it('hoursByDay labels a bucket by the Dhaka start-day, not the UTC one', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    // 01:00-02:00 Dhaka on 2026-08-20 — which is 19:00-20:00Z on 2026-08-19. `to_char` on the
+    // clamped start is the only day derivation in this query, so this is its boundary case.
+    await seedEntry(jane.id, project.id, null, '2026-08-19T19:00:00Z', '2026-08-19T20:00:00Z');
+
+    const rows = await repo().hoursByDay(
+      project.id,
+      new Date('2026-08-19T00:00:00.000Z'),
+      new Date('2026-08-21T00:00:00.000Z'),
+      FRESHNESS,
+    );
+
+    // Under UTC the bucket would be labelled 2026-08-19.
+    expect(rows).toEqual([{ day: '2026-08-20', trackedSeconds: 3600 }]);
   });
 
   it('hoursByDay excludes a zero-duration (discarded recovery) entry — no phantom day row', async () => {

@@ -539,6 +539,28 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       expect(aug19?.trackedSeconds).toBe(900);
       expect(aug20?.trackedSeconds).toBe(900);
     });
+
+    it('derives the day series and the summary range from `from` in Dhaka, not UTC', async () => {
+      // 2026-08-19T18:00:00.000Z is 00:00 Dhaka on 2026-08-20 — a bound where the two zones
+      // DISAGREE ('Asia/Dhaka' reads 2026-08-20, 'UTC' reads 2026-08-19). `to` is picked to
+      // read the same under both zones, so a failure localises to the lower bound.
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      await seedSummary(user.id, '2026-08-19', { PRODUCTIVE: 11 }, 11);
+      await seedSummary(user.id, '2026-08-20', { PRODUCTIVE: 22 }, 22);
+
+      const days = await repo().trends(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-08-19T18:00:00.000Z'),
+        new Date('2026-08-20T12:00:00.000Z'), // 18:00 Dhaka the same date, unambiguous
+        WINDOW,
+      );
+
+      // Under UTC the generate_series would open on 2026-08-19 and the cat CTE would pull in
+      // its 11 productive minutes.
+      expect(days.map((d) => d.day)).toEqual(['2026-08-20']);
+      expect(days[0]?.productiveSeconds).toBe(22 * 60);
+    });
   });
 
   describe('team-activity', () => {
@@ -646,6 +668,52 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
 
       expect(rows.map((r) => r.userId)).toEqual([userA.id]);
       expect(rows.map((r) => r.name)).toEqual(['Ada']);
+    });
+
+    it('filters the summary day range from `from` in Dhaka, not UTC', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      // The 08-19 row is inside the window under UTC and outside it under Dhaka.
+      await db.prisma.activityDailySummary.create({
+        data: {
+          userId: user.id,
+          day: new Date('2026-08-19T00:00:00.000Z'),
+          avgActivityPct: 70,
+          activeMinutes: 60,
+          byApp: {},
+          byCategory: { UNPRODUCTIVE: 60 },
+        },
+      });
+      await db.prisma.activityDailySummary.create({
+        data: {
+          userId: user.id,
+          day: new Date('2026-08-20T00:00:00.000Z'),
+          avgActivityPct: 70,
+          activeMinutes: 60,
+          byApp: {},
+          byCategory: { PRODUCTIVE: 60 },
+        },
+      });
+
+      const rows = await repo().teamActivity(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-08-19T18:00:00.000Z'), // 00:00 Dhaka on 2026-08-20
+        new Date('2026-08-20T12:00:00.000Z'),
+      );
+
+      // Under UTC both rows land in range: 120 active minutes, split 50/50 productive.
+      expect(rows).toEqual([
+        {
+          userId: user.id,
+          name: 'Ada',
+          activeMinutes: 60,
+          productivePct: 100,
+          neutralPct: 0,
+          unproductivePct: 0,
+          idleMinutes: 0,
+          idlePct: 0,
+        },
+      ]);
     });
   });
 
@@ -1061,6 +1129,23 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
     const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, from, to, FRESHNESS);
     expect(rows.map((r) => r.name)).toEqual(['Bea']);
     expect(rows[0]!.trackedSeconds).toBeGreaterThan(0);
+  });
+
+  it('filters the activity day range from `from` in Dhaka, not UTC', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    await summary(u.id, '2026-08-19', 20, 100);
+    await summary(u.id, '2026-08-20', 80, 100);
+
+    const rows = await repo().teamSummary(
+      { kind: 'team', teamId: t.id },
+      new Date('2026-08-19T18:00:00.000Z'), // 00:00 Dhaka on 2026-08-20
+      new Date('2026-08-20T12:00:00.000Z'),
+      FRESHNESS,
+    );
+
+    // Under UTC both rows are in range and the weighted average is (20*100 + 80*100)/200 = 50.
+    expect(rows).toEqual([{ userId: u.id, name: 'Ada', trackedSeconds: 0, activityPct: 80 }]);
   });
 });
 
