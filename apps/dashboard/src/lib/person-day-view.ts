@@ -1,5 +1,5 @@
 import type { TimeEntry, ActivitySample, Screenshot, Project } from '@timetrack/contracts';
-import { dayOf, dayStartInstant, isValidDay, shiftDay } from '@timetrack/contracts';
+import { clockOf, dayOf, dayStartInstant, isValidDay, shiftDay } from '@timetrack/contracts';
 
 export type DayCategory = 'PRODUCTIVE' | 'NEUTRAL' | 'UNPRODUCTIVE';
 
@@ -401,11 +401,17 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
     screenshotId: shot.id,
   }));
 
-  // Hour ticks: one per UTC hour boundary within [windowStartMs, windowEndMs].
+  // Hour ticks: one per UTC hour boundary within [windowStartMs, windowEndMs]. Flooring/ceiling
+  // to a UTC hour and to a Dhaka hour land on the same instants — Asia/Dhaka is a whole-hour
+  // (+06:00) offset, so the boundary walk itself needs no zone awareness. Only the printed
+  // label does: it's derived from `clockOf` (Dhaka wall-clock), not `getUTCHours()`. If
+  // APP_TIMEZONE is ever changed to a fractional-hour zone (e.g. Asia/Kolkata, Asia/Kathmandu)
+  // this walk must be redone to floor/ceil in that zone directly, or hour boundaries themselves
+  // land on the wrong instants.
   const hourTicks: HourTick[] = [];
   const activityBuckets: ActivityBucket[] = [];
   for (let hourMs = ceilToHourUTC(windowStartMs); hourMs <= windowEndMs; hourMs += HOUR_MS) {
-    const label = String(new Date(hourMs).getUTCHours()).padStart(2, '0');
+    const label = clockOf(new Date(hourMs)).slice(0, 2);
     hourTicks.push({ atPct: pct(hourMs), label });
 
     if (hourMs < windowEndMs) {

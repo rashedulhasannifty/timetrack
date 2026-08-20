@@ -1,9 +1,14 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import { reportRangeBound } from '../../lib/reports-view';
 
 /** Writes the selected range to the URL so the Server Component refetches. Date-only inputs
- *  are widened to full-day UTC bounds to match the API's datetime range. */
+ *  are widened to Dhaka-day instant bounds via `reportRangeBound` — the same convention
+ *  `defaultReportRange` uses — to match the API's datetime range. An empty or otherwise
+ *  invalid date (e.g. the field cleared mid-edit) is ignored rather than acted on: the
+ *  underlying `dayStartInstant`/`shiftDay` helpers throw on a malformed label, and this runs
+ *  in a client `onChange` handler where that would surface as an uncaught exception. */
 export function ReportRangePicker({
   from,
   to,
@@ -17,7 +22,8 @@ export function ReportRangePicker({
   const params = useSearchParams();
 
   function update(key: 'from' | 'to', dateOnly: string) {
-    const iso = key === 'from' ? `${dateOnly}T00:00:00.000Z` : `${dateOnly}T23:59:59.999Z`;
+    const iso = reportRangeBound(dateOnly, key);
+    if (iso === null) return;
     const next = new URLSearchParams(params.toString());
     next.set(key, iso);
     router.push(`${basePath}?${next.toString()}`);

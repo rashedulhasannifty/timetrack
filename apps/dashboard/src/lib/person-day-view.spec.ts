@@ -145,13 +145,25 @@ describe('personDayView — ribbon', () => {
       entries: [entry('a', 9, 13)],
       samples: [sample(9, 0, 'NEUTRAL', 50)],
     });
-    expect(vm.ribbon.hourTicks.map((t) => t.label)).toEqual(['09', '10', '11', '12', '13']);
+    // 09:00-13:00Z === 15:00-19:00 Dhaka.
+    expect(vm.ribbon.hourTicks.map((t) => t.label)).toEqual(['15', '16', '17', '18', '19']);
     expect(vm.activityBuckets[0]).toMatchObject({
-      label: '09',
+      label: '15',
       activityPct: 50,
       category: 'NEUTRAL',
     });
     expect(vm.activityBuckets[1]!.category).toBe('UNTRACKED'); // 10:00 hour has no samples
+  });
+
+  it('labels hour ticks in Dhaka time, not UTC, across the 18:00Z boundary', () => {
+    // 17:00-21:00Z spans 18:00Z === 00:00 Dhaka: the discriminating tick reads "18" pre-fix,
+    // "00" post-fix.
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(23)),
+      entries: [entry('a', 17, 21)],
+    });
+    expect(vm.ribbon.hourTicks.map((t) => t.label)).toEqual(['23', '00', '01', '02', '03']);
   });
 
   it('places a capture mark at the screenshot time', () => {
