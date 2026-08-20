@@ -181,7 +181,7 @@ export class ReportsRepository {
                  / NULLIF(SUM(ads."activeMinutes"), 0)
                )::int AS "activityPct"
         FROM activity_daily_summaries ads
-        WHERE ads."day" BETWEEN (${from}::timestamptz)::date AND (${to}::timestamptz)::date
+        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'Asia/Dhaka')::date AND (${to} AT TIME ZONE 'Asia/Dhaka')::date
         GROUP BY ads."userId"
       ),
       scoped AS (
@@ -255,12 +255,13 @@ export class ReportsRepository {
    * time (clamped/summed per day from time_entries) and category time (converted from
    * activity_daily_summaries' byCategory minutes to seconds). Both sources are aggregated
    * in their own CTE keyed by day before joining onto the `days` spine, for the same
-   * fan-out-safety reason as `teamSummary`. Day boundaries are built as explicit UTC
-   * (`(d.day::timestamp) AT TIME ZONE 'UTC'`) so the result doesn't depend on session tz.
+   * fan-out-safety reason as `teamSummary`. Day boundaries are built as explicit
+   * Asia/Dhaka (`(d.day::timestamp) AT TIME ZONE 'Asia/Dhaka'`) so the result doesn't
+   * depend on session tz and buckets each instant onto its Dhaka calendar day.
    *
    * Range semantics differ from `teamSummary`/`projects`: here `to` is treated as an
    * INCLUSIVE calendar day (the `days` spine runs through `date(to)`), and each day's
-   * tracked seconds are bucketed to UTC `[day, day+1)`, not clamped to the instant `to`.
+   * tracked seconds are bucketed to Dhaka `[day, day+1)`, not clamped to the instant `to`.
    * Two consequences, both intended for the midnight-aligned ranges the dashboard sends:
    *   - the spine always includes `date(to)`, so a midnight-aligned `to` (e.g. `Aug 1 00:00`
    *     for "all of July") emits a trailing `date(to)` row whose in-range time is zero;
@@ -285,8 +286,8 @@ export class ReportsRepository {
     >`
       WITH days AS (
         SELECT generate_series(
-          (${from} AT TIME ZONE 'UTC')::date,
-          (${to} AT TIME ZONE 'UTC')::date,
+          (${from} AT TIME ZONE 'Asia/Dhaka')::date,
+          (${to} AT TIME ZONE 'Asia/Dhaka')::date,
           interval '1 day'
         )::date AS day
       ),
@@ -296,7 +297,7 @@ export class ReportsRepository {
                SUM(COALESCE((ads."byCategory"->>'NEUTRAL')::int, 0))      * 60 AS "neutralSeconds",
                SUM(COALESCE((ads."byCategory"->>'UNPRODUCTIVE')::int, 0)) * 60 AS "unproductiveSeconds"
         FROM activity_daily_summaries ads
-        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'UTC')::date AND (${to} AT TIME ZONE 'UTC')::date
+        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'Asia/Dhaka')::date AND (${to} AT TIME ZONE 'Asia/Dhaka')::date
           AND (${this.scopeSql(scope, Prisma.sql`ads."userId"`)})
         GROUP BY ads."day"
       ),
@@ -304,14 +305,14 @@ export class ReportsRepository {
         SELECT d.day,
                FLOOR(SUM(GREATEST(
                  EXTRACT(EPOCH FROM (
-                   LEAST(${ENTRY_END(freshnessSeconds)}, ((d.day + 1)::timestamp) AT TIME ZONE 'UTC')
-                   - GREATEST(te."startTime", (d.day::timestamp) AT TIME ZONE 'UTC')
+                   LEAST(${ENTRY_END(freshnessSeconds)}, ((d.day + 1)::timestamp) AT TIME ZONE 'Asia/Dhaka')
+                   - GREATEST(te."startTime", (d.day::timestamp) AT TIME ZONE 'Asia/Dhaka')
                  )), 0
                )))::int AS "trackedSeconds"
         FROM days d
         JOIN time_entries te
-          ON te."startTime" < ((d.day + 1)::timestamp) AT TIME ZONE 'UTC'
-         AND ${ENTRY_END(freshnessSeconds)} > (d.day::timestamp) AT TIME ZONE 'UTC'
+          ON te."startTime" < ((d.day + 1)::timestamp) AT TIME ZONE 'Asia/Dhaka'
+         AND ${ENTRY_END(freshnessSeconds)} > (d.day::timestamp) AT TIME ZONE 'Asia/Dhaka'
          AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
          AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
         GROUP BY d.day
@@ -342,7 +343,7 @@ export class ReportsRepository {
    * `teamSummary`. Percentages divide by NULLIF(..., 0) so an all-zero denominator yields
    * NULL -> COALESCEd to 0 rather than dividing by zero. Idle duration is window-clamped
    * exactly like the time-entry clamps elsewhere in this file. The day-range filter is
-   * built the same UTC-pinned way as `trends` (`AT TIME ZONE 'UTC'`, not a bare
+   * built the same Dhaka-pinned way as `trends` (`AT TIME ZONE 'Asia/Dhaka'`, not a bare
    * `::timestamptz)::date` cast) so it doesn't depend on the session timezone; the idle
    * CTE's instant comparisons are already absolute and don't need that treatment.
    *
@@ -370,7 +371,7 @@ export class ReportsRepository {
                SUM(COALESCE((ads."byCategory"->>'NEUTRAL')::int, 0))      AS neut,
                SUM(COALESCE((ads."byCategory"->>'UNPRODUCTIVE')::int, 0)) AS unprod
         FROM activity_daily_summaries ads
-        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'UTC')::date AND (${to} AT TIME ZONE 'UTC')::date
+        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'Asia/Dhaka')::date AND (${to} AT TIME ZONE 'Asia/Dhaka')::date
           AND (${this.scopeSql(scope, Prisma.sql`ads."userId"`)})
         GROUP BY ads."userId"
       ),

@@ -1,5 +1,6 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import {
+  dayOf,
   ProjectSummarySchema,
   TeamActivitySchema,
   TeamAppUsageSchema,
@@ -39,7 +40,7 @@ export class ReportsService {
   ) {}
 
   async overview(query: TeamOverviewQuery, user: SessionUser): Promise<TeamOverview> {
-    const date = query.date ?? new Date().toISOString().slice(0, 10);
+    const date = query.date ?? dayOf(new Date());
     const dayStart = new Date(`${date}T00:00:00.000Z`);
     const dayEnd = new Date(dayStart.getTime() + DAY_MS);
 

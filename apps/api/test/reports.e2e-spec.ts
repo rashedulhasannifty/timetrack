@@ -319,13 +319,14 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     it('clamps a midnight-spanning entry into each day', async () => {
       const team = await seedTeam();
       const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      // Dhaka midnight between the 12th and the 13th is 2026-07-12T18:00:00Z (UTC+6).
       await db.prisma.timeEntry.create({
         data: {
           id: '019797a0-0000-7000-8000-000000000202',
           userId: user.id,
           source: 'MANUAL',
-          startTime: new Date('2026-07-12T23:00:00.000Z'), // 1h on the 12th
-          endTime: new Date('2026-07-13T01:00:00.000Z'), // 1h on the 13th
+          startTime: new Date('2026-07-12T17:00:00.000Z'), // 23:00 Dhaka, 1h on the 12th
+          endTime: new Date('2026-07-12T19:00:00.000Z'), // 01:00 Dhaka, 1h on the 13th
         },
       });
       const days = await repo().trends(
@@ -466,6 +467,44 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
       const d12 = days.find((d) => d.day === '2026-07-12')!;
       // 30 min open + 300s freshness window = 2100s. The zero-duration entry adds nothing.
       expect(d12.trackedSeconds).toBe(30 * 60 + WINDOW);
+    });
+
+    it('buckets a 00:30-Dhaka entry onto the Dhaka day, not the UTC day', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      // 2026-08-19T18:30Z is 2026-08-20 00:30 in Dhaka: same UTC day as 17:30Z, different Dhaka day.
+      await db.prisma.timeEntry.createMany({
+        data: [
+          {
+            id: '01920000-0000-7000-8000-00000000ea01',
+            userId: user.id,
+            source: 'MANUAL',
+            startTime: new Date('2026-08-19T17:30:00.000Z'), // 23:30 Dhaka, Aug 19
+            endTime: new Date('2026-08-19T17:45:00.000Z'),
+          },
+          {
+            id: '01920000-0000-7000-8000-00000000ea02',
+            userId: user.id,
+            source: 'MANUAL',
+            startTime: new Date('2026-08-19T18:30:00.000Z'), // 00:30 Dhaka, Aug 20
+            endTime: new Date('2026-08-19T18:45:00.000Z'),
+          },
+        ],
+      });
+
+      const days = await repo().trends(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-08-19T00:00:00.000Z'),
+        new Date('2026-08-21T00:00:00.000Z'),
+        WINDOW,
+      );
+
+      const aug19 = days.find((d) => d.day === '2026-08-19');
+      const aug20 = days.find((d) => d.day === '2026-08-20');
+
+      // 15 minutes on each Dhaka day — NOT 30 minutes on 2026-08-19.
+      expect(aug19?.trackedSeconds).toBe(900);
+      expect(aug20?.trackedSeconds).toBe(900);
     });
   });
 

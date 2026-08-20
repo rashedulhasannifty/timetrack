@@ -183,7 +183,7 @@ export class ProjectsRepository {
     const rows = await this.prisma.$queryRaw<
       Array<{ day: string; trackedSeconds: number | bigint }>
     >`
-      SELECT to_char(GREATEST(te."startTime", ${from}::timestamptz) AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day",
+      SELECT to_char(GREATEST(te."startTime", ${from}::timestamptz) AT TIME ZONE 'Asia/Dhaka', 'YYYY-MM-DD') AS "day",
              FLOOR(SUM(GREATEST(EXTRACT(EPOCH FROM (
                LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz)
                - GREATEST(te."startTime", ${from}::timestamptz)

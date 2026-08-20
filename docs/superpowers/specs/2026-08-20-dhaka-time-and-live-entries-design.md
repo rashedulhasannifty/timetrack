@@ -18,7 +18,7 @@ accident. This is wrong in three layers:
   `lib/reports-view.ts:7`, `app/(app)/me/page.tsx:101`.
 - **API** — day series are generated with an explicit `AT TIME ZONE 'UTC'` pin:
   `modules/reports/reports.repository.ts:253-254,264,272-279,337`,
-  `modules/projects/projects.repository.ts:161`, `modules/activity/activity.repository.ts:89`, and the
+  `modules/projects/projects.repository.ts:161`, `modules/activity/activity.repository.ts:80-82`, and the
   default date in `modules/reports/reports.service.ts:42`.
 - **Worker** — `processors/rollup-daily.processor.ts` buckets `activity_samples` into the **stored**
   `ActivityDailySummary.day` column (`schema.prisma:204`, `@db.Date`) using `previousUtcDay()`. Unlike
@@ -135,7 +135,11 @@ a **day** is derived from an instant, or an instant from a day:
   converts a day back to an instant for the entry-overlap clamp.
 - `reports.repository.ts:337` — the idle series, built the same way.
 - `projects.repository.ts:161` — `to_char(... AT TIME ZONE 'UTC', 'YYYY-MM-DD')`.
-- `activity.repository.ts:89` — `r.day.toISOString().slice(0, 10)`.
+- `activity.repository.ts:80-82` — the `day: { gte, lte }` range filter compares a `@db.Date`
+  column against raw instants; convert each bound to a Dhaka day label first. (`:89`,
+  `r.day.toISOString().slice(0, 10)`, correctly reads a UTC-midnight day label back off that
+  column — Prisma hands a `@db.Date` back as UTC midnight of the stored label — and must be
+  left alone.)
 
 **Implementation care required.** In Postgres, `AT TIME ZONE` is direction-dependent:
 `timestamptz AT TIME ZONE 'zone'` yields a `timestamp` (wall clock in that zone), while
