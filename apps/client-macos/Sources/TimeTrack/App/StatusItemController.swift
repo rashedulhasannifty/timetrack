@@ -33,6 +33,15 @@ final class StatusItemController: NSObject {
     /// mouse-up action and makes a click on the icon reopen the popover instead of closing it.
     private var outsideClickMonitor: Any?
 
+    /// An invisible 2x1 window parked under the status icon that the dropdown anchors to.
+    ///
+    /// NSPopover follows its anchor VIEW for as long as it is open. Anchored to the status item's
+    /// own button, that is a liability over a FULLSCREEN app: when the pointer leaves the menu
+    /// bar, macOS auto-hides it, the status bar window moves away, and the popover chases it into
+    /// the corner of the screen — the dropdown visibly jumping while the user is reading it.
+    /// Anchoring to a window we own and never move keeps the dropdown exactly where it opened.
+    private var anchorWindow: NSWindow?
+
     /// Called each time the dropdown is opened (not on close). Used to refresh on-demand data —
     /// e.g. re-fetch the project list so a project added in the dashboard shows without a restart.
     var onOpen: (() -> Void)?
@@ -55,6 +64,7 @@ final class StatusItemController: NSObject {
             outsideClickMonitor = nil
         }
         if popover.isShown { popover.performClose(nil) }
+        anchorWindow?.orderOut(nil)
     }
 
     @objc private func togglePopover() {
@@ -62,18 +72,24 @@ final class StatusItemController: NSObject {
             closePopover()
             return
         }
-        guard let button = item.button, button.window != nil else { return }
+        // The frame is read HERE, at the moment of the click, and never again while the dropdown
+        // is open. This is the one instant it is reliably correct: the user just clicked the icon,
+        // so the menu bar is revealed and the icon is under the pointer. Re-reading it later is
+        // what produced the jump — over a fullscreen app the menu bar auto-hides seconds later and
+        // the frame stops describing anything on screen.
+        guard let button = item.button, let buttonFrame = button.window?.frame else { return }
         onOpen?()   // refresh on-demand data (e.g. the project list) as the dropdown opens
         // Activate BEFORE showing so the popover doesn't drift when the app comes forward.
         NSApp.activate(ignoringOtherApps: true)
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        pinPopover()
-        // When the frontmost app is FULLSCREEN, the activate() above starts a Space transition and
-        // the status bar re-lays out during it (the fullscreen app's own menu items appear/
-        // disappear), so the frame read a moment ago is not where the icon ends up — the dropdown
-        // landed offset to the right. Re-pin once the transition has settled, reading a FRESH
-        // button frame. Cheap and idempotent on the common (non-fullscreen) path.
-        DispatchQueue.main.async { [weak self] in self?.pinPopover() }
+
+        let anchor = anchorWindow ?? makeAnchorWindow()
+        anchorWindow = anchor
+        anchor.setFrame(Self.anchorRect(buttonFrame: buttonFrame), display: false)
+        anchor.orderFront(nil)
+
+        guard let anchorView = anchor.contentView else { return }
+        popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+        pinPopover(buttonFrame: buttonFrame)
         // Global monitor fires only for events in OTHER apps, so a click on the icon or inside the
         // dropdown won't trip it — only a genuine click-away dismisses.
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -83,17 +99,35 @@ final class StatusItemController: NSObject {
         }
     }
 
+    /// The invisible anchor. Kept at the status bar's own window level and marked as a fullscreen
+    /// auxiliary so it — and therefore the dropdown attached to it — can sit over another app's
+    /// fullscreen Space instead of forcing macOS to switch away from it.
+    private func makeAnchorWindow() -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 2, height: 1),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.ignoresMouseEvents = true       // never intercepts a click meant for the menu bar
+        window.level = .statusBar
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 2, height: 1))
+        return window
+    }
+
+    /// A hairline strip at the bottom edge of the status icon — the point the dropdown hangs from.
+    /// Pure so the anchoring arithmetic is testable without a status bar.
+    static func anchorRect(buttonFrame: NSRect) -> NSRect {
+        NSRect(x: buttonFrame.midX - 1, y: buttonFrame.minY, width: 2, height: 1)
+    }
+
     /// Pin the dropdown directly beneath the status icon. NSPopover's own auto-anchoring is
     /// confused by the flipped status-bar button and drops the dropdown ~180pt down the screen,
-    /// so the window is positioned by hand from the button's live on-screen frame.
+    /// so the window is positioned by hand from the frame captured when the icon was clicked.
     ///
-    /// `.fullScreenAuxiliary` lets the dropdown render over a fullscreen app's Space at all —
-    /// without it the popover can only appear once macOS has switched away from that Space,
-    /// which is the relayout that moved it in the first place.
-    private func pinPopover() {
-        guard let button = item.button,
-              let buttonFrame = button.window?.frame,
-              let popWindow = popover.contentViewController?.view.window else { return }
+    /// `.fullScreenAuxiliary` lets the dropdown render over a fullscreen app's Space at all.
+    private func pinPopover(buttonFrame: NSRect) {
+        guard let popWindow = popover.contentViewController?.view.window else { return }
         popWindow.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         // The screen the ICON is on — not NSScreen.main, which is the screen with the key window
         // and so points at the wrong display as soon as a second monitor is attached.
