@@ -1,23 +1,16 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { APP_TIMEZONE, dayOf, dayStartInstant, shiftDay } from '@timetrack/contracts';
 import { Card } from '../ui/Card';
 import { DayPicker } from './DayPicker';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** Shift a 'YYYY-MM-DD' UTC calendar day by `days` (may be negative). */
-function shiftDateUTC(date: string, days: number): string {
-  const ms = Date.parse(`${date}T00:00:00.000Z`) + days * DAY_MS;
-  return new Date(ms).toISOString().slice(0, 10);
-}
-
 function formatDayLabel(date: string): string {
-  return new Date(`${date}T00:00:00.000Z`).toLocaleDateString('en-US', {
+  return dayStartInstant(date).toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
-    timeZone: 'UTC',
+    timeZone: APP_TIMEZONE,
   });
 }
 
@@ -45,9 +38,9 @@ export function DayHeader({
   recordingNow: boolean;
   avatar?: ReactNode;
 }) {
-  const prevDate = shiftDateUTC(date, -1);
-  const nextDate = shiftDateUTC(date, 1);
-  const today = new Date().toISOString().slice(0, 10);
+  const prevDate = shiftDay(date, -1);
+  const nextDate = shiftDay(date, 1);
+  const today = dayOf(new Date());
 
   return (
     <div className="flex flex-col gap-3">

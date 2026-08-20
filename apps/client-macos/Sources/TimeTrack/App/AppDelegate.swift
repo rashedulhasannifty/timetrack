@@ -38,9 +38,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let ackMarker: AckMarker
     private let projectClient: ProjectClient
     private let projectCache: ProjectCache
+    /// Fresh-install fallback only — consulted from `refreshProjects()` when `selectionStore`
+    /// has nothing for the current user. See `RecentSelectionClient`.
+    private let recentSelectionClient: RecentSelectionClient
+    /// The single instance shared with `MenuViewModel` (Task 4 needs AppDelegate to consult the
+    /// same store directly) — two separately-constructed `SelectionStore`s would agree only by
+    /// accident.
+    private let selectionStore: SelectionStore
     private let timeTracker: TimeTracker
     private let menuViewModel: MenuViewModel
     private let liveSpanStore: LiveSpanStore
+    private let liveEntryPublisher: LiveEntryPublisher
     private let userIdBox: UserIdBox
 
     private var loginWindow: LoginWindowController?
@@ -56,6 +64,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activitySync: ActivityBatchSyncEngine?
     private var heartbeatTimer: Timer?
     private var hasAttemptedRecovery = false
+    /// One-shot-per-session guard on `RecentSelectionClient`'s fresh-install fallback (same
+    /// shape as `hasAttemptedRecovery` just above). Without it, a user with nothing in the
+    /// lookback window (or whose returned selection immediately fails `SelectionResolver` and
+    /// gets cleared by `restoreSelection`) would never populate `selectionStore`, so the
+    /// `selectionStore.load(userId:) == nil` gate alone would stay open and re-fire the fetch
+    /// on every throttled menu-open, indefinitely, against the API's global throttler. Reset
+    /// on sign-out in `stopAutoTracking()`, alongside `hasAttemptedRecovery`, so the next user
+    /// on this Mac gets their own single attempt.
+    private var hasAttemptedRecentSelectionFallback = false
     private var updateCoordinator: UpdateCoordinator?
     private var updateStatusObserver: AnyCancellable?
     /// Rate-limits the menu-open project re-fetch so opening the dropdown repeatedly doesn't
@@ -96,6 +113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.projectClient = ProjectClient(baseURL: baseURL, session: session)
         let projectCache = ProjectCache(fileURL: ProjectCache.defaultURL())
         self.projectCache = projectCache
+        self.recentSelectionClient = RecentSelectionClient(baseURL: baseURL, session: session)
+        let selectionStore = SelectionStore()
+        self.selectionStore = selectionStore
 
         let userIdBox = UserIdBox()
         self.userIdBox = userIdBox
@@ -105,6 +125,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             currentUserId: { [userIdBox] in userIdBox.value }
         )
         self.liveSpanStore = liveSpanStore
+
+        self.liveEntryPublisher = LiveEntryPublisher(
+            uploader: TimeEntryUploader(baseURL: baseURL, session: session)
+        )
 
         let tracker = TimeTracker(buffer: BufferStore.shared, liveSpan: liveSpanStore)
         self.timeTracker = tracker
@@ -155,13 +179,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await MainActor.run { presentLoginBox.call?() }
                 }
             },
-            onQuit: { NSApp.terminate(nil) }
+            onQuit: { NSApp.terminate(nil) },
+            selectionStore: selectionStore
         )
         self.menuViewModel = menuViewModel
         super.init()
         presentLoginBox.call = { [weak self] in self?.presentLogin() }
         stopAutoBox.call = { [weak self] in self?.stopAutoTracking() }
         flushBufferBox.call = { [weak self] in await self?.flushAndClearBuffer() }
+        tracker.onSpanOpened = { [weak self] entryId, start, selection, source in
+            guard let self else { return }
+            Task { await self.liveEntryPublisher.publish(
+                entryId: entryId, start: start, selection: selection, source: source
+            ) }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -193,6 +224,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
             guard let self, self.timeTracker.isRunning else { return }
             self.liveSpanStore.heartbeat(at: Date())
+            // Re-publish the OPEN entry so the server's heartbeatAt stays fresh and the
+            // dashboard keeps showing it as running (spec §4.1/§4.3). Best-effort.
+            if let span = self.liveSpanStore.load() {
+                Task { await self.liveEntryPublisher.publish(span) }
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         heartbeatTimer = timer
@@ -267,6 +303,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentUserId = await session.userId()
         await MainActor.run {
             userIdBox.value = currentUserId
+            // Namespaces `select()`/`restoreSelection()` persistence to this user; set before
+            // `refreshProjects()` below so its post-refresh restore has a user id to resolve.
+            menuViewModel.currentUserId = currentUserId
             menuViewModel.markReady()
         }
         await MainActor.run { self.installNudgeInfra() }
@@ -279,10 +318,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Re-fetch the team's projects (network → cache), replacing the picker list. Failures are
     /// swallowed — the last cached list stays. Called at ready and, throttled, on menu open so a
     /// project added in the dashboard appears without restarting the client.
+    ///
+    /// Restoring the persisted selection happens HERE, after the assignment, never at
+    /// construction or from the instant cache-load in `becomeReady()` — resolving against a
+    /// stale or empty list would either drop a valid selection or apply one the user has since
+    /// lost access to. `MenuViewModel.restoreSelection` itself guards against overwriting a
+    /// hand-made selection and against clearing the stored key on an empty list (Task 3 rulings).
     private func refreshProjects() async {
         guard let fresh = try? await projectClient.list() else { return }
         projectCache.save(fresh)
-        await MainActor.run { menuViewModel.projects = fresh }
+
+        // Fresh-install fallback: nothing stored locally for this user (new Mac, reinstall) —
+        // ask the server what they were last tracking against. Gated on `selectionStore.load`
+        // so this never overrides an existing local selection, AND on
+        // `hasAttemptedRecentSelectionFallback` so it fires at most once per session per user —
+        // the store gate alone doesn't self-close (a user with no history in the lookback
+        // window, or a returned selection that immediately fails to resolve and gets cleared,
+        // would otherwise re-trigger the fetch on every throttled menu-open forever). Best-effort:
+        // any failure (offline, 401, empty history) just leaves nothing pre-selected, and the
+        // attempt still only happens once. Written to `selectionStore` so the existing
+        // `restoreSelection(userId:)` below picks it up through the normal path — no second,
+        // parallel apply path.
+        //
+        // `userId` here is resolved independently of `menuViewModel.currentUserId` (read only
+        // below, inside `MainActor.run`, atomically with the restore) so a concurrent sign-out's
+        // `reset()` — which nils `currentUserId` — can't be raced into restoring a stale
+        // selection. `mostRecentSelection()` independently re-reads a FRESH access token, so a
+        // complete sign-out and sign-in-as-B inside that network round-trip would return B's
+        // history for save under A's key. The `session.userId() == userId` re-check immediately before the save below
+        // narrows that window to the handful of instructions between the check and the write —
+        // it does NOT close it outright, so don't read it as eliminating the race. Even inside
+        // that residual sliver the blast radius stays bounded: on A's next sign-in,
+        // `SelectionResolver` matches the restored value against A's freshly-fetched project
+        // list, so a different-team project is dropped and the key cleared before any wrong-team
+        // `projectId` can reach a `Start`.
+        if let userId = await session.userId() {
+            let shouldAttemptFallback = await MainActor.run { () -> Bool in
+                guard !hasAttemptedRecentSelectionFallback, selectionStore.load(userId: userId) == nil else {
+                    return false
+                }
+                // Mark the attempt now, before the network call — a failed/empty result still
+                // counts as "attempted" so the guard actually closes. Exception: a transient
+                // failure (`RecentSelectionClient.FallbackOutcome.transientFailure` — no token,
+                // offline, or ANY non-2xx status, including a 401 as well as a 429 from the
+                // throttler or a 503 mid-deploy) un-marks it below, so it doesn't permanently
+                // burn the session's only fresh-install attempt on an answer the server never
+                // actually gave.
+                hasAttemptedRecentSelectionFallback = true
+                return true
+            }
+            if shouldAttemptFallback {
+                switch await recentSelectionClient.mostRecentSelection() {
+                case .found(let remote):
+                    // Re-check immediately before the save — see the comment above.
+                    if await session.userId() == userId {
+                        selectionStore.save(remote, userId: userId)
+                    }
+                case .notFound:
+                    break
+                case .transientFailure:
+                    await MainActor.run { hasAttemptedRecentSelectionFallback = false }
+                }
+            }
+        }
+
+        await MainActor.run {
+            menuViewModel.projects = fresh
+            // Deliberately re-reads `menuViewModel.currentUserId` here rather than reusing the
+            // `userId` captured above: this block is the same MainActor hop that assigns
+            // `projects`, so it's atomic with a concurrent sign-out's `reset()` (which nils
+            // `currentUserId`). Writing `menuViewModel.currentUserId = userId` here — as an
+            // earlier draft of this method did — would resurrect it after `reset()`, reopening
+            // the cross-user leak `reset()` exists to close (CLAUDE.md §1). Do not add that
+            // write-back.
+            if let userId = menuViewModel.currentUserId {
+                menuViewModel.restoreSelection(userId: userId)
+            }
+        }
     }
 
     /// Menu-open hook: refresh the project list, but only when signed in and not more than once
@@ -366,21 +478,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let minutes = max(1, Int((span.lastAlive.timeIntervalSince(span.startTime) / 60).rounded()))
-        RecoveryWindowController.present(minutes: minutes) { [weak self] action in
-            guard let self else { return }
-            // Defense-in-depth: the prompt is non-modal and can outlive the user who opened it
-            // (e.g. left open across a sign-out/sign-in). Re-check against the CURRENT
-            // logged-in user (the live `userIdBox` value, not the `currentUserId` captured when
-            // this closure was built) so a stale "Keep" click from a prior user's prompt can
-            // never enqueue that user's span into whoever is signed in now.
-            if action == .keep, LiveSpanStore.shouldRecover(span: span, currentUserId: self.userIdBox.value) {
-                self.timeTracker.recordSpan(
-                    id: span.entryId, start: span.startTime, end: span.lastAlive,
-                    projectId: span.projectId, taskId: span.taskId,
-                    source: TimeTracker.Source(rawValue: span.source) ?? .manual
-                )
-            }
-            self.liveSpanStore.clear()
+        // Both outcomes close the span through the DURABLE buffer, and the live `userIdBox`
+        // value (not the `currentUserId` captured when this closure was built) is what the
+        // cross-user re-check reads. See `LiveSpanRecovery` for why Discard is buffered too.
+        let recovery = LiveSpanRecovery(
+            tracker: timeTracker, store: liveSpanStore,
+            currentUserId: { [weak self] in self?.userIdBox.value }
+        )
+        RecoveryWindowController.present(minutes: minutes) { action in
+            recovery.apply(action, to: span)
         }
     }
 
@@ -643,14 +749,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         autoCoordinator = nil
         manualIdleCoordinator = nil
         signalFanOut = nil
-        // Cross-user integrity (CLAUDE.md §1): this runs on sign-out. A still-open recovery
-        // prompt belongs to the user who's signing out, so tear it down here too (its discard
-        // path clears the live-span file — nothing gets enqueued) rather than leaving it on
-        // screen for the next user to act on. Reset the one-shot flag as well, so the NEXT
-        // user who signs in gets their own span evaluated by `recoverLiveSpanIfNeeded` instead
+        // Cross-user integrity (CLAUDE.md §1): this runs on sign-out, BEFORE userIdBox is
+        // cleared, so a still-open recovery prompt belongs to the user who's signing out. Tear
+        // it down here too — its discard path best-effort closes their own still-open server
+        // row (never enqueued to BufferStore) and clears the live-span file — rather than
+        // leaving it on screen for the next user to act on. Reset the one-shot flag as well, so
+        // the NEXT user who signs in gets their own span evaluated by `recoverLiveSpanIfNeeded` instead
         // of being silently skipped because a prior user already "used" the attempt.
         RecoveryWindowController.dismissIfShowing()
         hasAttemptedRecovery = false
+        // Same one-shot-per-session reset, same reason: the next user who signs in on this Mac
+        // gets their own single fresh-install fallback attempt (`refreshProjects()`) instead of
+        // inheriting the outgoing user's "already tried" state.
+        hasAttemptedRecentSelectionFallback = false
         // Invalidate the interval timer so no NEW cycle is scheduled. A cycle already in flight is
         // NOT cancelled by this — `flushAndClearBuffer()` joins it via `finishInFlight()` before
         // clearing the buffer, so the reference must survive here (do not nil it).

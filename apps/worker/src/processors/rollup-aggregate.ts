@@ -25,7 +25,8 @@ interface Acc {
 }
 
 /**
- * PRD §6.3 — pure rollup of one UTC day's samples into per-user summaries. Each sample
+ * PRD §6.3 — pure rollup of one Dhaka day's samples into per-user summaries; the caller
+ * picks the window (see `rollup-daily.util.ts`). Each sample
  * represents one fixed sampling interval, so minutes = count × interval / 60. No DB, no I/O.
  */
 export function aggregateSamples(samples: RollupSample[]): UserDailyRollup[] {

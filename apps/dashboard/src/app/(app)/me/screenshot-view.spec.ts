@@ -114,7 +114,8 @@ describe('stepIndex', () => {
 });
 
 describe('shotTime', () => {
-  it('renders the UTC wall-clock time of the capture', () => {
-    expect(shotTime('2026-08-14T12:43:47.000Z')).toBe('12:43');
+  it('renders the Dhaka wall-clock time of the capture', () => {
+    // 12:43:47Z === 18:43 Dhaka (UTC+6).
+    expect(shotTime('2026-08-14T12:43:47.000Z')).toBe('18:43');
   });
 });

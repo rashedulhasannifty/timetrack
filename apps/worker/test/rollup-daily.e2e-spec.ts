@@ -95,6 +95,38 @@ describe.runIf(RUN_E2E)('rollup-daily processor — real Postgres', () => {
     });
     expect(rows).toHaveLength(0);
   });
+
+  it('splits samples either side of Dhaka midnight onto different days', async () => {
+    const u2 = await seedUser('r2@example.com');
+    // Both instants are the same UTC day (2026-08-19) but different Dhaka days.
+    // Timestamps must sit inside a seeded partition month (2026-07..2026-12).
+    await sample(
+      u2.id,
+      '019797a0-0000-7000-8000-0000000000e4',
+      '2026-08-19T17:30:00.000Z', // 23:30 Dhaka, Aug 19
+      'Xcode',
+      80,
+    );
+    await sample(
+      u2.id,
+      '019797a0-0000-7000-8000-0000000000e5',
+      '2026-08-19T18:30:00.000Z', // 00:30 Dhaka, Aug 20
+      'Xcode',
+      40,
+    );
+
+    await processor.process(job('2026-08-19'));
+    await processor.process(job('2026-08-20'));
+
+    const rows = await env.prisma.activityDailySummary.findMany({
+      where: { userId: u2.id },
+      orderBy: { day: 'asc' },
+    });
+
+    expect(rows.map((r) => r.day.toISOString().slice(0, 10))).toEqual(['2026-08-19', '2026-08-20']);
+    expect(rows[0]?.avgActivityPct).toBe(80);
+    expect(rows[1]?.avgActivityPct).toBe(40);
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.

@@ -16,20 +16,18 @@ export class ProblemJsonFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const body = exception.getResponse();
-      void res.status(status).type('application/problem+json').send(
-        typeof body === 'object' ? body : { title: String(body), status },
-      );
+      void res
+        .status(status)
+        .type('application/problem+json')
+        .send(typeof body === 'object' ? body : { title: String(body), status });
       return;
     }
 
     this.logger.error({ err: exception }, 'unhandled exception');
-    void res
-      .status(HttpStatus.INTERNAL_SERVER_ERROR)
-      .type('application/problem+json')
-      .send({
-        type: 'https://timetrack.internal/errors/internal',
-        title: 'Internal server error',
-        status: 500,
-      });
+    void res.status(HttpStatus.INTERNAL_SERVER_ERROR).type('application/problem+json').send({
+      type: 'https://timetrack.internal/errors/internal',
+      title: 'Internal server error',
+      status: 500,
+    });
   }
 }

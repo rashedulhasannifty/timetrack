@@ -1,7 +1,9 @@
+import { dayOf } from '@timetrack/contracts';
 import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { getSession } from '../../../lib/session';
 import { api } from '../../../lib/api-client';
 import {
+  dayRangeFor,
   personDayView,
   resolveDayDate,
   weekRangeFor,
@@ -34,7 +36,7 @@ import type {
 /**
  * PRD §4.3 / §11 — the employee self-view. Same API as the manager view, scoped to self.
  * Date-aware: `?date=YYYY-MM-DD` selects the day rendered by PersonDayView; invalid/missing
- * falls back to today (UTC).
+ * falls back to today (Dhaka).
  */
 export default async function MyDataPage({
   searchParams,
@@ -48,10 +50,11 @@ export default async function MyDataPage({
   const date = resolveDayDate(rawDate, new Date());
   const panel = resolveDayPanel(rawPanel);
 
+  const dayRange = dayRangeFor(date);
   const todayParams = new URLSearchParams({
     userId: session.userId,
-    from: `${date}T00:00:00.000Z`,
-    to: `${date}T23:59:59.999Z`,
+    from: dayRange.from,
+    to: dayRange.to,
   });
 
   const week = weekRangeFor(date);
@@ -98,7 +101,7 @@ export default async function MyDataPage({
     projects,
   });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = dayOf(new Date());
 
   return (
     <>

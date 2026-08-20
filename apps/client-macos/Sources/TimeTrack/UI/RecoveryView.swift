@@ -1,10 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// Shown on relaunch when a previous tracking span was interrupted (crash or quit-while-tracking).
-/// Keep → the span is recovered as a completed entry ending at the last heartbeat; Discard drops it.
-/// Discard is the default action (and the result of dismissing), mirroring the away prompt. Always
-/// a visible window; no stealth. `resolve` fires exactly once.
+/// Shown on relaunch when a previous tracking span was interrupted (crash, shutdown, or
+/// quit-while-tracking). Keep → the span is recovered as a completed entry ending at the last
+/// heartbeat; Discard drops it and closes any server-side row at zero duration.
+///
+/// Keep is the DEFAULT action: a graceful shutdown routes through this same prompt, and
+/// pressing Enter should not throw away real work. Dismissing the window still resolves to
+/// Discard, so an ignored prompt never silently invents time. Always a visible window; no
+/// stealth. `resolve` fires exactly once.
 struct RecoveryView: View {
     let minutes: Int
     let onKeep: () -> Void
@@ -21,8 +25,8 @@ struct RecoveryView: View {
             HStack {
                 Spacer()
                 Button("Keep", action: onKeep)
-                Button("Discard", action: onDiscard)
                     .keyboardShortcut(.defaultAction)
+                Button("Discard", action: onDiscard)
             }
         }
         .padding(TT.Space.x6)
@@ -44,8 +48,10 @@ final class RecoveryWindowController: NSWindowController, NSWindowDelegate {
 
     /// Close the prompt if it's still on screen (e.g. on sign-out, so a prior user's recovery
     /// window never survives into the next user's session). Closing routes through
-    /// `windowWillClose` → `resolve(.discard)`, which clears the live-span file without
-    /// enqueuing anything — the only harm is the panel having been left up.
+    /// `windowWillClose` → `resolve(.discard)`, which enqueues a zero-duration close for the
+    /// still-open server row and clears the live-span file — the only local state left behind is
+    /// the panel having been on screen. On sign-out this runs BEFORE the final buffer drain, so
+    /// that close uploads under the still-valid token of the user it belongs to.
     static func dismissIfShowing() {
         live?.window?.close()
     }

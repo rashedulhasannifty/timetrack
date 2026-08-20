@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { dayOf } from '@timetrack/contracts';
 import { Avatar } from '../../../../components/ui/Avatar';
 import { buttonClasses } from '../../../../components/ui/Button';
 import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
@@ -10,6 +11,7 @@ import { DayAppUsage } from '../../../../components/day/DayAppUsage';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
 import {
+  dayRangeFor,
   personDayView,
   resolveDayDate,
   weekRangeFor,
@@ -45,10 +47,11 @@ export default async function PersonPage({
   const date = resolveDayDate(rawDate, new Date());
   const panel = resolveDayPanel(rawPanel);
 
+  const dayRange = dayRangeFor(date);
   const search = new URLSearchParams({
     userId,
-    from: `${date}T00:00:00.000Z`,
-    to: `${date}T23:59:59.999Z`,
+    from: dayRange.from,
+    to: dayRange.to,
   });
 
   let entries: TimeEntry[] | null = null;
@@ -137,9 +140,7 @@ export default async function PersonPage({
             model={model}
             weekStrip={
               trends ? (
-                <WeekStrip
-                  days={weekStrip(date, trends.days, new Date().toISOString().slice(0, 10))}
-                />
+                <WeekStrip days={weekStrip(date, trends.days, dayOf(new Date()))} />
               ) : undefined
             }
             apps={<DayAppUsage usage={appUsage} />}

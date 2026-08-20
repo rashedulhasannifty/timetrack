@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ForbiddenException } from '@nestjs/common';
+import { dayOf, dayStartInstant, shiftDay } from '@timetrack/contracts';
 import { ReportsService } from './reports.service.js';
 import type { ReportsRepository, OverviewRow } from './reports.repository.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
@@ -39,13 +40,13 @@ function makeReports() {
 const range = { from: '2026-07-01T00:00:00.000Z', to: '2026-07-08T00:00:00.000Z' };
 
 describe('ReportsService.overview', () => {
-  it('scopes a MANAGER to their own team', async () => {
+  it('scopes a MANAGER to their own team, windowed on the Dhaka day', async () => {
     const { svc, repo } = make();
     await svc.overview({ date: '2026-07-12' }, manager);
     expect(repo.overviewForTeam).toHaveBeenCalledWith(
       't1',
-      new Date('2026-07-12T00:00:00.000Z'),
-      new Date('2026-07-13T00:00:00.000Z'),
+      dayStartInstant('2026-07-12'),
+      dayStartInstant('2026-07-13'),
       300,
     );
     expect(repo.overviewForSelf).not.toHaveBeenCalled();
@@ -74,15 +75,15 @@ describe('ReportsService.overview', () => {
     expect(repo.overviewForTeam).not.toHaveBeenCalled();
   });
 
-  it('defaults the date to the current UTC day when absent', async () => {
+  it('defaults the date to the current Dhaka day when absent', async () => {
     const { svc, repo } = make();
     const result = await svc.overview({}, manager);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = dayOf(new Date());
     expect(result.date).toBe(today);
     expect(repo.overviewForTeam).toHaveBeenCalledWith(
       't1',
-      new Date(`${today}T00:00:00.000Z`),
-      new Date(new Date(`${today}T00:00:00.000Z`).getTime() + 86_400_000),
+      dayStartInstant(today),
+      dayStartInstant(shiftDay(today, 1)),
       300,
     );
   });
@@ -96,6 +97,7 @@ describe('ReportsService.teamSummary scope resolution', () => {
       { kind: 'team', teamId: 't1' },
       new Date(range.from),
       new Date(range.to),
+      300,
     );
   });
 
@@ -106,6 +108,7 @@ describe('ReportsService.teamSummary scope resolution', () => {
       { kind: 'all' },
       expect.any(Date),
       expect.any(Date),
+      300,
     );
   });
 
@@ -116,6 +119,7 @@ describe('ReportsService.teamSummary scope resolution', () => {
       { kind: 'team', teamId: 't2' },
       expect.any(Date),
       expect.any(Date),
+      300,
     );
   });
 
@@ -135,6 +139,7 @@ describe('ReportsService.teamSummary scope resolution', () => {
       { kind: 'user', userId: 'uX' },
       expect.any(Date),
       expect.any(Date),
+      300,
     );
   });
 
@@ -155,6 +160,7 @@ describe('ReportsService.teamSummary scope resolution', () => {
       { kind: 'team', teamId: 't1' },
       expect.any(Date),
       expect.any(Date),
+      300,
       undefined,
     );
     expect(result).toEqual({ from: range.from, to: range.to, rows: [] });
@@ -169,6 +175,7 @@ describe('ReportsService.trends', () => {
       { kind: 'team', teamId: 't1' },
       new Date(range.from),
       new Date(range.to),
+      300,
     );
   });
 
@@ -182,7 +189,12 @@ describe('ReportsService.trends', () => {
   it('gives an ADMIN the all-teams scope', async () => {
     const { svc, repo } = makeReports();
     await svc.trends(range, admin);
-    expect(repo.trends).toHaveBeenCalledWith({ kind: 'all' }, expect.any(Date), expect.any(Date));
+    expect(repo.trends).toHaveBeenCalledWith(
+      { kind: 'all' },
+      expect.any(Date),
+      expect.any(Date),
+      300,
+    );
   });
 });
 
@@ -322,6 +334,7 @@ describe('ReportsService.exportCsv', () => {
       { kind: 'all' },
       new Date(range.from),
       new Date(range.to),
+      300,
       undefined,
     );
   });

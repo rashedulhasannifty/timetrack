@@ -4,20 +4,10 @@ import { Logger } from 'nestjs-pino';
 import type { Job } from 'bullmq';
 import { WorkerPrisma } from '../infra/prisma.provider.js';
 import { aggregateSamples } from './rollup-aggregate.js';
-
-/** Start-of-day (UTC) for a 'YYYY-MM-DD' string. */
-function utcDay(day: string): Date {
-  return new Date(`${day}T00:00:00.000Z`);
-}
-
-/** Previous full UTC day (start-of-day), relative to now. */
-function previousUtcDay(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
-}
+import { dhakaWindow, previousDhakaDay } from './rollup-daily.util.js';
 
 /**
- * PRD §6.3 — aggregate the previous UTC day's activity_samples per user into one
+ * PRD §6.3 — aggregate the previous Dhaka day's activity_samples per user into one
  * activity_daily_summaries row (avg activity %, active minutes, minutes per app/category).
  * Off the request path. Never logs windowTitle (redacted; not read here).
  */
@@ -32,22 +22,21 @@ export class RollupDailyProcessor extends WorkerHost {
   }
 
   async process(job: Job<{ day?: string }>): Promise<void> {
-    const dayStart = job.data?.day ? utcDay(job.data.day) : previousUtcDay();
-    const nextDay = new Date(dayStart);
-    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    const day = job.data?.day ?? previousDhakaDay(new Date());
+    const { dayLabel, from, to } = dhakaWindow(day);
 
     const samples = await this.prisma.activitySample.findMany({
-      where: { timestamp: { gte: dayStart, lt: nextDay } },
+      where: { timestamp: { gte: from, lt: to } },
       select: { userId: true, appName: true, category: true, activityPct: true },
     });
 
     const rollups = aggregateSamples(samples);
     for (const r of rollups) {
       await this.prisma.activityDailySummary.upsert({
-        where: { userId_day: { userId: r.userId, day: dayStart } },
+        where: { userId_day: { userId: r.userId, day: dayLabel } },
         create: {
           userId: r.userId,
-          day: dayStart,
+          day: dayLabel,
           avgActivityPct: r.avgActivityPct,
           activeMinutes: r.activeMinutes,
           byApp: r.byApp,
@@ -63,7 +52,7 @@ export class RollupDailyProcessor extends WorkerHost {
     }
 
     this.logger.log(
-      { day: dayStart.toISOString().slice(0, 10), users: rollups.length, samples: samples.length },
+      { day, users: rollups.length, samples: samples.length },
       'rollup-daily complete',
     );
   }

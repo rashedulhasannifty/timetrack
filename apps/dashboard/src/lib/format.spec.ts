@@ -16,9 +16,27 @@ describe('formatDate / formatTimeRange', () => {
     expect(formatDate('2026-07-11T09:30:00.000Z')).toBe('2026-07-11');
   });
   it('renders an open-ended range while tracking', () => {
-    expect(formatTimeRange('2026-07-11T09:00:00.000Z', null)).toBe('09:00–…');
+    // 09:00/10:30 UTC === 15:00/16:30 Dhaka (UTC+6).
+    expect(formatTimeRange('2026-07-11T09:00:00.000Z', null)).toBe('15:00–…');
     expect(formatTimeRange('2026-07-11T09:00:00.000Z', '2026-07-11T10:30:00.000Z')).toBe(
-      '09:00–10:30',
+      '15:00–16:30',
     );
+  });
+});
+
+describe('Dhaka day boundary', () => {
+  it('formatDate puts a 00:30-Dhaka instant on the Dhaka day, not the UTC day', () => {
+    // 2026-08-19T18:30Z === 2026-08-20 00:30 Dhaka
+    expect(formatDate('2026-08-19T18:30:00.000Z')).toBe('2026-08-20');
+  });
+
+  it('formatTimeRange renders Dhaka wall-clock times', () => {
+    expect(formatTimeRange('2026-08-19T17:30:00.000Z', '2026-08-19T18:30:00.000Z')).toBe(
+      '23:30–00:30',
+    );
+  });
+
+  it('formatTimeRange still marks an open entry', () => {
+    expect(formatTimeRange('2026-08-19T17:30:00.000Z', null)).toBe('23:30–…');
   });
 });

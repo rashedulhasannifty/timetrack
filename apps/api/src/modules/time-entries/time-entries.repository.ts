@@ -45,6 +45,7 @@ export class TimeEntriesRepository {
 
   async upsert(dto: CreateTimeEntry, userId: string): Promise<TimeEntry> {
     try {
+      const now = new Date();
       const row = await this.prisma.timeEntry.upsert({
         where: { id: dto.id },
         create: {
@@ -56,8 +57,17 @@ export class TimeEntriesRepository {
           note: dto.note ?? null,
           startTime: new Date(dto.startTime),
           endTime: dto.endTime ? new Date(dto.endTime) : null,
+          heartbeatAt: now,
         },
-        update: { endTime: dto.endTime ? new Date(dto.endTime) : null, note: dto.note ?? null },
+        update: {
+          // The close is MONOTONE: an open payload arriving after the close (a retry, or a
+          // heartbeat queued behind it) must NOT null a stored endTime and re-open the entry.
+          // The same reasoning covers `note`: a heartbeat re-POST that omits it must not erase
+          // a note set earlier. Corrections go through the audited PATCH path, not here.
+          ...(dto.endTime ? { endTime: new Date(dto.endTime) } : {}),
+          ...(dto.note !== undefined ? { note: dto.note } : {}),
+          heartbeatAt: now,
+        },
         select: TIME_ENTRY_SELECT,
       });
       return serialize(row);
@@ -81,7 +91,12 @@ export class TimeEntriesRepository {
       orderBy: { startTime: 'asc' },
       select: TIME_ENTRY_SELECT,
     });
-    return rows.map(serialize);
+    // A zero-duration row is a discarded recovery span (spec §4.4) — never shown. Filtered
+    // in JS, not the `where`: a Prisma field-reference predicate (`NOT: { endTime: { equals:
+    // fields.startTime } }`) evaluates to UNKNOWN under SQL's three-valued logic when
+    // endTime IS NULL, which would silently drop every OPEN entry too. `list` is un-paginated
+    // (plain findMany), so filtering after the query changes no semantics.
+    return rows.filter((r) => r.endTime === null || r.endTime > r.startTime).map(serialize);
   }
 
   /** The running entry (endTime IS NULL) for a user, or null. Backs the overview (1.6). */

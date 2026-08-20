@@ -131,7 +131,11 @@ export class EmailProcessor extends WorkerHost {
   private async sendWeeklySummaries(job: Job): Promise<void> {
     if (!this.canSend(job)) return;
     const week = reportedWeek(job);
-    const summaries = await collectWeeklySummaries(this.prisma, week);
+    const summaries = await collectWeeklySummaries(
+      this.prisma,
+      week,
+      this.env.TRACKING_FRESHNESS_SECONDS,
+    );
 
     const messages: OutboundEmail[] = [];
     for (const summary of summaries) {
@@ -162,7 +166,11 @@ export class EmailProcessor extends WorkerHost {
   private async sendMissingTimesheetReminders(job: Job): Promise<void> {
     if (!this.canSend(job)) return;
     const week = reportedWeek(job);
-    const targets = await collectMissingTimesheets(this.prisma, week);
+    const targets = await collectMissingTimesheets(
+      this.prisma,
+      week,
+      this.env.TRACKING_FRESHNESS_SECONDS,
+    );
     if (targets.length === 0) {
       // Expected on a default install: the threshold ships at 0 (off).
       this.logger.log({ jobId: job.id }, 'no missing-timesheet reminders due');

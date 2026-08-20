@@ -1,7 +1,10 @@
 import './test-env.js'; // must run before anything that calls loadEnv()
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { ReportsRepository } from '../src/modules/reports/reports.repository.js';
+import { ReportsService } from '../src/modules/reports/reports.service.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
+import type { SessionUser } from '../src/common/decorators/current-user.decorator.js';
+import type { ResourceAccessService } from '../src/common/authz/resource-access.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
 
 const RUN_E2E = process.env.RUN_E2E === '1';
@@ -95,6 +98,29 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     expect(row.tracking).toBe(true);
     expect(row.trackedSecondsToday).toBeGreaterThanOrEqual(59);
     expect(row.trackedSecondsToday).toBeLessThan(120);
+  });
+
+  it('an open entry with a stale heartbeat stops accruing trackedSecondsToday', async () => {
+    const team = await seedTeam();
+    const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+    const dayStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const dayEnd = new Date(Date.now() + 60 * 60 * 1000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '01920000-0000-7000-8000-00000000fc03',
+        userId: user.id,
+        source: 'MANUAL',
+        startTime: new Date(Date.now() - 90 * 60 * 1000), // 90 min ago
+        endTime: null,
+        heartbeatAt: new Date(Date.now() - 60 * 60 * 1000), // stale, 1h ago
+      },
+    });
+
+    const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
+    // 30 min start->heartbeat + 300s freshness = 2100s, not the ~5400s an unclamped now()
+    // would give.
+    expect(row.trackedSecondsToday).toBeGreaterThanOrEqual(2000);
+    expect(row.trackedSecondsToday).toBeLessThanOrEqual(2200);
   });
 
   it('clamps an entry that started before the window', async () => {
@@ -234,6 +260,36 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     expect(row.tracking).toBe(false);
   });
 
+  describe('overview via ReportsService (Dhaka day window)', () => {
+    function service(): ReportsService {
+      return new ReportsService(repo(), {} as unknown as ResourceAccessService, WINDOW);
+    }
+
+    it('buckets an 18:30 UTC entry (00:30 Dhaka the next day) onto that Dhaka day, not the UTC one', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      const manager: SessionUser = { id: 'm1', role: 'MANAGER', teamId: team.id };
+      // 2026-08-19T18:30Z is 2026-08-20 00:30 in Dhaka.
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000eb01',
+          userId: user.id,
+          source: 'MANUAL',
+          startTime: new Date('2026-08-19T18:30:00.000Z'),
+          endTime: new Date('2026-08-19T18:45:00.000Z'), // 15 minutes
+        },
+      });
+
+      const aug20 = await service().overview({ date: '2026-08-20' }, manager);
+      const aug20Row = aug20.rows.find((r) => r.userId === user.id);
+      expect(aug20Row?.trackedSecondsToday).toBe(900);
+
+      const aug19 = await service().overview({ date: '2026-08-19' }, manager);
+      const aug19Row = aug19.rows.find((r) => r.userId === user.id);
+      expect(aug19Row?.trackedSecondsToday).toBe(0);
+    });
+  });
+
   describe('trends', () => {
     async function seedSummary(
       userId: string,
@@ -271,6 +327,7 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
         { kind: 'team', teamId: team.id },
         new Date('2026-07-11T00:00:00.000Z'),
         new Date('2026-07-13T00:00:00.000Z'),
+        WINDOW,
       );
 
       expect(days.map((d) => d.day)).toEqual(['2026-07-11', '2026-07-12', '2026-07-13']);
@@ -295,19 +352,21 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     it('clamps a midnight-spanning entry into each day', async () => {
       const team = await seedTeam();
       const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      // Dhaka midnight between the 12th and the 13th is 2026-07-12T18:00:00Z (UTC+6).
       await db.prisma.timeEntry.create({
         data: {
           id: '019797a0-0000-7000-8000-000000000202',
           userId: user.id,
           source: 'MANUAL',
-          startTime: new Date('2026-07-12T23:00:00.000Z'), // 1h on the 12th
-          endTime: new Date('2026-07-13T01:00:00.000Z'), // 1h on the 13th
+          startTime: new Date('2026-07-12T17:00:00.000Z'), // 23:00 Dhaka, 1h on the 12th
+          endTime: new Date('2026-07-12T19:00:00.000Z'), // 01:00 Dhaka, 1h on the 13th
         },
       });
       const days = await repo().trends(
         { kind: 'team', teamId: team.id },
         new Date('2026-07-12T00:00:00.000Z'),
         new Date('2026-07-13T00:00:00.000Z'),
+        WINDOW,
       );
       expect(days.find((d) => d.day === '2026-07-12')!.trackedSeconds).toBe(3600);
       expect(days.find((d) => d.day === '2026-07-13')!.trackedSeconds).toBe(3600);
@@ -342,10 +401,165 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
         { kind: 'team', teamId: teamA.id },
         new Date('2026-07-12T00:00:00.000Z'),
         new Date('2026-07-12T00:00:00.000Z'),
+        WINDOW,
       );
       const d12 = days.find((d) => d.day === '2026-07-12')!;
       expect(d12.trackedSeconds).toBe(3600); // only team A's hour
       expect(d12.productiveSeconds).toBe(0); // team B's category summary excluded
+    });
+
+    it('an open entry with a stale heartbeat stops accruing duration', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      const staleHeartbeat = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+      const startTime = new Date(Date.now() - 90 * 60 * 1000); // 90 minutes ago
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000fc01',
+          userId: user.id,
+          projectId: null,
+          taskId: null,
+          source: 'MANUAL',
+          startTime,
+          endTime: null,
+          heartbeatAt: staleHeartbeat,
+        },
+      });
+
+      const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const to = new Date(Date.now() + 60 * 60 * 1000);
+      const days = await repo().trends({ kind: 'team', teamId: team.id }, from, to, WINDOW);
+      const total = days.reduce((sum, d) => sum + d.trackedSeconds, 0);
+
+      // start -> heartbeat is 30 min, plus the 300s freshness window = 1800 + 300 = 2100s.
+      // Without the clamp this is ~5400s and climbing every second the process runs.
+      expect(total).toBeGreaterThanOrEqual(2000);
+      expect(total).toBeLessThanOrEqual(2200);
+    });
+
+    it('a legacy open entry with no heartbeatAt contributes at most the freshness window', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Bea', 'bea@example.com');
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000fc02',
+          userId: user.id,
+          projectId: null,
+          taskId: null,
+          source: 'MANUAL',
+          startTime: new Date(Date.now() - 90 * 60 * 1000),
+          endTime: null,
+          heartbeatAt: null, // written before the column existed
+        },
+      });
+
+      const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const to = new Date(Date.now() + 60 * 60 * 1000);
+      const days = await repo().trends({ kind: 'team', teamId: team.id }, from, to, WINDOW);
+      const total = days.reduce((sum, d) => sum + d.trackedSeconds, 0);
+      expect(total).toBeLessThanOrEqual(400); // falls back to startTime + 300s
+    });
+
+    // NOTE: this is a GUARD, not a regression test for the new predicate — a zero-duration
+    // entry already contributes 0 to the SUM whether or not the join admits it (verified:
+    // this test still passes with the `te."endTime" > te."startTime"` join predicate removed).
+    // Its purpose is to prove the added predicate does NOT collaterally exclude a real open
+    // entry sharing the same day, which the trends join has no other direct test for.
+    it('a zero-duration entry contributes nothing extra; an open entry the same day still accrues', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Cy', 'cy@example.com');
+      const at = new Date('2026-07-12T09:00:00.000Z');
+      // A discarded recovery span: closed at its own start (spec §4.4, Task 7's Discard path).
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000fc03',
+          userId: user.id,
+          source: 'MANUAL',
+          startTime: at,
+          endTime: at,
+        },
+      });
+      // A genuinely open entry the same day — must still accrue (the clamp is unaffected).
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000fc04',
+          userId: user.id,
+          source: 'AUTO',
+          startTime: new Date('2026-07-12T10:00:00.000Z'),
+          endTime: null,
+          heartbeatAt: new Date('2026-07-12T10:30:00.000Z'),
+        },
+      });
+
+      const days = await repo().trends(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-07-12T00:00:00.000Z'),
+        new Date('2026-07-13T00:00:00.000Z'),
+        WINDOW,
+      );
+      const d12 = days.find((d) => d.day === '2026-07-12')!;
+      // 30 min open + 300s freshness window = 2100s. The zero-duration entry adds nothing.
+      expect(d12.trackedSeconds).toBe(30 * 60 + WINDOW);
+    });
+
+    it('buckets a 00:30-Dhaka entry onto the Dhaka day, not the UTC day', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      // 2026-08-19T18:30Z is 2026-08-20 00:30 in Dhaka: same UTC day as 17:30Z, different Dhaka day.
+      await db.prisma.timeEntry.createMany({
+        data: [
+          {
+            id: '01920000-0000-7000-8000-00000000ea01',
+            userId: user.id,
+            source: 'MANUAL',
+            startTime: new Date('2026-08-19T17:30:00.000Z'), // 23:30 Dhaka, Aug 19
+            endTime: new Date('2026-08-19T17:45:00.000Z'),
+          },
+          {
+            id: '01920000-0000-7000-8000-00000000ea02',
+            userId: user.id,
+            source: 'MANUAL',
+            startTime: new Date('2026-08-19T18:30:00.000Z'), // 00:30 Dhaka, Aug 20
+            endTime: new Date('2026-08-19T18:45:00.000Z'),
+          },
+        ],
+      });
+
+      const days = await repo().trends(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-08-19T00:00:00.000Z'),
+        new Date('2026-08-21T00:00:00.000Z'),
+        WINDOW,
+      );
+
+      const aug19 = days.find((d) => d.day === '2026-08-19');
+      const aug20 = days.find((d) => d.day === '2026-08-20');
+
+      // 15 minutes on each Dhaka day — NOT 30 minutes on 2026-08-19.
+      expect(aug19?.trackedSeconds).toBe(900);
+      expect(aug20?.trackedSeconds).toBe(900);
+    });
+
+    it('derives the day series and the summary range from `from` in Dhaka, not UTC', async () => {
+      // 2026-08-19T18:00:00.000Z is 00:00 Dhaka on 2026-08-20 — a bound where the two zones
+      // DISAGREE ('Asia/Dhaka' reads 2026-08-20, 'UTC' reads 2026-08-19). `to` is picked to
+      // read the same under both zones, so a failure localises to the lower bound.
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      await seedSummary(user.id, '2026-08-19', { PRODUCTIVE: 11 }, 11);
+      await seedSummary(user.id, '2026-08-20', { PRODUCTIVE: 22 }, 22);
+
+      const days = await repo().trends(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-08-19T18:00:00.000Z'),
+        new Date('2026-08-20T12:00:00.000Z'), // 18:00 Dhaka the same date, unambiguous
+        WINDOW,
+      );
+
+      // Under UTC the generate_series would open on 2026-08-19 and the cat CTE would pull in
+      // its 11 productive minutes.
+      expect(days.map((d) => d.day)).toEqual(['2026-08-20']);
+      expect(days[0]?.productiveSeconds).toBe(22 * 60);
     });
   });
 
@@ -454,6 +668,52 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
 
       expect(rows.map((r) => r.userId)).toEqual([userA.id]);
       expect(rows.map((r) => r.name)).toEqual(['Ada']);
+    });
+
+    it('filters the summary day range from `from` in Dhaka, not UTC', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      // The 08-19 row is inside the window under UTC and outside it under Dhaka.
+      await db.prisma.activityDailySummary.create({
+        data: {
+          userId: user.id,
+          day: new Date('2026-08-19T00:00:00.000Z'),
+          avgActivityPct: 70,
+          activeMinutes: 60,
+          byApp: {},
+          byCategory: { UNPRODUCTIVE: 60 },
+        },
+      });
+      await db.prisma.activityDailySummary.create({
+        data: {
+          userId: user.id,
+          day: new Date('2026-08-20T00:00:00.000Z'),
+          avgActivityPct: 70,
+          activeMinutes: 60,
+          byApp: {},
+          byCategory: { PRODUCTIVE: 60 },
+        },
+      });
+
+      const rows = await repo().teamActivity(
+        { kind: 'team', teamId: team.id },
+        new Date('2026-08-19T18:00:00.000Z'), // 00:00 Dhaka on 2026-08-20
+        new Date('2026-08-20T12:00:00.000Z'),
+      );
+
+      // Under UTC both rows land in range: 120 active minutes, split 50/50 productive.
+      expect(rows).toEqual([
+        {
+          userId: user.id,
+          name: 'Ada',
+          activeMinutes: 60,
+          productivePct: 100,
+          neutralPct: 0,
+          unproductivePct: 0,
+          idleMinutes: 0,
+          idlePct: 0,
+        },
+      ]);
     });
   });
 
@@ -586,6 +846,7 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
 
   const FROM = new Date('2026-07-01T00:00:00.000Z');
   const TO = new Date('2026-07-08T00:00:00.000Z');
+  const FRESHNESS = 300; // freshnessSeconds for these assertions
 
   function repo(): ReportsRepository {
     return new ReportsRepository(db.prisma as unknown as PrismaService);
@@ -607,6 +868,24 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
         source: 'MANUAL',
         startTime: new Date(startIso),
         endTime: new Date(endIso),
+      },
+    });
+  }
+  /** A STRANDED open entry: started, never stopped, client no longer heartbeating. */
+  async function strandedEntry(
+    userId: string,
+    id: string,
+    startIso: string,
+    heartbeatIso: string | null,
+  ) {
+    await db.prisma.timeEntry.create({
+      data: {
+        id,
+        userId,
+        source: 'MANUAL',
+        startTime: new Date(startIso),
+        endTime: null,
+        heartbeatAt: heartbeatIso === null ? null : new Date(heartbeatIso),
       },
     });
   }
@@ -654,7 +933,7 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
     await summary(u.id, '2026-07-02', 80, 100);
     await summary(u.id, '2026-07-03', 40, 300);
 
-    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows).toEqual([{ userId: u.id, name: 'Ada', trackedSeconds: 9000, activityPct: 50 }]);
   });
 
@@ -668,7 +947,7 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
       '2026-07-02T10:00:00Z',
     );
 
-    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows).toEqual([{ userId: u.id, name: 'Bea', trackedSeconds: 3600, activityPct: 0 }]);
   });
 
@@ -691,7 +970,7 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
       '2026-07-02T09:30:00Z',
     );
 
-    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows.map((r) => r.name)).toEqual(['Cara']);
     expect(rows[0]?.trackedSeconds).toBe(1800);
   });
@@ -707,8 +986,31 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
       '2026-07-01T01:00:00Z',
     );
 
-    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows[0]?.trackedSeconds).toBe(3600);
+  });
+
+  it('an open entry with a stale heartbeat stops accruing trackedSeconds', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const to = new Date(Date.now() + 60 * 60 * 1000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '01920000-0000-7000-8000-00000000fc04',
+        userId: u.id,
+        source: 'MANUAL',
+        startTime: new Date(Date.now() - 90 * 60 * 1000), // 90 min ago
+        endTime: null,
+        heartbeatAt: new Date(Date.now() - 60 * 60 * 1000), // stale, 1h ago
+      },
+    });
+
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, from, to, FRESHNESS);
+    // 30 min start->heartbeat + 300s freshness = 2100s, not the ~5400s an unclamped now()
+    // would give.
+    expect(rows[0]?.trackedSeconds).toBeGreaterThanOrEqual(2000);
+    expect(rows[0]?.trackedSeconds).toBeLessThanOrEqual(2200);
   });
 
   it('kind=user scopes to a single user; kind=all spans teams', async () => {
@@ -729,10 +1031,10 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
       '2026-07-02T10:00:00Z',
     );
 
-    const self = await repo().teamSummary({ kind: 'user', userId: a.id }, FROM, TO);
+    const self = await repo().teamSummary({ kind: 'user', userId: a.id }, FROM, TO, FRESHNESS);
     expect(self.map((r) => r.name)).toEqual(['Ada']);
 
-    const all = await repo().teamSummary({ kind: 'all' }, FROM, TO);
+    const all = await repo().teamSummary({ kind: 'all' }, FROM, TO, FRESHNESS);
     expect(all.map((r) => r.name).sort()).toEqual(['Ada', 'Zoe']);
   });
 
@@ -755,8 +1057,95 @@ describe.runIf(RUN_E2E)('reports repository — teamSummary (real Postgres)', ()
       '2026-06-15T10:00:00Z',
     );
 
-    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows.map((r) => r.name)).toEqual(['Ada']);
+  });
+
+  it('a zero-duration entry does not surface a phantom user row (has-data predicate)', async () => {
+    const t = await team();
+    const a = await user(t.id, 'Ada', 'ada@example.com');
+    const b = await user(t.id, 'Bea', 'bea@example.com');
+    // Ada has a real, in-range entry.
+    await entry(
+      a.id,
+      '019797a0-0000-7000-8000-000000000211',
+      '2026-07-02T09:00:00Z',
+      '2026-07-02T10:00:00Z',
+    );
+    // Bea's ONLY entry in range is a discarded recovery span (spec §4.4, Task 7's Discard
+    // path): closed at its own start, and no activity summary at all.
+    await entry(
+      b.id,
+      '019797a0-0000-7000-8000-000000000212',
+      '2026-07-02T09:00:00Z',
+      '2026-07-02T09:00:00Z',
+    );
+
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
+    // Without the fix, Bea would appear as a phantom { trackedSeconds: 0, activityPct: 0 } row.
+    expect(rows.map((r) => r.name)).toEqual(['Ada']);
+  });
+
+  it('a stranded open entry from before the range does not surface a phantom user row', async () => {
+    const t = await team();
+    const a = await user(t.id, 'Ada', 'ada@example.com');
+    const b = await user(t.id, 'Bea', 'bea@example.com');
+    await entry(
+      a.id,
+      '019797a0-0000-7000-8000-000000000213',
+      '2026-07-02T09:00:00Z',
+      '2026-07-02T10:00:00Z',
+    );
+    // Bea's ONLY entry started well BEFORE the range and was never stopped, and she has no
+    // activity summary. The row-selection predicate used to read `COALESCE(endTime, now()) >
+    // from` — true for any open row, whenever it started — so Bea passed the has-data check,
+    // then summed to 0 because the duration expression IS clamped. The result was a row saying
+    // "Bea: 0% active", which is a different claim from "no data for Bea".
+    await strandedEntry(
+      b.id,
+      '019797a0-0000-7000-8000-000000000214',
+      '2026-06-15T09:00:00Z',
+      '2026-06-15T09:03:00Z',
+    );
+
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
+    expect(rows.map((r) => r.name)).toEqual(['Ada']);
+  });
+
+  it('a LIVE open entry still surfaces its user (the critical property)', async () => {
+    const t = await team();
+    const b = await user(t.id, 'Bea', 'bea@example.com');
+    // The counterpart of the test above: a timer running RIGHT NOW must still be reported, so
+    // the clamped selection predicate can never be simplified to "closed entries only".
+    const from = new Date(Date.now() - 60 * 60 * 1000);
+    const to = new Date(Date.now() + 60 * 60 * 1000);
+    await strandedEntry(
+      b.id,
+      '019797a0-0000-7000-8000-000000000215',
+      new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      new Date().toISOString(),
+    );
+
+    const rows = await repo().teamSummary({ kind: 'team', teamId: t.id }, from, to, FRESHNESS);
+    expect(rows.map((r) => r.name)).toEqual(['Bea']);
+    expect(rows[0]!.trackedSeconds).toBeGreaterThan(0);
+  });
+
+  it('filters the activity day range from `from` in Dhaka, not UTC', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    await summary(u.id, '2026-08-19', 20, 100);
+    await summary(u.id, '2026-08-20', 80, 100);
+
+    const rows = await repo().teamSummary(
+      { kind: 'team', teamId: t.id },
+      new Date('2026-08-19T18:00:00.000Z'), // 00:00 Dhaka on 2026-08-20
+      new Date('2026-08-20T12:00:00.000Z'),
+      FRESHNESS,
+    );
+
+    // Under UTC both rows are in range and the weighted average is (20*100 + 80*100)/200 = 50.
+    expect(rows).toEqual([{ userId: u.id, name: 'Ada', trackedSeconds: 0, activityPct: 80 }]);
   });
 });
 
@@ -774,6 +1163,7 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
 
   const FROM = new Date('2026-07-01T00:00:00.000Z');
   const TO = new Date('2026-07-08T00:00:00.000Z');
+  const FRESHNESS = 300; // freshnessSeconds for these assertions
   function repo(): ReportsRepository {
     return new ReportsRepository(db.prisma as unknown as PrismaService);
   }
@@ -813,13 +1203,133 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
       },
     });
 
-    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows).toEqual([
       { projectId: p.id, name: 'Acme', trackedSeconds: 3600 },
       { projectId: null, name: 'No project', trackedSeconds: 1800 },
     ]);
     // reconciles to the user's total tracked seconds (3600 + 1800)
     expect(rows.reduce((s, r) => s + r.trackedSeconds, 0)).toBe(5400);
+  });
+
+  it('a project whose only entry is stranded open does not surface a phantom project row', async () => {
+    const t = await db.prisma.team.create({
+      data: { name: 'Eng', settings: {} },
+      select: { id: true },
+    });
+    const u = await db.prisma.user.create({
+      data: { email: 'ada@example.com', name: 'Ada', passwordHash: 'x', teamId: t.id },
+      select: { id: true },
+    });
+    const real = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Acme' },
+      select: { id: true },
+    });
+    const ghost = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Ghost' },
+      select: { id: true },
+    });
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000311',
+        userId: u.id,
+        projectId: real.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T09:00:00Z'),
+        endTime: new Date('2026-07-02T10:00:00Z'),
+      },
+    });
+    // Ghost's only entry started in JUNE and was never stopped. An unclamped
+    // `COALESCE(endTime, now()) > from` selected it into this July range, where it summed to 0.
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000312',
+        userId: u.id,
+        projectId: ghost.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-06-15T09:00:00Z'),
+        endTime: null,
+        heartbeatAt: new Date('2026-06-15T09:03:00Z'),
+      },
+    });
+
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
+    expect(rows).toEqual([{ projectId: real.id, name: 'Acme', trackedSeconds: 3600 }]);
+  });
+
+  it('a project whose only entry is zero-duration does not surface a phantom project row', async () => {
+    const t = await db.prisma.team.create({
+      data: { name: 'Eng', settings: {} },
+      select: { id: true },
+    });
+    const u = await db.prisma.user.create({
+      data: { email: 'ada@example.com', name: 'Ada', passwordHash: 'x', teamId: t.id },
+      select: { id: true },
+    });
+    const real = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Acme' },
+      select: { id: true },
+    });
+    const discarded = await db.prisma.project.create({
+      data: { teamId: t.id, name: 'Ghost' },
+      select: { id: true },
+    });
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000303',
+        userId: u.id,
+        projectId: real.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T09:00:00Z'),
+        endTime: new Date('2026-07-02T10:00:00Z'),
+      },
+    });
+    // "Ghost" project's ONLY entry in range is a discarded recovery span (spec §4.4,
+    // Task 7's Discard path): closed at its own start.
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000304',
+        userId: u.id,
+        projectId: discarded.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-07-02T11:00:00Z'),
+        endTime: new Date('2026-07-02T11:00:00Z'),
+      },
+    });
+
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
+    // Without the fix, "Ghost" would appear as a phantom { trackedSeconds: 0 } row.
+    expect(rows).toEqual([{ projectId: real.id, name: 'Acme', trackedSeconds: 3600 }]);
+  });
+
+  it('an open entry with a stale heartbeat stops accruing trackedSeconds', async () => {
+    const t = await db.prisma.team.create({
+      data: { name: 'Eng', settings: {} },
+      select: { id: true },
+    });
+    const u = await db.prisma.user.create({
+      data: { email: 'ada@example.com', name: 'Ada', passwordHash: 'x', teamId: t.id },
+      select: { id: true },
+    });
+    const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const to = new Date(Date.now() + 60 * 60 * 1000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '01920000-0000-7000-8000-00000000fc05',
+        userId: u.id,
+        projectId: null,
+        source: 'MANUAL',
+        startTime: new Date(Date.now() - 90 * 60 * 1000), // 90 min ago
+        endTime: null,
+        heartbeatAt: new Date(Date.now() - 60 * 60 * 1000), // stale, 1h ago
+      },
+    });
+
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, from, to, FRESHNESS);
+    // 30 min start->heartbeat + 300s freshness = 2100s, not the ~5400s an unclamped now()
+    // would give.
+    expect(rows[0]?.trackedSeconds).toBeGreaterThanOrEqual(2000);
+    expect(rows[0]?.trackedSeconds).toBeLessThanOrEqual(2200);
   });
 
   it('honors an explicit projectId filter', async () => {
@@ -860,7 +1370,7 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
       },
     });
 
-    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, p1.id);
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS, p1.id);
     expect(rows).toEqual([{ projectId: p1.id, name: 'Acme', trackedSeconds: 3600 }]);
   });
 
@@ -911,7 +1421,7 @@ describe.runIf(RUN_E2E)('reports repository — projects (real Postgres)', () =>
       },
     });
 
-    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO);
+    const rows = await repo().projects({ kind: 'team', teamId: t.id }, FROM, TO, FRESHNESS);
     expect(rows.every((r) => r.trackedSeconds === 3600)).toBe(true);
     // Ties on trackedSeconds break by projectId ASC — the smaller id sorts first.
     expect(rows.map((r) => r.projectId)).toEqual([p1.id, p2.id]);
@@ -932,6 +1442,7 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
 
   const FROM = new Date('2026-07-01T00:00:00.000Z');
   const TO = new Date('2026-07-08T00:00:00.000Z');
+  const FRESHNESS = 300; // freshnessSeconds for these assertions
   function repo(): ReportsRepository {
     return new ReportsRepository(db.prisma as unknown as PrismaService);
   }
@@ -941,7 +1452,14 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
     batchSize?: number,
   ) {
     const out: Array<Record<string, unknown>> = [];
-    for await (const row of repo().streamEntries(scope, FROM, TO, projectId, batchSize)) {
+    for await (const row of repo().streamEntries(
+      scope,
+      FROM,
+      TO,
+      FRESHNESS,
+      projectId,
+      batchSize,
+    )) {
       out.push(row);
     }
     return out;
@@ -959,6 +1477,26 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
   it('yields nothing for an empty set', async () => {
     const t = await team();
     await user(t.id, 'Ada', 'ada@example.com');
+    expect(await collect({ kind: 'team', teamId: t.id })).toEqual([]);
+  });
+
+  it('omits a stranded open entry that ended before the range began', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    // Started in June, never stopped. The row-selection predicate used to read
+    // `COALESCE(endTime, now()) > from`, true for ANY open row whenever it started, so this
+    // entry landed in the CSV export of an unrelated July range as a 0-second line.
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-0000000004a1',
+        userId: u.id,
+        source: 'MANUAL',
+        startTime: new Date('2026-06-15T09:00:00Z'),
+        endTime: null,
+        heartbeatAt: new Date('2026-06-15T09:03:00Z'),
+      },
+    });
+
     expect(await collect({ kind: 'team', teamId: t.id })).toEqual([]);
   });
 
@@ -1021,13 +1559,51 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
       },
     });
     const out: Array<Record<string, unknown>> = [];
-    for await (const row of repo().streamEntries({ kind: 'team', teamId: t.id }, from, to)) {
+    for await (const row of repo().streamEntries(
+      { kind: 'team', teamId: t.id },
+      from,
+      to,
+      FRESHNESS,
+    )) {
       out.push(row);
     }
     expect(out).toHaveLength(1);
     expect(out[0]!.endTime).toBeNull();
     expect(out[0]!.durationSeconds as number).toBeGreaterThanOrEqual(59);
     expect(out[0]!.durationSeconds as number).toBeLessThan(120);
+  });
+
+  it('clamps an open entry with a stale heartbeat, but leaves endTime null', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    const from = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const to = new Date(Date.now() + 60 * 60 * 1000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000403',
+        userId: u.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 90 * 60 * 1000), // 90 min ago
+        endTime: null,
+        heartbeatAt: new Date(Date.now() - 60 * 60 * 1000), // stale, 1h ago
+      },
+    });
+    const out: Array<Record<string, unknown>> = [];
+    for await (const row of repo().streamEntries(
+      { kind: 'team', teamId: t.id },
+      from,
+      to,
+      FRESHNESS,
+    )) {
+      out.push(row);
+    }
+    expect(out).toHaveLength(1);
+    // the projection still shows an open entry's end as blank, never a synthesised clamp
+    expect(out[0]!.endTime).toBeNull();
+    // duration is clamped to heartbeat + freshness (30min + 300s = 2100s), not the ~5400s
+    // it would be if bounded by now().
+    expect(out[0]!.durationSeconds as number).toBeGreaterThanOrEqual(2000);
+    expect(out[0]!.durationSeconds as number).toBeLessThanOrEqual(2200);
   });
 
   it('applies the projectId filter', async () => {
@@ -1123,7 +1699,12 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
       },
     });
     const out: Array<Record<string, unknown>> = [];
-    for await (const row of repo().streamEntries({ kind: 'team', teamId: t.id }, FROM, TO_MS)) {
+    for await (const row of repo().streamEntries(
+      { kind: 'team', teamId: t.id },
+      FROM,
+      TO_MS,
+      FRESHNESS,
+    )) {
       out.push(row);
     }
     expect(out).toHaveLength(1);
@@ -1134,5 +1715,34 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
     expect(((r.endTime as Date).getTime() - (r.startTime as Date).getTime()) / 1000).toBe(
       r.durationSeconds,
     );
+  });
+
+  it('excludes a zero-duration (discarded recovery) entry but keeps an open entry alongside it', async () => {
+    const t = await team();
+    const u = await user(t.id, 'Ada', 'ada@example.com');
+    const at = new Date('2026-07-02T09:00:00.000Z');
+    // A discarded recovery span: closed at its own start (spec §4.4, Task 7's Discard path).
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000450',
+        userId: u.id,
+        source: 'MANUAL',
+        startTime: at,
+        endTime: at,
+      },
+    });
+    // A genuinely open entry in the same window — must still appear (spec's whole point).
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000451',
+        userId: u.id,
+        source: 'AUTO',
+        startTime: new Date('2026-07-02T10:00:00.000Z'),
+        endTime: null,
+      },
+    });
+    const ids = (await collect({ kind: 'team', teamId: t.id })).map((r) => r.entryId);
+    expect(ids).not.toContain('019797a0-0000-7000-8000-000000000450');
+    expect(ids).toContain('019797a0-0000-7000-8000-000000000451');
   });
 });

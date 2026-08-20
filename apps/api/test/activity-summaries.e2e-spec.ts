@@ -54,15 +54,32 @@ describe.runIf(RUN_E2E)('activity summary repository read — real Postgres', ()
     await summary(u1.id, '2026-07-20', 99); // out of window
     await summary(u2.id, '2026-07-11', 10); // other user
 
+    // Full ISO datetimes: ListActivityQuerySchema declares `z.iso.datetime()`, so a bare
+    // 'YYYY-MM-DD' is an input shape production can never send.
     const rows = await repo().listSummaries({
       userId: u1.id,
-      from: '2026-07-11',
-      to: '2026-07-12',
+      from: '2026-07-11T00:00:00.000Z',
+      to: '2026-07-12T00:00:00.000Z',
     });
 
     expect(rows.map((r) => r.avgActivityPct)).toEqual([40, 70]); // ordered, windowed, own-only
     expect(rows[0].day).toBe('2026-07-11');
     expect(rows[0].byApp).toEqual({ Xcode: 90, Slack: 30 });
+  });
+
+  it('windows on the Dhaka day of `from`, not its UTC day', async () => {
+    const u = await seedUser('s3@example.com');
+    await summary(u.id, '2026-08-19', 20);
+    await summary(u.id, '2026-08-20', 80);
+
+    const rows = await repo().listSummaries({
+      userId: u.id,
+      from: '2026-08-19T18:00:00.000Z', // 00:00 Dhaka on 2026-08-20
+      to: '2026-08-20T12:00:00.000Z', // 18:00 Dhaka the same date, unambiguous
+    });
+
+    // Under UTC `from` reads as 2026-08-19 and both rows come back.
+    expect(rows.map((r) => r.day)).toEqual(['2026-08-20']);
   });
 });
 

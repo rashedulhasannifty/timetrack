@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import type { ActivityDailySummary, ActivitySample, ListActivityQuery } from '@timetrack/contracts';
+import {
+  dayOf,
+  type ActivityDailySummary,
+  type ActivitySample,
+  type ListActivityQuery,
+} from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 
 // Never select `*` — the read shape mirrors ActivitySampleSchema exactly.
@@ -79,7 +84,10 @@ export class ActivityRepository {
     const rows = await this.prisma.activityDailySummary.findMany({
       where: {
         userId: query.userId,
-        day: { gte: new Date(query.from), lte: new Date(query.to) },
+        day: {
+          gte: new Date(`${dayOf(new Date(query.from))}T00:00:00.000Z`),
+          lte: new Date(`${dayOf(new Date(query.to))}T00:00:00.000Z`),
+        },
       },
       orderBy: { day: 'asc' },
       select: SUMMARY_SELECT,

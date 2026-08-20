@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
-    "lint": "eslint src",
-    "typecheck": "tsc --noEmit",
+    "lint": "eslint src scripts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json",
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },

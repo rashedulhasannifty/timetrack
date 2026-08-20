@@ -44,6 +44,7 @@ export interface TeamWeeklySummary {
 export async function collectWeeklySummaries(
   prisma: PrismaClient,
   week: ClosedWeek,
+  freshnessSeconds: number,
 ): Promise<TeamWeeklySummary[]> {
   const people = await prisma.user.findMany({
     where: { deactivatedAt: null },
@@ -61,7 +62,7 @@ export async function collectWeeklySummaries(
 
   const userIds = people.map((p) => p.id);
   const [tracked, activity, pendingRows] = await Promise.all([
-    trackedSecondsByUser(prisma, userIds, week.periodStart, week.periodEnd),
+    trackedSecondsByUser(prisma, userIds, week.periodStart, week.periodEnd, freshnessSeconds),
     weightedActivityPctByUser(prisma, userIds, week.periodStart, week.periodEnd),
     // Counted in JS rather than a GROUP BY on the joined team: one PENDING row per user per
     // week bounds this to the active headcount, and it keeps the enum out of raw SQL.

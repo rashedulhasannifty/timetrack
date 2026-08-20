@@ -27,7 +27,7 @@ export type TeamSummaryRow = z.infer<typeof TeamSummaryRowSchema>;
 export type TeamSummary = z.infer<typeof TeamSummarySchema>;
 
 export const TeamOverviewQuerySchema = z.object({
-  date: z.iso.date().optional(), // YYYY-MM-DD; absent → server's current UTC date
+  date: z.iso.date().optional(), // YYYY-MM-DD Dhaka day; absent → the server's current Dhaka day
 });
 
 export const TeamOverviewRowSchema = z.object({

@@ -28,6 +28,7 @@ export interface ReminderTarget {
 export async function collectMissingTimesheets(
   prisma: PrismaClient,
   week: ClosedWeek,
+  freshnessSeconds: number,
 ): Promise<ReminderTarget[]> {
   const teams = await prisma.team.findMany({ select: { id: true, settings: true } });
 
@@ -57,6 +58,7 @@ export async function collectMissingTimesheets(
     people.map((p) => p.id),
     week.periodStart,
     week.periodEnd,
+    freshnessSeconds,
   );
 
   const targets: ReminderTarget[] = [];

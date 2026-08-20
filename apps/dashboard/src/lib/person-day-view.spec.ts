@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { personDayView, resolveDayDate } from './person-day-view';
+import { dayRangeFor, personDayView, resolveDayDate, weekStrip } from './person-day-view';
 import type { TimeEntry, ActivitySample, Screenshot, Project } from '@timetrack/contracts';
 
 const D = '2026-07-13';
@@ -26,10 +26,11 @@ describe('personDayView — core', () => {
     expect((vm.window.endMs - vm.window.startMs) / 3_600_000).toBe(4);
   });
 
-  it('empty day falls back to 09:00–18:00', () => {
+  it('empty day falls back to 09:00–18:00 Dhaka', () => {
     const vm = personDayView({ ...base, now: new Date(iso(20)), entries: [] });
-    expect(new Date(vm.window.startMs).toISOString()).toBe(iso(9));
-    expect(new Date(vm.window.endMs).toISOString()).toBe(iso(18));
+    // Dhaka midnight on D is 2026-07-12T18:00:00.000Z; +9h/+18h from there.
+    expect(new Date(vm.window.startMs).toISOString()).toBe('2026-07-13T03:00:00.000Z');
+    expect(new Date(vm.window.endMs).toISOString()).toBe('2026-07-13T12:00:00.000Z');
     expect(vm.stats.trackedSeconds).toBe(0);
   });
 
@@ -144,13 +145,25 @@ describe('personDayView — ribbon', () => {
       entries: [entry('a', 9, 13)],
       samples: [sample(9, 0, 'NEUTRAL', 50)],
     });
-    expect(vm.ribbon.hourTicks.map((t) => t.label)).toEqual(['09', '10', '11', '12', '13']);
+    // 09:00-13:00Z === 15:00-19:00 Dhaka.
+    expect(vm.ribbon.hourTicks.map((t) => t.label)).toEqual(['15', '16', '17', '18', '19']);
     expect(vm.activityBuckets[0]).toMatchObject({
-      label: '09',
+      label: '15',
       activityPct: 50,
       category: 'NEUTRAL',
     });
     expect(vm.activityBuckets[1]!.category).toBe('UNTRACKED'); // 10:00 hour has no samples
+  });
+
+  it('labels hour ticks in Dhaka time, not UTC, across the 18:00Z boundary', () => {
+    // 17:00-21:00Z spans 18:00Z === 00:00 Dhaka: the discriminating tick reads "18" pre-fix,
+    // "00" post-fix.
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(23)),
+      entries: [entry('a', 17, 21)],
+    });
+    expect(vm.ribbon.hourTicks.map((t) => t.label)).toEqual(['23', '00', '01', '02', '03']);
   });
 
   it('places a capture mark at the screenshot time', () => {
@@ -232,6 +245,7 @@ describe('personDayView — entry labels', () => {
 });
 
 describe('resolveDayDate', () => {
+  // 20:00 UTC on the 13th is already 02:00 Dhaka on the 14th.
   const now = new Date('2026-07-13T20:00:00.000Z');
 
   it('keeps a valid date', () => {
@@ -239,14 +253,201 @@ describe('resolveDayDate', () => {
   });
 
   it('falls back to today when raw is undefined', () => {
-    expect(resolveDayDate(undefined, now)).toBe('2026-07-13');
+    expect(resolveDayDate(undefined, now)).toBe('2026-07-14');
   });
 
   it.each(['2026-7-1', 'garbage'])('falls back to today on bad format %s', (raw) => {
-    expect(resolveDayDate(raw, now)).toBe('2026-07-13');
+    expect(resolveDayDate(raw, now)).toBe('2026-07-14');
   });
 
   it.each(['2026-13-45', '2026-02-30'])('falls back to today on impossible date %s', (raw) => {
-    expect(resolveDayDate(raw, now)).toBe('2026-07-13');
+    expect(resolveDayDate(raw, now)).toBe('2026-07-14');
+  });
+});
+
+describe('resolveDayDate (Dhaka)', () => {
+  it('defaults to the Dhaka day, not the UTC day', () => {
+    // 18:30Z is already tomorrow in Dhaka.
+    expect(resolveDayDate(undefined, new Date('2026-08-19T18:30:00.000Z'))).toBe('2026-08-20');
+  });
+
+  it('accepts an explicit valid day', () => {
+    expect(resolveDayDate('2026-08-20', new Date('2026-08-19T18:30:00.000Z'))).toBe('2026-08-20');
+  });
+
+  it('falls back to today when the param is not a real day', () => {
+    expect(resolveDayDate('2026-02-30', new Date('2026-08-19T18:30:00.000Z'))).toBe('2026-08-20');
+    expect(resolveDayDate('garbage', new Date('2026-08-19T18:30:00.000Z'))).toBe('2026-08-20');
+  });
+});
+
+describe('personDayView — open-entry liveness', () => {
+  it('is not recording when the newest sample has gone stale', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+      samples: [sample(9, 0, 'NEUTRAL', 50)], // an hour old
+    });
+    expect(vm.recordingNow).toBe(false);
+  });
+
+  it('is recording while samples keep arriving', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+      samples: [sample(9, 59, 'NEUTRAL', 50)],
+    });
+    expect(vm.recordingNow).toBe(true);
+  });
+
+  it("stops growing a stale open entry's duration", () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+      samples: [sample(9, 0, 'NEUTRAL', 50)],
+    });
+    // 08:00 -> 09:00 heartbeat + 300s freshness = 3900s, NOT the 7200s to `now`.
+    expect(vm.entries[0]?.durationSeconds).toBeLessThanOrEqual(4000);
+  });
+
+  it('runs a live entry to now', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+      samples: [sample(9, 59, 'NEUTRAL', 50)],
+    });
+    expect(vm.entries[0]?.durationSeconds).toBe(7200);
+  });
+
+  // RULING A (fix round 1): absence of samples is absence of evidence, not evidence of
+  // death. A user who hasn't satisfied `monitoringAckAt` produces NO activity samples at
+  // all — capture is gated off entirely — yet can still track time manually. Freezing their
+  // duration to zero (the original fix's behavior) would misreport every entry they log.
+  it('reports a real growing duration and recordingNow when there are no samples at all', () => {
+    const vm = personDayView({
+      ...base, // base already carries samples: []
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+    });
+    expect(vm.recordingNow).toBe(true);
+    expect(vm.entries[0]?.durationSeconds).toBe(7200); // 08:00 -> 10:00, unclamped
+  });
+
+  // RULING C (fix round 1): the per-entry/per-block "running" label must not contradict the
+  // top-level recordingNow pill — a stale open entry's duration is frozen, so its row and
+  // ribbon tooltip must stop claiming "running" too.
+  it('is not marked running once stale, even though it is still open', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10)),
+      entries: [entry('a', 8, null)],
+      samples: [sample(9, 0, 'NEUTRAL', 50)], // an hour old
+    });
+    expect(vm.entries[0]?.running).toBe(false);
+    expect(vm.ribbon.tracked.at(-1)?.running).toBe(false);
+  });
+
+  // RULING D (fix round 2): liveness is PER-ENTRY, not a single day-level comparison. A
+  // stale sample from earlier in the day must not freeze/hide an entry that started AFTER
+  // that sample's horizon -- there is no staleness evidence for THIS entry (capture died or
+  // the ack was withdrawn, then the user started a fresh entry), so it falls back to `nowMs`
+  // and counts as live, same as the zero-samples case.
+  it('counts an entry that starts after the last sample stopped covering it', () => {
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(10, 30)),
+      // starts at 10:00 -- AFTER the 09:00 sample's 09:05 horizon, so that sample is not
+      // evidence about this entry at all.
+      entries: [entry('a', 10, null)],
+      samples: [sample(9, 0, 'NEUTRAL', 50)],
+    });
+    expect(vm.recordingNow).toBe(true);
+    expect(vm.entries[0]?.running).toBe(true);
+    expect(vm.entries[0]?.durationSeconds).toBe(1800); // 10:00 -> 10:30, unclamped
+  });
+});
+
+describe('weekStrip', () => {
+  it('builds seven consecutive Monday-start days with correct weekday letters and day-of-month', () => {
+    const rows = weekStrip('2026-07-15', [], '2026-07-20');
+    expect(rows.map((r) => r.date)).toEqual([
+      '2026-07-13',
+      '2026-07-14',
+      '2026-07-15',
+      '2026-07-16',
+      '2026-07-17',
+      '2026-07-18',
+      '2026-07-19',
+    ]);
+    expect(rows.map((r) => r.dow)).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
+    expect(rows.map((r) => r.num)).toEqual([13, 14, 15, 16, 17, 18, 19]);
+  });
+
+  // NOT a second discriminator for the naive-instant-stepping bug the basic test above
+  // targets -- that bug fails at `dow` index 0 regardless of which week, so this case doesn't
+  // add coverage for it. Its independent value is pinning the `num` field's 31 -> 1 -> 2
+  // month rollover against the correct label-arithmetic implementation.
+  it('carries a month boundary correctly (day-of-month resets, weekday keeps advancing)', () => {
+    const rows = weekStrip('2026-07-30', [], '2026-08-02');
+    expect(rows.map((r) => r.date)).toEqual([
+      '2026-07-27',
+      '2026-07-28',
+      '2026-07-29',
+      '2026-07-30',
+      '2026-07-31',
+      '2026-08-01',
+      '2026-08-02',
+    ]);
+    expect(rows.map((r) => r.dow)).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
+    expect(rows.map((r) => r.num)).toEqual([27, 28, 29, 30, 31, 1, 2]);
+  });
+
+  it('marks the selected day and flags days after today as future', () => {
+    const rows = weekStrip('2026-07-15', [], '2026-07-16');
+    expect(rows.find((r) => r.date === '2026-07-15')!.selected).toBe(true);
+    expect(rows.find((r) => r.date === '2026-07-16')!.future).toBe(false); // == today
+    expect(rows.find((r) => r.date === '2026-07-17')!.future).toBe(true);
+  });
+
+  it('fills hours from the trends series and zero-fills a day the series omits', () => {
+    const rows = weekStrip(
+      '2026-07-15',
+      [{ day: '2026-07-14', trackedSeconds: 7200 }],
+      '2026-07-20',
+    );
+    expect(rows.find((r) => r.date === '2026-07-14')!.hours).toBe(2);
+    expect(rows.find((r) => r.date === '2026-07-13')!.hours).toBe(0);
+  });
+
+  it("scales fillPct against the week's busiest day", () => {
+    const rows = weekStrip(
+      '2026-07-15',
+      [
+        { day: '2026-07-13', trackedSeconds: 3600 },
+        { day: '2026-07-14', trackedSeconds: 7200 },
+      ],
+      '2026-07-20',
+    );
+    expect(rows.find((r) => r.date === '2026-07-14')!.fillPct).toBe(100);
+    expect(rows.find((r) => r.date === '2026-07-13')!.fillPct).toBe(50);
+  });
+});
+
+describe('dayRangeFor', () => {
+  it('spans a single Dhaka day, inclusive of both ends', () => {
+    const { from, to } = dayRangeFor('2026-08-20');
+    // Dhaka midnight on 2026-08-20 is 2026-08-19T18:00:00.000Z (UTC+6, no DST).
+    expect(from).toBe('2026-08-19T18:00:00.000Z');
+    expect(to).toBe('2026-08-20T17:59:59.999Z');
+  });
+
+  it('does not overlap the following day (1ms before its start)', () => {
+    const day1 = dayRangeFor('2026-08-20');
+    const day2 = dayRangeFor('2026-08-21');
+    expect(new Date(day1.to).getTime()).toBe(new Date(day2.from).getTime() - 1);
   });
 });

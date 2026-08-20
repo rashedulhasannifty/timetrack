@@ -173,7 +173,7 @@ function Tile({
         </div>
         <figcaption className="text-caption text-text-secondary flex flex-col gap-0.5">
           {shot.redactedReason ? <span>{shot.redactedReason}</span> : null}
-          <span className="tt-numeric">{shot.timestamp.slice(11, 16)}</span>
+          <span className="tt-numeric">{shotTime(shot.timestamp)}</span>
         </figcaption>
       </figure>
     );
@@ -186,7 +186,7 @@ function Tile({
           <span className="text-caption text-text-secondary">{shot.status}</span>
         </div>
         <figcaption className="tt-numeric text-caption text-text-secondary">
-          {shot.timestamp.slice(11, 16)}
+          {shotTime(shot.timestamp)}
         </figcaption>
       </figure>
     );
@@ -246,7 +246,7 @@ function Tile({
         ) : null}
       </div>
       <figcaption className="tt-numeric text-caption text-text-secondary">
-        {shot.timestamp.slice(11, 16)}
+        {shotTime(shot.timestamp)}
       </figcaption>
       {open ? (
         <div className="flex flex-col gap-1">

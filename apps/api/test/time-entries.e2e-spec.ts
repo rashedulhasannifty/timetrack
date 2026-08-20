@@ -196,6 +196,80 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
       ),
     ).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it('a late open payload cannot re-open a closed entry (close is monotone)', async () => {
+    const user = await seedUser();
+    const id = '019797a0-0000-7000-8000-0000000000c1';
+
+    // 1. The client opens the entry.
+    await repo().upsert(createDto(id), user.id);
+
+    // 2. The client closes it.
+    const closed = await repo().upsert(createDto(id, { endTime: '2026-07-11T10:00:00Z' }), user.id);
+    expect(closed.endTime).toBe('2026-07-11T10:00:00.000Z');
+
+    // 3. A stale open payload arrives late (retry, slow network, queued heartbeat).
+    const stale = await repo().upsert(createDto(id), user.id);
+
+    // Without the fix this is null and the entry is wedged as permanently running.
+    expect(stale.endTime).toBe('2026-07-11T10:00:00.000Z');
+  });
+
+  it('stamps heartbeatAt on every upsert', async () => {
+    const user = await seedUser();
+    const id = '019797a0-0000-7000-8000-0000000000c2';
+    const before = new Date();
+
+    await repo().upsert(createDto(id), user.id);
+
+    const row = await db.prisma.timeEntry.findUniqueOrThrow({ where: { id } });
+    expect(row.heartbeatAt).not.toBeNull();
+    expect(row.heartbeatAt!.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+  });
+
+  it('an upsert that omits note (e.g. a heartbeat re-POST) does not erase a stored note', async () => {
+    const user = await seedUser();
+    const id = '019797a0-0000-7000-8000-0000000000c3';
+
+    // 1. The note is set (e.g. the client sent it on open, or a dashboard correction landed).
+    await repo().upsert(createDto(id, { note: 'client call' }), user.id);
+
+    // 2. A later payload omits `note` entirely, the way the 60s heartbeat re-POST does.
+    const reheartbeat = await repo().upsert(createDto(id), user.id);
+
+    // Without the fix this is undefined/null and the note is silently erased.
+    expect(reheartbeat.note).toBe('client call');
+  });
+
+  it('a zero-duration entry is hidden from the list and does not block a new open entry', async () => {
+    const user = await seedUser();
+    const discardedId = '019797a0-0000-7000-8000-0000000000fd';
+    const at = '2026-07-11T09:00:00.000Z';
+
+    // A discarded recovery span: closed at its own start (spec §4.4, Task 7's Discard path).
+    await repo().upsert(createDto(discardedId, { endTime: at }), user.id);
+
+    const listed = await repo().list({
+      userId: user.id,
+      from: '2026-07-10T00:00:00.000Z',
+      to: '2026-07-12T00:00:00.000Z',
+    });
+    expect(listed.map((e) => e.id)).not.toContain(discardedId);
+
+    // It released the one-open-entry index slot, so a new open entry can be created.
+    const openedId = '019797a0-0000-7000-8000-0000000000fe';
+    const opened = await repo().upsert(createDto(openedId, { endTime: null }), user.id);
+    expect(opened.endTime).toBeNull();
+
+    // The critical property: the OPEN entry must still survive the same filter that hid
+    // the discarded one — the whole live-entry feature depends on this.
+    const listedAfter = await repo().list({
+      userId: user.id,
+      from: '2026-07-10T00:00:00.000Z',
+      to: '2026-07-12T00:00:00.000Z',
+    });
+    expect(listedAfter.map((e) => e.id)).toContain(openedId);
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.

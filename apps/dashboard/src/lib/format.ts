@@ -1,3 +1,5 @@
+import { clockOf, dayOf } from '@timetrack/contracts';
+
 /** Presentation helpers. Pure functions — unit-tested in format.spec.ts. */
 
 export function formatDuration(seconds: number): string {
@@ -7,14 +9,14 @@ export function formatDuration(seconds: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/** The Dhaka calendar day an instant falls on (spec §3.2). */
 export function formatDate(iso: string): string {
-  return new Date(iso).toISOString().slice(0, 10);
+  return dayOf(new Date(iso));
 }
 
+/** Dhaka wall-clock range. A null end means the entry is still running. */
 export function formatTimeRange(startIso: string, endIso: string | null): string {
-  const start = new Date(startIso);
-  const startLabel = start.toISOString().slice(11, 16);
+  const startLabel = clockOf(new Date(startIso));
   if (!endIso) return `${startLabel}–…`;
-  const endLabel = new Date(endIso).toISOString().slice(11, 16);
-  return `${startLabel}–${endLabel}`;
+  return `${startLabel}–${clockOf(new Date(endIso))}`;
 }
