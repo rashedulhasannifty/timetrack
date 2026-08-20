@@ -266,7 +266,8 @@ final class MenuViewModelTests: XCTestCase {
 
     func testResetStillClearsTheInMemorySelection() {
         // Regression guard: sign-out must not start leaking a selection into the next user.
-        let vm = makeVM(selectionStore: makeIsolatedStore())
+        let store = makeIsolatedStore()
+        let vm = makeVM(selectionStore: store)
         vm.markReady()
         vm.currentUserId = "u1"
         vm.projects = [Project(id: "p1", teamId: "team", name: "Apollo", archived: false, tasks: nil)]
@@ -278,6 +279,11 @@ final class MenuViewModelTests: XCTestCase {
         XCTAssertTrue(vm.projects.isEmpty)
         XCTAssertEqual(vm.query, "")
         XCTAssertNil(vm.currentUserId)
+        // Deliberate deviation from an earlier spec draft (design doc §6): the persisted key is
+        // NOT cleared on sign-out. Clearing it would defeat the feature for anyone who signs out
+        // at the end of the day; per-user namespacing is what keeps this safe, not an empty key.
+        XCTAssertEqual(store.load(userId: "u1"), StoredSelection(projectId: "p1", taskId: nil),
+                       "the persisted key deliberately survives sign-out; namespacing is the guard")
     }
 
     func testFilteredChoicesMatchQuery() {
