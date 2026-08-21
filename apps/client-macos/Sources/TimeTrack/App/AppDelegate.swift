@@ -213,6 +213,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // running until then), so re-reading now returns the full figure.
             if !isTracking { self.refreshTotals() }
         }
+        // A running entry that repeatedly fails to reach the server is surfaced rather than
+        // swallowed — silence here is what let a stranded server row hide for hours while the
+        // clock appeared to run normally.
+        liveEntryPublisher.onBlockedChanged = { [weak self] blocked in
+            Task { @MainActor in self?.statusItem.setLiveSyncBlocked(blocked) }
+        }
         let updates = UpdateCoordinator(
             openReleases: { NSWorkspace.shared.open($0) },
             onQuit: { NSApp.terminate(nil) }

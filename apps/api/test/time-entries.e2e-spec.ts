@@ -46,8 +46,10 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     };
   }
 
+  const FRESHNESS = 300; // seconds of evidence-of-life before an open entry counts as abandoned
+
   function repo(): TimeEntriesRepository {
-    return new TimeEntriesRepository(db.prisma as unknown as PrismaService);
+    return new TimeEntriesRepository(db.prisma as unknown as PrismaService, FRESHNESS);
   }
 
   function createDto(id: string, over: Partial<{ endTime: string | null; note: string }> = {}) {
@@ -103,6 +105,107 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     await expect(
       repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a3'), user.id),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  /**
+   * REGRESSION — seen in the wild. An open entry from two days earlier, with no heartbeat, made
+   * every later live entry 409 forever: the partial unique index allows one open entry per user,
+   * so the person's clock ran locally while nothing reached the server. Activity samples were
+   * unaffected, so the dashboard showed them "tracking now" with their tracked time frozen.
+   *
+   * An entry that has stopped proving it is alive is not running, and must not hold the slot.
+   */
+  it('opening a span takes over from an abandoned open entry instead of 409ing', async () => {
+    const user = await seedUser();
+    const abandoned = '019797a0-0000-7000-8000-0000000000b1';
+    await db.prisma.timeEntry.create({
+      data: {
+        id: abandoned,
+        userId: user.id,
+        source: 'AUTO',
+        startTime: new Date('2026-07-09T09:00:00Z'),
+        endTime: null,
+        heartbeatAt: null, // never heartbeated — the shape the stuck row actually had
+      },
+    });
+
+    const opened = await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b2'), user.id);
+
+    expect(opened.endTime).toBeNull(); // the new span is open and recorded
+    const retired = await db.prisma.timeEntry.findUnique({ where: { id: abandoned } });
+    // Closed at the last instant there was evidence of life — its own start, since it never
+    // heartbeated. Never now(), which would invent two days of work nobody did.
+    expect(retired?.endTime?.toISOString()).toBe('2026-07-09T09:00:00.000Z');
+  });
+
+  /** With a heartbeat, that is the last evidence of life, so the close lands there. */
+  it('closes an abandoned entry at its last heartbeat, inventing no time', async () => {
+    const user = await seedUser();
+    const abandoned = '019797a0-0000-7000-8000-0000000000b3';
+    await db.prisma.timeEntry.create({
+      data: {
+        id: abandoned,
+        userId: user.id,
+        source: 'AUTO',
+        startTime: new Date('2026-07-09T09:00:00Z'),
+        endTime: null,
+        heartbeatAt: new Date('2026-07-09T09:30:00Z'), // died half an hour in
+      },
+    });
+
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b4'), user.id);
+
+    const retired = await db.prisma.timeEntry.findUnique({ where: { id: abandoned } });
+    expect(retired?.endTime?.toISOString()).toBe('2026-07-09T09:30:00.000Z');
+  });
+
+  /**
+   * The takeover must NOT become a way for one session to steal another's. A still-heartbeating
+   * entry is a genuine concurrent session, and that is what the 409 is for — which is why the
+   * "rejects a second running entry" test above still passes.
+   */
+  it('leaves a still-fresh running entry alone and still conflicts', async () => {
+    const user = await seedUser();
+    const live = '019797a0-0000-7000-8000-0000000000b5';
+    await db.prisma.timeEntry.create({
+      data: {
+        id: live,
+        userId: user.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 60_000),
+        endTime: null,
+        heartbeatAt: new Date(), // alive right now
+      },
+    });
+
+    await expect(
+      repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b6'), user.id),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    const untouched = await db.prisma.timeEntry.findUnique({ where: { id: live } });
+    expect(untouched?.endTime).toBeNull();
+  });
+
+  /** Another person's abandoned entry is none of this user's business. */
+  it('never touches an open entry belonging to someone else', async () => {
+    const mine = await seedUser();
+    const theirs = await seedUser('other@example.com');
+    const otherEntry = '019797a0-0000-7000-8000-0000000000b7';
+    await db.prisma.timeEntry.create({
+      data: {
+        id: otherEntry,
+        userId: theirs.id,
+        source: 'AUTO',
+        startTime: new Date('2026-07-09T09:00:00Z'),
+        endTime: null,
+        heartbeatAt: null,
+      },
+    });
+
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b8'), mine.id);
+
+    const untouched = await db.prisma.timeEntry.findUnique({ where: { id: otherEntry } });
+    expect(untouched?.endTime).toBeNull();
   });
 
   it('findActiveByUser returns the open entry, or null when none is open', async () => {

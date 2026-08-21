@@ -56,4 +56,30 @@ final class AutomationPermissionTests: XCTestCase {
                                                updateOverdue: true, updateVersion: "1.2.0")
         XCTAssertEqual(tip, "Nifty Timer 1.2.0 is available — open the menu to update.")
     }
+
+    /// A running entry that is not reaching the server outranks Automation and the update
+    /// advisory: those degrade a feature, this means the time being tracked right now is not
+    /// showing up anywhere anyone can see it. Screen Recording still outranks it — that one is
+    /// both actionable and actively losing captures.
+    func testLiveSyncBlockedOutranksAutomationAndUpdate() {
+        let tip = StatusItemController.tooltip(
+            screenRecordingDenied: false, automationDenied: true,
+            liveSyncBlocked: true, updateOverdue: true, updateVersion: "1.2.3")
+        XCTAssertEqual(tip?.contains("isn't reaching the server"), true)
+    }
+
+    func testScreenRecordingStillOutranksLiveSync() {
+        let tip = StatusItemController.tooltip(
+            screenRecordingDenied: true, automationDenied: false,
+            liveSyncBlocked: true, updateOverdue: false, updateVersion: nil)
+        XCTAssertEqual(tip?.contains("Screen Recording"), true)
+    }
+
+    /// The wording must not read as data loss — it is not. The closed entry still uploads.
+    func testLiveSyncWarningSaysTimeIsStillRecorded() {
+        let tip = StatusItemController.tooltip(
+            screenRecordingDenied: false, automationDenied: false,
+            liveSyncBlocked: true, updateOverdue: false, updateVersion: nil)
+        XCTAssertEqual(tip?.contains("still being recorded locally"), true)
+    }
 }
