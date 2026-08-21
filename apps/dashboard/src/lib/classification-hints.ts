@@ -7,7 +7,10 @@
  * Matching rules mirrored here (see docs/productivity-classification.md):
  * - Sites match by equality / dotted-suffix (host compared trimmed + lowercased, `www.` already
  *   stripped from the observed host), or a trailing-`.*` leading-label wildcard.
- * - Apps match the macOS frontmost app name by exact (trimmed, case-insensitive) equality.
+ * - Apps match by exact (trimmed, case-insensitive) equality against EITHER the macOS app's
+ *   display name OR its bundle id — see Categorizer.swift. A bundle id rule is the more durable
+ *   of the two, since it survives the app being renamed, which is why picking an app from the
+ *   suggestions inserts one.
  */
 import type { ObservedApp } from '@timetrack/contracts';
 
@@ -38,10 +41,63 @@ export function termIssue(raw: string, kind: TermKind): string | null {
   // kind === 'app'
   if (t.includes('/')) return 'Looks like a path/URL — apps match the macOS app name exactly.';
   if (t.includes('*')) return 'Wildcards aren’t used for apps — enter the exact app name.';
-  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(t)) {
-    return 'Looks like a site host — did you mean the Sites list? Apps match the macOS app name (e.g. “Code”).';
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(t) && !looksLikeBundleId(t)) {
+    return 'Looks like a site host — did you mean the Sites list? Apps match the macOS app name or bundle id (e.g. “Code”, “com.apple.TextEdit”).';
   }
   return null;
+}
+
+/**
+ * The labels a reverse-DNS bundle id starts with. Not a TLD list — the point is only to tell
+ * `com.apple.TextEdit` from `calendar.google.com`, and the difference is WHICH END the
+ * registry-ish label sits at: a bundle id leads with it, a host trails it.
+ */
+const REVERSE_DNS_PREFIXES = new Set([
+  'com',
+  'org',
+  'net',
+  'io',
+  'co',
+  'us',
+  'uk',
+  'de',
+  'fr',
+  'jp',
+  'ca',
+  'au',
+  'nl',
+  'se',
+  'no',
+  'fi',
+  'dk',
+  'ch',
+  'at',
+  'it',
+  'es',
+  'ru',
+  'br',
+  'in',
+  'cn',
+  'app',
+  'dev',
+  'me',
+  'tv',
+  'cloud',
+]);
+
+/**
+ * Whether `t` reads as a macOS bundle id rather than a site host. Both are dotted, so the naive
+ * "contains a dot → it's a host" test flagged every bundle id as a mistake — including the ones
+ * the app itself inserts when an admin picks from the suggested-apps list. Picking ClickUp
+ * inserted `com.clickup.desktop-app` and was told it looked like a website.
+ *
+ * Three labels minimum, so a genuine two-label host whose TLD happens to be a country code —
+ * `zoom.us`, `bit.ly` — is still correctly flagged as a site.
+ */
+function looksLikeBundleId(t: string): boolean {
+  const labels = t.split('.');
+  if (labels.length < 3) return false;
+  return REVERSE_DNS_PREFIXES.has(labels[0]!.toLowerCase());
 }
 
 /** Parse a textarea value (newline/comma separated) into trimmed, non-empty terms. */
