@@ -317,6 +317,14 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
           envs: GHCR_TOKEN,GHCR_USER
+          # The action's default is 10m, and this step spends most of that pulling. The runtime
+          # image is a single ~100MB+ layer (one `COPY --from=build /repo /repo`), so a code
+          # change invalidates all of it and the host re-downloads the lot every deploy. On a
+          # link measured at ~170KB/s during the failure that does not fit in ten minutes: the
+          # deploys for #143 and #144 were killed mid-download, ~104MB into one layer.
+          #
+          # This buys headroom; it does not make the pull small. That is the Dockerfile's job.
+          command_timeout: 30m
           script: |
             set -euo pipefail
             cd "${{ secrets.DEPLOY_PATH }}"
@@ -327,7 +335,14 @@ jobs:
             chmod +x infra/backup.sh
 
             COMPOSE="docker compose --env-file .env.prod -f infra/docker-compose.prod.yml"
-            $COMPOSE pull
+
+            # --quiet: without it a slow pull emits a progress line per layer per refresh tick
+            # (there is no TTY), which buried the real output under ~10k lines and made the
+            # failing deploy hard to read. Errors still surface. The timings around it are what
+            # tell you whether a future failure was slow or stuck.
+            echo "→ pull start $(date -u +%H:%M:%S)"
+            $COMPOSE pull --quiet
+            echo "→ pull done  $(date -u +%H:%M:%S)"
             $COMPOSE --profile setup run --rm migrate
             $COMPOSE up -d --remove-orphans
             docker logout ghcr.io
