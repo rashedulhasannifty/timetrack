@@ -277,6 +277,10 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
     timestamps.push(Date.parse(shot.timestamp));
   }
 
+  // The first moment anything is known to have happened, BEFORE the window is snapped out to
+  // whole hours. The stat measures from here; the ribbon is drawn from the snapped edge.
+  const firstActivityMs = timestamps.length === 0 ? null : Math.min(...timestamps);
+
   let windowStartMs: number;
   let windowEndMs: number;
   if (timestamps.length === 0) {
@@ -311,18 +315,27 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
   );
   const trackedSeconds = mergedTrackedMs.reduce((sum, iv) => sum + (iv.end - iv.start) / 1000, 0);
 
-  // Untracked is measured against time that has actually ELAPSED, not against the drawn window.
+  // Untracked is measured against the part of the day that REALLY EXISTS — not against the
+  // window the ribbon is drawn on. The window is deliberately padded in three ways, and every
+  // one of them is a drawing concern that used to leak into this number:
   //
-  // The window is padded out to MIN_WINDOW_MS so the ribbon has a readable scale, and on today
-  // that padding runs into the future: a day whose entries end at 03:37 draws through to 11:00.
-  // Counting that padding made "Untracked" report hours that had not happened yet — 3h23m of
-  // untracked time at 4am, most of it still to come.
+  //  * snapped BACK to the hour at the start, so a day whose first entry is 02:58 draws from
+  //    02:00 — 58 minutes before the person did anything;
+  //  * snapped FORWARD to the hour at the end, and
+  //  * stretched to MIN_WINDOW_MS if the day is short.
   //
-  // Only today needs the clamp. On a past day every hour of the window is elapsed by definition.
-  const elapsedEndMs = isToday ? Math.min(windowEndMs, nowMs) : windowEndMs;
+  // Both of the trailing ones run into the future on today. Together they reported hours that
+  // had not happened yet and an hour before work began: a day with 12h tracked read as ~2h
+  // untracked when barely 1h of it was a real gap.
+  //
+  // So: start at the first thing that actually happened, stop at now (only today can have a
+  // window running past now — on a past day every hour of it is elapsed by definition).
+  const measuredStartMs = Math.max(windowStartMs, firstActivityMs ?? windowStartMs);
+  const measuredEndMs = isToday ? Math.min(windowEndMs, nowMs) : windowEndMs;
   const untrackedSeconds = Math.max(
     0,
-    Math.round((Math.max(windowStartMs, elapsedEndMs) - windowStartMs) / 1000) - trackedSeconds,
+    Math.round((Math.max(measuredStartMs, measuredEndMs) - measuredStartMs) / 1000) -
+      trackedSeconds,
   );
 
   const activePct =
