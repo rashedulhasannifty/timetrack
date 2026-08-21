@@ -80,6 +80,29 @@ describe('personDayView — core', () => {
     expect(vm.stats.untrackedSeconds).toBe(3600);
   });
 
+  /**
+   * REGRESSION. The window is also snapped BACK to the hour, so a day whose first entry is 09:30
+   * is drawn from 09:00. Measuring untracked from that edge charged the person for 30 minutes
+   * before they did anything. Reported as: 12h tracked reading as ~2h untracked when barely an
+   * hour of it was a real gap.
+   */
+  it('measures untracked from the first real activity, not the snapped window edge', () => {
+    const halfPast: TimeEntry = {
+      ...entry('a', 9, 10),
+      startTime: iso(9, 30), // 09:30 — the window still draws from 09:00
+    };
+    const vm = personDayView({
+      ...base,
+      now: new Date(iso(11)), // 17:00 Dhaka on D, same Dhaka day
+      entries: [halfPast],
+    });
+
+    expect(new Date(vm.window.startMs).toISOString()).toBe(iso(9)); // drawn from the hour
+    expect(vm.stats.trackedSeconds).toBe(1800); // 09:30–10:00
+    // Elapsed since work began is 09:30→11:00 = 90m, of which 30m is tracked.
+    expect(vm.stats.untrackedSeconds).toBe(3600);
+  });
+
   /** Never negative: nothing has elapsed yet at the very start of the window. */
   it('reports no untracked time before the window has begun', () => {
     const vm = personDayView({
