@@ -16,6 +16,10 @@ final class StatusItemController: NSObject {
     /// (youtube.com &c.) silently never match. Surfaced rather than swallowed.
     private var automationDenied = false
     private var updateOverdue = false
+    /// The running entry has repeatedly failed to reach the server. Tracking continues and the
+    /// closed entry still uploads through the buffer; what is broken is the LIVE record, and
+    /// staying quiet about it is what let a stranded server row hide for hours.
+    private var liveSyncBlocked = false
     private var updateVersion: String?
     /// refresh() runs once a second while tracking; build each status image once
     /// rather than re-reading it from the bundle on every tick.
@@ -188,9 +192,19 @@ final class StatusItemController: NSObject {
         refresh()
     }
 
+    /// The running entry is not reaching the server (or is again). Advisory: tracking is
+    /// unaffected and nothing is lost — the closed entry still uploads.
+    func setLiveSyncBlocked(_ blocked: Bool) {
+        guard liveSyncBlocked != blocked else { return }
+        liveSyncBlocked = blocked
+        updateTooltip()
+        refresh()
+    }
+
     private func updateTooltip() {
         item.button?.toolTip = Self.tooltip(
             screenRecordingDenied: screenRecordingDenied, automationDenied: automationDenied,
+            liveSyncBlocked: liveSyncBlocked,
             updateOverdue: updateOverdue, updateVersion: updateVersion)
     }
 
@@ -198,9 +212,15 @@ final class StatusItemController: NSObject {
     /// Screen Recording first (capture is actually failing), then Automation (site rules are
     /// silently inert), then the advisory update — most actionable first.
     static func tooltip(screenRecordingDenied: Bool, automationDenied: Bool,
+                        liveSyncBlocked: Bool = false,
                         updateOverdue: Bool, updateVersion: String?) -> String? {
         if screenRecordingDenied {
             return "Nifty Timer: Screen Recording permission needed for screenshots — open System Settings > Privacy > Screen Recording."
+        }
+        // Above Automation and the update advisory: those degrade a feature, this one means the
+        // time being tracked right now is not showing up where anyone can see it.
+        if liveSyncBlocked {
+            return "Nifty Timer: your running entry isn't reaching the server — time is still being recorded locally and will upload when you stop."
         }
         if automationDenied {
             return "Nifty Timer: Automation permission needed to categorize websites — open System Settings > Privacy > Automation and allow Nifty Timer to control your browser."
@@ -235,7 +255,7 @@ final class StatusItemController: NSObject {
         }
         // One marker covers all three conditions — several warning glyphs in the menu bar would
         // be noise, and the tooltip says which it is.
-        if screenRecordingDenied || automationDenied || updateOverdue {
+        if screenRecordingDenied || automationDenied || liveSyncBlocked || updateOverdue {
             title = " ⚠️" + title
         }
         button.title = title

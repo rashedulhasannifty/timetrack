@@ -87,4 +87,77 @@ final class LiveEntryPublisherTests: XCTestCase {
 
         XCTAssertEqual(spy.bodies.count, 1)
     }
+
+    /// A single failure stays quiet — one dropped heartbeat on a flaky network is not worth a
+    /// warning, and nothing is lost either way (the closed entry still uploads via the buffer).
+    func testASingleFailureIsNotSurfaced() async {
+        let spy = SpyUploader()
+        spy.result = .transient
+        let publisher = LiveEntryPublisher(uploader: spy, failureThreshold: 3)
+        var blocked: [Bool] = []
+        publisher.onBlockedChanged = { blocked.append($0) }
+
+        await publisher.publish(span())
+
+        XCTAssertEqual(blocked, [])
+    }
+
+    /// Sustained failure IS surfaced. This is the silence that let a stranded open row on the
+    /// server hide for hours: the clock ran, activity samples kept flowing so the dashboard
+    /// showed the person as tracking, and their tracked time never moved.
+    func testSustainedFailureRaisesTheWarningExactlyOnce() async {
+        let spy = SpyUploader()
+        spy.result = .permanent(409)
+        let publisher = LiveEntryPublisher(uploader: spy, failureThreshold: 3)
+        var blocked: [Bool] = []
+        publisher.onBlockedChanged = { blocked.append($0) }
+
+        for _ in 0..<5 { await publisher.publish(span()) }
+
+        // Raised on the third failure and NOT re-raised on every heartbeat after it.
+        XCTAssertEqual(blocked, [true])
+    }
+
+    func testASuccessClearsTheWarning() async {
+        let spy = SpyUploader()
+        spy.result = .transient
+        let publisher = LiveEntryPublisher(uploader: spy, failureThreshold: 2)
+        var blocked: [Bool] = []
+        publisher.onBlockedChanged = { blocked.append($0) }
+
+        await publisher.publish(span())
+        await publisher.publish(span())
+        spy.result = .success
+        await publisher.publish(span())
+
+        XCTAssertEqual(blocked, [true, false])
+    }
+
+    /// The count is CONSECUTIVE: an intermittent failure must not accumulate its way to a
+    /// warning across an otherwise healthy session.
+    func testFailuresMustBeConsecutive() async {
+        let spy = SpyUploader()
+        let publisher = LiveEntryPublisher(uploader: spy, failureThreshold: 3)
+        var blocked: [Bool] = []
+        publisher.onBlockedChanged = { blocked.append($0) }
+
+        for _ in 0..<4 {
+            spy.result = .transient
+            await publisher.publish(span())
+            spy.result = .success
+            await publisher.publish(span())
+        }
+
+        XCTAssertEqual(blocked, [])
+    }
+
+    private func span() -> LiveSpan {
+        LiveSpan(entryId: "01920000-0000-7000-8000-000000000011",
+                 startTime: Date(timeIntervalSince1970: 1_787_000_000),
+                 projectId: nil,
+                 taskId: nil,
+                 source: "MANUAL",
+                 lastAlive: Date(timeIntervalSince1970: 1_787_000_060),
+                 userId: "u1")
+    }
 }
