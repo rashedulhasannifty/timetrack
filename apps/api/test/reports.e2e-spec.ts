@@ -215,36 +215,49 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
         id: '019797a0-0000-7000-8000-000000000111',
         userId: user.id,
         source: 'AUTO',
-        startTime: new Date(Date.now() - 60_000),
+        startTime: new Date(Date.now() - 60 * 60_000),
         endTime: null, // open, but…
+        heartbeatAt: new Date(Date.now() - 10 * 60_000), // …last heard from 10 min ago
       },
     });
-    await seedSample(user.id, new Date(Date.now() - 10 * 60_000)); // 10 min ago, outside WINDOW
+    // A Mac that was shut down mid-session leaves exactly this row. An open entry is not
+    // evidence of tracking; a RECENT heartbeat on one is.
     const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
-    expect(row.tracking).toBe(false); // stale heartbeat → not live, regardless of the open entry
+    expect(row.tracking).toBe(false);
   });
 
-  it('fresh heartbeat with NO open entry → tracking=true (the heartbeat is the signal)', async () => {
+  /**
+   * DELIBERATELY INVERTED. This test used to assert `true`, on the reasoning that "the macOS
+   * client uploads a time entry on stop, never an open one, so a fresh activity sample is the
+   * only live signal there is". The client now publishes the open entry and heartbeats it, so
+   * that premise no longer holds.
+   *
+   * And the old rule had become the bug: samples and time entries travel separate paths, so a
+   * stranded open row that made every live publish 409 left someone showing as "tracking now"
+   * with their tracked time frozen for hours. Fresh samples with nothing open is exactly that
+   * false positive.
+   */
+  it('fresh samples with NO open entry → tracking=false', async () => {
     const team = await seedTeam();
     const user = await seedUser(team.id, 'Ada', 'ada@example.com');
     const dayStart = new Date(Date.now() - 3_600_000);
     const dayEnd = new Date(Date.now() + 3_600_000);
-    // Only a CLOSED entry. The macOS client uploads a time entry on stop, never an open one —
-    // the live "who's tracking now" signal it emits is the activity-sample heartbeat, so a
-    // fresh sample alone means tracking. (Fails against the open-entry-AND SQL, which needs an
-    // open entry that a real client never sends.)
     await db.prisma.timeEntry.create({
       data: {
         id: '019797a0-0000-7000-8000-000000000112',
         userId: user.id,
         source: 'AUTO',
         startTime: new Date(Date.now() - 120_000),
-        endTime: new Date(Date.now() - 60_000), // closed
+        endTime: new Date(Date.now() - 60_000), // closed — the clock is stopped
       },
     });
-    await seedSample(user.id, new Date());
+    await seedSample(user.id, new Date()); // but samples are still arriving
+
     const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
-    expect(row.tracking).toBe(true);
+
+    expect(row.tracking).toBe(false);
+    // The closed entry is still counted — this changes who reads as RUNNING, never the total.
+    expect(row.trackedSecondsToday).toBe(60);
   });
 
   it('no heartbeat at all → tracking=false even with a closed entry today', async () => {

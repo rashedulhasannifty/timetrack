@@ -78,6 +78,18 @@ export class ReportsRepository {
     return this.overview(Prisma.sql`u.id = ${userId}`, dayStart, dayEnd, freshnessSeconds);
   }
 
+  /**
+   * "Tracking now" is an OPEN entry that is still proving it is alive — the same predicate
+   * `ENTRY_END` clamps with, so the pill and the tracked seconds beside it can never disagree.
+   *
+   * It used to be activity-sample recency instead, because the client of the day uploaded a time
+   * entry only on stop and never published a running one; a fresh sample was the only live signal
+   * there was. The client now publishes the open entry and heartbeats it, so that reasoning is
+   * obsolete — and it had become actively wrong, since samples and entries travel separate paths.
+   * Seen in the wild: a stranded open row made every live publish 409 while samples kept flowing,
+   * so the dashboard showed someone as "tracking now" with their tracked time frozen for hours.
+   * Two sources, two answers, no way to tell which was right.
+   */
   private async overview(
     scope: Prisma.Sql,
     dayStart: Date,
@@ -91,9 +103,11 @@ export class ReportsRepository {
         u.id AS "userId",
         u.name AS "name",
         EXISTS (
-          SELECT 1 FROM activity_samples a
-          WHERE a."userId" = u.id
-            AND a."timestamp" > now() - make_interval(secs => ${freshnessSeconds})
+          SELECT 1 FROM time_entries t
+          WHERE t."userId" = u.id
+            AND t."endTime" IS NULL
+            AND COALESCE(t."heartbeatAt", t."startTime")
+                > now() - make_interval(secs => ${freshnessSeconds})
         ) AS "tracking",
         COALESCE(FLOOR(SUM(
           CASE WHEN te.id IS NULL THEN 0
