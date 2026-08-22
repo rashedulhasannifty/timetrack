@@ -330,13 +330,23 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
   //
   // So: start at the first thing that actually happened, stop at now (only today can have a
   // window running past now — on a past day every hour of it is elapsed by definition).
+  // A day with NO data at all is the one case with nothing to measure against. There is no
+  // first activity to start from, so the fallback 09:00-18:00 window above — which exists only
+  // to give the ribbon an axis — became the measurement, and an untouched day reported a full
+  // 9h untracked (4h and climbing on today, where the end is clamped to now). That window is
+  // not a claim that anyone was expected to be at a desk between those hours: someone who
+  // never opened the Mac app looked like they had skipped a working day. Absence of evidence
+  // is not evidence of a gap, so it reports nothing rather than inventing one.
   const measuredStartMs = Math.max(windowStartMs, firstActivityMs ?? windowStartMs);
   const measuredEndMs = isToday ? Math.min(windowEndMs, nowMs) : windowEndMs;
-  const untrackedSeconds = Math.max(
-    0,
-    Math.round((Math.max(measuredStartMs, measuredEndMs) - measuredStartMs) / 1000) -
-      trackedSeconds,
-  );
+  const untrackedSeconds =
+    firstActivityMs === null
+      ? 0
+      : Math.max(
+          0,
+          Math.round((Math.max(measuredStartMs, measuredEndMs) - measuredStartMs) / 1000) -
+            trackedSeconds,
+        );
 
   const activePct =
     samples.length === 0

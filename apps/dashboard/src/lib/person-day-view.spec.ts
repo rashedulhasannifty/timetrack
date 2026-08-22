@@ -123,6 +123,39 @@ describe('personDayView — core', () => {
     expect(vm.stats.untrackedSeconds).toBe(7 * 3600); // 8h window - 1h tracked
   });
 
+  /**
+   * A day the person never worked has NOTHING to be untracked against. The 09:00-18:00 fallback
+   * exists only so the ribbon has an axis to draw; it is not a claim that anybody was expected
+   * to be at a desk between those hours. Reading it as one reported 9h untracked for a day with
+   * no entries, no samples and no screenshots — someone who never opened the Mac app looked
+   * like they had skipped a full working day.
+   */
+  it('reports no untracked time on a day with no data at all', () => {
+    const vm = personDayView({ ...base, now: new Date(iso(20)), entries: [] });
+    expect(vm.stats.trackedSeconds).toBe(0);
+    expect(vm.stats.untrackedSeconds).toBe(0);
+  });
+
+  /**
+   * The same hole on TODAY, where it grows through the day rather than sitting at 9h: untracked
+   * ran from the fallback 09:00 to now, so an untouched day read 4h at 13:00 Dhaka and more
+   * later. Pinned separately because the two take different branches (`measuredEndMs`).
+   */
+  it('reports no untracked time on an empty day that is still in progress', () => {
+    const vm = personDayView({ ...base, now: new Date(iso(7)), entries: [] }); // 13:00 Dhaka
+    expect(vm.isToday).toBe(true);
+    expect(vm.stats.untrackedSeconds).toBe(0);
+  });
+
+  /**
+   * The fallback window itself is unchanged — this fix is about the STAT, not the drawing. A
+   * blank day still renders a 09:00-18:00 axis so the ribbon and hour ticks have a scale.
+   */
+  it('still draws the empty day on the 09:00-18:00 fallback axis', () => {
+    const vm = personDayView({ ...base, now: new Date(iso(20)), entries: [] });
+    expect((vm.window.endMs - vm.window.startMs) / 3_600_000).toBe(9);
+  });
+
   it('merges overlapping entries so trackedSeconds is not double-counted', () => {
     const vm = personDayView({
       ...base,
