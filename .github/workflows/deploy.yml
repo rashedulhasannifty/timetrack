@@ -311,19 +311,21 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: GHCR_TOKEN,GHCR_USER
+          envs: GHCR_TOKEN,GHCR_USER,IMAGE_PREFIX
           # The action's default is 10m, and this step spends most of that pulling. The runtime
-          # image is a single ~100MB+ layer (one `COPY --from=build /repo /repo`), so a code
-          # change invalidates all of it and the host re-downloads the lot every deploy. On a
-          # link measured at ~170KB/s during the failure that does not fit in ten minutes: the
-          # deploys for #143 and #144 were killed mid-download, ~104MB into one layer.
+          # image is one big layer (`COPY --from=build /repo /repo`), so a code change
+          # invalidates all of it and the host re-downloads ~5.5GB across the three images
+          # every deploy. The #143 and #144 deploys were killed mid-download at exactly 10m.
           #
-          # This buys headroom; it does not make the pull small. That is the Dockerfile's job.
+          # 30m is headroom, not a fix. It does not make the pull small (the Dockerfile's job)
+          # and it does not make room for it — #147 pulled fine in 5.7m and then died with
+          # "no space left on device", which is what the reap below addresses.
           command_timeout: 30m
           script: |
             set -euo pipefail
@@ -335,6 +337,26 @@ jobs:
             chmod +x infra/backup.sh
 
             COMPOSE="docker compose --env-file .env.prod -f infra/docker-compose.prod.yml"
+
+            # Reap superseded images BEFORE pulling, so the headroom exists at the moment it is
+            # needed. Nothing here removed them until now and the host filled up: 183 images,
+            # 112.7GB, on a 123GB disk — the deploy for #147 died with "no space left on device"
+            # extracting a layer. Each deploy lands ~5.5GB that shares NOTHING with what is
+            # already there, because the runtime image is one `COPY --from=build /repo /repo`
+            # whose hash changes on every commit.
+            #
+            # Scoped to our own prefix by reference, NOT a blanket `docker image prune -af`:
+            # this host carries other workloads and their unused images are not ours to delete.
+            # `docker image rm` refuses anything backing a running container, so the generation
+            # currently serving traffic survives untouched and only the ones behind it go —
+            # steady state is two generations, the live one and the one being rolled to.
+            echo "→ disk before: $(df -h / | awk 'NR==2{print $4}') free"
+            before=$(docker image ls -q --filter "reference=${IMAGE_PREFIX}/*" | sort -u | wc -l | tr -d '[:space:]')
+            docker image ls --filter "reference=${IMAGE_PREFIX}/*" --format '{{.Repository}}:{{.Tag}}' \
+              | xargs -r -n1 docker image rm >/dev/null 2>&1 || true
+            after=$(docker image ls -q --filter "reference=${IMAGE_PREFIX}/*" | sort -u | wc -l | tr -d '[:space:]')
+            echo "→ reaped $((before - after)) superseded image(s), $after still in use"
+            echo "→ disk after:  $(df -h / | awk 'NR==2{print $4}') free"
 
             # --quiet: without it a slow pull emits a progress line per layer per refresh tick
             # (there is no TTY), which buried the real output under ~10k lines and made the
