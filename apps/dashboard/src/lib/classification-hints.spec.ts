@@ -122,3 +122,49 @@ describe('appendTerm', () => {
     expect(appendTerm('Code\n', 'Slack')).toBe('Code\nSlack');
   });
 });
+
+describe('app terms that are bundle ids, not site hosts', () => {
+  /**
+   * REGRESSION. An app rule matches the display name OR the bundle id (Categorizer.swift), and
+   * picking an app from the suggestions deliberately inserts the bundle id because it survives a
+   * rename. The hint flagged every one of them as a website: clicking ClickUp inserted
+   * `com.clickup.desktop-app` and was immediately told it looked like a site host.
+   *
+   * These are the exact tokens an admin hit in the wild.
+   */
+  it.each([
+    'com.clickup.desktop-app',
+    'us.zoom.xos',
+    'com.apple.TextEdit',
+    'com.apple.loginwindow',
+    'com.apple.systempreferences',
+    'com.apple.accessibility.universalAccessAuthWarn',
+    'com.timedoctor.desktop',
+    'com.termius-dmg.mac',
+    'com.niftyitsolution.niftytimer.dev',
+  ])('accepts %s as an app rule', (term) => {
+    expect(termIssue(term, 'app')).toBeNull();
+  });
+
+  /** The warning still has to work — these really do belong in the Sites list. */
+  it.each(['slack.com', 'youtube.com', 'gitlab.com', 'calendar.google.com'])(
+    'still flags %s as a site host',
+    (term) => {
+      expect(termIssue(term, 'app')).toMatch(/site host/);
+    },
+  );
+
+  /**
+   * A two-label host whose TLD is a country code is the case that makes "leading label is a TLD"
+   * insufficient on its own: `zoom.us` is a website, `us.zoom.xos` is Zoom's bundle id.
+   */
+  it('tells a country-code host apart from a bundle id that leads with one', () => {
+    expect(termIssue('zoom.us', 'app')).toMatch(/site host/);
+    expect(termIssue('us.zoom.xos', 'app')).toBeNull();
+  });
+
+  /** Plain app names are unaffected. */
+  it.each(['Code', 'Visual Studio Code', 'Docker Desktop', 'Xcode'])('leaves %s alone', (term) => {
+    expect(termIssue(term, 'app')).toBeNull();
+  });
+});
