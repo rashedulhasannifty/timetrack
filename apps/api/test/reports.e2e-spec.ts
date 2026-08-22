@@ -368,6 +368,39 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     });
 
     /**
+     * The clamp, pinned deterministically. `ENTRY_END` ends an open entry at
+     * `LEAST(now(), heartbeat + freshness)`; with a heartbeat fixed in the past that resolves to
+     * `heartbeat + freshness` whenever the suite runs, so this asserts an exact figure without
+     * touching the wall clock — unlike a test that goes through `selfTotals`, which is bound to
+     * the real Dhaka day.
+     */
+    it('ends an open entry at its heartbeat plus the freshness window, not at now', async () => {
+      const team = await seedTeam();
+      const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '01920000-0000-7000-8000-00000000ecfe',
+          userId: user.id,
+          source: 'AUTO',
+          startTime: new Date('2026-07-11T09:00:00.000Z'),
+          endTime: null, // still open, and never closed
+          heartbeatAt: new Date('2026-07-11T09:30:00.000Z'), // last heard from here
+        },
+      });
+
+      const seconds = await repo().trackedSecondsForUser(
+        user.id,
+        new Date('2026-07-11T00:00:00.000Z'),
+        new Date('2026-07-12T00:00:00.000Z'),
+        WINDOW,
+      );
+
+      // 30 min of heartbeated time + the 300s window it is allowed to coast. A machine that was
+      // shut down mid-session must not accrue the days since.
+      expect(seconds).toBe(1800 + WINDOW);
+    });
+
+    /**
      * A Monday-start week can BEGIN IN THE PREVIOUS MONTH — Monday 2026-08-31 with "today"
      * 2026-09-02. The week and month ranges then overlap without nesting, and the week total
      * legitimately exceeds the month total. That inequality reads like a bug in the UI, so it is
@@ -435,8 +468,14 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
         teamId: team.id,
       });
 
-      // start -> heartbeat is 30 min, plus the 300s freshness window: 1800 + 300 = 2100s.
-      expect(totals.todaySeconds).toBe(2100);
+      // NOT an exact figure. `selfTotals` clips to the real Dhaka day, and this entry is seeded
+      // relative to the real `now`, so within an hour of Dhaka midnight most of it belongs to
+      // yesterday and today's share is whatever the clock allows. Asserting 2100 here failed
+      // every night between 00:00 and ~01:05 Dhaka. The exact clamp arithmetic is pinned
+      // deterministically against the repository instead — see the trackedSecondsForUser test
+      // above, which uses fixed instants and no wall clock at all.
+      expect(totals.todaySeconds).toBeGreaterThan(0); // the running entry IS counted
+      expect(totals.todaySeconds).toBeLessThanOrEqual(2100); // and clamped, never counted to now
       expect(totals.day).toBe(dayOf(now));
       expect(totals.weekStart).toBe(weekStartDay(dayOf(now)));
       expect(totals.monthStart).toBe(monthStartDay(dayOf(now)));
