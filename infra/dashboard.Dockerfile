@@ -43,30 +43,29 @@ ENV DATABASE_URL="postgresql://build:build@localhost:5432/build?schema=public"
 # turbo builds packages before apps (^build); prisma generate runs in @timetrack/db build.
 RUN pnpm build
 
+# `output: standalone` (next.config.ts) already emits a self-contained server with only the
+# modules the app actually reaches — 44MB against the ~490MB installed tree — so there is no
+# `pnpm deploy` step here; the trace has done the pruning. .next/static is NOT part of the
+# standalone output and must be carried over separately.
 #
-# Normalise mtimes across the pruned tree. `pnpm deploy` rewrites it on every build, so the
-# files carried fresh timestamps and the 448MB node_modules layer got a new digest each time
-# even when not one byte of dependency content had changed — which is exactly why every deploy
-# re-downloaded the whole image. With the timestamps pinned, an unchanged lockfile yields a
-# byte-identical layer, the registry and the host both recognise it, and a code-only deploy
-# transfers just the few MB of `dist`.
-# Two files are otherwise regenerated per build and would alone defeat this: turbo's
-# build log (pure noise in a runtime image) and pnpm's `prunedAt:` stamp in .modules.yaml.
-# -h touches the symlink itself, never its target: pnpm's tree is mostly symlinks into .pnpm,
-# and some point outside the copied subtree.
-RUN pnpm --filter @timetrack/dashboard deploy --prod --legacy /prod/app \
-    && find /prod/app -name '.turbo' -type d -prune -exec rm -rf {} + \
-    && sed -i 's/^prunedAt: .*/prunedAt: Thu, 01 Jan 1970 00:00:00 GMT/' /prod/app/node_modules/.modules.yaml \
-    && find /prod/app -exec touch -h -t 197001010000.00 {} +
+# Normalise mtimes so an unchanged build yields a byte-identical layer, and the deploy host
+# recognises what it already has instead of re-downloading it. -h touches the symlink itself,
+# never its target.
+RUN find /repo/apps/dashboard/.next/standalone /repo/apps/dashboard/.next/static \
+      -exec touch -h -t 197001010000.00 {} +
 
 FROM node:24-alpine AS runtime
 ENV NODE_ENV=production
+# Docker sets HOSTNAME to the container id, and the standalone server binds to whatever
+# HOSTNAME says — it would try to bind a name that resolves to nothing and be unreachable
+# from the proxy. Pin it. (`next start` never read this, so the old image did not need it.)
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 WORKDIR /app
-# See api.Dockerfile for why node_modules is copied as its own layer.
-COPY --from=build /prod/app/node_modules ./node_modules
-COPY --from=build /prod/app/package.json ./package.json
-COPY --from=build /prod/app/next.config.ts ./next.config.ts
-COPY --from=build /prod/app/.next ./.next
+# Traced deps first and alone: this is the layer that stays put across a code-only deploy.
+COPY --from=build /repo/apps/dashboard/.next/standalone/node_modules ./node_modules
+COPY --from=build /repo/apps/dashboard/.next/standalone/apps ./apps
+COPY --from=build /repo/apps/dashboard/.next/static ./apps/dashboard/.next/static
 EXPOSE 3000
 # API_URL is read server-side at runtime (never baked into the client bundle).
-CMD ["node_modules/.bin/next", "start"]
+CMD ["node", "apps/dashboard/server.js"]
