@@ -52,6 +52,13 @@ enum TT {
         static let categoryNeutral      = Color(nsColor: .dynamic("#8E8E93", "#98989D"))
         static let categoryUnproductive = Color(nsColor: .dynamic("#FF9500", "#FF9F0A"))
         static let recording            = Color(nsColor: .dynamic("#30B0C7", "#40CBE0"))
+
+        // The product mark's two arcs. Deliberately IDENTICAL in light and dark — the same two
+        // values are baked into the dashboard's icon.svg and the app artwork, and a file cannot
+        // follow a theme. Letting these follow the appearance would make the in-app mark and the
+        // app icon drift apart. Mirrors --tt-mark-remaining / --tt-mark-elapsed in globals.css.
+        static let markRemaining        = Color(nsColor: .dynamic("#3F7A72", "#3F7A72"))
+        static let markElapsed          = Color(nsColor: .dynamic("#7FD6C9", "#7FD6C9"))
     }
 
     // MARK: - Radius (matches macOS control / card / popover metrics)

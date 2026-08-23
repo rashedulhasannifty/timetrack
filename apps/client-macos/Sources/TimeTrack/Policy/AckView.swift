@@ -85,10 +85,7 @@ struct AckView: View {
                     RoundedRectangle(cornerRadius: TT.Radius.sm)
                         .fill(TT.Palette.accent)
                         .frame(width: 26, height: 26)
-                        .overlay(
-                            Image(systemName: "clock.fill")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.white))
+                        .overlay(BrandMark(size: 17, tickColor: .white))
                     Text("Nifty Timer").font(.ttH2).foregroundStyle(TT.Palette.text)
                     Spacer()
                 }
