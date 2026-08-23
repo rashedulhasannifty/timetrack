@@ -18,3 +18,35 @@ import { NextResponse } from 'next/server';
 export function seeOther(path: string): NextResponse {
   return new NextResponse(null, { status: 303, headers: { location: path } });
 }
+
+/**
+ * Sanitise a caller-supplied post-refresh destination.
+ *
+ * `/api/auth/refresh?next=…` carries where the user was when their access token expired, so
+ * they land back there instead of being dumped on /overview every fifteen minutes. That value
+ * reaches us from the URL, so it is untrusted: anything that is not a single-slash absolute
+ * PATH is rejected and the caller falls back to its default.
+ *
+ * Rejects, specifically: an absolute URL (`https://evil.test`), a protocol-relative one
+ * (`//evil.test`, which a browser resolves as cross-origin), a backslash variant that some
+ * browsers normalise to `//`, and anything not starting with `/`. Returns null for those.
+ */
+export function safeInternalPath(next: string | null | undefined): string | null {
+  if (!next) return null;
+  if (!next.startsWith('/')) return null;
+  if (next.startsWith('//') || next.startsWith('/\\')) return null;
+  // Never bounce back into the auth routes themselves — that is how a redirect loop starts.
+  if (next.startsWith('/api/')) return null;
+  return next;
+}
+
+/**
+ * The refresh URL that returns the user to `path` once a new access token is issued.
+ *
+ * A page whose session has expired sends the browser here rather than rendering nothing.
+ * Without the `next`, an admin editing settings would be dumped on /overview every time the
+ * fifteen-minute token lapsed.
+ */
+export function refreshBackTo(path: string): string {
+  return `/api/auth/refresh?next=${encodeURIComponent(path)}`;
+}

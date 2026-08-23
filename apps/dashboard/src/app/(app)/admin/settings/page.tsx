@@ -1,4 +1,6 @@
 import { Forbidden } from '../../../../components/ui/Forbidden';
+import { redirect } from 'next/navigation';
+import { refreshBackTo } from '../../../../lib/redirect';
 import { Card } from '../../../../components/ui/Card';
 import { AdminTabs } from '../../../../components/ui/AdminTabs';
 import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
@@ -35,7 +37,13 @@ export default async function AdminSettingsPage({
   searchParams: Promise<{ teamId?: string }>;
 }) {
   const session = await getSession();
-  if (!session) return null; // the layout already gated; this satisfies type-narrowing.
+  // NOT `return null`: the (app) layout's redirect does NOT re-run on a client-side
+  // navigation — Next reuses the cached layout segment and re-renders only this page. Once
+  // the 15-minute access token expired, every soft nav therefore rendered the shell with an
+  // empty <main> (the header still looked right because TopBar derives it from the pathname),
+  // and only a manual refresh — which re-runs the layout — recovered. Every page that reads
+  // the session has to be able to gate on its own.
+  if (!session) redirect(refreshBackTo('/admin/settings'));
   if (session.role !== 'ADMIN') return <Forbidden />;
 
   // The observed-apps list only powers a convenience picker, so a failure must not break the

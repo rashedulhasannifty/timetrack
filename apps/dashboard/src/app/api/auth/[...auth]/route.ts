@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { api } from '../../../../lib/api-client';
 import { decodeClaims } from '../../../../lib/session';
-import { seeOther } from '../../../../lib/redirect';
+import { safeInternalPath, seeOther } from '../../../../lib/redirect';
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
@@ -208,7 +208,11 @@ export async function GET(
       clearSession(res);
       return res;
     }
-    const res = redirect(req, '/overview');
+    // Back to where the token expired, when the caller told us. Validated as an internal
+    // path first: it arrives from the query string, so an unchecked value here would be an
+    // open redirect on the one route that hands out a fresh session.
+    const back = safeInternalPath(req.nextUrl.searchParams.get('next')) ?? '/overview';
+    const res = redirect(req, back);
     setSession(res, payloadFrom(tokens));
     return res;
   }
