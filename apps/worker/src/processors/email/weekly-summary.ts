@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from './render';
 import type { PrismaClient } from '@timetrack/db';
 import { formatWeekRange, type ClosedWeek } from './closed-week.js';
 import { appLink, escapeHtml, formatHours, htmlDocument, type RenderedMessage } from './render.js';
@@ -128,7 +129,7 @@ export function renderWeeklySummaryEmail(input: WeeklySummaryInput): RenderedMes
   const approvalsUrl = appLink(input.appUrl, '/approvals');
   const totalSeconds = input.members.reduce((sum, m) => sum + m.trackedSeconds, 0);
   const trackedCount = input.members.filter((m) => m.trackedSeconds > 0).length;
-  const subject = `TimeTrack weekly summary — ${input.teamName}, ${range}`;
+  const subject = `${PRODUCT_NAME} weekly summary — ${input.teamName}, ${range}`;
 
   const approvalsLine =
     input.pendingApprovals === 0

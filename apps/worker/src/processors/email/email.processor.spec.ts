@@ -23,6 +23,7 @@ import type { Mailer } from '../../infra/mailer.provider.js';
 import type { WorkerPrisma } from '../../infra/prisma.provider.js';
 import type { Logger } from 'nestjs-pino';
 import type { Job } from 'bullmq';
+import { PRODUCT_NAME } from './render';
 
 function makeLogger(): Logger {
   return { log: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as Logger;
@@ -97,7 +98,7 @@ describe('EmailProcessor invite job', () => {
     expect(mailer.send).toHaveBeenCalledOnce();
     const sent = vi.mocked(mailer.send).mock.calls[0]?.[0];
     expect(sent?.to).toBe('new@ex.co');
-    expect(sent?.subject).toBe('You have been invited to TimeTrack');
+    expect(sent?.subject).toBe(`You have been invited to ${PRODUCT_NAME}`);
     expect(sent?.text).toContain('https://timer.niftyitsolution.com/accept-invite?token=tok-123');
     expect(sent?.html).toContain('https://timer.niftyitsolution.com/accept-invite?token=tok-123');
   });
@@ -154,7 +155,7 @@ describe('EmailProcessor weekly-summary job', () => {
 
     expect(sentTo(mailer)).toEqual(['mgr-a@ex.co', 'mgr-b@ex.co', 'mgr-c@ex.co']);
     const first = vi.mocked(mailer.send).mock.calls[0]![0];
-    expect(first.subject).toBe('TimeTrack weekly summary — Engineering, 3–9 Aug 2026');
+    expect(first.subject).toBe(`${PRODUCT_NAME} weekly summary — Engineering, 3–9 Aug 2026`);
   });
 
   it('reports the previous week even though it runs minutes into the new one', async () => {
@@ -239,7 +240,7 @@ describe('EmailProcessor missing-timesheet job', () => {
 
     expect(sentTo(mailer)).toEqual(['ada@ex.co', 'grace@ex.co']);
     const first = vi.mocked(mailer.send).mock.calls[0]![0];
-    expect(first.subject).toBe('Your TimeTrack hours for 3–9 Aug 2026 look incomplete');
+    expect(first.subject).toBe(`Your ${PRODUCT_NAME} hours for 3–9 Aug 2026 look incomplete`);
     expect(first.text).toContain('20-hour mark');
   });
 

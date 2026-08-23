@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from './render';
 /**
  * Invite email rendering — pure, so it is unit-testable without SES or a queue.
  * The accept link is the whole point of the message: it carries the one-time token to the
@@ -33,12 +34,12 @@ export function buildAcceptUrl(appUrl: string, inviteToken: string): string {
 export function renderInviteEmail(input: InviteEmailInput): RenderedEmail {
   const acceptUrl = buildAcceptUrl(input.appUrl, input.inviteToken);
   const expires = new Date(input.expiresAt).toUTCString();
-  const subject = 'You have been invited to TimeTrack';
+  const subject = `You have been invited to ${PRODUCT_NAME}`;
 
   const text = [
     `Hi ${input.name},`,
     '',
-    'You have been invited to join TimeTrack. Open the link below to set your password',
+    `You have been invited to join ${PRODUCT_NAME}. Open the link below to set your password`,
     'and finish setting up your account:',
     '',
     acceptUrl,
@@ -50,7 +51,7 @@ export function renderInviteEmail(input: InviteEmailInput): RenderedEmail {
   const html = [
     '<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.5;color:#111">',
     `<p>Hi ${escapeHtml(input.name)},</p>`,
-    '<p>You have been invited to join TimeTrack. Use the button below to set your password and finish setting up your account.</p>',
+    `<p>You have been invited to join ${PRODUCT_NAME}. Use the button below to set your password and finish setting up your account.</p>`,
     `<p><a href="${escapeHtml(acceptUrl)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Accept invitation</a></p>`,
     `<p style="font-size:13px;color:#555">Or paste this link into your browser:<br><span>${escapeHtml(acceptUrl)}</span></p>`,
     `<p style="font-size:13px;color:#555">This link can only be used once and expires on ${escapeHtml(expires)}. If you were not expecting this invitation you can ignore this email.</p>`,

@@ -443,14 +443,28 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     });
 
     /**
-     * The totals ALREADY include a running entry, clamped by the freshness window. That is why
-     * the Mac client must not add its live elapsed counter on top of what it renders.
+     * The totals ALREADY include a running entry. That is why the Mac client must not add its
+     * live elapsed counter on top of what it renders.
+     *
+     * The freshness CLAMP is not asserted here — it is pinned deterministically against the
+     * repository with fixed instants ("clamps an open entry ...", `1800 + WINDOW` above). This
+     * test only has to show that `selfTotals` surfaces a running entry at all, and label the
+     * day correctly.
+     *
+     * Everything below is seeded relative to the Dhaka day boundary rather than to `now`,
+     * because `selfTotals` clips to the real day and this suite runs at every hour. Two earlier
+     * attempts got this wrong: asserting an exact 2100 failed 00:00–01:05 Dhaka, and the
+     * follow-up `> 0` still failed 00:00–00:25, because a heartbeat 30 minutes old put the
+     * clamped end BEFORE the day even started. A fresh heartbeat ends the counted span at
+     * `now`, which is inside today at every instant except midnight itself.
      */
-    it('includes a running entry, clamped to the freshness window', async () => {
+    it('includes a running entry in the totals', async () => {
       const team = await seedTeam();
       const user = await seedUser(team.id, 'Ada', 'ada@example.com');
       const now = new Date();
-      const start = new Date(now.getTime() - 60 * 60 * 1000); // open an hour ago
+      const dayStart = dayStartInstant(dayOf(now));
+      // An hour ago, or the start of the Dhaka day if today is younger than an hour.
+      const start = new Date(Math.max(dayStart.getTime(), now.getTime() - 60 * 60 * 1000));
       await db.prisma.timeEntry.create({
         data: {
           id: '01920000-0000-7000-8000-00000000ecff',
@@ -458,7 +472,7 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
           source: 'AUTO',
           startTime: start,
           endTime: null,
-          heartbeatAt: new Date(now.getTime() - 30 * 60 * 1000), // last seen 30 min ago
+          heartbeatAt: now, // fresh: the clamp resolves to now, never behind the day boundary
         },
       });
 
@@ -468,14 +482,10 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
         teamId: team.id,
       });
 
-      // NOT an exact figure. `selfTotals` clips to the real Dhaka day, and this entry is seeded
-      // relative to the real `now`, so within an hour of Dhaka midnight most of it belongs to
-      // yesterday and today's share is whatever the clock allows. Asserting 2100 here failed
-      // every night between 00:00 and ~01:05 Dhaka. The exact clamp arithmetic is pinned
-      // deterministically against the repository instead — see the trackedSecondsForUser test
-      // above, which uses fixed instants and no wall clock at all.
+      // Bounded, not exact: the span is [start, now], which is a full hour for most of the day
+      // and shorter in the first hour after Dhaka midnight. Both bounds hold at every hour.
       expect(totals.todaySeconds).toBeGreaterThan(0); // the running entry IS counted
-      expect(totals.todaySeconds).toBeLessThanOrEqual(2100); // and clamped, never counted to now
+      expect(totals.todaySeconds).toBeLessThanOrEqual(3600); // and no more than it has existed
       expect(totals.day).toBe(dayOf(now));
       expect(totals.weekStart).toBe(weekStartDay(dayOf(now)));
       expect(totals.monthStart).toBe(monthStartDay(dayOf(now)));

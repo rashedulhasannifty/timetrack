@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildAcceptUrl, renderInviteEmail } from './invite-email.js';
+import { PRODUCT_NAME } from './render';
 
 const base = {
   name: 'New Hire',
@@ -35,7 +36,10 @@ describe('renderInviteEmail', () => {
     expect(mail.acceptUrl).toBe('https://timer.niftyitsolution.com/accept-invite?token=tok-123');
     expect(mail.text).toContain(mail.acceptUrl);
     expect(mail.html).toContain(mail.acceptUrl);
-    expect(mail.subject).toBe('You have been invited to TimeTrack');
+    expect(mail.subject).toBe(`You have been invited to ${PRODUCT_NAME}`);
+    // Pinned literally, here only: every other email test asserts against PRODUCT_NAME, so
+    // without this one a wrong value would satisfy all of them.
+    expect(PRODUCT_NAME).toBe('Nifty Timer');
   });
 
   it('states the expiry date', () => {

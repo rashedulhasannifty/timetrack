@@ -61,11 +61,7 @@ struct LoginView: View {
                 RoundedRectangle(cornerRadius: TT.Radius.sm)
                     .fill(TT.Palette.accent)
                     .frame(width: 32, height: 32)
-                    .overlay(
-                        Image(systemName: "clock.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                    )
+                    .overlay(BrandMark(size: 21, tickColor: .white))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Sign in to Nifty Timer")
                         .font(.ttH2).foregroundStyle(TT.Palette.text)
@@ -76,7 +72,7 @@ struct LoginView: View {
 
             VStack(spacing: TT.Space.x2) {
                 TextField("you@company.com", text: $email).textFieldStyle(.roundedBorder)
-                SecureField("Password", text: $password).textFieldStyle(.roundedBorder)
+                RevealableSecureField(title: "Password", text: $password)
             }
 
             if let error {
