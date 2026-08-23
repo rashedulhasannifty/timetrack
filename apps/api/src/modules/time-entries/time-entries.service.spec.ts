@@ -33,6 +33,7 @@ function repoStub(overrides: Partial<TimeEntriesRepository> = {}) {
     findForEdit: vi.fn().mockResolvedValue(existing),
     update: vi.fn().mockImplementation((id: string) => Promise.resolve({ ...existing, id })),
     findActiveByUser: vi.fn().mockResolvedValue(null),
+    hasOverlap: vi.fn().mockResolvedValue(false),
     ...overrides,
   } as unknown as TimeEntriesRepository;
 }
@@ -122,6 +123,42 @@ describe('TimeEntriesService', () => {
     ).rejects.toBeInstanceOf(UnprocessableEntityException);
     await expect(svc.edit('e1', {}, employee)).rejects.toBeInstanceOf(UnprocessableEntityException);
     expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  // Regression (C4): the API accepted an entry that cannot represent real work. A patch moving
+  // ONE edge past a stored one is invisible to the schema, which only ever sees the patch.
+  it('edit throws 422 when a patched edge inverts the entry against the stored one', async () => {
+    const repo = repoStub();
+    const svc = new TimeEntriesService(repo, accessStub());
+    // stored: 09:00 -> 10:00. Moving only the start past the stored end inverts it.
+    await expect(
+      svc.edit('e1', { startTime: '2026-07-11T11:00:00Z' }, employee),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('edit accepts a zero-length entry (the recovery Discard marker)', async () => {
+    const repo = repoStub();
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.edit('e1', { endTime: '2026-07-11T09:00:00Z' }, employee);
+    expect(repo.update).toHaveBeenCalled();
+  });
+
+  it('edit throws 422 when the result would overlap another entry for the same user', async () => {
+    const repo = repoStub({ hasOverlap: vi.fn().mockResolvedValue(true) });
+    const svc = new TimeEntriesService(repo, accessStub());
+    await expect(
+      svc.edit('e1', { endTime: '2026-07-11T12:00:00Z' }, employee),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('edit does not overlap-check an entry left open (the index governs that)', async () => {
+    const repo = repoStub({ hasOverlap: vi.fn().mockResolvedValue(true) });
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.edit('e1', { endTime: null }, employee);
+    expect(repo.hasOverlap).not.toHaveBeenCalled();
+    expect(repo.update).toHaveBeenCalled();
   });
 
   it('findActive delegates to the repository', async () => {
