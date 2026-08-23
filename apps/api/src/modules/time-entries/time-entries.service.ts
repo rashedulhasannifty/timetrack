@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import type {
+  CreateManualTimeEntry,
   CreateTimeEntry,
   ListTimeEntriesQuery,
   TimeEntry,
@@ -8,6 +9,9 @@ import type {
 import { TimeEntriesRepository } from './time-entries.repository.js';
 import { ResourceAccessService } from '../../common/authz/resource-access.service.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
+
+/** Clock skew between a browser and the server that must not read as "time in the future". */
+const FUTURE_TOLERANCE_MS = 60_000;
 
 // The fields UpdateTimeEntrySchema permits — the only ones an edit may touch or diff.
 const EDITABLE_KEYS = ['projectId', 'taskId', 'startTime', 'endTime', 'source', 'note'] as const;
@@ -28,6 +32,65 @@ export class TimeEntriesService {
   upsert(dto: CreateTimeEntry, user: SessionUser): Promise<TimeEntry> {
     // A time entry is always attributed to the authenticated user (no cross-user writes).
     return this.repo.upsert(dto, user.id);
+  }
+
+  /**
+   * Create one hand-entered span (the dashboard's "add time"). Everything the offline sync
+   * path deliberately skips applies here, because a person is present to be told:
+   *
+   *   - the span may not OVERLAP another of that user's entries. Sync tolerates overlap on
+   *     purpose (a rejection is permanent to the uploader and would drop recorded time), but a
+   *     form submission has a human who can move it;
+   *   - it may not END in the future. A minute of tolerance absorbs clock skew between the
+   *     browser and the server without letting someone bank tomorrow.
+   */
+  async createManual(dto: CreateManualTimeEntry, actor: SessionUser): Promise<TimeEntry> {
+    const targetUserId = dto.userId ?? actor.id;
+    // Filing time on someone else's record is the same authority as editing it: self,
+    // manager-of-their-team, or admin. One rule, one place.
+    if (targetUserId !== actor.id) await this.access.assertCanAccessUser(actor, targetUserId);
+
+    if (Date.parse(dto.endTime) > Date.now() + FUTURE_TOLERANCE_MS) {
+      throw new UnprocessableEntityException({
+        type: 'https://timetrack.internal/errors/unprocessable',
+        title: 'Entry ends in the future',
+        status: 422,
+      });
+    }
+
+    const overlaps = await this.repo.hasOverlap(
+      targetUserId,
+      dto.id,
+      new Date(dto.startTime),
+      new Date(dto.endTime),
+    );
+    if (overlaps) {
+      throw new UnprocessableEntityException({
+        type: 'https://timetrack.internal/errors/unprocessable',
+        title: 'Entry overlaps another entry for this user',
+        status: 422,
+      });
+    }
+
+    return this.repo.createManual(dto, targetUserId, actor.id);
+  }
+
+  /**
+   * Delete one entry. Authorized against the row's OWNER, like edit — the request carries only
+   * an id. The repository writes the AuditLog row in the same transaction, so a delete is never
+   * silent (CLAUDE.md §4).
+   */
+  async remove(id: string, actor: SessionUser): Promise<void> {
+    const current = await this.repo.findForEdit(id);
+    if (!current) {
+      throw new NotFoundException({
+        type: 'https://timetrack.internal/errors/not-found',
+        title: 'Time entry not found',
+        status: 404,
+      });
+    }
+    await this.access.assertCanAccessUser(actor, current.userId);
+    await this.repo.remove(id, actor.id);
   }
 
   list(query: ListTimeEntriesQuery, user: SessionUser): Promise<TimeEntry[]> {

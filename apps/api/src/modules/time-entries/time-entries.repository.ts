@@ -1,6 +1,7 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
 import type {
+  CreateManualTimeEntry,
   CreateTimeEntry,
   ListTimeEntriesQuery,
   TimeEntry,
@@ -210,6 +211,88 @@ export class TimeEntriesRepository {
       LIMIT 1
     `;
     return rows.length > 0;
+  }
+
+  /**
+   * Create one hand-entered span. Audited, unlike `upsert`: a person asserting time they
+   * worked is an editorial act on someone's record, not a device reporting what it observed —
+   * and when a manager files it for an employee, who did it is the whole point.
+   *
+   * `editedById`/`editedAt` are stamped for the same reason the edit path stamps them: the row
+   * did not come from a Mac, and the day view should be able to say so.
+   */
+  async createManual(
+    dto: CreateManualTimeEntry,
+    userId: string,
+    actorId: string,
+  ): Promise<TimeEntry> {
+    const now = new Date();
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const row = await tx.timeEntry.create({
+          data: {
+            id: dto.id,
+            userId,
+            projectId: dto.projectId,
+            taskId: dto.taskId,
+            startTime: new Date(dto.startTime),
+            endTime: new Date(dto.endTime),
+            source: 'MANUAL',
+            note: dto.note ?? null,
+            editedById: actorId,
+            editedAt: now,
+          },
+          select: TIME_ENTRY_SELECT,
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: 'time_entry.create_manual',
+            targetType: 'time_entry',
+            targetId: dto.id,
+            diff: {
+              userId,
+              startTime: dto.startTime,
+              endTime: dto.endTime,
+              projectId: dto.projectId,
+              taskId: dto.taskId,
+            },
+          },
+        });
+        return serialize(row);
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        // The id already exists (a double-submitted form), or the open-entry index fired.
+        throw new ConflictException({
+          type: 'https://timetrack.internal/errors/conflict',
+          title: 'That time entry already exists',
+          status: 409,
+        });
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Delete one entry, writing the AuditLog row in the SAME transaction — CLAUDE.md §4 requires
+   * it for any delete on user data, and here it is the only remaining trace of what was there.
+   * The whole row is snapshotted into the diff, not just its id: after this commits there is
+   * nothing else left to reconstruct it from.
+   */
+  async remove(id: string, actorId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const row = await tx.timeEntry.delete({ where: { id }, select: TIME_ENTRY_SELECT });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: 'time_entry.delete',
+          targetType: 'time_entry',
+          targetId: id,
+          diff: { deleted: serialize(row) },
+        },
+      });
+    });
   }
 
   /**

@@ -291,6 +291,74 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     });
   });
 
+  describe('manual create and delete (real Postgres)', () => {
+    const manualDto = (id: string, over: Record<string, unknown> = {}) => ({
+      id,
+      projectId: null,
+      taskId: null,
+      startTime: '2026-07-11T09:00:00.000Z',
+      endTime: '2026-07-11T10:00:00.000Z',
+      ...over,
+    });
+
+    it('creates the row, stamps who filed it, and audits it in the same transaction', async () => {
+      const u = await seedUser('manual1@example.com');
+      const actor = await seedUser('boss1@example.com');
+      const id = '019797a0-0000-7000-8000-0000000000f1';
+
+      const row = await repo().createManual(manualDto(id), u.id, actor.id);
+      expect(row.userId).toBe(u.id);
+      expect(row.source).toBe('MANUAL'); // forced, never taken from the body
+      expect(row.editedById).toBe(actor.id); // the row did not come from a Mac
+      expect(row.editedAt).not.toBeNull();
+
+      const audit = await db.prisma.auditLog.findFirstOrThrow({ where: { targetId: id } });
+      expect(audit.action).toBe('time_entry.create_manual');
+      expect(audit.actorId).toBe(actor.id); // who filed it, not whose row it is
+    });
+
+    it('409s on a re-submitted id rather than writing a second row', async () => {
+      const u = await seedUser('manual2@example.com');
+      const id = '019797a0-0000-7000-8000-0000000000f2';
+      await repo().createManual(manualDto(id), u.id, u.id);
+      await expect(repo().createManual(manualDto(id), u.id, u.id)).rejects.toMatchObject({
+        status: 409,
+      });
+      expect(await db.prisma.timeEntry.count({ where: { userId: u.id } })).toBe(1);
+    });
+
+    it('delete removes the row and snapshots it into the audit diff', async () => {
+      const u = await seedUser('manual3@example.com');
+      const actor = await seedUser('boss3@example.com');
+      const id = '019797a0-0000-7000-8000-0000000000f3';
+      await repo().createManual(manualDto(id, { note: 'client call' }), u.id, u.id);
+
+      await repo().remove(id, actor.id);
+
+      expect(await db.prisma.timeEntry.findUnique({ where: { id } })).toBeNull();
+      // The whole row, not just the id: after the delete commits there is nothing else left
+      // to reconstruct it from.
+      const audit = await db.prisma.auditLog.findFirstOrThrow({
+        where: { targetId: id, action: 'time_entry.delete' },
+      });
+      expect(audit.actorId).toBe(actor.id);
+      expect(audit.diff).toMatchObject({ deleted: { note: 'client call', userId: u.id } });
+    });
+
+    it('a manual entry participates in the overlap check like any other', async () => {
+      const u = await seedUser('manual4@example.com');
+      await repo().createManual(manualDto('019797a0-0000-7000-8000-0000000000f4'), u.id, u.id);
+      expect(
+        await repo().hasOverlap(
+          u.id,
+          'some-other-id',
+          new Date('2026-07-11T09:30:00.000Z'),
+          new Date('2026-07-11T10:30:00.000Z'),
+        ),
+      ).toBe(true);
+    });
+  });
+
   it('findActiveByUser returns the open entry, or null when none is open', async () => {
     const user = await seedUser();
     expect(await repo().findActiveByUser(user.id)).toBeNull();
