@@ -38,8 +38,10 @@ export interface ProjectSummaryRepoRow {
  *
  * Assumes the `time_entries` table is aliased `te` in the surrounding query.
  *
- * NOTE: deliberately NOT used by `approvals.repository.ts`, whose open end is bounded by the
- * approval period and whose totals a manager may already have signed off (spec §10.1).
+ * NOTE: `approvals.repository.ts` now defines the same clamp locally (the two apps/modules
+ * cannot share a Prisma.Sql fragment across the module boundary). It used to bound an open
+ * entry only by the approval period, which let one stranded row inflate a week a manager was
+ * about to sign off. Change one, change the other.
  */
 const ENTRY_END = (freshnessSeconds: number): Prisma.Sql => Prisma.sql`
   COALESCE(
