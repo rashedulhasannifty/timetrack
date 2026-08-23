@@ -62,6 +62,9 @@ jobs:
               [ "$state" = "up" ] || echo "- **Dependency \`$dep\` is not up** (reported \`${state:-missing}\`)." >> findings.txt
             done
           fi
+          # Findings travel in findings.txt; this step's own exit code must mean nothing.
+          # Without this the step ends on whatever the last test happened to evaluate to.
+          exit 0
 
       # ---- 2. Host-side checks. Reuses the deploy secrets; no new credentials.
       - name: Host checks
@@ -125,6 +128,12 @@ jobs:
                 echo "- **Queue \`$qn\` has $fv failed jobs** (threshold $QUEUE_FAILED_MAX)." >> findings.txt
             done < <(grep '^QUEUE=' host.txt | sed 's/^QUEUE=/x /')
           fi
+          # MUST be last. The queue loop above ends on `[ $fv -gt $MAX ] && echo`, which is
+          # FALSE — and therefore exit 1 — on a healthy queue. That made the step, and the whole
+          # job, fail on every run: a monitor that cried wolf every 30 minutes while reporting
+          # "all checks passed". Findings are carried in findings.txt; the reconcile step below
+          # is the only thing that decides pass or fail.
+          exit 0
 
       # ---- 3. One open issue per incident, not one per run. Re-alerting every 30 minutes
       # would train everyone to ignore it, which is the same as having no alerting.
