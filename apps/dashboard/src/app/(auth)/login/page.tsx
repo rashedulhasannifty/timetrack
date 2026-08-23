@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { PasswordField } from '../../../components/ui/PasswordField';
 import { BrandMark } from '../../../components/ui/BrandMark';
 
 export default async function LoginPage({
@@ -43,7 +44,7 @@ export default async function LoginPage({
 
         <form className="flex flex-col gap-3" action="/api/auth/login" method="post">
           <input name="email" type="email" placeholder="you@company.com" className={inputClass} />
-          <input name="password" type="password" placeholder="Password" className={inputClass} />
+          <PasswordField name="password" placeholder="Password" className={inputClass} />
           <button
             type="submit"
             className="bg-accent hover:bg-accent-hover text-body mt-1 rounded-md px-3 py-2.5 font-medium text-white transition-colors"

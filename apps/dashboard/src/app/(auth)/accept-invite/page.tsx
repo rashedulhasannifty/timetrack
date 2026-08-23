@@ -1,4 +1,5 @@
 import { BrandMark } from '../../../components/ui/BrandMark';
+import { PasswordField } from '../../../components/ui/PasswordField';
 
 /**
  * The landing page for the invite email's accept link. It lives in (auth), not (app),
@@ -53,18 +54,16 @@ export default async function AcceptInvitePage({
         {hasToken ? (
           <form className="flex flex-col gap-3" action="/api/auth/accept-invite" method="post">
             <input type="hidden" name="token" value={token} />
-            <input
+            <PasswordField
               name="password"
-              type="password"
               autoComplete="new-password"
               minLength={8}
               required
               placeholder="New password (min 8 characters)"
               className={inputClass}
             />
-            <input
+            <PasswordField
               name="confirm"
-              type="password"
               autoComplete="new-password"
               minLength={8}
               required
