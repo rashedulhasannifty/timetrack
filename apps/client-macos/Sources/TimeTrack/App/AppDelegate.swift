@@ -75,6 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// on this Mac gets their own single attempt.
     private var hasAttemptedRecentSelectionFallback = false
     private var updateCoordinator: UpdateCoordinator?
+    /// The one system-wide shortcut. Held so it stays registered for the process's lifetime.
+    private var hotKey: GlobalHotKey?
     private var updateStatusObserver: AnyCancellable?
     /// Rate-limits the menu-open project re-fetch so opening the dropdown repeatedly doesn't
     /// hammer GET /v1/projects. First open always refreshes.
@@ -244,6 +246,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem.install(content: MenuBarView(viewModel: menuViewModel, updates: updates))
         statusItem.onOpen = { [weak self] in self?.menuDidOpen() }
+        // ⌥⌘T starts or stops without opening the menu. Registered as ONE Carbon hotkey, which
+        // cannot observe any other key and needs no Accessibility grant — see GlobalHotKey.
+        hotKey = GlobalHotKey { [weak self] in
+            MainActor.assumeIsolated { self?.menuViewModel.toggle() }
+        }
+        hotKey?.register()
         startHeartbeat()
         Task { await start() }
     }

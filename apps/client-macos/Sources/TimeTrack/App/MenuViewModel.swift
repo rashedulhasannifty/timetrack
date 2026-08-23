@@ -231,6 +231,18 @@ final class MenuViewModel: ObservableObject {
         sync()
     }
 
+    /// Start, or stop, whichever the current state calls for — what the global shortcut does.
+    ///
+    /// A paused session RESUMES rather than starting fresh, so the shortcut can never silently
+    /// abandon a pause the person meant to come back to.
+    func toggle() {
+        switch tracker.state {
+        case .tracking: stop()
+        case .paused: resume()
+        case .idle: start()
+        }
+    }
+
     func stop() {
         displayStartOverride = nil
         tracker.stop() // closes with the note captured on the span

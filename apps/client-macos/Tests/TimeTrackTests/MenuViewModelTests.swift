@@ -180,6 +180,33 @@ final class MenuViewModelTests: XCTestCase {
         XCTAssertEqual(spy.object(at: 1)["note"] as? String, "same work, right project")
     }
 
+    func testToggleStartsThenStops() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.toggle()
+        XCTAssertEqual(vm.phase, .tracking)
+        clock.advance(600)
+        vm.toggle()
+        XCTAssertEqual(vm.phase, .idle)
+        XCTAssertEqual(spy.entries.count, 1)
+    }
+
+    func testToggleResumesAPausedSessionRatherThanStartingFresh() {
+        let (vm, _, clock) = makeSwitchableVM()
+        vm.start()
+        clock.advance(300)
+        vm.pause()
+
+        vm.toggle()
+        // Starting fresh here would silently abandon a pause the person meant to come back to.
+        XCTAssertEqual(vm.phase, .tracking)
+    }
+
+    func testToggleIsInertUntilReady() {
+        let vm = makeVM()
+        vm.toggle()
+        XCTAssertEqual(vm.phase, .idle)
+    }
+
     func testStartIsNoOpUntilReady() {
         let vm = makeVM()
         vm.select(Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Acme", taskName: nil))
