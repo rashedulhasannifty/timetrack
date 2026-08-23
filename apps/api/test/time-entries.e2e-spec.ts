@@ -208,6 +208,89 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     expect(untouched?.endTime).toBeNull();
   });
 
+  // Regression (C4): overlapping entries are summed by /reports and merged by the person-day
+  // page, so the same day reads two different totals. The edit path is where a human can create
+  // one, so that is where it is refused. The three cases below are the ones a naive Prisma
+  // filter gets wrong.
+  describe('hasOverlap', () => {
+    const RANGE_START = new Date('2026-07-11T10:00:00Z');
+    const RANGE_END = new Date('2026-07-11T11:00:00Z');
+    const closed = (id: string, userId: string, s: string, e: string) =>
+      db.prisma.timeEntry.create({
+        data: { id, userId, source: 'MANUAL', startTime: new Date(s), endTime: new Date(e) },
+      });
+
+    it('detects a closed entry that covers part of the range', async () => {
+      const u = await seedUser('ovl1@example.com');
+      await closed(
+        '019797a0-0000-7000-8000-0000000000c1',
+        u.id,
+        '2026-07-11T10:30:00Z',
+        '2026-07-11T12:00:00Z',
+      );
+      expect(
+        await repo().hasOverlap(u.id, 'other-id', RANGE_START, RANGE_END),
+      ).toBe(true);
+    });
+
+    it('detects an OPEN entry that starts inside the range', async () => {
+      // The case a `NOT: { endTime: { equals: fields.startTime } }` filter drops: the
+      // column-to-column comparison is NULL for an open entry, so it never matches.
+      const u = await seedUser('ovl2@example.com');
+      await db.prisma.timeEntry.create({
+        data: {
+          id: '019797a0-0000-7000-8000-0000000000c2',
+          userId: u.id,
+          source: 'AUTO',
+          startTime: new Date('2026-07-11T10:30:00Z'),
+          endTime: null,
+        },
+      });
+      expect(await repo().hasOverlap(u.id, 'other-id', RANGE_START, RANGE_END)).toBe(true);
+    });
+
+    it('ignores a touching entry, a zero-length marker, the same entry, and another user', async () => {
+      const u = await seedUser('ovl3@example.com');
+      const other = await seedUser('ovl4@example.com');
+      // ends exactly where the range starts — a pause/resume or keep-from-idle bridge
+      await closed(
+        '019797a0-0000-7000-8000-0000000000c3',
+        u.id,
+        '2026-07-11T09:00:00Z',
+        '2026-07-11T10:00:00Z',
+      );
+      // zero-length recovery Discard marker sitting inside the range
+      await closed(
+        '019797a0-0000-7000-8000-0000000000c4',
+        u.id,
+        '2026-07-11T10:30:00Z',
+        '2026-07-11T10:30:00Z',
+      );
+      // the entry being edited itself
+      await closed(
+        '019797a0-0000-7000-8000-0000000000c5',
+        u.id,
+        '2026-07-11T10:00:00Z',
+        '2026-07-11T11:00:00Z',
+      );
+      // somebody else's overlapping entry
+      await closed(
+        '019797a0-0000-7000-8000-0000000000c6',
+        other.id,
+        '2026-07-11T10:15:00Z',
+        '2026-07-11T10:45:00Z',
+      );
+      expect(
+        await repo().hasOverlap(
+          u.id,
+          '019797a0-0000-7000-8000-0000000000c5',
+          RANGE_START,
+          RANGE_END,
+        ),
+      ).toBe(false);
+    });
+  });
+
   it('findActiveByUser returns the open entry, or null when none is open', async () => {
     const user = await seedUser();
     expect(await repo().findActiveByUser(user.id)).toBeNull();

@@ -179,6 +179,40 @@ export class TimeEntriesRepository {
   }
 
   /**
+   * Does this user already have another entry covering any part of [start, end)?
+   *
+   * Only the human edit path asks. The client's offline sync deliberately does NOT: a
+   * rejected upload is permanent to the uploader, so refusing an overlap there would DROP
+   * recorded time rather than reconcile it (`client-uploader-classify`), and the
+   * one-running-per-user partial index already prevents two concurrently OPEN entries.
+   *
+   * Half-open comparison, so an entry that ends exactly where the next begins is not an
+   * overlap — that is the normal shape of a pause/resume or a keep-from-idle bridge span.
+   * Zero-length rows (the recovery Discard marker) have no extent and are excluded.
+   */
+  async hasOverlap(
+    userId: string,
+    excludeId: string,
+    startTime: Date,
+    endTime: Date,
+  ): Promise<boolean> {
+    // Raw, not a Prisma filter: excluding zero-length rows needs a column-to-column comparison,
+    // and expressing it as a Prisma `NOT: { endTime: { equals: fields.startTime } }` evaluates
+    // to NULL for an OPEN entry, which would silently drop exactly the rows that overlap most.
+    const rows = await this.prisma.$queryRaw<Array<{ one: number }>>`
+      SELECT 1 AS one
+      FROM time_entries te
+      WHERE te."userId" = ${userId}
+        AND te.id <> ${excludeId}
+        AND te."startTime" < ${endTime}
+        AND COALESCE(te."endTime", 'infinity'::timestamp) > ${startTime}
+        AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+      LIMIT 1
+    `;
+    return rows.length > 0;
+  }
+
+  /**
    * PATCH edit: write only the fields in `after`, stamp editedBy/editedAt, and audit the
    * before/after diff in ONE transaction (CLAUDE.md §4). Distinct from `upsert`'s close
    * path, which is normal operation and is NOT audited/stamped.

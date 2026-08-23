@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from '@timetrack/db';
+import { APP_TIMEZONE } from '@timetrack/contracts';
 
 /**
  * The two per-user weekly measures both weekly emails need. Shared so the summary and the
@@ -86,7 +87,7 @@ export async function trackedSecondsByUser(
  * "idle all week" are different facts and the email says so.
  *
  * `s.day` is a Dhaka calendar day (`rollup-daily.util.ts`'s `dhakaWindow`), so the query
- * projects `from`/`to` through `Asia/Dhaka`, not `UTC`, to match. `from`/`to` themselves stay
+ * projects `from`/`to` through `APP_TIMEZONE`, not `UTC`, to match. `from`/`to` themselves stay
  * the UTC-anchored closed week (`closed-week.ts`) — deliberately, so `weekLabel` and
  * `TimesheetApproval.periodStart` stay self-consistent (see `CLAMPED_SECONDS` above). That
  * leaves an accepted mismatch: at each week edge this activity % is computed over a window
@@ -108,8 +109,8 @@ export async function weightedActivityPctByUser(
     FROM activity_daily_summaries s
     -- Dhaka day labels — see the doc comment above.
     WHERE s."userId" IN (${Prisma.join(userIds)})
-      AND s.day >= (${from}::timestamptz AT TIME ZONE 'Asia/Dhaka')::date
-      AND s.day <  (${to}::timestamptz AT TIME ZONE 'Asia/Dhaka')::date
+      AND s.day >= (${from}::timestamptz AT TIME ZONE ${APP_TIMEZONE}::text)::date
+      AND s.day <  (${to}::timestamptz AT TIME ZONE ${APP_TIMEZONE}::text)::date
     GROUP BY s."userId"
     HAVING SUM(s."activeMinutes") > 0
   `;

@@ -1,10 +1,30 @@
 import { describe, it, expect } from 'vitest';
-import { weekLabel, formatHours, statusBadge, selfApprovals } from './approvals-view.js';
+import {
+  weekLabel,
+  formatHours,
+  statusBadge,
+  selfApprovals,
+  wasAutoDecided,
+} from './approvals-view.js';
 import type { TimesheetApproval } from '@timetrack/contracts';
 
 describe('approvals-view', () => {
   it('weekLabel renders the ISO week span from periodStart', () => {
-    expect(weekLabel('2026-06-29T00:00:00.000Z')).toBe('Jun 29 – Jul 5, 2026');
+    // periodStart is the instant a Monday BEGINS in APP_TIMEZONE — Sunday 18:00Z for Dhaka.
+    // Reading UTC parts would name the Sunday and label the whole week a day early.
+    expect(weekLabel('2026-06-28T18:00:00.000Z')).toBe('Jun 29 – Jul 5, 2026');
+  });
+
+  it('weekLabel does not slip a day for a period that spans a month end', () => {
+    // Dhaka Monday 2026-08-31 begins at 2026-08-30T18:00Z; the week runs into September.
+    expect(weekLabel('2026-08-30T18:00:00.000Z')).toBe('Aug 31 – Sep 6, 2026');
+  });
+
+  it('wasAutoDecided marks a decided row with no human reviewer', () => {
+    expect(wasAutoDecided({ status: 'APPROVED', reviewerId: null })).toBe(true);
+    expect(wasAutoDecided({ status: 'APPROVED', reviewerId: 'u1' })).toBe(false);
+    // A pending row has no reviewer either, and is not a decision.
+    expect(wasAutoDecided({ status: 'PENDING', reviewerId: null })).toBe(false);
   });
 
   it('formatHours renders seconds as H.h', () => {

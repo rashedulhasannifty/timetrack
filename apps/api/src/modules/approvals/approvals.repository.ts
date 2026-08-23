@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
 import type { ApprovalStatus, TimesheetApproval } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+import { TRACKING_FRESHNESS_SECONDS } from './approvals.tokens.js';
 
 export type ApprovalScope =
   { kind: 'user'; userId: string } | { kind: 'team'; teamId: string } | { kind: 'all' };
@@ -22,12 +23,65 @@ interface RawRow {
   decidedAt: Date | string | null;
 }
 
-// Whole-second clamped duration of one entry against [from,to] — slice-3.2 semantics.
-const CLAMPED_SECONDS = (fromCol: Prisma.Sql, toCol: Prisma.Sql): Prisma.Sql => Prisma.sql`
-  FLOOR(GREATEST(EXTRACT(EPOCH FROM (
-    date_trunc('second', LEAST(COALESCE(te."endTime", now()), ${toCol}))
-    - date_trunc('second', GREATEST(te."startTime", ${fromCol}))
-  )), 0))::int`;
+/**
+ * The effective end of an entry, matching `ENTRY_END` in reports.repository.ts. An OPEN entry
+ * ends at whichever comes first: now, or its last heartbeat plus the freshness window.
+ *
+ * This used to be a bare `COALESCE(te."endTime", now())`. A stranded open row — a crash, a
+ * shutdown, a Mac that never came back — then accrued all the way to the period end, so a week
+ * with one such row showed a manager hours that /reports did not show, and approving it
+ * snapshotted the inflated figure into `totalSeconds`. `timesheet-generate`'s IS_EVIDENCE only
+ * stops a week that is ENTIRELY stranded from being created; it does nothing for a real week
+ * that happens to contain one stranded row.
+ */
+const ENTRY_END = (freshnessSeconds: number): Prisma.Sql => Prisma.sql`
+  COALESCE(
+    te."endTime",
+    LEAST(
+      now(),
+      COALESCE(te."heartbeatAt", te."startTime") + make_interval(secs => ${freshnessSeconds})
+    )
+  )`;
+
+/**
+ * One entry's tracked span, clipped to [from, to] and truncated to whole seconds
+ * (slice-3.2 semantics). Empty when the entry does not actually intersect the period.
+ */
+const CLIPPED_SPAN = (fromCol: Prisma.Sql, toCol: Prisma.Sql, freshnessSeconds: number) =>
+  Prisma.sql`
+  tstzrange(
+    date_trunc('second', GREATEST(te."startTime", ${fromCol})),
+    GREATEST(
+      date_trunc('second', LEAST(${ENTRY_END(freshnessSeconds)}, ${toCol})),
+      date_trunc('second', GREATEST(te."startTime", ${fromCol}))
+    )
+  )`;
+
+/**
+ * Seconds a user's spans COVER in the period, counting overlapping time once — the same
+ * `range_agg` union `reports.repository.ts` uses, so a week's approval total and the same
+ * week on /reports are the one number. A plain SUM double-counts overlapping entries.
+ */
+const MERGED_PERIOD_SECONDS = (
+  fromCol: Prisma.Sql,
+  toCol: Prisma.Sql,
+  userCol: Prisma.Sql,
+  freshnessSeconds: number,
+): Prisma.Sql => Prisma.sql`
+  COALESCE((
+    SELECT COALESCE((
+      SELECT SUM(EXTRACT(EPOCH FROM (upper(x) - lower(x))))
+      FROM unnest(q.mr) AS x
+    ), 0)
+    FROM (
+      SELECT range_agg(${CLIPPED_SPAN(fromCol, toCol, freshnessSeconds)}) AS mr
+      FROM time_entries te
+      WHERE te."userId" = ${userCol}
+        AND te."startTime" < ${toCol}
+        AND ${ENTRY_END(freshnessSeconds)} > ${fromCol}
+        AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+    ) q
+  ), 0)`;
 
 /**
  * CLAUDE.md §3 — Prisma lives HERE. `list`/`getOne` share one SELECT projection
@@ -36,7 +90,13 @@ const CLAMPED_SECONDS = (fromCol: Prisma.Sql, toCol: Prisma.Sql): Prisma.Sql => 
  */
 @Injectable()
 export class ApprovalsRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  // PrismaService is named EXPLICITLY rather than left to the emitted type metadata: once any
+  // parameter carries an @Inject, Nest resolves the whole list from metadata that vitest's
+  // transform drops, and the class then fails to construct with "argument at index [0]".
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(TRACKING_FRESHNESS_SECONDS) private readonly trackingFreshnessSeconds: number,
+  ) {}
 
   private scopeSql(scope: ApprovalScope): Prisma.Sql {
     switch (scope.kind) {
@@ -72,13 +132,12 @@ export class ApprovalsRepository {
              ta."periodStart" AS "periodStart", ta."periodEnd" AS "periodEnd",
              ta.status AS "status", ta."totalSeconds" AS "totalSeconds",
              ta."reviewerId" AS "reviewerId", ta.note AS "note", ta."decidedAt" AS "decidedAt",
-             COALESCE((
-               SELECT SUM(${CLAMPED_SECONDS(Prisma.sql`ta."periodStart"`, Prisma.sql`ta."periodEnd"`)})
-               FROM time_entries te
-               WHERE te."userId" = ta."userId"
-                 AND te."startTime" < ta."periodEnd"
-                 AND COALESCE(te."endTime", now()) > ta."periodStart"
-             ), 0)::int AS "trackedSeconds"
+             FLOOR(${MERGED_PERIOD_SECONDS(
+               Prisma.sql`ta."periodStart"`,
+               Prisma.sql`ta."periodEnd"`,
+               Prisma.sql`ta."userId"`,
+               this.trackingFreshnessSeconds,
+             )})::int AS "trackedSeconds"
       FROM timesheet_approvals ta
       JOIN users u ON u.id = ta."userId"
       WHERE ${whereSql}
@@ -109,11 +168,12 @@ export class ApprovalsRepository {
 
   async periodTrackedSeconds(userId: string, from: Date, to: Date): Promise<number> {
     const [row] = await this.prisma.$queryRaw<Array<{ seconds: number | bigint }>>`
-      SELECT COALESCE(SUM(${CLAMPED_SECONDS(Prisma.sql`${from}::timestamptz`, Prisma.sql`${to}::timestamptz`)}), 0)::int AS "seconds"
-      FROM time_entries te
-      WHERE te."userId" = ${userId}
-        AND te."startTime" < ${to}::timestamptz
-        AND COALESCE(te."endTime", now()) > ${from}::timestamptz
+      SELECT FLOOR(${MERGED_PERIOD_SECONDS(
+        Prisma.sql`${from}::timestamptz`,
+        Prisma.sql`${to}::timestamptz`,
+        Prisma.sql`${userId}`,
+        this.trackingFreshnessSeconds,
+      )})::int AS "seconds"
     `;
     return Number(row?.seconds ?? 0);
   }

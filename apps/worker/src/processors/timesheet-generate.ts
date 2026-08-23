@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from '@timetrack/db';
+import { APP_TIMEZONE, dayOf, dayStartInstant, shiftDay } from '@timetrack/contracts';
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export const LOOKBACK_WEEKS = 4;
 
 /**
@@ -45,7 +45,7 @@ const IS_EVIDENCE = (freshnessSeconds: number): Prisma.Sql => Prisma.sql`
  * app, so a client may sync a week's entries days late — after that week's Monday cron.
  * Re-checking recent weeks lets those late syncs still surface in the manager's queue.
  *
- * `periodStart` is derived with `date_trunc('week', ts AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`
+ * `periodStart` is derived with `date_trunc('week', ts AT TIME ZONE $tz) AT TIME ZONE $tz`
  * (Postgres weeks are Monday-start/ISO), byte-identical across runs so the
  * `(userId, periodStart)` unique key is stable and `createMany({ skipDuplicates })` is a true
  * upsert-if-missing — it never clobbers a decided row. Returns the count of NEW rows.
@@ -59,21 +59,39 @@ export async function generatePendingTimesheets(
   // Candidate (userId, weekStart) pairs: active users with >0 tracked seconds of EVIDENCE (see
   // IS_EVIDENCE) for entries STARTING within a closed in-window week. A SUM over an empty FILTER
   // is NULL, and `NULL > 0` is not true — so a week whose every entry is stranded drops out.
-  // weekStart/currentWeekStart are UTC Monday instants.
+  // weekStart/currentWeekStart are APP_TIMEZONE Monday instants — the SAME boundary the
+  // dashboard and `/reports` use (`weekStartDay` + `dayStartInstant`). Anchoring these to UTC
+  // instead put the approval week 6h out of step with every other week in the product, so
+  // early-Monday work fell into the previous week's timesheet and no total could reconcile.
   const candidates = await prisma.$queryRaw<Array<{ userId: string; periodStart: Date | string }>>`
     WITH bounds AS (
-      SELECT (date_trunc('week', ${now}::timestamptz AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') AS current_week_start
+      SELECT ((date_trunc('week', ${now}::timestamptz AT TIME ZONE ${APP_TIMEZONE}::text)
+               AT TIME ZONE ${APP_TIMEZONE}::text) AT TIME ZONE 'UTC') AS current_week_start
+    ),
+    -- The 'UTC' hops are the column's STORAGE convention, not the org zone: Prisma maps
+    -- DateTime to a "timestamp without time zone" holding UTC, so the value must be lifted
+    -- to an instant before it can be read in APP_TIMEZONE, and lowered back after. Dropping
+    -- either hop truncates the week in the session zone and lands 6h out (verified: a
+    -- 2026-07-05T20:00Z entry then reports the week of 06-29 instead of 07-06).
+    --
+    -- The week expression is computed ONCE here and referenced as a plain column below.
+    -- Repeating it inline in SELECT/WHERE/GROUP BY does not work: Prisma emits a separate
+    -- positional parameter per interpolation, so the zone placeholder in GROUP BY is a
+    -- different node from the one in SELECT and Postgres rejects it (42803) rather than
+    -- recognising the two as the same expression.
+    scoped AS (
+      SELECT e."userId", e."startTime", e."endTime", e."heartbeatAt",
+             ((date_trunc('week', e."startTime" AT TIME ZONE 'UTC' AT TIME ZONE ${APP_TIMEZONE}::text)
+               AT TIME ZONE ${APP_TIMEZONE}::text) AT TIME ZONE 'UTC') AS week_start
+      FROM time_entries e
+      JOIN users u ON u.id = e."userId" AND u."deactivatedAt" IS NULL
     )
-    SELECT te."userId" AS "userId",
-           (date_trunc('week', te."startTime" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') AS "periodStart"
-    FROM time_entries te
-    JOIN users u ON u.id = te."userId" AND u."deactivatedAt" IS NULL
+    SELECT te."userId" AS "userId", te.week_start AS "periodStart"
+    FROM scoped te
     CROSS JOIN bounds b
-    WHERE (date_trunc('week', te."startTime" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
-            >= b.current_week_start - make_interval(weeks => ${lookbackWeeks})
-      AND (date_trunc('week', te."startTime" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
-            < b.current_week_start
-    GROUP BY te."userId", (date_trunc('week', te."startTime" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+    WHERE te.week_start >= b.current_week_start - make_interval(weeks => ${lookbackWeeks})
+      AND te.week_start < b.current_week_start
+    GROUP BY te."userId", te.week_start
     HAVING SUM(EXTRACT(EPOCH FROM (${ENTRY_END(freshnessSeconds)} - te."startTime")))
              FILTER (WHERE ${IS_EVIDENCE(freshnessSeconds)}) > 0
   `;
@@ -82,7 +100,14 @@ export async function generatePendingTimesheets(
 
   const data = candidates.map((c) => {
     const periodStart = new Date(c.periodStart); // pg may hand back Date OR string
-    return { userId: c.userId, periodStart, periodEnd: new Date(periodStart.getTime() + WEEK_MS) };
+    // periodEnd via the calendar helpers rather than +7×24h: under a zone that observes DST a
+    // week is not always 168 hours, and these must stay the exact instants `dayStartInstant`
+    // produces so the period lines up with the reports week to the millisecond.
+    return {
+      userId: c.userId,
+      periodStart,
+      periodEnd: dayStartInstant(shiftDay(dayOf(periodStart), 7)),
+    };
   });
 
   const res = await prisma.timesheetApproval.createMany({ data, skipDuplicates: true });

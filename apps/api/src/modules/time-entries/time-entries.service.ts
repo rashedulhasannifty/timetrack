@@ -60,7 +60,47 @@ export class TimeEntriesService {
         status: 422,
       });
     }
+    await this.assertMergedEntryIsSane(current, dto, id);
     return this.repo.update(id, after, before, actor.id);
+  }
+  /**
+   * A patch carries only the fields it changes, so the schema can only check a pair it is
+   * given BOTH halves of. These are the checks that need the STORED row: moving one edge past
+   * a stored one, and colliding with a different entry.
+   *
+   * Both are edit-path only. The client's offline sync upserts without them on purpose — a
+   * rejection is permanent to the uploader, so refusing there would drop recorded time.
+   */
+  private async assertMergedEntryIsSane(
+    current: TimeEntry,
+    dto: UpdateTimeEntry,
+    id: string,
+  ): Promise<void> {
+    const startTime = dto.startTime ?? current.startTime;
+    const endTime = 'endTime' in dto ? (dto.endTime ?? null) : current.endTime;
+    if (endTime !== null && Date.parse(endTime) < Date.parse(startTime)) {
+      throw new UnprocessableEntityException({
+        type: 'https://timetrack.internal/errors/unprocessable',
+        title: 'endTime must not be before startTime',
+        status: 422,
+      });
+    }
+    // An entry left OPEN is not overlap-checked here: the one-running-per-user partial index
+    // is what governs a second open row, and 'no end yet' has no extent to compare against.
+    if (endTime === null) return;
+    const overlaps = await this.repo.hasOverlap(
+      current.userId,
+      id,
+      new Date(startTime),
+      new Date(endTime),
+    );
+    if (overlaps) {
+      throw new UnprocessableEntityException({
+        type: 'https://timetrack.internal/errors/unprocessable',
+        title: 'Entry overlaps another entry for this user',
+        status: 422,
+      });
+    }
   }
 }
 

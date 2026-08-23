@@ -83,6 +83,14 @@ final class TimeTracker {
         state = .paused(selection: selection)
     }
 
+    /// Replace the selection a PAUSED session will resume under. `resume()` reopens from the
+    /// selection stored in `.paused`, so a project switch made while paused would otherwise be
+    /// silently discarded on resume. No-op unless paused; never touches a running span.
+    func pause(reselecting selection: Selection) {
+        guard case .paused = state else { return }
+        state = .paused(selection: selection)
+    }
+
     func resume() {
         guard case let .paused(selection) = state else { return }
         open(selection, source: .manual)   // pause/resume is a manual-only affordance
@@ -115,6 +123,14 @@ final class TimeTracker {
 
     private func enqueue(id: String, projectId: String?, taskId: String?,
                          start: Date, end: Date, source: Source) {
+        // Never emit an inverted span. Every caller orders its own pair, but `clock()` is the
+        // system clock and a backwards STEP mid-span (an NTP correction, a hand-set clock, a
+        // wake from sleep) can land `end` before `start`. The server rejects that with a 422,
+        // which the uploader classifies as permanent — so the entry would be dropped and the
+        // person would silently lose the time. Collapsing to zero keeps the record in a shape
+        // the product already means something by (the recovery Discard marker) and preserves
+        // the id, so the row still closes rather than stranding open.
+        let end = max(end, start)
         let payload = TimeEntryPayload(
             id: id,
             projectId: projectId,

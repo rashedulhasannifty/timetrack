@@ -12,8 +12,10 @@ import { RollupDailyProcessor } from './processors/rollup-daily.processor.js';
 import { PartitionProvisionProcessor } from './processors/partition-provision.processor.js';
 import { EmailProcessor } from './processors/email/email.processor.js';
 import { TimesheetGenerateProcessor } from './processors/timesheet-generate.processor.js';
+import { TimesheetAutoApproveProcessor } from './processors/timesheet-auto-approve.processor.js';
 import { RollupScheduler } from './schedulers/rollup.scheduler.js';
 import { TimesheetScheduler } from './schedulers/timesheet.scheduler.js';
+import { TimesheetAutoApproveScheduler } from './schedulers/timesheet-auto-approve.scheduler.js';
 import { RetentionScheduler } from './schedulers/retention.scheduler.js';
 import { EmailScheduler } from './schedulers/email.scheduler.js';
 
@@ -36,6 +38,7 @@ const connection = { host: redis.hostname, port: Number(redis.port) || 6379 };
       { name: 'partition-provision' },
       { name: 'email' },
       { name: 'timesheet-generate' },
+      { name: 'timesheet-auto-approve' },
     ),
   ],
   providers: [
@@ -48,8 +51,10 @@ const connection = { host: redis.hostname, port: Number(redis.port) || 6379 };
     PartitionProvisionProcessor,
     EmailProcessor,
     TimesheetGenerateProcessor,
+    TimesheetAutoApproveProcessor,
     RollupScheduler,
     TimesheetScheduler,
+    TimesheetAutoApproveScheduler,
     RetentionScheduler,
     EmailScheduler,
   ],

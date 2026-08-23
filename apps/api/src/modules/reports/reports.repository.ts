@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
+import { APP_TIMEZONE } from '@timetrack/contracts';
 import type { TeamTrendDay, TeamActivityRow, TeamAppUsageRow } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { CsvEntryRow } from './csv-writer.js';
@@ -37,8 +38,10 @@ export interface ProjectSummaryRepoRow {
  *
  * Assumes the `time_entries` table is aliased `te` in the surrounding query.
  *
- * NOTE: deliberately NOT used by `approvals.repository.ts`, whose open end is bounded by the
- * approval period and whose totals a manager may already have signed off (spec §10.1).
+ * NOTE: `approvals.repository.ts` now defines the same clamp locally (the two apps/modules
+ * cannot share a Prisma.Sql fragment across the module boundary). It used to bound an open
+ * entry only by the approval period, which let one stranded row inflate a week a manager was
+ * about to sign off. Change one, change the other.
  */
 const ENTRY_END = (freshnessSeconds: number): Prisma.Sql => Prisma.sql`
   COALESCE(
@@ -47,6 +50,38 @@ const ENTRY_END = (freshnessSeconds: number): Prisma.Sql => Prisma.sql`
       now(),
       COALESCE(te."heartbeatAt", te."startTime") + make_interval(secs => ${freshnessSeconds})
     )
+  )`;
+
+/**
+ * Seconds covered by a multirange of tracked spans, counting overlapping time ONCE.
+ *
+ * A plain SUM of per-entry durations double-counts: two entries covering 09:00–13:00 and
+ * 11:00–15:00 sum to 8h for a person who worked 6h. The dashboard's person-day view has always
+ * coalesced its intervals before totalling (`person-day-view.ts`), so the same day read 8h on
+ * Overview and 6h on the person page. `range_agg` does the union in the database, so every
+ * tracked-time total in the product now means the same thing: wall-clock time covered.
+ *
+ * Overlap is reachable from an edit (refused since C4) and from one account tracking on two
+ * Macs — the one-running-per-user index only stops two concurrently OPEN entries, so both
+ * machines' CLOSED rows upsert happily.
+ *
+ * `range_agg` over no rows is NULL; `unnest(NULL)` yields no rows, so the COALESCE returns 0.
+ */
+const MERGED_SECONDS = (multirange: Prisma.Sql): Prisma.Sql => Prisma.sql`
+  COALESCE((
+    SELECT SUM(EXTRACT(EPOCH FROM (upper(x) - lower(x))))
+    FROM unnest(${multirange}) AS x
+  ), 0)`;
+
+/**
+ * One entry's tracked span, clipped to [from, to). Empty (and dropped by range_agg) when the
+ * entry does not actually intersect the window.
+ */
+const CLIPPED_SPAN = (from: Prisma.Sql, to: Prisma.Sql, freshnessSeconds: number): Prisma.Sql =>
+  Prisma.sql`
+  tstzrange(
+    GREATEST(te."startTime", ${from}),
+    GREATEST(LEAST(${ENTRY_END(freshnessSeconds)}, ${to}), GREATEST(te."startTime", ${from}))
   )`;
 
 /**
@@ -109,17 +144,9 @@ export class ReportsRepository {
             AND COALESCE(t."heartbeatAt", t."startTime")
                 > now() - make_interval(secs => ${freshnessSeconds})
         ) AS "tracking",
-        COALESCE(FLOOR(SUM(
-          CASE WHEN te.id IS NULL THEN 0
-               ELSE GREATEST(
-                 EXTRACT(EPOCH FROM (
-                   LEAST(${ENTRY_END(freshnessSeconds)}, ${dayEnd}::timestamptz)
-                   - GREATEST(te."startTime", ${dayStart}::timestamptz)
-                 )),
-                 0
-               )
-          END
-        )), 0)::int AS "trackedSeconds"
+        FLOOR(${MERGED_SECONDS(
+          Prisma.sql`range_agg(${CLIPPED_SPAN(Prisma.sql`${dayStart}::timestamptz`, Prisma.sql`${dayEnd}::timestamptz`, freshnessSeconds)}) FILTER (WHERE te.id IS NOT NULL)`,
+        )})::int AS "trackedSeconds"
       FROM users u
       LEFT JOIN time_entries te
         ON te."userId" = u.id
@@ -177,17 +204,16 @@ export class ReportsRepository {
     freshnessSeconds: number,
   ): Promise<number> {
     const rows = await this.prisma.$queryRaw<Array<{ trackedSeconds: number | bigint }>>`
-      SELECT COALESCE(FLOOR(SUM(GREATEST(
-               EXTRACT(EPOCH FROM (
-                 LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz)
-                 - GREATEST(te."startTime", ${from}::timestamptz)
-               )), 0
-             ))), 0)::int AS "trackedSeconds"
-      FROM time_entries te
-      WHERE te."userId" = ${userId}
-        AND te."startTime" < ${to}::timestamptz
-        AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
-        AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+      WITH merged AS (
+        SELECT range_agg(${CLIPPED_SPAN(Prisma.sql`${from}::timestamptz`, Prisma.sql`${to}::timestamptz`, freshnessSeconds)}) AS mr
+        FROM time_entries te
+        WHERE te."userId" = ${userId}
+          AND te."startTime" < ${to}::timestamptz
+          AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
+          AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+      )
+      SELECT FLOOR(${MERGED_SECONDS(Prisma.sql`m.mr`)})::int AS "trackedSeconds"
+      FROM merged m
     `;
     return Number(rows[0]?.trackedSeconds ?? 0);
   }
@@ -208,12 +234,9 @@ export class ReportsRepository {
     >`
       WITH durations AS (
         SELECT te."userId",
-               FLOOR(SUM(GREATEST(
-                 EXTRACT(EPOCH FROM (
-                   LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz)
-                   - GREATEST(te."startTime", ${from}::timestamptz)
-                 )), 0
-               )))::int AS "trackedSeconds"
+               FLOOR(${MERGED_SECONDS(
+                 Prisma.sql`range_agg(${CLIPPED_SPAN(Prisma.sql`${from}::timestamptz`, Prisma.sql`${to}::timestamptz`, freshnessSeconds)})`,
+               )})::int AS "trackedSeconds"
         FROM time_entries te
         WHERE te."startTime" < ${to}::timestamptz
           AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
@@ -227,7 +250,7 @@ export class ReportsRepository {
                  / NULLIF(SUM(ads."activeMinutes"), 0)
                )::int AS "activityPct"
         FROM activity_daily_summaries ads
-        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'Asia/Dhaka')::date AND (${to} AT TIME ZONE 'Asia/Dhaka')::date
+        WHERE ads."day" BETWEEN (${from} AT TIME ZONE ${APP_TIMEZONE}::text)::date AND (${to} AT TIME ZONE ${APP_TIMEZONE}::text)::date
         GROUP BY ads."userId"
       ),
       scoped AS (
@@ -302,7 +325,7 @@ export class ReportsRepository {
    * activity_daily_summaries' byCategory minutes to seconds). Both sources are aggregated
    * in their own CTE keyed by day before joining onto the `days` spine, for the same
    * fan-out-safety reason as `teamSummary`. Day boundaries are built as explicit
-   * Asia/Dhaka (`(d.day::timestamp) AT TIME ZONE 'Asia/Dhaka'`) so the result doesn't
+   * APP_TIMEZONE (`(d.day::timestamp) AT TIME ZONE ${APP_TIMEZONE}`) so the result doesn't
    * depend on session tz and buckets each instant onto its Dhaka calendar day.
    *
    * Range semantics differ from `teamSummary`/`projects`: here `to` is treated as an
@@ -332,8 +355,8 @@ export class ReportsRepository {
     >`
       WITH days AS (
         SELECT generate_series(
-          (${from} AT TIME ZONE 'Asia/Dhaka')::date,
-          (${to} AT TIME ZONE 'Asia/Dhaka')::date,
+          (${from} AT TIME ZONE ${APP_TIMEZONE}::text)::date,
+          (${to} AT TIME ZONE ${APP_TIMEZONE}::text)::date,
           interval '1 day'
         )::date AS day
       ),
@@ -343,25 +366,33 @@ export class ReportsRepository {
                SUM(COALESCE((ads."byCategory"->>'NEUTRAL')::int, 0))      * 60 AS "neutralSeconds",
                SUM(COALESCE((ads."byCategory"->>'UNPRODUCTIVE')::int, 0)) * 60 AS "unproductiveSeconds"
         FROM activity_daily_summaries ads
-        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'Asia/Dhaka')::date AND (${to} AT TIME ZONE 'Asia/Dhaka')::date
+        WHERE ads."day" BETWEEN (${from} AT TIME ZONE ${APP_TIMEZONE}::text)::date AND (${to} AT TIME ZONE ${APP_TIMEZONE}::text)::date
           AND (${this.scopeSql(scope, Prisma.sql`ads."userId"`)})
         GROUP BY ads."day"
       ),
-      tracked AS (
-        SELECT d.day,
-               FLOOR(SUM(GREATEST(
-                 EXTRACT(EPOCH FROM (
-                   LEAST(${ENTRY_END(freshnessSeconds)}, ((d.day + 1)::timestamp) AT TIME ZONE 'Asia/Dhaka')
-                   - GREATEST(te."startTime", (d.day::timestamp) AT TIME ZONE 'Asia/Dhaka')
-                 )), 0
-               )))::int AS "trackedSeconds"
+      -- Merged PER (day, user) and only then summed across the team: two people working the
+      -- same hour are two tracked hours, but one person's two overlapping entries are one.
+      per_user AS (
+        SELECT d.day, te."userId",
+               ${MERGED_SECONDS(
+                 Prisma.sql`range_agg(${CLIPPED_SPAN(
+                   Prisma.sql`(d.day::timestamp) AT TIME ZONE ${APP_TIMEZONE}::text`,
+                   Prisma.sql`((d.day + 1)::timestamp) AT TIME ZONE ${APP_TIMEZONE}::text`,
+                   freshnessSeconds,
+                 )})`,
+               )} AS secs
         FROM days d
         JOIN time_entries te
-          ON te."startTime" < ((d.day + 1)::timestamp) AT TIME ZONE 'Asia/Dhaka'
-         AND ${ENTRY_END(freshnessSeconds)} > (d.day::timestamp) AT TIME ZONE 'Asia/Dhaka'
+          ON te."startTime" < ((d.day + 1)::timestamp) AT TIME ZONE ${APP_TIMEZONE}::text
+         AND ${ENTRY_END(freshnessSeconds)} > (d.day::timestamp) AT TIME ZONE ${APP_TIMEZONE}::text
          AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
          AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
-        GROUP BY d.day
+        GROUP BY d.day, te."userId"
+      ),
+      tracked AS (
+        SELECT day, FLOOR(SUM(secs))::int AS "trackedSeconds"
+        FROM per_user
+        GROUP BY day
       )
       SELECT to_char(d.day, 'YYYY-MM-DD') AS "day",
              COALESCE(t."trackedSeconds", 0)       AS "trackedSeconds",
@@ -389,7 +420,7 @@ export class ReportsRepository {
    * `teamSummary`. Percentages divide by NULLIF(..., 0) so an all-zero denominator yields
    * NULL -> COALESCEd to 0 rather than dividing by zero. Idle duration is window-clamped
    * exactly like the time-entry clamps elsewhere in this file. The day-range filter is
-   * built the same Dhaka-pinned way as `trends` (`AT TIME ZONE 'Asia/Dhaka'`, not a bare
+   * built the same zone-pinned way as `trends` (`AT TIME ZONE ${APP_TIMEZONE}`, not a bare
    * `::timestamptz)::date` cast) so it doesn't depend on the session timezone; the idle
    * CTE's instant comparisons are already absolute and don't need that treatment.
    *
@@ -417,7 +448,7 @@ export class ReportsRepository {
                SUM(COALESCE((ads."byCategory"->>'NEUTRAL')::int, 0))      AS neut,
                SUM(COALESCE((ads."byCategory"->>'UNPRODUCTIVE')::int, 0)) AS unprod
         FROM activity_daily_summaries ads
-        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'Asia/Dhaka')::date AND (${to} AT TIME ZONE 'Asia/Dhaka')::date
+        WHERE ads."day" BETWEEN (${from} AT TIME ZONE ${APP_TIMEZONE}::text)::date AND (${to} AT TIME ZONE ${APP_TIMEZONE}::text)::date
           AND (${this.scopeSql(scope, Prisma.sql`ads."userId"`)})
         GROUP BY ads."userId"
       ),

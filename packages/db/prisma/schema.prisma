@@ -169,7 +169,7 @@ model TimeEntry {
 model TimesheetApproval {
   id           String         @id @default(uuid(7))
   userId       String
-  periodStart  DateTime // Monday 00:00:00 UTC (ISO week start)
+  periodStart  DateTime // Monday 00:00 in APP_TIMEZONE (ISO week start), same boundary as /reports
   periodEnd    DateTime // periodStart + 7 days (half-open)
   status       ApprovalStatus @default(PENDING)
   totalSeconds Int? // snapshotted at decision; null while PENDING

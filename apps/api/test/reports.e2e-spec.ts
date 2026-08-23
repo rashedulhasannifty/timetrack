@@ -63,6 +63,64 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     });
   }
 
+  // Regression (C3): overlapping entries were SUMMED here while the dashboard's person-day
+  // view merged them, so the same day read two different totals. The person-day spec pins
+  // 09:00–13:00 + 11:00–15:00 = 6h; the API has to agree.
+  it('counts overlapping entries once, matching the person-day view', async () => {
+    const team = await seedTeam();
+    const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+    const span = (id: string, s: string, e: string) =>
+      db.prisma.timeEntry.create({
+        data: {
+          id,
+          userId: user.id,
+          source: 'MANUAL',
+          startTime: new Date(s),
+          endTime: new Date(e),
+        },
+      });
+    await span('019797a0-0000-7000-8000-0000000001f1', '2026-07-12T09:00:00Z', '2026-07-12T13:00:00Z');
+    await span('019797a0-0000-7000-8000-0000000001f2', '2026-07-12T11:00:00Z', '2026-07-12T15:00:00Z');
+    // A disjoint span still adds on top of the merged block.
+    await span('019797a0-0000-7000-8000-0000000001f3', '2026-07-12T16:00:00Z', '2026-07-12T17:00:00Z');
+
+    const SIX_HOURS_PLUS_ONE = 7 * 3600; // 09:00–15:00 merged, plus 16:00–17:00
+    const [row] = await repo().overviewForTeam(team.id, DAY_START, DAY_END, WINDOW);
+    expect(row!.trackedSecondsToday).toBe(SIX_HOURS_PLUS_ONE); // naive SUM would be 9h
+
+    expect(await repo().trackedSecondsForUser(user.id, DAY_START, DAY_END, WINDOW)).toBe(
+      SIX_HOURS_PLUS_ONE,
+    );
+
+    const summary = await repo().teamSummary({ kind: 'team', teamId: team.id }, DAY_START, DAY_END, WINDOW);
+    expect(summary[0]!.trackedSeconds).toBe(SIX_HOURS_PLUS_ONE);
+
+    const trend = await repo().trends({ kind: 'team', teamId: team.id }, DAY_START, DAY_END, WINDOW);
+    const day = trend.find((d) => d.day === '2026-07-12');
+    expect(day!.trackedSeconds).toBe(SIX_HOURS_PLUS_ONE);
+  });
+
+  it('adds two people who worked the same hour, and does not merge across users', async () => {
+    const team = await seedTeam();
+    const ada = await seedUser(team.id, 'Ada', 'ada@example.com');
+    const bob = await seedUser(team.id, 'Bob', 'bob@example.com');
+    const span = (id: string, userId: string) =>
+      db.prisma.timeEntry.create({
+        data: {
+          id,
+          userId,
+          source: 'MANUAL',
+          startTime: new Date('2026-07-12T09:00:00Z'),
+          endTime: new Date('2026-07-12T10:00:00Z'),
+        },
+      });
+    await span('019797a0-0000-7000-8000-0000000001f8', ada.id);
+    await span('019797a0-0000-7000-8000-0000000001f9', bob.id);
+
+    const trend = await repo().trends({ kind: 'team', teamId: team.id }, DAY_START, DAY_END, WINDOW);
+    expect(trend.find((d) => d.day === '2026-07-12')!.trackedSeconds).toBe(2 * 3600);
+  });
+
   it('sums a closed entry inside the window and flags tracking=false', async () => {
     const team = await seedTeam();
     const user = await seedUser(team.id, 'Ada', 'ada@example.com');

@@ -306,6 +306,38 @@ export function SettingsForm({
 
       <Card padding="md" className="flex flex-col gap-4">
         <div>
+          <h2 className="text-text text-[15px] font-semibold">Timesheet approvals</h2>
+          <p className="text-text-secondary text-caption">
+            Timesheets are always created pending, so a manager gets a real window to review or
+            flag. These settings decide what happens to the ones nobody gets to.
+          </p>
+        </div>
+        <Toggle
+          name="autoApproveTimesheets"
+          label="Auto-approve timesheets nobody decides"
+          hint="After the grace period below, approve a pending timesheet automatically. A manager can still flag or re-approve it afterwards, and every automatic decision is recorded in the audit log."
+          checked={settings.autoApproveTimesheets}
+        />
+        <NumberField
+          name="autoApproveAfterDays"
+          label="Grace period (days after the week closes)"
+          value={settings.autoApproveAfterDays}
+          min={1}
+          max={30}
+          hint="How long a timesheet waits for a manager before it is approved automatically."
+        />
+        <NumberField
+          name="autoApproveMaxHours"
+          label="Escalate a week above this many hours"
+          value={settings.autoApproveMaxHours}
+          min={1}
+          max={168}
+          hint="An implausibly full week is usually a timer somebody forgot to stop, so it is left pending for a person to look at. Weeks with an unresolved idle period, or below the missing-timesheet threshold above, are held back the same way."
+        />
+      </Card>
+
+      <Card padding="md" className="flex flex-col gap-4">
+        <div>
           <h2 className="text-text text-[15px] font-semibold">App categories</h2>
           <p className="text-text-secondary text-caption">
             Classify apps as productive or unproductive for reporting.

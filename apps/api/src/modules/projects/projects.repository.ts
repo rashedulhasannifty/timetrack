@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
+import { APP_TIMEZONE } from '@timetrack/contracts';
 import type { Project, Task } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 
@@ -183,7 +184,7 @@ export class ProjectsRepository {
     const rows = await this.prisma.$queryRaw<
       Array<{ day: string; trackedSeconds: number | bigint }>
     >`
-      SELECT to_char(GREATEST(te."startTime", ${from}::timestamptz) AT TIME ZONE 'Asia/Dhaka', 'YYYY-MM-DD') AS "day",
+      SELECT to_char(GREATEST(te."startTime", ${from}::timestamptz) AT TIME ZONE ${APP_TIMEZONE}::text, 'YYYY-MM-DD') AS "day",
              FLOOR(SUM(GREATEST(EXTRACT(EPOCH FROM (
                LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz)
                - GREATEST(te."startTime", ${from}::timestamptz)
