@@ -8,7 +8,8 @@ const RUN_E2E = process.env.RUN_E2E === '1'; // worker e2e specs gate on this (s
 // four prior CLOSED ISO weeks are the window. Monday of now's week = 2026-07-13.
 const NOW = new Date('2026-07-15T12:00:00.000Z'); // Wed 2026-07-15
 const FRESHNESS = 300; // TRACKING_FRESHNESS_SECONDS' default (packages/config)
-// Closed weeks in the 4-week window start on: 2026-06-15, 06-22, 06-29, 07-06 (Mondays).
+// Closed weeks in the 4-week window start on the Dhaka Mondays 2026-06-15, 06-22, 06-29 and
+// 07-06 — i.e. the instants 06-14T18:00Z, 06-21T18:00Z, 06-28T18:00Z, 07-05T18:00Z.
 
 describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
   let env: WorkerTestEnv;
@@ -85,11 +86,11 @@ describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
       select: { periodStart: true, periodEnd: true, status: true, totalSeconds: true },
     });
     expect(rows.map((r) => r.periodStart.toISOString())).toEqual([
-      '2026-06-29T00:00:00.000Z',
-      '2026-07-06T00:00:00.000Z',
+      '2026-06-28T18:00:00.000Z',
+      '2026-07-05T18:00:00.000Z',
     ]);
     expect(rows.every((r) => r.status === 'PENDING' && r.totalSeconds === null)).toBe(true);
-    expect(rows[0]!.periodEnd.toISOString()).toBe('2026-07-06T00:00:00.000Z'); // start + 7d
+    expect(rows[0]!.periodEnd.toISOString()).toBe('2026-07-05T18:00:00.000Z'); // start + 7d
   });
 
   it('skips deactivated users and zero-tracked weeks, and excludes the current in-progress week', async () => {
@@ -113,6 +114,31 @@ describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
     const created = await generatePendingTimesheets(env.prisma, NOW, FRESHNESS);
     expect(created).toBe(0);
     expect(await env.prisma.timesheetApproval.count()).toBe(0);
+  });
+
+  // Regression: the approval week used to be anchored to UTC Monday 00:00 while every other
+  // week in the product (weekStartDay + dayStartInstant, the reports week, the week strip) is
+  // anchored to Monday 00:00 in APP_TIMEZONE. The two are 6h apart, so work in the first six
+  // hours of a Dhaka Monday fell into the PREVIOUS week's timesheet and the total a manager
+  // signed off could never be reconciled to the total the employee saw on /reports.
+  it('files early-Monday work in the week that Monday STARTS, not the previous one', async () => {
+    const t = await team();
+    const ada = await user(t.id, 'Ada', 'ada@example.com');
+    // 2026-07-06T02:00 Dhaka = 2026-07-05T20:00Z. Dhaka week of Mon 2026-07-06 begins at
+    // 2026-07-05T18:00Z; the old UTC anchoring put this instant in the week of 2026-06-29.
+    await entry(
+      ada.id,
+      '019797a0-0000-7000-8000-00000000a0f1',
+      '2026-07-05T20:00:00Z',
+      '2026-07-05T22:00:00Z',
+    );
+
+    expect(await generatePendingTimesheets(env.prisma, NOW, FRESHNESS)).toBe(1);
+    const [row] = await env.prisma.timesheetApproval.findMany({
+      select: { periodStart: true, periodEnd: true },
+    });
+    expect(row!.periodStart.toISOString()).toBe('2026-07-05T18:00:00.000Z'); // Mon 06 Jul, Dhaka
+    expect(row!.periodEnd.toISOString()).toBe('2026-07-12T18:00:00.000Z');
   });
 
   it('does not manufacture an approval for a week whose only entry is stranded open', async () => {
@@ -176,7 +202,7 @@ describe.runIf(RUN_E2E)('generatePendingTimesheets (real Postgres)', () => {
       orderBy: { periodStart: 'asc' },
     });
     expect(rows).toHaveLength(2);
-    const approved = rows.find((r) => r.periodStart.toISOString() === '2026-06-29T00:00:00.000Z')!;
+    const approved = rows.find((r) => r.periodStart.toISOString() === '2026-06-28T18:00:00.000Z')!;
     expect(approved.status).toBe('APPROVED'); // not clobbered
     expect(await generatePendingTimesheets(env.prisma, NOW, FRESHNESS)).toBe(0); // fully idempotent now
   });

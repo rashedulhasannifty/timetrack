@@ -1,13 +1,22 @@
+import { dayOf, shiftDay } from '@timetrack/contracts';
 import type { ApprovalStatus, TimesheetApproval } from '@timetrack/contracts';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** "Jun 29 – Jul 5, 2026" for a Monday periodStart (period is the 7 days [start, start+7)). */
+/**
+ * "Jun 29 – Jul 5, 2026" for a Monday periodStart (period is the 7 days [start, start+7)).
+ *
+ * Read through APP_TIMEZONE, not UTC parts. `periodStart` is now the instant a Monday begins
+ * in the org zone (Sunday 18:00 UTC for Dhaka), so `getUTCDate()` would name the SUNDAY and
+ * label every week a day early.
+ */
 export function weekLabel(periodStartIso: string): string {
-  const start = new Date(periodStartIso);
-  const end = new Date(start.getTime() + 6 * 24 * 3600 * 1000);
-  const s = `${MONTHS[start.getUTCMonth()]} ${start.getUTCDate()}`;
-  const e = `${MONTHS[end.getUTCMonth()]} ${end.getUTCDate()}, ${end.getUTCFullYear()}`;
+  const startDay = dayOf(new Date(periodStartIso));
+  const endDay = shiftDay(startDay, 6);
+  const [, sm, sd] = startDay.split('-') as [string, string, string];
+  const [ey, em, ed] = endDay.split('-') as [string, string, string];
+  const s = `${MONTHS[Number(sm) - 1]} ${Number(sd)}`;
+  const e = `${MONTHS[Number(em) - 1]} ${Number(ed)}, ${ey}`;
   return `${s} – ${e}`;
 }
 
