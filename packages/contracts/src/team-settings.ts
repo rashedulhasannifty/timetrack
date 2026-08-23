@@ -30,6 +30,19 @@ const teamSettingsFields = {
   // Server-side only. It rides EffectivePolicy to the macOS client because that schema embeds
   // TeamSettings wholesale (policy.ts) — the client has no use for it and must not act on it.
   timesheetReminderHours: z.number().int().min(0).max(80),
+  // PRD §6.5 — a PENDING timesheet nobody has decided within `autoApproveAfterDays` of the
+  // period CLOSING is approved by the worker instead of sitting in the queue forever. The row
+  // is still created PENDING on the Monday cron, so a manager keeps a real window to review or
+  // flag; auto-approval is the fallback, not the default path. Server-side only. It rides
+  // EffectivePolicy to the macOS client because that schema embeds TeamSettings wholesale
+  // (policy.ts) — the client has no use for it and must not act on it.
+  autoApproveTimesheets: z.boolean(),
+  autoApproveAfterDays: z.number().int().min(1).max(30),
+  // Guardrail: a week ABOVE this many hours is left PENDING for a human. A stranded timer or a
+  // mis-set clock shows up as an implausible week, and that is exactly the week that must not
+  // be rubber-stamped. The floor is `timesheetReminderHours` — the same number the employee is
+  // already nudged about — so a suspiciously empty week is escalated too.
+  autoApproveMaxHours: z.number().int().min(1).max(168),
   // App-name lists — matched against the frontmost app name (client Categorizer).
   unproductiveApps: z.array(z.string()),
   productiveApps: z.array(z.string()),
@@ -65,6 +78,11 @@ export const TeamSettingsSchema = z.object({
   distractionRepeatMinutes: teamSettingsFields.distractionRepeatMinutes.default(5),
   // OFF by default — see the field comment. A deploy must not start emailing employees.
   timesheetReminderHours: teamSettingsFields.timesheetReminderHours.default(0),
+  // OFF by default, like every other setting that acts on someone's behalf without asking.
+  // A deploy must not start approving timesheets nobody has looked at.
+  autoApproveTimesheets: teamSettingsFields.autoApproveTimesheets.default(false),
+  autoApproveAfterDays: teamSettingsFields.autoApproveAfterDays.default(3),
+  autoApproveMaxHours: teamSettingsFields.autoApproveMaxHours.default(60),
   // Unproductive lists ship EMPTY — the product stays neutral until an admin classifies
   // (distraction lists are a deliberate, opt-in admin decision, not a shipped judgment).
   unproductiveApps: teamSettingsFields.unproductiveApps.default([]),

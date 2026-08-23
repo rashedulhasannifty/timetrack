@@ -6,7 +6,7 @@ import { Table, THead, Tbody, Tr, Th, Td } from '../../../components/ui/Table';
 import { TabPills, type TabItem } from '../../../components/ui/TabPills';
 import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
-import { weekLabel, formatHours, statusBadge } from '../../../lib/approvals-view';
+import { weekLabel, formatHours, statusBadge, wasAutoDecided } from '../../../lib/approvals-view';
 import { DecideForm } from './DecideForm';
 import type { TimesheetApproval, ApprovalStatus } from '@timetrack/contracts';
 
@@ -112,7 +112,17 @@ export default async function ApprovalsPage({
                           {formatHours(row.totalSeconds ?? row.trackedSeconds)}
                         </Td>
                         <Td>
-                          <Badge tone={TONE[badge.tone]}>{badge.label}</Badge>
+                          <span className="inline-flex items-center gap-2">
+                            <Badge tone={TONE[badge.tone]}>{badge.label}</Badge>
+                            {wasAutoDecided(row) ? (
+                              <span
+                                className="text-text-secondary text-caption"
+                                title="Approved automatically after the grace period — no manager reviewed it. You can still flag it."
+                              >
+                                automatically
+                              </span>
+                            ) : null}
+                          </span>
                         </Td>
                         <Td align="right">
                           <DecideForm approvalId={row.id} />

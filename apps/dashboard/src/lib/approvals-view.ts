@@ -38,6 +38,18 @@ export function selfApprovals(
   return rows === null ? null : rows.filter((r) => r.userId === userId);
 }
 
+/**
+ * Was this decided by a person, or by the auto-approval sweep?
+ *
+ * A decided row with no reviewer is the worker's: `reviewerId` is the human who decided, and
+ * the auto-approve job deliberately leaves it null (the audit trail carries the system actor
+ * instead). Surfacing it matters — "approved" reads as "a manager looked at this", and for
+ * these rows nobody did.
+ */
+export function wasAutoDecided(row: Pick<TimesheetApproval, 'status' | 'reviewerId'>): boolean {
+  return row.status !== 'PENDING' && row.reviewerId === null;
+}
+
 export function statusBadge(status: ApprovalStatus): {
   label: string;
   tone: 'neutral' | 'positive' | 'warning';

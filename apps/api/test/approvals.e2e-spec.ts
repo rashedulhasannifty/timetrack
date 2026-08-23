@@ -51,6 +51,39 @@ describe.runIf(RUN_E2E)('approvals repository (real Postgres)', () => {
       },
     });
 
+  // Auto-approval is not a one-way door: a row the worker approved (APPROVED with no reviewer)
+  // must still be flaggable by a manager, and that decision audited like any other.
+  it('lets a manager re-decide a timesheet the worker auto-approved', async () => {
+    const t = await team();
+    const ada = await user(t.id, 'Ada', 'ada@example.com');
+    const { id } = await approval(ada.id);
+    await db.prisma.timesheetApproval.update({
+      where: { id },
+      data: {
+        status: 'APPROVED',
+        totalSeconds: 5400,
+        decidedAt: new Date(),
+        reviewerId: null, // the shape the auto-approve job leaves behind
+        note: 'Auto-approved after 3 day(s) with no decision.',
+      },
+    });
+
+    const flagged = await repo().decide(id, {
+      status: 'FLAGGED',
+      note: 'looks wrong',
+      reviewerId: ada.id,
+      totalSeconds: 5400,
+      prevStatus: 'APPROVED',
+    });
+    expect(flagged.status).toBe('FLAGGED');
+    expect(flagged.reviewerId).toBe(ada.id);
+    const audits = await db.prisma.auditLog.findMany({
+      where: { targetType: 'TimesheetApproval', targetId: id },
+    });
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.action).toBe('timesheet.decide');
+  });
+
   // Regression (C3): a week's approval total is the same number as the same week on /reports,
   // so overlapping entries must be counted once here too.
   it('counts overlapping entries once in trackedSeconds and in the decided total', async () => {
