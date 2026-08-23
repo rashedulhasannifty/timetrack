@@ -1,26 +1,77 @@
 # syntax=docker/dockerfile:1
 # Build context is the repo root: docker build -f infra/api.Dockerfile .
+#
+# The build stage below is byte-identical in api/worker/dashboard.Dockerfile. deploy.yml
+# builds all three in ONE job precisely so steps 2 and 3 hit the builder's LOCAL cache for
+# it — if these three copies drift apart, that optimization silently stops working and the
+# deploy build time roughly triples. Change one, change all three.
 
 FROM node:24-alpine AS build
 RUN corepack enable
 WORKDIR /repo
+
+# Manifests and lockfile BEFORE the source, so `pnpm install` is its own layer keyed on the
+# lockfile rather than on every file in the repo. Previously `COPY . .` came first and
+# install+build were one RUN, so a one-line source change re-resolved and re-downloaded the
+# entire dependency tree — install is by far the slowest step here and it was never cached
+# across commits.
+#
+# It also had a second, worse effect: the installed tree was freshly written on every build,
+# so the runtime node_modules layer below never matched what the deploy host already had and
+# each deploy re-downloaded the lot. That is what filled the disk.
+#
+# HUSKY=0: the root `prepare` script runs husky, and .husky/ is deliberately not in this
+# layer. Git hooks are a developer concern and there is no repository here to install into.
+ENV HUSKY=0
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json apps/api/
+COPY apps/worker/package.json apps/worker/
+COPY apps/dashboard/package.json apps/dashboard/
+COPY packages/config/package.json packages/config/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/db/package.json packages/db/
+COPY packages/logger/package.json packages/logger/
+RUN pnpm install --frozen-lockfile
+
 COPY . .
-# turbo builds packages before apps (^build); prisma generate runs in @timetrack/db build.
 # Build-time only: packages/db/prisma.config.ts resolves env('DATABASE_URL') when the Prisma
 # CLI loads it. `prisma generate` never connects — the var only has to resolve. The repo-root
 # .env is (correctly) excluded by .dockerignore, so without this the build fails with
 # PrismaConfigEnvError. This stage is discarded; the real URL is injected at runtime via
 # env_file and never leaks from here into the runtime image.
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build?schema=public"
-RUN pnpm install --frozen-lockfile && pnpm build
+# turbo builds packages before apps (^build); prisma generate runs in @timetrack/db build.
+RUN pnpm build
+
+# Prune to a self-contained, production-only tree. The old runtime copied the WHOLE built
+# workspace, so the API image shipped typescript, turbo, vitest, eslint, prettier, playwright,
+# next, react-dom, recharts, sharp — and the dashboard's 109MB .next build. 1.9GB of image to
+# run one Nest server.
+#
+# Normalise mtimes across the pruned tree. `pnpm deploy` rewrites it on every build, so the
+# files carried fresh timestamps and the 448MB node_modules layer got a new digest each time
+# even when not one byte of dependency content had changed — which is exactly why every deploy
+# re-downloaded the whole image. With the timestamps pinned, an unchanged lockfile yields a
+# byte-identical layer, the registry and the host both recognise it, and a code-only deploy
+# transfers just the few MB of `dist`.
+# Two files are otherwise regenerated per build and would alone defeat this: turbo's
+# build log (pure noise in a runtime image) and pnpm's `prunedAt:` stamp in .modules.yaml.
+# -h touches the symlink itself, never its target: pnpm's tree is mostly symlinks into .pnpm,
+# and some point outside the copied subtree.
+RUN pnpm --filter @timetrack/api deploy --prod --legacy /prod/app \
+    && find /prod/app -name '.turbo' -type d -prune -exec rm -rf {} + \
+    && sed -i 's/^prunedAt: .*/prunedAt: Thu, 01 Jan 1970 00:00:00 GMT/' /prod/app/node_modules/.modules.yaml \
+    && find /prod/app -exec touch -h -t 197001010000.00 {} +
 
 FROM node:24-alpine AS runtime
-RUN corepack enable
 ENV NODE_ENV=production
-WORKDIR /repo
-# Copy the whole installed workspace so pnpm's symlinked node_modules stays intact.
-COPY --from=build /repo /repo
-WORKDIR /repo/apps/api
+WORKDIR /app
+# node_modules FIRST and alone: it is the big layer and it changes only when the lockfile
+# does, so a code-only deploy re-transfers `dist` (a few MB) instead of the whole image.
+# Splitting these is the difference between a ~5MB and a ~1.8GB pull per deploy.
+COPY --from=build /prod/app/node_modules ./node_modules
+COPY --from=build /prod/app/package.json ./package.json
+COPY --from=build /prod/app/dist ./dist
 EXPOSE 3001
 # Prisma 7 has no Rust engine — nothing else to copy.
 CMD ["node", "dist/main.js"]

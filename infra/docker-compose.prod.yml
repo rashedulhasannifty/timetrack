@@ -160,13 +160,21 @@ services:
       dashboard: { condition: service_healthy }
 
   # ---- Setup one-shots (profile: setup — never started by a plain `up`) ------------------
-  # migrate deploy is forward-only and non-interactive-safe (unlike migrate dev). Runs from
-  # the repo root inside the api image, which carries the full workspace + Prisma CLI.
+  # migrate deploy is forward-only and non-interactive-safe (unlike migrate dev).
+  #
+  # Runs the Prisma CLI directly rather than `pnpm db:deploy`. The api image no longer carries
+  # the whole pnpm workspace at /repo — it carries a pruned production tree at /app — so there
+  # is no workspace root for `pnpm --filter` to resolve against. The CLI itself still ships,
+  # because @timetrack/db depends on it.
+  #
+  # working_dir is the db package: Prisma resolves prisma.config.ts (which carries the
+  # datasource URL under Prisma 7) relative to the CWD, and the schema and migrations sit
+  # beside it. The path is stable — @timetrack/db is a plain symlink, no content hash in it.
   migrate:
     image: ${IMAGE_PREFIX:-timetrack}/api:${TAG}
     profiles: ['setup']
-    working_dir: /repo
-    command: ['pnpm', 'db:deploy']
+    working_dir: /app/node_modules/@timetrack/db
+    command: ['node_modules/.bin/prisma', 'migrate', 'deploy']
     env_file: ['../.env.prod']
     depends_on:
       postgres: { condition: service_healthy }
@@ -176,8 +184,10 @@ services:
   seed:
     image: ${IMAGE_PREFIX:-timetrack}/api:${TAG}
     profiles: ['setup']
-    working_dir: /repo
-    command: ['pnpm', 'db:seed']
+    working_dir: /app/node_modules/@timetrack/db
+    # tsx, like the Prisma CLI, is a production dependency of @timetrack/db precisely because
+    # this one-shot needs it — see that package.json.
+    command: ['node_modules/.bin/tsx', 'prisma/seed.ts']
     env_file: ['../.env.prod']
     depends_on:
       postgres: { condition: service_healthy }
