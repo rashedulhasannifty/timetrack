@@ -2,6 +2,7 @@ import { Injectable, type OnApplicationBootstrap } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Logger } from 'nestjs-pino';
 import type { Queue } from 'bullmq';
+import { APP_TIMEZONE } from '@timetrack/contracts';
 
 /**
  * PRD §6.3 — registers the daily activity rollup as a repeatable BullMQ job (00:15 Dhaka,
@@ -21,9 +22,9 @@ export class RollupScheduler implements OnApplicationBootstrap {
   async onApplicationBootstrap(): Promise<void> {
     await this.queue.upsertJobScheduler(
       'rollup-daily-cron',
-      { pattern: '15 0 * * *', tz: 'Asia/Dhaka' },
+      { pattern: '15 0 * * *', tz: APP_TIMEZONE },
       { name: 'rollup', data: {} },
     );
-    this.logger.log('rollup-daily scheduler registered (15 0 * * * Asia/Dhaka)');
+    this.logger.log(`rollup-daily scheduler registered (15 0 * * * ${APP_TIMEZONE})`);
   }
 }
