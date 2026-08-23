@@ -54,6 +54,19 @@ export interface DayEntryRow {
   label: string;
   durationSeconds: number;
   running: boolean;
+  /**
+   * The raw fields an edit form has to prefill with. `label` is a DISPLAY string — it falls
+   * back to the project name, or to "Untitled entry" — so editing against it would silently
+   * write a project's name into the note. These carry what was actually stored.
+   *
+   * The clocks are wall-clock readings in APP_TIMEZONE, matching what the form's time inputs
+   * take, so nothing has to re-derive a zone in the browser.
+   */
+  startClock: string;
+  endClock: string | null;
+  projectId: string | null;
+  taskId: string | null;
+  note: string | null;
 }
 
 export interface PersonDayViewModel {
@@ -380,6 +393,11 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
         // Gated the same way as `recordingNow` — a stale open entry's duration is frozen, so
         // its "running" label must not keep claiming otherwise.
         running: p.open && isToday && p.isLive,
+        startClock: clockOf(new Date(p.startMs)),
+        endClock: p.endMs === null ? null : clockOf(new Date(p.endMs)),
+        projectId: p.entry.projectId,
+        taskId: p.entry.taskId,
+        note: p.entry.note ?? null,
       };
     })
     .sort((a, b) => a.startMs - b.startMs);

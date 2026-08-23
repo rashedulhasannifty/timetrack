@@ -23,6 +23,8 @@ import { toScreenshotView } from './screenshot-view';
 import { redactScreenshotAction } from './actions';
 import { ApprovalsPanel } from './ApprovalsPanel';
 import { DayAppUsage } from '../../../components/day/DayAppUsage';
+import { AddTimeEntryForm } from '../../../components/day/AddTimeEntryForm';
+import { EntryRowActions } from '../../../components/day/EntryRowActions';
 import { selfApprovals } from '../../../lib/approvals-view';
 import type {
   ActivitySample,
@@ -143,6 +145,9 @@ export default async function MyDataPage({
           mix={categoryMix(samples)}
           idle={idleRows(idle)}
           idleAction={(row) => <ResolveIdleForm row={row} />}
+          // Your own record, so no userId: the API attributes an absent one to the caller.
+          addEntry={<AddTimeEntryForm day={date} projects={projects} />}
+          entryAction={(entry) => <EntryRowActions entry={entry} day={date} projects={projects} />}
         />
       </div>
     </>

@@ -9,6 +9,8 @@ import { DayHeader } from '../../../../components/day/DayHeader';
 import { DayStats } from '../../../../components/day/DayStats';
 import { DayTabs, resolveDayPanel } from '../../../../components/day/DayTabs';
 import { DayPanels } from '../../../../components/day/DayPanels';
+import { AddTimeEntryForm } from '../../../../components/day/AddTimeEntryForm';
+import { EntryRowActions } from '../../../../components/day/EntryRowActions';
 import { DayAppUsage } from '../../../../components/day/DayAppUsage';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
@@ -155,6 +157,14 @@ export default async function PersonPage({
             screenshots={<ScreenshotsPanel shots={screenshots.map(toScreenshotView)} />}
             mix={categoryMix(samples)}
             idle={idleRows(idle)}
+            // A manager correcting a team member's day. Carried explicitly as userId, and
+            // authorized by the API through the same self / manager-of-team / admin rule an
+            // edit uses — an employee reaching this page for someone else gets a 403, not a
+            // hidden button. Every write here is audited against the manager, not the member.
+            addEntry={<AddTimeEntryForm day={date} projects={projects} userId={userId} />}
+            entryAction={(entry) => (
+              <EntryRowActions entry={entry} day={date} projects={projects} userId={userId} />
+            )}
           />
         </div>
       )}

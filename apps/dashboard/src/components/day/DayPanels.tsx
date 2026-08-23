@@ -6,7 +6,7 @@ import { TimeEntriesList } from './TimeEntriesList';
 import { CategoryMixBar } from './CategoryMixBar';
 import { IdlePanel } from './IdlePanel';
 import type { DayPanel } from './DayTabs';
-import type { PersonDayViewModel } from '../../lib/person-day-view';
+import type { DayEntryRow, PersonDayViewModel } from '../../lib/person-day-view';
 import type { CategoryMix, IdleRow } from '../../lib/idle-view';
 
 /**
@@ -26,6 +26,8 @@ export function DayPanels({
   mix,
   idle,
   idleAction,
+  addEntry,
+  entryAction,
 }: {
   panel: DayPanel;
   model: PersonDayViewModel;
@@ -38,6 +40,10 @@ export function DayPanels({
   idle: IdleRow[];
   /** Per-row Keep/Discard control. Omitted for a manager — the API is self-attributed. */
   idleAction?: (row: IdleRow) => ReactNode;
+  /** "Add time" for this day. Omitted where the viewer may not write to this person's record. */
+  addEntry?: ReactNode;
+  /** Per-row edit/delete. Same gate as `addEntry`. */
+  entryAction?: (entry: DayEntryRow) => ReactNode;
 }) {
   if (panel === 'timeline') {
     return (
@@ -50,8 +56,11 @@ export function DayPanels({
           <TimeRibbon ribbon={model.ribbon} />
         </section>
         <section className="flex flex-col gap-3">
-          <CardTitle>Time entries</CardTitle>
-          <TimeEntriesList entries={model.entries} />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle>Time entries</CardTitle>
+            {addEntry}
+          </div>
+          <TimeEntriesList entries={model.entries} rowAction={entryAction} />
         </section>
       </Card>
     );
