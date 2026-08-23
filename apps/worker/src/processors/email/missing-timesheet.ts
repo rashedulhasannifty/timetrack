@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from './render';
 import { TeamSettingsSchema } from '@timetrack/contracts';
 import type { PrismaClient } from '@timetrack/db';
 import { formatWeekRange, type ClosedWeek } from './closed-week.js';
@@ -91,12 +92,12 @@ export function renderMissingTimesheetEmail(input: MissingTimesheetInput): Rende
   const range = formatWeekRange(input.week);
   const myWeekUrl = appLink(input.appUrl, '/me');
   const tracked = formatHours(input.trackedSeconds);
-  const subject = `Your TimeTrack hours for ${range} look incomplete`;
+  const subject = `Your ${PRODUCT_NAME} hours for ${range} look incomplete`;
 
   const opening =
     input.trackedSeconds === 0
-      ? `No tracked time has reached TimeTrack for ${range}.`
-      : `TimeTrack has ${tracked} for you for ${range}, which is under your team's ${input.thresholdHours}-hour mark.`;
+      ? `No tracked time has reached ${PRODUCT_NAME} for ${range}.`
+      : `${PRODUCT_NAME} has ${tracked} for you for ${range}, which is under your team's ${input.thresholdHours}-hour mark.`;
 
   const text = [
     `Hi ${input.name},`,
@@ -104,7 +105,7 @@ export function renderMissingTimesheetEmail(input: MissingTimesheetInput): Rende
     opening,
     '',
     'If that looks wrong, the two usual causes are:',
-    '  - The app has not synced yet. Open TimeTrack and let it finish uploading.',
+    `  - The app has not synced yet. Open ${PRODUCT_NAME} and let it finish uploading.`,
     '  - A timer is still running. Only finished entries are uploaded, so stop the timer',
     '    to make that time count.',
     '',
@@ -119,7 +120,7 @@ export function renderMissingTimesheetEmail(input: MissingTimesheetInput): Rende
     `<p>${escapeHtml(opening)}</p>`,
     '<p>If that looks wrong, the two usual causes are:</p>',
     '<ul>',
-    '<li>The app has not synced yet — open TimeTrack and let it finish uploading.</li>',
+    `<li>The app has not synced yet — open ${PRODUCT_NAME} and let it finish uploading.</li>`,
     '<li>A timer is still running. Only finished entries are uploaded, so stop the timer to make that time count.</li>',
     '</ul>',
     `<p>Otherwise you can add or correct last week&rsquo;s entries yourself:</p>`,

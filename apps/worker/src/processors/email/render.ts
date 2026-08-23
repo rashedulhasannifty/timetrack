@@ -12,6 +12,13 @@ export interface RenderedMessage {
   html: string;
 }
 
+/**
+ * The product name as employees see it. A constant, not a literal in nine places: the emails
+ * said "TimeTrack" (the repo/package name) long after the product shipped as Nifty Timer, and
+ * nothing made the two drift visible. Anything an employee reads goes through here.
+ */
+export const PRODUCT_NAME = 'Nifty Timer';
+
 /** Minimal HTML entity escaping — every interpolated value is operator- or user-supplied. */
 export function escapeHtml(value: string): string {
   return value

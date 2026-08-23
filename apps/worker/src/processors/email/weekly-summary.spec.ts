@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { closedWeek } from './closed-week.js';
 import { renderWeeklySummaryEmail, type SummaryMember } from './weekly-summary.js';
+import { PRODUCT_NAME } from './render';
 
 const week = closedWeek(new Date('2026-08-10T08:00:00Z')); // reports 3–9 Aug 2026
 
@@ -22,7 +23,7 @@ const base = {
 describe('renderWeeklySummaryEmail', () => {
   it('names the team and the closed week in the subject', () => {
     expect(renderWeeklySummaryEmail(base).subject).toBe(
-      'TimeTrack weekly summary — Engineering, 3–9 Aug 2026',
+      `${PRODUCT_NAME} weekly summary — Engineering, 3–9 Aug 2026`,
     );
   });
 
