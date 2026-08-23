@@ -51,6 +51,31 @@ describe.runIf(RUN_E2E)('approvals repository (real Postgres)', () => {
       },
     });
 
+  // Regression (C3): a week's approval total is the same number as the same week on /reports,
+  // so overlapping entries must be counted once here too.
+  it('counts overlapping entries once in trackedSeconds and in the decided total', async () => {
+    const t = await team();
+    const ada = await user(t.id, 'Ada', 'ada@example.com');
+    await approval(ada.id);
+    await entry(
+      ada.id,
+      '019797a0-0000-7000-8000-00000000b0e1',
+      '2026-06-30T09:00:00Z',
+      '2026-06-30T13:00:00Z',
+    );
+    await entry(
+      ada.id,
+      '019797a0-0000-7000-8000-00000000b0e2',
+      '2026-06-30T11:00:00Z',
+      '2026-06-30T15:00:00Z',
+    );
+
+    const SIX_HOURS = 6 * 3600; // 09:00–15:00 merged; a naive SUM would say 8h
+    const rows = await repo().list({ kind: 'user', userId: ada.id });
+    expect(rows[0]!.trackedSeconds).toBe(SIX_HOURS);
+    expect(await repo().periodTrackedSeconds(ada.id, P_START, P_END)).toBe(SIX_HOURS);
+  });
+
   // Regression: the open end used to be a bare COALESCE(endTime, now()), so one stranded row
   // accrued all the way to periodEnd — days of phantom time on the very screen a manager signs
   // off, and inflated into totalSeconds on decide. /reports clamped the same row to a minute.

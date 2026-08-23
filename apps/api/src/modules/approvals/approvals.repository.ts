@@ -43,16 +43,45 @@ const ENTRY_END = (freshnessSeconds: number): Prisma.Sql => Prisma.sql`
     )
   )`;
 
-// Whole-second clamped duration of one entry against [from,to] — slice-3.2 semantics.
-const CLAMPED_SECONDS = (
+/**
+ * One entry's tracked span, clipped to [from, to] and truncated to whole seconds
+ * (slice-3.2 semantics). Empty when the entry does not actually intersect the period.
+ */
+const CLIPPED_SPAN = (fromCol: Prisma.Sql, toCol: Prisma.Sql, freshnessSeconds: number) =>
+  Prisma.sql`
+  tstzrange(
+    date_trunc('second', GREATEST(te."startTime", ${fromCol})),
+    GREATEST(
+      date_trunc('second', LEAST(${ENTRY_END(freshnessSeconds)}, ${toCol})),
+      date_trunc('second', GREATEST(te."startTime", ${fromCol}))
+    )
+  )`;
+
+/**
+ * Seconds a user's spans COVER in the period, counting overlapping time once — the same
+ * `range_agg` union `reports.repository.ts` uses, so a week's approval total and the same
+ * week on /reports are the one number. A plain SUM double-counts overlapping entries.
+ */
+const MERGED_PERIOD_SECONDS = (
   fromCol: Prisma.Sql,
   toCol: Prisma.Sql,
+  userCol: Prisma.Sql,
   freshnessSeconds: number,
 ): Prisma.Sql => Prisma.sql`
-  FLOOR(GREATEST(EXTRACT(EPOCH FROM (
-    date_trunc('second', LEAST(${ENTRY_END(freshnessSeconds)}, ${toCol}))
-    - date_trunc('second', GREATEST(te."startTime", ${fromCol}))
-  )), 0))::int`;
+  COALESCE((
+    SELECT COALESCE((
+      SELECT SUM(EXTRACT(EPOCH FROM (upper(x) - lower(x))))
+      FROM unnest(q.mr) AS x
+    ), 0)
+    FROM (
+      SELECT range_agg(${CLIPPED_SPAN(fromCol, toCol, freshnessSeconds)}) AS mr
+      FROM time_entries te
+      WHERE te."userId" = ${userCol}
+        AND te."startTime" < ${toCol}
+        AND ${ENTRY_END(freshnessSeconds)} > ${fromCol}
+        AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+    ) q
+  ), 0)`;
 
 /**
  * CLAUDE.md §3 — Prisma lives HERE. `list`/`getOne` share one SELECT projection
@@ -103,17 +132,12 @@ export class ApprovalsRepository {
              ta."periodStart" AS "periodStart", ta."periodEnd" AS "periodEnd",
              ta.status AS "status", ta."totalSeconds" AS "totalSeconds",
              ta."reviewerId" AS "reviewerId", ta.note AS "note", ta."decidedAt" AS "decidedAt",
-             COALESCE((
-               SELECT SUM(${CLAMPED_SECONDS(
-                 Prisma.sql`ta."periodStart"`,
-                 Prisma.sql`ta."periodEnd"`,
-                 this.trackingFreshnessSeconds,
-               )})
-               FROM time_entries te
-               WHERE te."userId" = ta."userId"
-                 AND te."startTime" < ta."periodEnd"
-                 AND ${ENTRY_END(this.trackingFreshnessSeconds)} > ta."periodStart"
-             ), 0)::int AS "trackedSeconds"
+             FLOOR(${MERGED_PERIOD_SECONDS(
+               Prisma.sql`ta."periodStart"`,
+               Prisma.sql`ta."periodEnd"`,
+               Prisma.sql`ta."userId"`,
+               this.trackingFreshnessSeconds,
+             )})::int AS "trackedSeconds"
       FROM timesheet_approvals ta
       JOIN users u ON u.id = ta."userId"
       WHERE ${whereSql}
@@ -144,15 +168,12 @@ export class ApprovalsRepository {
 
   async periodTrackedSeconds(userId: string, from: Date, to: Date): Promise<number> {
     const [row] = await this.prisma.$queryRaw<Array<{ seconds: number | bigint }>>`
-      SELECT COALESCE(SUM(${CLAMPED_SECONDS(
+      SELECT FLOOR(${MERGED_PERIOD_SECONDS(
         Prisma.sql`${from}::timestamptz`,
         Prisma.sql`${to}::timestamptz`,
+        Prisma.sql`${userId}`,
         this.trackingFreshnessSeconds,
-      )}), 0)::int AS "seconds"
-      FROM time_entries te
-      WHERE te."userId" = ${userId}
-        AND te."startTime" < ${to}::timestamptz
-        AND ${ENTRY_END(this.trackingFreshnessSeconds)} > ${from}::timestamptz
+      )})::int AS "seconds"
     `;
     return Number(row?.seconds ?? 0);
   }
