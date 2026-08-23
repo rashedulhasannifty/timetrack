@@ -111,6 +111,22 @@ describe.runIf(RUN_E2E)('autoApprovePendingTimesheets (real Postgres)', () => {
     expect((await autoApprovePendingTimesheets(env.prisma, NOW, FRESHNESS)).approved).toBe(0);
   });
 
+  // A team whose settings row predates this feature has no autoApproveTimesheets key at all.
+  // `->> 'missing'` is NULL, and `NULL IS TRUE` is false, so it is left alone — the safe
+  // direction. (An admin saving the form materialises every key: the API re-parses the merged
+  // object through TeamSettingsSchema, which carries the defaults.)
+  it('leaves a legacy team with no auto-approve key untouched', async () => {
+    const t = await env.prisma.team.create({
+      data: { name: 'Legacy', settings: {} },
+      select: { id: true },
+    });
+    const ada = await user(t.id);
+    await approval(ada.id);
+    await work(ada.id, '019797a0-0000-7000-8000-00000000d00a', 8);
+
+    expect((await autoApprovePendingTimesheets(env.prisma, NOW, FRESHNESS)).approved).toBe(0);
+  });
+
   it('never re-decides a row a human already decided', async () => {
     const t = await team();
     const ada = await user(t.id);
