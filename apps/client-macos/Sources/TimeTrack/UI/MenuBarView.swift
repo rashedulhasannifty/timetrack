@@ -275,6 +275,17 @@ struct MenuBarView: View {
             HStack {
                 Button("Sign Out", action: viewModel.signOut).buttonStyle(.link)
                 Spacer()
+                if let stamp = BuildStamp.current() {
+                    // Between the two actions rather than on its own row: it is reference
+                    // information, not something to act on, and it should not push Sign Out and
+                    // Quit further from the person's pointer. Selectable so it can be pasted
+                    // into a support message instead of transcribed.
+                    Text(stamp)
+                        .foregroundStyle(TT.Palette.textSecondary)
+                        .textSelection(.enabled)
+                        .accessibilityLabel("Version \(stamp)")
+                    Spacer()
+                }
                 Button("Quit", action: viewModel.quit).buttonStyle(.link)
             }
         }
