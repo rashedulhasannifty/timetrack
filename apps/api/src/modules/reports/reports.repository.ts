@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
+import { APP_TIMEZONE } from '@timetrack/contracts';
 import type { TeamTrendDay, TeamActivityRow, TeamAppUsageRow } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { CsvEntryRow } from './csv-writer.js';
@@ -227,7 +228,7 @@ export class ReportsRepository {
                  / NULLIF(SUM(ads."activeMinutes"), 0)
                )::int AS "activityPct"
         FROM activity_daily_summaries ads
-        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'Asia/Dhaka')::date AND (${to} AT TIME ZONE 'Asia/Dhaka')::date
+        WHERE ads."day" BETWEEN (${from} AT TIME ZONE ${APP_TIMEZONE}::text)::date AND (${to} AT TIME ZONE ${APP_TIMEZONE}::text)::date
         GROUP BY ads."userId"
       ),
       scoped AS (
@@ -302,7 +303,7 @@ export class ReportsRepository {
    * activity_daily_summaries' byCategory minutes to seconds). Both sources are aggregated
    * in their own CTE keyed by day before joining onto the `days` spine, for the same
    * fan-out-safety reason as `teamSummary`. Day boundaries are built as explicit
-   * Asia/Dhaka (`(d.day::timestamp) AT TIME ZONE 'Asia/Dhaka'`) so the result doesn't
+   * APP_TIMEZONE (`(d.day::timestamp) AT TIME ZONE ${APP_TIMEZONE}`) so the result doesn't
    * depend on session tz and buckets each instant onto its Dhaka calendar day.
    *
    * Range semantics differ from `teamSummary`/`projects`: here `to` is treated as an
@@ -332,8 +333,8 @@ export class ReportsRepository {
     >`
       WITH days AS (
         SELECT generate_series(
-          (${from} AT TIME ZONE 'Asia/Dhaka')::date,
-          (${to} AT TIME ZONE 'Asia/Dhaka')::date,
+          (${from} AT TIME ZONE ${APP_TIMEZONE}::text)::date,
+          (${to} AT TIME ZONE ${APP_TIMEZONE}::text)::date,
           interval '1 day'
         )::date AS day
       ),
@@ -343,7 +344,7 @@ export class ReportsRepository {
                SUM(COALESCE((ads."byCategory"->>'NEUTRAL')::int, 0))      * 60 AS "neutralSeconds",
                SUM(COALESCE((ads."byCategory"->>'UNPRODUCTIVE')::int, 0)) * 60 AS "unproductiveSeconds"
         FROM activity_daily_summaries ads
-        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'Asia/Dhaka')::date AND (${to} AT TIME ZONE 'Asia/Dhaka')::date
+        WHERE ads."day" BETWEEN (${from} AT TIME ZONE ${APP_TIMEZONE}::text)::date AND (${to} AT TIME ZONE ${APP_TIMEZONE}::text)::date
           AND (${this.scopeSql(scope, Prisma.sql`ads."userId"`)})
         GROUP BY ads."day"
       ),
@@ -351,14 +352,14 @@ export class ReportsRepository {
         SELECT d.day,
                FLOOR(SUM(GREATEST(
                  EXTRACT(EPOCH FROM (
-                   LEAST(${ENTRY_END(freshnessSeconds)}, ((d.day + 1)::timestamp) AT TIME ZONE 'Asia/Dhaka')
-                   - GREATEST(te."startTime", (d.day::timestamp) AT TIME ZONE 'Asia/Dhaka')
+                   LEAST(${ENTRY_END(freshnessSeconds)}, ((d.day + 1)::timestamp) AT TIME ZONE ${APP_TIMEZONE}::text)
+                   - GREATEST(te."startTime", (d.day::timestamp) AT TIME ZONE ${APP_TIMEZONE}::text)
                  )), 0
                )))::int AS "trackedSeconds"
         FROM days d
         JOIN time_entries te
-          ON te."startTime" < ((d.day + 1)::timestamp) AT TIME ZONE 'Asia/Dhaka'
-         AND ${ENTRY_END(freshnessSeconds)} > (d.day::timestamp) AT TIME ZONE 'Asia/Dhaka'
+          ON te."startTime" < ((d.day + 1)::timestamp) AT TIME ZONE ${APP_TIMEZONE}::text
+         AND ${ENTRY_END(freshnessSeconds)} > (d.day::timestamp) AT TIME ZONE ${APP_TIMEZONE}::text
          AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
          AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
         GROUP BY d.day
@@ -389,7 +390,7 @@ export class ReportsRepository {
    * `teamSummary`. Percentages divide by NULLIF(..., 0) so an all-zero denominator yields
    * NULL -> COALESCEd to 0 rather than dividing by zero. Idle duration is window-clamped
    * exactly like the time-entry clamps elsewhere in this file. The day-range filter is
-   * built the same Dhaka-pinned way as `trends` (`AT TIME ZONE 'Asia/Dhaka'`, not a bare
+   * built the same zone-pinned way as `trends` (`AT TIME ZONE ${APP_TIMEZONE}`, not a bare
    * `::timestamptz)::date` cast) so it doesn't depend on the session timezone; the idle
    * CTE's instant comparisons are already absolute and don't need that treatment.
    *
@@ -417,7 +418,7 @@ export class ReportsRepository {
                SUM(COALESCE((ads."byCategory"->>'NEUTRAL')::int, 0))      AS neut,
                SUM(COALESCE((ads."byCategory"->>'UNPRODUCTIVE')::int, 0)) AS unprod
         FROM activity_daily_summaries ads
-        WHERE ads."day" BETWEEN (${from} AT TIME ZONE 'Asia/Dhaka')::date AND (${to} AT TIME ZONE 'Asia/Dhaka')::date
+        WHERE ads."day" BETWEEN (${from} AT TIME ZONE ${APP_TIMEZONE}::text)::date AND (${to} AT TIME ZONE ${APP_TIMEZONE}::text)::date
           AND (${this.scopeSql(scope, Prisma.sql`ads."userId"`)})
         GROUP BY ads."userId"
       ),
