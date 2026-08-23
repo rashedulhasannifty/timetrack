@@ -18,6 +18,34 @@ final class TimeTrackerTests: XCTestCase {
 
     private let t0 = Date(timeIntervalSince1970: 1_700_000_000)
 
+    // The server refuses an inverted entry (endTime < startTime) with a 422, which the uploader
+    // treats as permanent — so an entry closed against a clock that stepped BACKWARDS would be
+    // dropped and the person would lose that time without a word.
+    func testAClockStepBackwardsCollapsesToZeroRatherThanInverting() {
+        let spy = BufferSpy()
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
+        let tracker = TimeTracker(buffer: spy, clock: { now }, idGen: { _ in "id-1" })
+        tracker.start(projectId: nil, taskId: nil)
+        now = now.addingTimeInterval(-600) // NTP correction lands mid-span
+        tracker.stop()
+
+        XCTAssertEqual(spy.entries.count, 1)
+        let entry = spy.object(at: 0)
+        XCTAssertEqual(entry["startTime"] as? String, entry["endTime"] as? String)
+    }
+
+    func testRecordSpanNeverEmitsAnInvertedSpan() {
+        let spy = BufferSpy()
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let tracker = TimeTracker(buffer: spy, clock: { t0 }, idGen: { _ in "id-1" })
+        // LiveSpanRecovery's Keep closes at `lastAlive`, which a clock step can put before the start.
+        tracker.recordSpan(start: t0, end: t0.addingTimeInterval(-60),
+                           projectId: nil, taskId: nil, source: .manual)
+
+        let entry = spy.object(at: 0)
+        XCTAssertEqual(entry["startTime"] as? String, entry["endTime"] as? String)
+    }
+
     func testStartMintsIdAndRecordsStartTime() {
         let clock = MutableClock(t0)
         let spy = BufferSpy()
