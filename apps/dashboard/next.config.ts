@@ -39,6 +39,22 @@ loadRootEnv();
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Emit a self-contained server: Next traces the modules actually reached and copies just
+  // those into .next/standalone, instead of the image carrying the full installed tree. The
+  // dashboard image was 1.06GB of which ~490MB was node_modules — mostly `next` itself plus
+  // two SWC native binaries that are build-time compilers and are never loaded by the server.
+  output: 'standalone',
+  // In a monorepo the trace root defaults to this package, which would miss the workspace
+  // packages (@timetrack/contracts) and the pnpm store above it. Point it at the repo root so
+  // the trace follows the symlinks out of apps/dashboard.
+  outputFileTracingRoot: resolve(dirname(fileURLToPath(import.meta.url)), '../..'),
+  // Next's tracer follows @swc/helpers' exports map to its CJS build and copies only that —
+  // 3 files of 438 — but the emitted server requires the ESM variants, so the standalone
+  // server died at boot on `Cannot find module .../@swc/helpers/esm/_interop_require_default.js`.
+  // Pull the whole package in; it is 1.8MB.
+  outputFileTracingIncludes: {
+    '**/*': ['../../node_modules/.pnpm/@swc+helpers@*/node_modules/@swc/helpers/**'],
+  },
   // Next otherwise writes apps/dashboard/AGENTS.md + CLAUDE.md on every dev run. They are
   // unreviewed, regenerate constantly, and a dashboard-local CLAUDE.md competes with the
   // repo-root one that actually governs work here.
