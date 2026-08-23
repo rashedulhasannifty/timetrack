@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { refreshBackTo } from '../../../lib/redirect';
 import { dayOf } from '@timetrack/contracts';
 import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { Card } from '../../../components/ui/Card';
@@ -24,7 +26,13 @@ export default async function ProjectsPage({
   searchParams: Promise<{ from?: string; to?: string; includeArchived?: string; teamId?: string }>;
 }) {
   const session = await getSession();
-  if (!session) return null;
+  // NOT `return null`: the (app) layout's redirect does NOT re-run on a client-side
+  // navigation — Next reuses the cached layout segment and re-renders only this page. Once
+  // the 15-minute access token expired, every soft nav therefore rendered the shell with an
+  // empty <main> (the header still looked right because TopBar derives it from the pathname),
+  // and only a manual refresh — which re-runs the layout — recovered. Every page that reads
+  // the session has to be able to gate on its own.
+  if (!session) redirect(refreshBackTo('/projects'));
 
   const sp = await searchParams;
   const fallback = defaultReportRange(new Date());
