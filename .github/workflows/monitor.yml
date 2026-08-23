@@ -1,0 +1,157 @@
+name: Monitor
+
+# Nothing watched this stack until now. The disk filled to 98% and deploys failed for three
+# days (#143, #144, #147) before anyone noticed; the API being down would have been found the
+# same way — by a person looking. docs/deployment.md §7 has listed alerts as a plan since the
+# first deploy.
+#
+# This runs OUTSIDE the box on purpose. A watchdog on the VM cannot report the failure that
+# matters most: the VM itself being gone.
+#
+# Cost note: scheduled runs on a private repo consume Actions minutes (~1min/run). Every 30
+# minutes is ~1400 min/month. Widen the cron if that crowds out CI.
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+# Never let two probes overlap, and never cancel one in flight — a cancelled run would look
+# like a failure and open a spurious alert.
+concurrency:
+  group: monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  HEALTH_URL: https://timer.niftyitsolution.com/health/ready
+  DISK_WARN_PCT: '85'
+  BACKUP_MAX_AGE_MIN: '1560' # 26h — the nightly timer runs at 02:30 UTC
+  BACKUP_MIN_BYTES: '1024'
+  QUEUE_WAIT_MAX: '500'
+  QUEUE_FAILED_MAX: '50'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      # ---- 1. Is the stack answering at all? Needs no SSH, so it still reports when the
+      # host is unreachable. Retried: a single blip during a deploy roll is not an outage.
+      - name: Stack health
+        id: health
+        run: |
+          # GitHub's default shell is `bash -e`: a false test (`[ $d -ge 85 ]`) would abort
+          # the step and the checks below would never run. These scripts branch on exit
+          # codes deliberately, so -e is wrong here.
+          set +e -o pipefail
+          : > findings.txt
+          ok=0
+          for attempt in 1 2 3; do
+            body=$(curl -fsS --max-time 15 "$HEALTH_URL" 2>/dev/null) && { ok=1; break; }
+            echo "attempt $attempt failed, retrying"; sleep 20
+          done
+          if [ "$ok" != "1" ]; then
+            echo "- **Stack unreachable** — \`$HEALTH_URL\` did not answer 2xx after 3 attempts over ~40s." >> findings.txt
+          else
+            echo "health: $body"
+            # /health/ready reports each dependency; a 200 with a dependency down is possible.
+            for dep in database redis storage; do
+              state=$(printf '%s' "$body" | sed -n "s/.*\"$dep\":\"\([a-z]*\)\".*/\1/p")
+              [ "$state" = "up" ] || echo "- **Dependency \`$dep\` is not up** (reported \`${state:-missing}\`)." >> findings.txt
+            done
+          fi
+
+      # ---- 2. Host-side checks. Reuses the deploy secrets; no new credentials.
+      - name: Host checks
+        if: always()
+        run: |
+          set +e -o pipefail
+          install -m 600 /dev/null key
+          printf '%s\n' "${{ secrets.SSH_KEY }}" > key
+          ssh -i key -o StrictHostKeyChecking=no -o ConnectTimeout=25 -o BatchMode=yes \
+            -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            'bash -s' > host.txt 2>&1 <<'REMOTE' || echo "SSH_UNREACHABLE" >> host.txt
+          set +e -o pipefail
+          echo "DISK_PCT=$(df -P / | awk 'NR==2{gsub(/%/,"",$5); print $5}')"
+          # The backup dir belongs to the deploy user; fall back to sudo if this user is not it.
+          BK=/home/deploy/timetrack/backups/postgres
+          if [ -r "$BK" ]; then SUDO=""; else SUDO="sudo -n"; fi
+          newest=$($SUDO ls -t "$BK"/*.sql.gz 2>/dev/null | head -1)
+          if [ -z "$newest" ]; then
+            echo "BACKUP=NONE"
+          else
+            echo "BACKUP_AGE_MIN=$(( ( $(date +%s) - $($SUDO stat -c %Y "$newest") ) / 60 ))"
+            echo "BACKUP_BYTES=$($SUDO stat -c %s "$newest")"
+            echo "BACKUP_NAME=$(basename "$newest")"
+          fi
+          echo "WORKER_STATE=$(docker inspect timetrack-prod-worker-1 --format '{{.State.Status}}' 2>/dev/null || echo missing)"
+          # A worker that is "up" but not consuming is invisible without this: the container has
+          # no healthcheck, so a wedged queue consumer looks identical to a healthy one.
+          for q in $(docker exec timetrack-prod-redis-1 redis-cli --scan --pattern 'bull:*:meta' 2>/dev/null | sed 's/^bull://; s/:meta$//' | sort -u); do
+            echo "QUEUE=$q wait=$(docker exec timetrack-prod-redis-1 redis-cli LLEN "bull:$q:wait" 2>/dev/null) failed=$(docker exec timetrack-prod-redis-1 redis-cli ZCARD "bull:$q:failed" 2>/dev/null)"
+          done
+          REMOTE
+          rm -f key
+          cat host.txt
+
+          val() { sed -n "s/^$1=//p" host.txt | head -1; }
+          if grep -q SSH_UNREACHABLE host.txt; then
+            echo "- **Host unreachable over SSH** — disk, backup and worker checks could not run." >> findings.txt
+          else
+            d=$(val DISK_PCT)
+            [ -n "$d" ] && [ "$d" -ge "$DISK_WARN_PCT" ] && \
+              echo "- **Disk at ${d}%** (threshold ${DISK_WARN_PCT}%). Deploys fail outright when this reaches 100%." >> findings.txt
+
+            if grep -q '^BACKUP=NONE' host.txt; then
+              echo "- **No Postgres dump found.** Backups are the payroll record." >> findings.txt
+            else
+              age=$(val BACKUP_AGE_MIN); bytes=$(val BACKUP_BYTES); name=$(val BACKUP_NAME)
+              [ -n "$age" ] && [ "$age" -gt "$BACKUP_MAX_AGE_MIN" ] && \
+                echo "- **Newest backup is $((age/60))h old** (\`$name\`, expected under 26h)." >> findings.txt
+              [ -n "$bytes" ] && [ "$bytes" -lt "$BACKUP_MIN_BYTES" ] && \
+                echo "- **Newest backup is only ${bytes} bytes** (\`$name\`) — likely a failed dump." >> findings.txt
+            fi
+
+            w=$(val WORKER_STATE)
+            [ "$w" != "running" ] && echo "- **Worker container is \`${w:-unknown}\`**, not running." >> findings.txt
+
+            while read -r _ q wait failed; do
+              qn=${q#*=}; wv=${wait#*=}; fv=${failed#*=}
+              [ -n "${wv:-}" ] && [ "$wv" -gt "$QUEUE_WAIT_MAX" ] && \
+                echo "- **Queue \`$qn\` has $wv jobs waiting** (threshold $QUEUE_WAIT_MAX) — the worker may be stalled." >> findings.txt
+              [ -n "${fv:-}" ] && [ "$fv" -gt "$QUEUE_FAILED_MAX" ] && \
+                echo "- **Queue \`$qn\` has $fv failed jobs** (threshold $QUEUE_FAILED_MAX)." >> findings.txt
+            done < <(grep '^QUEUE=' host.txt | sed 's/^QUEUE=/x /')
+          fi
+
+      # ---- 3. One open issue per incident, not one per run. Re-alerting every 30 minutes
+      # would train everyone to ignore it, which is the same as having no alerting.
+      - name: Reconcile alert issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e -o pipefail
+          TITLE="Production alert: stack unhealthy"
+          existing=$(gh issue list --label alert --state open --limit 1 --json number -q '.[0].number' 2>/dev/null || true)
+
+          if [ -s findings.txt ]; then
+            echo "::error::production checks failed"; cat findings.txt
+            body=$(printf 'Automated check failed at %s UTC.\n\n%s\n\n[Run log](%s/%s/actions/runs/%s)\n\nThis issue closes itself when the next run passes.\n' \
+              "$(date -u +'%Y-%m-%d %H:%M')" "$(cat findings.txt)" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+            if [ -z "$existing" ]; then
+              gh label create alert --color B60205 --description "Automated production alert" 2>/dev/null || true
+              gh issue create --title "$TITLE" --label alert --body "$body"
+            else
+              echo "alert #$existing already open — not re-notifying"
+            fi
+            exit 1
+          fi
+
+          echo "✓ all checks passed"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Recovered — checks passed at $(date -u +'%Y-%m-%d %H:%M') UTC."
+            gh issue close "$existing"
+          fi
