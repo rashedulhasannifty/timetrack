@@ -16,6 +16,19 @@ final class BufferStoreTests: XCTestCase {
         return (BufferStore(directory: dir, clock: clock), dir)
     }
 
+    func testPendingCountCountsEveryKindAndTracksDrain() {
+        let (store, _) = makeStore()
+        XCTAssertEqual(store.pendingCount(), 0)
+
+        store.enqueue(id: "id-1", kind: .timeEntry, payload: Data("{}".utf8))
+        store.enqueue(id: "id-2", kind: .idleEvent, payload: Data("{}".utf8))
+        // Both kinds are the person's own record waiting to reach the server, so both count.
+        XCTAssertEqual(store.pendingCount(), 2)
+
+        store.remove(id: "id-1")
+        XCTAssertEqual(store.pendingCount(), 1)
+    }
+
     func testEnqueueWritesOneFileWithExactPayload() throws {
         let (store, dir) = makeStore()
         let payload = Data(#"{"id":"id-1","source":"MANUAL"}"#.utf8)

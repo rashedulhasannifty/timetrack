@@ -68,6 +68,11 @@ final class ImageBufferStore {
         }
     }
 
+    /// Screenshots still waiting to upload. Directory listing only, no image is read.
+    func pendingCount() -> Int {
+        take(limit: Int.max).count
+    }
+
     func remove(id: String) {
         for rec in allRecords() where rec.id == id {
             try? FileManager.default.removeItem(at: rec.url)

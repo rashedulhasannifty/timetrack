@@ -64,6 +64,15 @@ final class MenuViewModel: ObservableObject {
     /// up to here.
     @Published var totalsFetchedAt: Date?
 
+    /// How many of this person's own records have not reached the server yet — closed time
+    /// entries, idle events, and screenshots still sitting in the durable buffers.
+    ///
+    /// Distinct from the menu bar's "not recording" warning, which says the server is actively
+    /// REJECTING the running entry. This one is the ordinary offline case: nothing is wrong,
+    /// the work is safely on disk, and it will drain. Showing it means a person who has been on
+    /// a plane can see their time is not lost instead of guessing.
+    @Published var pendingSyncCount: Int = 0
+
     /// The signed-in user, set by AppDelegate once the session resolves. Selection persistence is
     /// namespaced by it so one user can never inherit another's (possibly wrong-team) project.
     var currentUserId: String?
@@ -277,6 +286,7 @@ final class MenuViewModel: ObservableObject {
         // A previous user's tracked time must never be visible to whoever signs in next.
         totals = nil
         totalsFetchedAt = nil
+        pendingSyncCount = 0
     }
 
     /// A total as it stands right now: the figure the server returned, plus the tracked time that

@@ -431,9 +431,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private func menuDidOpen() {
         refreshProjectsOnMenuOpen()
         refreshTotalsOnMenuOpen()
+        refreshPendingSyncCount()
         // The 6h background poll is the floor, not the whole story: a release published just
         // after this app launched would otherwise sit unseen until the next tick.
         updateCoordinator?.checkOnMenuOpen()
+    }
+
+    /// Count what is still queued. A directory listing of the two durable buffers — cheap
+    /// enough to do on every menu open, and never worth a background timer: the number only
+    /// matters while someone is looking at it.
+    @MainActor private func refreshPendingSyncCount() {
+        menuViewModel.pendingSyncCount =
+            BufferStore.shared.pendingCount() + ImageBufferStore.shared.pendingCount()
     }
 
     @MainActor private func refreshProjectsOnMenuOpen() {
