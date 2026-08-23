@@ -33,6 +33,92 @@ final class MenuViewModelTests: XCTestCase {
                              selectionStore: selectionStore ?? makeIsolatedStore())
     }
 
+    private final class MutableClock {
+        private(set) var now: Date
+        init(_ s: Date) { now = s }
+        func advance(_ s: TimeInterval) { now = now.addingTimeInterval(s) }
+        func read() -> Date { now }
+    }
+
+    /// A VM whose tracker writes to a spy and runs on a clock the test can move, so a
+    /// switch mid-span produces two distinguishable entries.
+    private func makeSwitchableVM() -> (MenuViewModel, BufferSpy, MutableClock) {
+        let spy = BufferSpy()
+        let clock = MutableClock(Date(timeIntervalSince1970: 1_700_000_000))
+        var n = 0
+        let tracker = TimeTracker(buffer: spy,
+                                  clock: clock.read,
+                                  idGen: { _ in n += 1; return "id-\(n)" })
+        let vm = MenuViewModel(tracker: tracker,
+                               dashboardURL: URL(string: "http://localhost:3000")!,
+                               openURL: { _ in }, onSignIn: {}, onSignOut: {}, onQuit: {},
+                               selectionStore: makeIsolatedStore())
+        vm.markReady()
+        return (vm, spy, clock)
+    }
+
+    private func choice(_ id: String) -> Choice {
+        Choice(id: id, projectId: id, taskId: nil, projectName: id, taskName: nil)
+    }
+
+    // Regression: `select` used to only store the pick. TimeTracker captures the selection when
+    // a span OPENS and enqueues it on close, so switching mid-span filed the ENTIRE span —
+    // before and after the switch — under the previous project. In AUTO mode that span runs
+    // from login to the first idle window, so it is hours of work on the wrong project.
+    func testSwitchingProjectMidSpanClosesTheOldEntryAndOpensANewOne() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.select(choice("p1"))
+        vm.start()
+        clock.advance(3600)
+
+        vm.select(choice("p2"))
+
+        XCTAssertEqual(spy.entries.count, 1, "the running entry should have been closed")
+        XCTAssertEqual(spy.object(at: 0)["projectId"] as? String, "p1")
+        XCTAssertEqual(vm.phase, .tracking, "a new span should be running under p2")
+
+        vm.stop()
+        XCTAssertEqual(spy.entries.count, 2)
+        XCTAssertEqual(spy.object(at: 1)["projectId"] as? String, "p2")
+    }
+
+    func testSwitchingProjectKeepsTheClockReadingAccumulatedTime() {
+        let (vm, _, clock) = makeSwitchableVM()
+        vm.select(choice("p1"))
+        vm.start()
+        let originalStart = vm.startedAt
+        clock.advance(3600)
+
+        vm.select(choice("p2"))
+
+        // The new entry starts now; the header must keep counting the session, not reset to 0.
+        XCTAssertEqual(vm.startedAt, originalStart)
+    }
+
+    func testSwitchingProjectWhilePausedChangesWhatResumeOpens() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.select(choice("p1"))
+        vm.start()
+        clock.advance(600)
+        vm.pause()
+
+        vm.select(choice("p2"))
+        XCTAssertEqual(vm.phase, .paused, "switching must not resume a paused session")
+        vm.resume()
+        clock.advance(600)
+        vm.stop()
+
+        XCTAssertEqual(spy.object(at: 1)["projectId"] as? String, "p2")
+    }
+
+    func testSwitchingProjectWhileIdleRecordsNothing() {
+        let (vm, spy, _) = makeSwitchableVM()
+        vm.select(choice("p1"))
+        vm.select(choice("p2"))
+        XCTAssertTrue(spy.entries.isEmpty)
+        XCTAssertEqual(vm.phase, .idle)
+    }
+
     func testStartIsNoOpUntilReady() {
         let vm = makeVM()
         vm.select(Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Acme", taskName: nil))

@@ -83,6 +83,14 @@ final class TimeTracker {
         state = .paused(selection: selection)
     }
 
+    /// Replace the selection a PAUSED session will resume under. `resume()` reopens from the
+    /// selection stored in `.paused`, so a project switch made while paused would otherwise be
+    /// silently discarded on resume. No-op unless paused; never touches a running span.
+    func pause(reselecting selection: Selection) {
+        guard case .paused = state else { return }
+        state = .paused(selection: selection)
+    }
+
     func resume() {
         guard case let .paused(selection) = state else { return }
         open(selection, source: .manual)   // pause/resume is a manual-only affordance

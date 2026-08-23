@@ -130,8 +130,44 @@ final class MenuViewModel: ObservableObject {
     }
     func markNotReady() { isReady = false }
 
+    /// Pick a project/task. The menu calls this "SWITCH PROJECT", and it means it: if a span is
+    /// already running, the running entry is CLOSED here and a fresh one opened under the new
+    /// selection.
+    ///
+    /// Storing the choice alone was not enough. `TimeTracker` captures the selection when a span
+    /// OPENS and enqueues that captured value when it closes, so a switch made mid-span left the
+    /// whole span — everything before the switch AND everything after — filed under the previous
+    /// project. In AUTO mode a span runs from login to the first idle window, so that is hours of
+    /// work attributed to the wrong project, with the UI reporting the switch as done.
+    ///
+    /// A `.paused` session is re-armed the same way: `resume()` reopens from the selection
+    /// captured in the paused state, so without this a switch while paused would also be lost.
+    ///
+    /// The display clock is anchored to the OLD start, so the header keeps reading accumulated
+    /// worked time instead of snapping back to 0 — the same treatment the manual-idle Discard
+    /// trim gets. The entry itself starts now; only the readout continues.
     func select(_ choice: Choice) {
         selectedChoice = choice
+        persist(choice)
+
+        switch tracker.state {
+        case let .tracking(_, entryStart, _, source):
+            let anchor = displayStartOverride ?? entryStart
+            tracker.stop()
+            tracker.start(projectId: choice.projectId, taskId: choice.taskId, source: source)
+            displayStartOverride = anchor
+            sync()
+        case .paused:
+            // Nothing is running, so nothing to re-file — but the paused selection is what
+            // `resume()` reopens with, so it has to be replaced rather than remembered.
+            tracker.pause(reselecting: TimeTracker.Selection(projectId: choice.projectId,
+                                                             taskId: choice.taskId))
+        case .idle:
+            break
+        }
+    }
+
+    private func persist(_ choice: Choice) {
         guard let currentUserId else { return }
         selectionStore.save(StoredSelection(projectId: choice.projectId, taskId: choice.taskId),
                             userId: currentUserId)
