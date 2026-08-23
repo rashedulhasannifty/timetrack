@@ -8,11 +8,13 @@ name: Monitor
 # This runs OUTSIDE the box on purpose. A watchdog on the VM cannot report the failure that
 # matters most: the VM itself being gone.
 #
-# Cost note: scheduled runs on a private repo consume Actions minutes (~1min/run). Every 30
-# minutes is ~1400 min/month. Widen the cron if that crowds out CI.
+# Cost note: scheduled runs on a private repo consume Actions minutes (~1min/run). Twice a day
+# is ~60 min/month. The trade is detection latency: an outage starting just after a probe is
+# not noticed for up to 12 hours, so this is a cost/quiet-alerts choice, not a health check to
+# lean on for uptime. Tighten the cron if that latency stops being acceptable.
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '0 */12 * * *' # 00:00 and 12:00 UTC
   workflow_dispatch: {}
 
 # Never let two probes overlap, and never cancel one in flight — a cancelled run would look
@@ -130,12 +132,12 @@ jobs:
           fi
           # MUST be last. The queue loop above ends on `[ $fv -gt $MAX ] && echo`, which is
           # FALSE — and therefore exit 1 — on a healthy queue. That made the step, and the whole
-          # job, fail on every run: a monitor that cried wolf every 30 minutes while reporting
+          # job, fail on every run: a monitor that cried wolf on every probe while reporting
           # "all checks passed". Findings are carried in findings.txt; the reconcile step below
           # is the only thing that decides pass or fail.
           exit 0
 
-      # ---- 3. One open issue per incident, not one per run. Re-alerting every 30 minutes
+      # ---- 3. One open issue per incident, not one per run. Re-alerting on every probe
       # would train everyone to ignore it, which is the same as having no alerting.
       - name: Reconcile alert issue
         if: always()
