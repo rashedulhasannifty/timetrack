@@ -30,6 +30,20 @@ final class MenuViewModel: ObservableObject {
     @Published var projects: [Project] = []
     @Published var query: String = ""
 
+    /// What the person says they were doing. Typed at any point during a span and applied to
+    /// the RUNNING entry in place — a note does not re-attribute time the way a project switch
+    /// does, so it must not split the span at the moment they stopped typing.
+    ///
+    /// Cleared on stop and on sign-out, so the next entry never inherits the last one's note.
+    @Published var note: String = "" {
+        didSet { tracker.setNote(trimmedNote) }
+    }
+
+    private var trimmedNote: String? {
+        let t = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+
     /// The server's own today / this-week / this-month totals, refreshed when the dropdown opens.
     ///
     /// Nil means "not known yet" and renders as an em dash — never as 0h, which would be a lie
@@ -154,14 +168,16 @@ final class MenuViewModel: ObservableObject {
         case let .tracking(_, entryStart, _, source):
             let anchor = displayStartOverride ?? entryStart
             tracker.stop()
-            tracker.start(projectId: choice.projectId, taskId: choice.taskId, source: source)
+            tracker.start(projectId: choice.projectId, taskId: choice.taskId,
+                          note: trimmedNote, source: source)
             displayStartOverride = anchor
             sync()
         case .paused:
             // Nothing is running, so nothing to re-file — but the paused selection is what
             // `resume()` reopens with, so it has to be replaced rather than remembered.
             tracker.pause(reselecting: TimeTracker.Selection(projectId: choice.projectId,
-                                                             taskId: choice.taskId))
+                                                             taskId: choice.taskId,
+                                                             note: trimmedNote))
         case .idle:
             break
         }
@@ -201,11 +217,17 @@ final class MenuViewModel: ObservableObject {
     func start() {
         guard isReady else { return }
         displayStartOverride = nil
-        tracker.start(projectId: selectedChoice?.projectId, taskId: selectedChoice?.taskId)
+        tracker.start(projectId: selectedChoice?.projectId, taskId: selectedChoice?.taskId,
+                      note: trimmedNote)
         sync()
     }
 
-    func stop() { displayStartOverride = nil; tracker.stop(); sync() }
+    func stop() {
+        displayStartOverride = nil
+        tracker.stop() // closes with the note captured on the span
+        note = ""
+        sync()
+    }
     func pause() { displayStartOverride = nil; tracker.pause(); sync() }
 
     /// Manual idle Discard has replaced the live entry (trim + fresh start). Shift the clock anchor
@@ -247,6 +269,11 @@ final class MenuViewModel: ObservableObject {
         query = ""
         projects = []
         currentUserId = nil
+        // `stop()` above already cleared it; repeated here because the note is user-authored
+        // text and this is the cross-user boundary — the same class of leak that has bitten
+        // the away/recovery prompts twice. A reorder of this method must not reopen it.
+        note = ""
+
         // A previous user's tracked time must never be visible to whoever signs in next.
         totals = nil
         totalsFetchedAt = nil

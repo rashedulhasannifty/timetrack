@@ -18,6 +18,18 @@ final class TimeTracker {
     struct Selection: Equatable {
         let projectId: String?
         let taskId: String?
+        /// What the person says they were doing. Free text, theirs, and optional.
+        ///
+        /// Defaulted so every existing call site keeps compiling: this type is constructed in
+        /// the view model, both idle coordinators and a dozen tests, and widening a shared
+        /// client type with a REQUIRED parameter breaks all of them in the same task.
+        let note: String?
+
+        init(projectId: String?, taskId: String?, note: String? = nil) {
+            self.projectId = projectId
+            self.taskId = taskId
+            self.note = note
+        }
     }
 
     enum Source: String {
@@ -62,9 +74,9 @@ final class TimeTracker {
     var isRunning: Bool { if case .tracking = state { return true } else { return false } }
     var isPaused: Bool { if case .paused = state { return true } else { return false } }
 
-    func start(projectId: String?, taskId: String?, source: Source = .manual) {
+    func start(projectId: String?, taskId: String?, note: String? = nil, source: Source = .manual) {
         guard case .tracking = state else {
-            open(Selection(projectId: projectId, taskId: taskId), source: source)
+            open(Selection(projectId: projectId, taskId: taskId, note: note), source: source)
             return
         }
         // Already tracking — ignore a second start.
@@ -96,12 +108,28 @@ final class TimeTracker {
         open(selection, source: .manual)   // pause/resume is a manual-only affordance
     }
 
+    /// Replace the note on the RUNNING span, in place.
+    ///
+    /// Unlike a project switch this does NOT close and reopen the entry: the note describes
+    /// what the person was doing, it does not re-attribute the time, so splitting the span at
+    /// the moment they finished typing would produce two entries for one stretch of work.
+    /// No-op unless tracking.
+    func setNote(_ note: String?) {
+        guard case let .tracking(id, startedAt, selection, source) = state else { return }
+        state = .tracking(
+            entryId: id,
+            startedAt: startedAt,
+            selection: Selection(projectId: selection.projectId, taskId: selection.taskId, note: note),
+            source: source
+        )
+    }
+
     /// Enqueue one already-complete entry without touching the live state. Used for the
     /// Keep-from-idle bridge span (PRD §6.1): the away window becomes its own AUTO entry.
     func recordSpan(id: String? = nil, start: Date, end: Date,
-                    projectId: String?, taskId: String?, source: Source) {
+                    projectId: String?, taskId: String?, source: Source, note: String? = nil) {
         enqueue(id: id ?? idGen(start), projectId: projectId, taskId: taskId,
-                start: start, end: end, source: source)
+                start: start, end: end, source: source, note: note)
         onSpanClosed?(start, end)
     }
 
@@ -116,13 +144,13 @@ final class TimeTracker {
     private func close(at endTime: Date) {
         guard case let .tracking(id, startedAt, selection, source) = state else { return }
         enqueue(id: id, projectId: selection.projectId, taskId: selection.taskId,
-                start: startedAt, end: endTime, source: source)
+                start: startedAt, end: endTime, source: source, note: selection.note)
         liveSpan.clear()
         onSpanClosed?(startedAt, endTime)
     }
 
     private func enqueue(id: String, projectId: String?, taskId: String?,
-                         start: Date, end: Date, source: Source) {
+                         start: Date, end: Date, source: Source, note: String? = nil) {
         // Never emit an inverted span. Every caller orders its own pair, but `clock()` is the
         // system clock and a backwards STEP mid-span (an NTP correction, a hand-set clock, a
         // wake from sleep) can land `end` before `start`. The server rejects that with a 422,
@@ -138,7 +166,7 @@ final class TimeTracker {
             startTime: TimeEntryPayload.iso.string(from: start),
             endTime: TimeEntryPayload.iso.string(from: end),
             source: source.rawValue,
-            note: nil
+            note: note
         )
         if let data = try? JSONEncoder().encode(payload) {
             buffer.enqueue(id: id, kind: .timeEntry, payload: data)
