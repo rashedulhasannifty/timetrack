@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Windows.Interop;
 
 namespace NiftyTimer.App;
 
@@ -19,7 +18,7 @@ public enum TrayState
 /// created during startup before any other subsystem and never conditionally.
 ///
 /// Hand-rolled over <c>Shell_NotifyIcon</c> rather than taking a tray-icon package, so the client
-/// keeps its zero-runtime-dependency posture (CLAUDE.md §2). The hidden <see cref="HwndSource"/>
+/// keeps its zero-runtime-dependency posture (CLAUDE.md §2). The hidden <see cref="MessageWindow"/>
 /// exists only to receive the icon's callback messages; it is never shown.
 /// </summary>
 public sealed class TrayIconController : IDisposable
@@ -40,7 +39,7 @@ public sealed class TrayIconController : IDisposable
     private const uint LrLoadFromFile = 0x0010;
     private const uint LrDefaultSize = 0x0040;
 
-    private readonly HwndSource _source;
+    private readonly MessageWindow _source;
     private readonly Dictionary<TrayState, IntPtr> _icons = [];
     private readonly uint _id;
 
@@ -66,15 +65,10 @@ public sealed class TrayIconController : IDisposable
         _id = 1;
         _taskbarCreated = RegisterWindowMessage("TaskbarCreated");
 
-        var parameters = new HwndSourceParameters("NiftyTimer.TrayIconHost")
-        {
-            // A message-only window: never shown, never in the taskbar, exists purely so
-            // Shell_NotifyIcon has somewhere to deliver clicks.
-            ParentWindow = new IntPtr(-3), // HWND_MESSAGE
-            WindowStyle = 0,
-        };
-        _source = new HwndSource(parameters);
-        _source.AddHook(WndProc);
+        // Hidden but TOP-LEVEL, not message-only. Shell_NotifyIcon is happy either way — it
+        // delivers clicks to whatever handle it is given — but `TaskbarCreated` below is a
+        // broadcast, and broadcasts never reach a message-only window. See `MessageWindow`.
+        _source = new MessageWindow("NiftyTimer.TrayIconHost", WndProc);
 
         _icons[TrayState.Idle] = LoadIcon(Path.Combine(resourceDirectory, "tray-idle.ico"));
         _icons[TrayState.Tracking] = LoadIcon(Path.Combine(resourceDirectory, "tray-tracking.ico"));
@@ -149,7 +143,6 @@ public sealed class TrayIconController : IDisposable
         }
 
         _icons.Clear();
-        _source.RemoveHook(WndProc);
         _source.Dispose();
     }
 
