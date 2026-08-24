@@ -81,6 +81,15 @@ public sealed class SessionObserver : IDisposable
     }
 
     /// <summary>
+    /// Whether the OS accepted our request for lock/unlock notifications.
+    ///
+    /// Exposed because a refusal is otherwise invisible: idle detection keeps working from polling
+    /// alone, and the only symptom is that locking the workstation stops marking away immediately —
+    /// so away windows silently start late by up to the threshold, which looks like nothing at all.
+    /// </summary>
+    public bool IsRegisteredForSessionNotifications => _registered;
+
+    /// <summary>
     /// Seconds since the last input event in this session, from <c>GetLastInputInfo</c>.
     ///
     /// The subtraction is done in UNSIGNED arithmetic on purpose. <c>dwTime</c> is a 32-bit tick
