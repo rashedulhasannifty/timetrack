@@ -21,7 +21,7 @@
     "tsx": "^4.23.12"
   },
   "devDependencies": {
-    "@types/pg": "^8.21.0"
+    "@types/pg": "^8.23.1"
   },
   "scripts": {
     "lint": "eslint src",
