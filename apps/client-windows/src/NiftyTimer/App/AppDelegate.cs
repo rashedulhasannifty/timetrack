@@ -29,6 +29,13 @@ public sealed class AppDelegate : IDisposable
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// The UI dispatcher, captured at construction — i.e. on the UI thread. Read directly rather
+    /// than through <c>Application.Current.Dispatcher</c> so it stays correct from a background
+    /// continuation, where <c>Application.Current</c> is fine but the intent is easy to lose.
+    /// </summary>
+    private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
+
     private readonly AppConfig _config = AppConfig.Load();
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
     private readonly CancellationTokenSource _shutdown = new();
@@ -46,14 +53,24 @@ public sealed class AppDelegate : IDisposable
     private SelfTotalsClient _totalsClient = null!;
     private SelectionStore _selectionStore = null!;
     private TimeTracker _tracker = null!;
+    private LiveSpanStore _liveSpanStore = null!;
     private SyncEngine _sync = null!;
     private LiveEntryPublisher _livePublisher = null!;
     private MenuViewModel _viewModel = null!;
+    private DailyTotalAccumulator _dailyTotal = null!;
 
     private TrayIconController _tray = null!;
     private TrayPopupWindow _popup = null!;
     private LoginWindow? _login;
     private AckWindow? _ack;
+
+    private readonly TimePrompt _awayPrompt = new();
+    private readonly TimePrompt _recoveryPrompt = new();
+
+    private SessionObserver? _sessionObserver;
+    private AutoTrackingCoordinator? _autoCoordinator;
+    private ManualIdleCoordinator? _manualIdleCoordinator;
+    private bool _hasAttemptedRecovery;
 
     private DispatcherTimer? _heartbeat;
     private DispatcherTimer? _refresh;
@@ -87,7 +104,15 @@ public sealed class AppDelegate : IDisposable
         _ackGate = new AckGate(_policyClient, policy => _livePolicy.Update(policy.Settings));
 
         _selectionStore = new SelectionStore(_settings);
-        _tracker = new TimeTracker(_buffer);
+
+        // The live-span record is what makes a crash survivable: it is the only trace of a span
+        // that has started but not finished, and it is deliberately separate from the durable
+        // buffer, which holds completed records only.
+        _liveSpanStore = new LiveSpanStore(
+            Path.Combine(support, "live-span.json"),
+            () => _session.UserId);
+        _tracker = new TimeTracker(_buffer, liveSpan: _liveSpanStore);
+        _dailyTotal = new DailyTotalAccumulator();
 
         var uploader = new TimeEntryUploader(_http, _config.ApiBaseUri, _session);
         var idleUploader = new TimeEntryUploader(_http, _config.ApiBaseUri, _session, "idle-events");
@@ -121,6 +146,7 @@ public sealed class AppDelegate : IDisposable
         _refresh?.Stop();
         _shutdown.Cancel();
 
+        _sessionObserver?.Dispose();
         _sync?.Dispose();
         _tray?.Dispose();
         _session?.Dispose();
@@ -147,7 +173,11 @@ public sealed class AppDelegate : IDisposable
         _tracker.SpanOpened += (id, start, selection, source) =>
             _ = _livePublisher.PublishAsync(id, start, selection, source, _shutdown.Token);
 
-        _tracker.SpanClosed += (_, _) => RefreshPendingCount();
+        _tracker.SpanClosed += (start, end) =>
+        {
+            _dailyTotal.Add(start, end);
+            RefreshPendingCount();
+        };
 
         _livePublisher.BlockedChanged += blocked =>
             OnUi(() => _viewModel.LiveSyncBlocked = blocked);
@@ -180,6 +210,10 @@ public sealed class AppDelegate : IDisposable
         {
             if (_tracker.State is TrackerState.Tracking span)
             {
+                // Bump the local record too. This is what bounds how much a crash can cost: the
+                // recovered span closes at the last heartbeat, so downtime is never counted and at
+                // most one interval of real work is lost.
+                _liveSpanStore.Heartbeat(DateTimeOffset.UtcNow);
                 _ = _livePublisher.HeartbeatAsync(span, _shutdown.Token);
             }
         };
@@ -256,9 +290,126 @@ public sealed class AppDelegate : IDisposable
 
         BecomeReady();
 
+        await StartIdleDetectionAsync(policy.Settings).ConfigureAwait(true);
+
         // ── S3 installs screenshot capture and activity sampling HERE, and nowhere else. ─────
         // Every such subsystem must be constructed with `_ackGate` and must re-check the gate on
         // every tick, so a revoked acknowledgement stops capture mid-session.
+    }
+
+    /// <summary>
+    /// Idle detection is a CAPTURE path (CLAUDE.md §1): it watches the person continuously, and in
+    /// auto mode it starts and stops the clock on their behalf. So it is installed ONLY here, on
+    /// the live-policy acknowledged branch, and ONLY through <see cref="AckGate"/> — never from
+    /// <see cref="BecomeReady"/>, which the offline-marker branch also reaches.
+    ///
+    /// Two mutually-exclusive modes, keyed on <c>autoStartOnLogin</c>. Exactly one poller runs.
+    /// (The setting selects the tracking MODE; it is not a login item.)
+    /// </summary>
+    private async Task StartIdleDetectionAsync(PolicySettings settings)
+    {
+        try
+        {
+            await _ackGate.WithCaptureAllowedAsync(
+                async _ =>
+                {
+                    // Hop back to the UI thread inside the gate's body. The gate awaits the policy
+                    // fetch with ConfigureAwait(false) — correct for it, since a capture body has no
+                    // general reason to need a UI thread — so the body resumes on the thread pool.
+                    // Everything installed below is UI-thread-bound: DispatcherTimer would attach to
+                    // a pool thread's dispatcher and never tick, and HwndSource needs an STA thread.
+                    // The failure is silent in the first case and an exception in the second.
+                    await _dispatcher.InvokeAsync(() => InstallIdleDetection(settings));
+                },
+                _shutdown.Token).ConfigureAwait(true);
+        }
+        catch (Exception e) when (e is AckGateException or NotAuthenticatedException
+                                      or AuthException or OperationCanceledException)
+        {
+            // Gate closed or policy unreadable → idle detection simply does not start. Manual
+            // tracking, already enabled, continues. Fail-safe; there is no fallback path.
+        }
+    }
+
+    private void InstallIdleDetection(PolicySettings settings)
+    {
+        if (_sessionObserver is not null)
+        {
+            return; // idempotent — a second policy fetch must not start a second poller
+        }
+
+        var thresholdSeconds = Math.Max(60, settings.IdleThresholdMinutes * 60);
+
+        // The manual coordinator exists in BOTH modes. Someone in auto mode can still start a span
+        // by hand, and that span needs the same away prompt — the auto layer deliberately stands
+        // down for the duration of a manual session.
+        var manual = new ManualIdleCoordinator(
+            _tracker,
+            _buffer,
+            thresholdSeconds,
+            presentAwayPrompt: (minutes, resolve) => _awayPrompt.PresentAway(minutes, resolve),
+            onEntryReplaced: displayStart => _viewModel.ContinueClockAfterDiscard(displayStart),
+            dismissPrompt: () => _awayPrompt.DismissIfShowing());
+        _manualIdleCoordinator = manual;
+
+        ISignalReceiver receiver = manual;
+
+        if (settings.AutoStartOnLogin)
+        {
+            var auto = new AutoTrackingCoordinator(
+                _tracker,
+                _buffer,
+                thresholdSeconds,
+                currentSelection: () => _viewModel.SelectionForAuto,
+                presentAwayPrompt: (minutes, resolve) => _awayPrompt.PresentAway(minutes, resolve));
+            _autoCoordinator = auto;
+            receiver = new FanOutSignalReceiver(auto, manual);
+        }
+
+        _sessionObserver = new SessionObserver(receiver);
+        _sessionObserver.Start();
+
+        // Auto mode opens its first span immediately; the manual coordinator self-arms on the first
+        // manual signal, so it needs no activation.
+        _autoCoordinator?.Activate();
+    }
+
+    /// <summary>
+    /// Offer to recover a span that was interrupted — a crash, a power loss, or a quit while the
+    /// clock was running.
+    ///
+    /// Called from <see cref="BecomeReady"/> and not from the gated branch: an interrupted span is
+    /// the person's own already-recorded work, not new observation, so it is recoverable offline
+    /// exactly as manual tracking is.
+    ///
+    /// One attempt per session, and the attempt is reset on sign-out so the next user on this
+    /// machine gets their own rather than being skipped because a previous one "used" it.
+    /// </summary>
+    private void RecoverLiveSpanIfNeeded()
+    {
+        if (_hasAttemptedRecovery)
+        {
+            return;
+        }
+
+        _hasAttemptedRecovery = true;
+
+        if (_liveSpanStore.Load() is not { } span)
+        {
+            return;
+        }
+
+        if (!LiveSpanStore.ShouldRecover(span, _session.UserId))
+        {
+            // Someone else's span on a shared machine. Dropped locally, never enqueued — the buffer
+            // uploads by token, so replaying it would bill their work to this user.
+            _liveSpanStore.Clear();
+            return;
+        }
+
+        var recovery = new LiveSpanRecovery(_tracker, _liveSpanStore, () => _session.UserId);
+        var minutes = AwayMinutes.Of((int)(span.LastAlive - span.StartTime).TotalSeconds);
+        _recoveryPrompt.PresentRecovery(minutes, action => recovery.Apply(action, span));
     }
 
     /// <summary>
@@ -298,6 +449,9 @@ public sealed class AppDelegate : IDisposable
 
         RefreshPendingCount();
         UpdateTray();
+
+        // After the userId is known, and before the person can start anything new.
+        RecoverLiveSpanIfNeeded();
 
         _ = RefreshProjectsAsync();
         _ = RefreshTotalsAsync();
@@ -394,6 +548,13 @@ public sealed class AppDelegate : IDisposable
     {
         var userId = _session.UserId;
 
+        // Idle detection comes down FIRST, and it must, because tearing it down WRITES: each
+        // monitor records any pending away window as UNRESOLVED, and dismissing a recovery prompt
+        // closes its span. Both are records belonging to the user who is leaving, so both have to
+        // reach the buffer before the final drain below — otherwise Clear() discards them, or worse
+        // they drain later under the next person's token.
+        TearDownIdleDetection();
+
         if (_tracker.State is TrackerState.Tracking)
         {
             _tracker.Stop();
@@ -414,6 +575,8 @@ public sealed class AppDelegate : IDisposable
 
         _buffer.Clear();
         _projectCache.Clear();
+        _liveSpanStore.Clear();
+        _dailyTotal.Reset();
 
         if (userId is not null)
         {
@@ -428,6 +591,36 @@ public sealed class AppDelegate : IDisposable
 
         _sync.Start();
         ShowLogin();
+    }
+
+    /// <summary>
+    /// Stop watching, and settle anything left mid-cycle.
+    ///
+    /// The order inside this method is as load-bearing as its position in
+    /// <see cref="SignOutAsync"/>: stop the signal source, then deactivate the monitors (which
+    /// records any pending away window as UNRESOLVED and leaves them inactive), and only THEN close
+    /// the prompts. A prompt closed while its monitor is still armed resolves to Discard and would
+    /// trim an entry on the way out; closed after, the same Discard lands on an inactive monitor and
+    /// does nothing, which is what we want — the window is already recorded.
+    /// </summary>
+    private void TearDownIdleDetection()
+    {
+        _sessionObserver?.Stop();
+        _sessionObserver?.Dispose();
+        _sessionObserver = null;
+
+        _autoCoordinator?.Deactivate();
+        _manualIdleCoordinator?.Deactivate();
+        _autoCoordinator = null;
+        _manualIdleCoordinator = null;
+
+        _awayPrompt.DismissIfShowing();
+
+        // The recovery prompt belongs to the user signing out, so it goes too — and its dismissal
+        // resolves to Discard, closing their still-open server row rather than leaving it open
+        // forever. Reset the one-shot so the next user gets their own recovery attempt.
+        _recoveryPrompt.DismissIfShowing();
+        _hasAttemptedRecovery = false;
     }
 
     private static void OnUi(Action action)

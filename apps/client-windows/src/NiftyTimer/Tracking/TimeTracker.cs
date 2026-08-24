@@ -18,15 +18,18 @@ namespace NiftyTimer.Tracking;
 public sealed class TimeTracker
 {
     private readonly ITimeEntryBuffer _buffer;
+    private readonly ILiveSpanRecorder _liveSpan;
     private readonly Func<DateTimeOffset> _clock;
     private readonly Func<DateTimeOffset, string> _idGen;
 
     public TimeTracker(
         ITimeEntryBuffer buffer,
         Func<DateTimeOffset>? clock = null,
-        Func<DateTimeOffset, string>? idGen = null)
+        Func<DateTimeOffset, string>? idGen = null,
+        ILiveSpanRecorder? liveSpan = null)
     {
         _buffer = buffer;
+        _liveSpan = liveSpan ?? new NoopLiveSpan();
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
         _idGen = idGen ?? (now => UuidV7.Generate(now));
     }
@@ -133,7 +136,12 @@ public sealed class TimeTracker
 
     /// <summary>
     /// Enqueue one already-complete entry without touching the live state. Used for the
-    /// Keep-from-idle bridge span (PRD §6.1): the away window becomes its own AUTO entry.
+    /// Keep-from-idle bridge span (PRD §6.1), where the away window becomes its own AUTO entry,
+    /// and by crash recovery to bank an interrupted span.
+    ///
+    /// Deliberately does NOT touch the live-span record. The span it writes is already closed, so
+    /// there is nothing to protect against a crash; and recovery calls this while its own span is
+    /// still on disk, so clearing here would race the caller's own Clear().
     /// </summary>
     public void RecordSpan(
         DateTimeOffset start,
@@ -166,6 +174,11 @@ public sealed class TimeTracker
             return false;
         }
 
+        // This is the one exit from Tracking that does not run through Close(), so the live-span
+        // file has to be cleared here explicitly. Leaving it would resurrect the span the server
+        // just refused: the next launch finds it, offers to recover it, and Keep enqueues a time
+        // entry for work this machine was told it could not record.
+        _liveSpan.Clear();
         State = TrackerState.Idle;
         return true;
     }
@@ -173,11 +186,20 @@ public sealed class TimeTracker
     internal static string SourceToken(EntrySource source) =>
         source == EntrySource.Auto ? "AUTO" : "MANUAL";
 
+    /// <summary>
+    /// Read a source back from its wire token. Anything unrecognised — a file written by a future
+    /// build, or a truncated one — reads as MANUAL, which is the conservative answer: a MANUAL
+    /// entry is never auto-stopped or bridged.
+    /// </summary>
+    internal static EntrySource SourceFromToken(string token) =>
+        token == "AUTO" ? EntrySource.Auto : EntrySource.Manual;
+
     private void Open(Selection selection, EntrySource source)
     {
         var now = _clock();
         var id = _idGen(now);
         State = new TrackerState.Tracking(id, now, selection, source);
+        _liveSpan.Begin(id, now, selection, source);
         SpanOpened?.Invoke(id, now, selection, source);
     }
 
@@ -196,6 +218,10 @@ public sealed class TimeTracker
             endTime,
             tracking.Source,
             tracking.Selection.Note);
+
+        // The span is now a durable, completed record — the crash-recovery copy has nothing left
+        // to protect and must go, or the next launch would offer to recover a span already banked.
+        _liveSpan.Clear();
         SpanClosed?.Invoke(tracking.StartedAt, endTime);
     }
 

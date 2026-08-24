@@ -30,6 +30,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     private bool _liveSyncBlocked;
     private string? _notice;
     private string _note = string.Empty;
+    private DateTimeOffset? _displayStart;
 
     public MenuViewModel(
         TimeTracker tracker,
@@ -135,8 +136,23 @@ public sealed class MenuViewModel : INotifyPropertyChanged
 
     public string ElapsedLabel => WorkTotalFormat.Elapsed(Elapsed);
 
+    /// <summary>
+    /// How long the dropdown says you have been working on this stretch.
+    ///
+    /// Usually the running entry's own age. The exception is a discarded idle window: that trims
+    /// the entry and opens a fresh one, so the entry's age restarts at zero even though the person
+    /// worked for an hour before stepping away. <see cref="ContinueClockAfterDiscard"/> supplies the
+    /// instant to count from instead, so the clock keeps reading accumulated WORKED time.
+    /// </summary>
     public TimeSpan Elapsed =>
-        _tracker.State is TrackerState.Tracking t ? _clock() - t.StartedAt : TimeSpan.Zero;
+        _tracker.State is TrackerState.Tracking t ? _clock() - (_displayStart ?? t.StartedAt) : TimeSpan.Zero;
+
+    /// <summary>
+    /// The selection an auto-started span should carry. Never a note: a note is something the
+    /// person typed about work they chose to record, and attaching it to time the machine started
+    /// on their behalf would put words in their mouth.
+    /// </summary>
+    public TimeTracker.Selection SelectionForAuto => new(_selection?.ProjectId, _selection?.TaskId);
 
     public string TodayLabel => _totals is null ? "—" : WorkTotalFormat.Short(_totals.TodaySeconds);
 
@@ -175,6 +191,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         }
 
         Notice = null;
+        _displayStart = null;
         _tracker.Start(_selection?.ProjectId, _selection?.TaskId, NoteOrNull());
         TrackingStarted?.Invoke();
         RaiseTrackingState();
@@ -187,12 +204,14 @@ public sealed class MenuViewModel : INotifyPropertyChanged
             return;
         }
 
+        _displayStart = null;
         _tracker.Stop();
         RaiseTrackingState();
     }
 
     public void Pause()
     {
+        _displayStart = null;
         _tracker.Pause();
         RaiseTrackingState();
     }
@@ -204,7 +223,20 @@ public sealed class MenuViewModel : INotifyPropertyChanged
             return;
         }
 
+        _displayStart = null;
         _tracker.Resume();
+        RaiseTrackingState();
+    }
+
+    /// <summary>
+    /// A discarded idle window replaced the running entry (see
+    /// <see cref="ManualIdleCoordinator"/>). <paramref name="displayStart"/> is the instant the
+    /// clock should count from so it keeps reading worked time rather than jumping back to zero —
+    /// the swap happens directly on <see cref="TimeTracker"/> and is invisible from here otherwise.
+    /// </summary>
+    public void ContinueClockAfterDiscard(DateTimeOffset displayStart)
+    {
+        _displayStart = displayStart;
         RaiseTrackingState();
     }
 
@@ -224,6 +256,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
             return;
         }
 
+        _displayStart = null;
         LiveSyncBlocked = false;
         Notice = "Already tracking on another machine — stop it there first.";
         RaiseTrackingState();
@@ -231,6 +264,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
 
     public void SelectProject(string projectId, string? taskId)
     {
+        _displayStart = null;
         Selection = new StoredSelection(projectId, taskId);
         if (_userId is { } userId)
         {
@@ -275,6 +309,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         LiveSyncBlocked = false;
         Notice = null;
         Note = string.Empty;
+        _displayStart = null;
         RaiseTrackingState();
     }
 

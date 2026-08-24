@@ -9,20 +9,27 @@ This directory is **outside the pnpm graph**, exactly like `apps/client-macos`. 
 enumerates apps explicitly, so nothing here is built by `pnpm build` and nothing here may import
 from `packages/*` — the wire contract is mirrored by hand and kept honest by tests.
 
-## Status — slice 1 of 4
+## Status — slice 2 of 4
 
 Shipped: sign-in, the acknowledgement gate, the always-visible tray indicator, manual tracking,
-the durable offline buffer, and sync.
+the durable offline buffer, sync, idle detection with the away keep/discard prompt, and crash
+recovery.
 
-**There is no capture code in this build.** No screenshots, no activity sampling, no idle
-detection. Those land in S2 and S3, and only ever behind `Policy/AckGate`.
+**There is still no screen or input capture in this build.** No screenshots, no activity sampling,
+no keyboard or pointer counting. Those land in S3, and only ever behind `Policy/AckGate`.
+
+Idle detection is the first thing here that watches the person continuously, so it is installed
+_through_ the gate — see "Two modes" below.
 
 | Slice | Contents                                                           | State       |
 | ----- | ------------------------------------------------------------------ | ----------- |
 | S1    | Auth · AckGate · tray indicator · manual timer · buffer + sync     | done        |
-| S2    | Idle detection · away keep/discard · crash recovery                | not started |
+| S2    | Idle detection · away keep/discard · crash recovery                | done        |
 | S3    | Screenshots · activity sampling · categorizer                      | not started |
 | S4    | Notifications · hotkey · updater · packaging · signing · dashboard | not started |
+
+Built but deliberately not wired yet: `ManualNudgeMonitor` (needs the S4 toast notifier) and
+`DailyTotalAccumulator` (feeds the S4 end-of-day summary). Both are tested; neither runs.
 
 ## Build and test
 
@@ -103,12 +110,61 @@ Each of these cost the macOS client a real bug. They are enforced by tests; do n
   machine out.
 - **No local date maths.** The product's calendar is `Asia/Dhaka`. The server returns
   `day`/`weekStart`/`monthStart` already resolved precisely so the client never computes them.
+- **A message-only window does not receive broadcast messages.** `HWND_MESSAGE` looks strictly
+  better than a hidden top-level window — cheaper, unenumerable, invisible by construction — and
+  everything directed still arrives, so it tests fine. But `TaskbarCreated` (Explorer restarted;
+  re-add your tray icon) and `WM_POWERBROADCAST` (the machine slept) are broadcasts, and both are
+  silently dropped. That is the always-visible indicator and sleep detection failing with no error
+  anywhere. Use `App/MessageWindow`, which is top-level and hidden the honest way.
+- **Idle detection reads a duration, never input.** `GetLastInputInfo` returns one tick-count
+  scalar. Do not "improve" it into a hook: `WH_KEYBOARD_LL` sees key content, which CLAUDE.md §1
+  forbids outright and which the macOS counterpart is physically incapable of.
+- **Discard is the default for the away prompt, Keep for the recovery prompt — but dismissing
+  either is always a Discard.** The default button answers "what should Enter do"; dismissal
+  answers "what if nobody looks". An ignored prompt must never invent time.
 - **Never set `InvariantGlobalization`.** It looks like free hardening for an app whose wire
   formats are all culture-invariant, and it builds and unit-tests perfectly — but WPF reads the
   current input language through `CultureInfo` whenever keyboard focus moves, so the first Tab
   between two text fields throws `CultureNotFoundException` on the UI thread and kills the
   process. Culture independence is bought explicitly instead, with `CultureInfo.InvariantCulture`
   at every format and parse call that reaches the API.
+
+## Two modes, one poller
+
+The team setting `autoStartOnLogin` selects the tracking **mode**. It is not a login item — Windows
+startup is the user's own OS setting, same as on macOS.
+
+- **Auto** — `AutoTrackingCoordinator` opens an AUTO span on launch, closes it when you go idle, and
+  asks keep-or-discard when you come back.
+- **Manual** — you start the clock. `ManualIdleCoordinator` still asks about away windows, but
+  **never stops a running manual entry on its own**; the only stop it performs is the trim you asked
+  for by pressing Discard.
+
+`ManualIdleCoordinator` is installed in both modes, because someone in auto mode can still start a
+span by hand and that span needs the same prompt. The auto layer stands down for its duration —
+enforced by refusing the signal at the edge, not by a check at the point of stopping.
+
+`SessionObserver` is the single system edge for both, fanned out when they coexist. It polls
+`GetLastInputInfo` every 15s and takes sleep and lock as immediate away signals rather than waiting
+out the threshold.
+
+**All of this is installed only on the online, acknowledged branch, through `AckGate`** — idle
+detection watches you continuously and in auto mode moves your clock, so it is a capture path under
+CLAUDE.md §1. `OfflineCaptureUnreachableTests` reads the IL of the offline branch and fails if it
+can reach an installer.
+
+## Crash recovery
+
+`live-span.json` holds the one span that has started but not finished, rewritten by the same 60s
+heartbeat that keeps the server's `heartbeatAt` fresh. It is deliberately not the durable buffer,
+which holds completed records only.
+
+On the next launch, if a span is there and belongs to the current user, you are asked to keep or
+discard it. Keep closes it at the last heartbeat, so downtime is never counted and at most a minute
+of real work is lost. Discard closes it at its **start** — a zero-duration row, not nothing at all,
+because the server's row is still open and only a close releases the one-running-entry index. Drop
+it instead and every future live entry for that user 409s forever while closed entries keep working,
+which is why nobody would notice.
 
 ## One user, two machines
 
@@ -126,16 +182,20 @@ inherent to supporting a second platform without a schema change; see the design
 
 ```
 src/NiftyTimer/
-  App/        AppDelegate (wiring + launch sequence) · TrayIconController · MenuViewModel
-              AppConfig · AppInstall · BuildStamp
-  Auth/       AuthClient · AuthSession (single-flight refresh) · TokenStore (DPAPI) · JwtDecoder
-  Policy/     AckGate · AckClient · AckMarker · LivePolicy · PolicyClient · EffectivePolicy
-  Tracking/   TimeTracker · UuidV7
-  Storage/    BufferStore (file-per-record) · UserSettings
-  Sync/       SyncEngine · TimeEntryUploader · LiveEntryPublisher · BackoffPolicy · TimeEntryPayload
-  Projects/   ProjectClient · ProjectCache · SelectionStore · SelectionResolver
-  Reports/    SelfTotalsClient
-  UI/         TrayPopupWindow · LoginWindow · AckWindow · Tokens.xaml
+  App/          AppDelegate (wiring + launch sequence) · TrayIconController · MessageWindow
+                MenuViewModel · AutoTrackingCoordinator · ManualIdleCoordinator
+                AppConfig · AppInstall · BuildStamp
+  Auth/         AuthClient · AuthSession (single-flight refresh) · TokenStore (DPAPI) · JwtDecoder
+  Policy/       AckGate · AckClient · AckMarker · LivePolicy · PolicyClient · EffectivePolicy
+  Tracking/     TimeTracker · UuidV7 · IdleMonitor · ManualIdleMonitor · IdleState
+                SessionObserver (+ FanOutSignalReceiver) · ManualNudgeMonitor
+                IdleEventPayload · LiveSpanRecovery · DailyTotalAccumulator
+  Storage/      BufferStore (file-per-record) · LiveSpanStore · UserSettings
+  Sync/         SyncEngine · TimeEntryUploader · LiveEntryPublisher · BackoffPolicy · TimeEntryPayload
+  Projects/     ProjectClient · ProjectCache · SelectionStore · SelectionResolver
+  Reports/      SelfTotalsClient
+  Notifications/ ILocalNotifier (toasts land in S4)
+  UI/           TrayPopupWindow · LoginWindow · AckWindow · TimePromptWindow · Tokens.xaml
 tests/NiftyTimer.Tests/
 ```
 
