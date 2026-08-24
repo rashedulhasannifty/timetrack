@@ -148,9 +148,14 @@ lives at the repo root, `chmod 600`.
 
 ## 5b. Continuous deployment (GitHub Actions)
 
-`.github/workflows/deploy.yml` automates the **upgrade** path only: push to `main` (or run it
-manually via `workflow_dispatch`) → quality gate → build the three images and push them to
-GHCR → render `.env.prod` on the host → `migrate` → `up -d` → probe the API's `/health`.
+`.github/workflows/deploy.yml` automates the **upgrade** path only: CI succeeds on `main` (or
+run it manually via `workflow_dispatch`) → build the three images and push them to GHCR →
+render `.env.prod` on the host → `migrate` → `up -d` → probe the API's `/health`.
+
+It is triggered by the CI workflow _completing_, not by the push, and runs only when that run
+concluded `success` — so a red commit still cannot deploy, but the suite is paid for once
+rather than twice. Everything is tagged and checked out at the exact commit CI verified
+(`workflow_run.head_sha`), not at whatever `main` points to when the deploy starts.
 
 It deliberately does **not** do first-deploy work. These stay manual, once, per §5:
 
