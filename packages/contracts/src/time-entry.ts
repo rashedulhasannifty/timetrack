@@ -71,6 +71,42 @@ export const UpdateTimeEntrySchema = TimeEntryBase.partial()
     }
   });
 
+/**
+ * POST /time-entries/manual — a human asserting a span they worked, from the dashboard.
+ *
+ * Deliberately NOT the same shape as the client's sync upsert, because the two are different
+ * acts with different rules:
+ *   - `source` is not accepted; the server forces MANUAL. A person filling in a form is never
+ *     producing an AUTO span, and letting the body say otherwise would let someone dress a
+ *     hand-written entry up as machine-observed time.
+ *   - `endTime` is REQUIRED and strictly after `startTime`. An open-ended manual entry would
+ *     race the one-running-per-user index against the person's actual Mac, and a zero-length
+ *     one records nothing. (The zero-length exemption exists for the client's recovery marker,
+ *     which is a sync concern, not a human one.)
+ *   - `userId` is optional; absent means self. Present, it is authorized as owner /
+ *     manager-of-team / admin, the same rule an edit uses, and the write is audited either way.
+ */
+export const CreateManualTimeEntrySchema = z
+  .object({
+    id: z.uuid(),
+    userId: z.uuid().optional(),
+    projectId: z.uuid().nullable(),
+    taskId: z.uuid().nullable(),
+    startTime: z.iso.datetime(),
+    endTime: z.iso.datetime(),
+    note: z.string().max(2000).optional(),
+  })
+  .check((ctx) => {
+    if (Date.parse(ctx.value.endTime) <= Date.parse(ctx.value.startTime)) {
+      ctx.issues.push({
+        code: 'custom',
+        message: 'endTime must be after startTime',
+        input: ctx.value,
+        path: ['endTime'],
+      });
+    }
+  });
+
 export const TimeEntrySchema = TimeEntryBase.extend({
   userId: z.uuid(),
   editedById: z.uuid().nullable(),
@@ -87,6 +123,7 @@ export const ListTimeEntriesQuerySchema = z.object({
 export { END_NOT_BEFORE_START, isInverted };
 
 export type CreateTimeEntry = z.infer<typeof CreateTimeEntrySchema>;
+export type CreateManualTimeEntry = z.infer<typeof CreateManualTimeEntrySchema>;
 export type UpdateTimeEntry = z.infer<typeof UpdateTimeEntrySchema>;
 export type TimeEntry = z.infer<typeof TimeEntrySchema>;
 export type ListTimeEntriesQuery = z.infer<typeof ListTimeEntriesQuerySchema>;

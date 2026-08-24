@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import {
+  CreateManualTimeEntrySchema,
   CreateTimeEntrySchema,
   ListTimeEntriesQuerySchema,
   UpdateTimeEntrySchema,
+  type CreateManualTimeEntry,
   type CreateTimeEntry,
   type ListTimeEntriesQuery,
   type TimeEntry,
@@ -32,6 +34,23 @@ export class TimeEntriesController {
     return this.service.upsert(dto, user);
   }
 
+  /**
+   * The dashboard's "add time". A separate route from the sync upsert above on purpose: the
+   * two are different acts. This one forces source=MANUAL, refuses an overlap and a future
+   * end, and audits the write; the sync path is idempotent, tolerates overlap, and is not
+   * audited because it is a device reporting normal operation, not a person asserting time.
+   *
+   * No @ResourceScope: the optional target userId is authorized in the service, which is
+   * where the self / manager-of-team / admin rule lives for every row-owner check.
+   */
+  @Post('manual')
+  createManual(
+    @Body(new ZodValidationPipe(CreateManualTimeEntrySchema)) dto: CreateManualTimeEntry,
+    @CurrentUser() user: SessionUser,
+  ): Promise<TimeEntry> {
+    return this.service.createManual(dto, user);
+  }
+
   @Get()
   // Resource authorization by annotation: the ResourceGuard enforces self / manager-of-team
   // / admin against `?userId=` before the handler runs — no per-route check needed.
@@ -52,5 +71,13 @@ export class TimeEntriesController {
     @CurrentUser() user: SessionUser,
   ): Promise<TimeEntry> {
     return this.service.edit(id, dto, user);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  // Same shape as edit: the owning userId is on the row, so the service authorizes it. The
+  // repository writes the AuditLog row in the same transaction as the delete.
+  remove(@Param('id') id: string, @CurrentUser() user: SessionUser): Promise<void> {
+    return this.service.remove(id, user);
   }
 }

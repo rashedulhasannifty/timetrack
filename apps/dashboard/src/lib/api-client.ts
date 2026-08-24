@@ -11,6 +11,8 @@ import {
   type Screenshot,
   TimeEntrySchema,
   type TimeEntry,
+  type CreateManualTimeEntry,
+  type UpdateTimeEntry,
   ProjectSchema,
   type Project,
   type CreateProject,
@@ -142,15 +144,21 @@ async function send<T>(
  * itself; existing callers depend on it parsing a JSON body on success.
  */
 async function sendNoContent(
-  method: 'POST' | 'PATCH',
+  method: 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body: unknown,
   token: string,
 ): Promise<void> {
+  // A DELETE carries no body, and sending `undefined` through JSON.stringify would put the
+  // literal string "undefined" on the wire for Fastify's JSON parser to choke on.
+  const hasBody = body !== undefined;
   const res = await fetch(`${API_URL}${path}`, {
     method,
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(hasBody ? { 'content-type': 'application/json' } : {}),
+    },
+    ...(hasBody ? { body: JSON.stringify(body) } : {}),
     cache: 'no-store',
   });
   if (!res.ok) {
@@ -220,6 +228,12 @@ async function authPost<T>(path: string, body: unknown, schema: z.ZodType<T>): P
 export const api = {
   listTimeEntries: (token: string, params: URLSearchParams): Promise<TimeEntry[]> =>
     get(`/time-entries?${params}`, z.array(TimeEntrySchema), token),
+  createManualTimeEntry: (token: string, dto: CreateManualTimeEntry): Promise<TimeEntry> =>
+    send('POST', '/time-entries/manual', dto, TimeEntrySchema, token),
+  updateTimeEntry: (token: string, id: string, patch: UpdateTimeEntry): Promise<TimeEntry> =>
+    send('PATCH', `/time-entries/${id}`, patch, TimeEntrySchema, token),
+  deleteTimeEntry: (token: string, id: string): Promise<void> =>
+    sendNoContent('DELETE', `/time-entries/${id}`, undefined, token),
   listActivitySamples: (token: string, params: URLSearchParams): Promise<ActivitySample[]> =>
     get(`/activity-samples?${params}`, z.array(ActivitySampleSchema), token),
   listActivitySummaries: (

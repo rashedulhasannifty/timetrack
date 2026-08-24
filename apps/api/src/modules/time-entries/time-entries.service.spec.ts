@@ -34,6 +34,10 @@ function repoStub(overrides: Partial<TimeEntriesRepository> = {}) {
     update: vi.fn().mockImplementation((id: string) => Promise.resolve({ ...existing, id })),
     findActiveByUser: vi.fn().mockResolvedValue(null),
     hasOverlap: vi.fn().mockResolvedValue(false),
+    createManual: vi
+      .fn()
+      .mockImplementation((dto: { id: string }) => Promise.resolve({ ...existing, id: dto.id })),
+    remove: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as unknown as TimeEntriesRepository;
 }
@@ -159,6 +163,91 @@ describe('TimeEntriesService', () => {
     await svc.edit('e1', { endTime: null }, employee);
     expect(repo.hasOverlap).not.toHaveBeenCalled();
     expect(repo.update).toHaveBeenCalled();
+  });
+
+  describe('createManual', () => {
+    const past = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+    const manual = (over: Record<string, unknown> = {}) => ({
+      id: '019797a0-0000-7000-8000-0000000000m1',
+      projectId: null,
+      taskId: null,
+      startTime: past(2 * 3600_000),
+      endTime: past(3600_000),
+      ...over,
+    });
+
+    it('files a span for the actor themselves without an authorization round-trip', async () => {
+      const repo = repoStub();
+      const access = accessStub();
+      const svc = new TimeEntriesService(repo, access);
+      await svc.createManual(manual(), employee);
+      expect(access.assertCanAccessUser).not.toHaveBeenCalled();
+      expect(repo.createManual).toHaveBeenCalledWith(expect.anything(), 'u1', 'u1');
+    });
+
+    it('authorizes against the TARGET user when filing for somebody else', async () => {
+      const repo = repoStub();
+      const access = accessStub();
+      const svc = new TimeEntriesService(repo, access);
+      await svc.createManual(manual({ userId: 'u2' }), employee);
+      expect(access.assertCanAccessUser).toHaveBeenCalledWith(employee, 'u2');
+      // The row belongs to u2; the AUDIT actor is still the person who filed it.
+      expect(repo.createManual).toHaveBeenCalledWith(expect.anything(), 'u2', 'u1');
+    });
+
+    it('refuses a span that overlaps an existing entry', async () => {
+      const repo = repoStub({ hasOverlap: vi.fn().mockResolvedValue(true) });
+      const svc = new TimeEntriesService(repo, accessStub());
+      await expect(svc.createManual(manual(), employee)).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+      expect(repo.createManual).not.toHaveBeenCalled();
+    });
+
+    it('refuses a span that ends in the future, but tolerates clock skew', async () => {
+      const repo = repoStub();
+      const svc = new TimeEntriesService(repo, accessStub());
+      const future = new Date(Date.now() + 10 * 60_000).toISOString();
+      await expect(svc.createManual(manual({ endTime: future }), employee)).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+
+      // Half a minute ahead is a browser clock that disagrees, not time travel.
+      const skewed = new Date(Date.now() + 30_000).toISOString();
+      await svc.createManual(manual({ endTime: skewed }), employee);
+      expect(repo.createManual).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('remove', () => {
+    it('404s when the entry does not exist', async () => {
+      const repo = repoStub({ findForEdit: vi.fn().mockResolvedValue(null) });
+      const svc = new TimeEntriesService(repo, accessStub());
+      await expect(svc.remove('nope', employee)).rejects.toBeInstanceOf(NotFoundException);
+      expect(repo.remove).not.toHaveBeenCalled();
+    });
+
+    it('authorizes against the row owner, not the caller', async () => {
+      const repo = repoStub();
+      const access = accessStub();
+      const svc = new TimeEntriesService(repo, access);
+      await svc.remove('e1', { id: 'other', role: 'MANAGER', teamId: 't1' });
+      expect(access.assertCanAccessUser).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'other' }),
+        'u1',
+      );
+      expect(repo.remove).toHaveBeenCalledWith('e1', 'other');
+    });
+
+    it('does not delete when authorization throws', async () => {
+      const repo = repoStub();
+      const access = accessStub({
+        assertCanAccessUser: vi.fn().mockRejectedValue(new ForbiddenException()),
+      });
+      const svc = new TimeEntriesService(repo, access);
+      await expect(svc.remove('e1', employee)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.remove).not.toHaveBeenCalled();
+    });
   });
 
   it('findActive delegates to the repository', async () => {
