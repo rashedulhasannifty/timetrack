@@ -11,12 +11,12 @@ different machine without re-deriving anything.
 | ------ | ------------------------------------------------------------------ | -------------- |
 | **S1** | Auth · AckGate · tray indicator · manual timer · buffer + sync     | ✅ **done**    |
 | **S2** | Idle detection · away keep/discard · crash recovery                | ✅ **done**    |
-| **S3** | Screenshots · activity sampling · categorizer                      | ⬜ not started |
+| **S3** | Screenshots · activity sampling · categorizer                      | ✅ **done**    |
 | **S4** | Notifications · hotkey · updater · packaging · signing · dashboard | ⬜ not started |
 
 Branch: `feat/client-windows`. Nothing is merged to `main` yet.
-Current: **244 tests pass offline** (13 integration skipped), **257 with a live API**. Release build
-clean, `TreatWarningsAsErrors` on.
+Current: **331 tests pass offline** (13 integration skipped). Release build clean,
+`TreatWarningsAsErrors` on.
 
 ---
 
@@ -118,13 +118,54 @@ test fail).
 
 ---
 
-## ⬜ S3 — Capture: screenshots, activity sampling, categorization
+## ✅ S3 — Capture: screenshots, activity sampling, categorization (done)
 
-**The first slice where capture code exists.** Everything here is installed only in
-`AppDelegate.ProceedToPolicyAsync`, after `!AckRequired`, inside `_ackGate.WithCaptureAllowedAsync`,
-marshalled onto the UI thread — follow `StartIdleDetectionAsync` exactly.
+The first slice where capture code exists. Everything is installed only in
+`AppDelegate.StartCaptureAsync`, reached from `ProceedToPolicyAsync` after `!AckRequired`, inside
+`_ackGate.WithCaptureAllowedAsync`, marshalled onto the UI thread — the same shape as
+`StartIdleDetectionAsync`.
 
-### Build
+| Area        | Files                                                                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Activity/` | `EventCounter` (+ `IInputCounting`), `AppSampler` (+ `IAppSampling`, `AppSnapshot`), `ActivitySampler`                                                 |
+| `Capture/`  | `IDisplayGrabber` (+ `DisplayCapture`, `DisplayGrabResult`, `DisplayGrabException`), `WindowsDisplayGrabber`, `ScreenshotScheduler`                    |
+| `Policy/`   | `Categorizer` (+ `Category`, `Categories`)                                                                                                             |
+| `Tracking/` | `ActivityRateMeter`                                                                                                                                    |
+| `Storage/`  | `ImageBufferStore` (+ `CaptureGroup`, `BufferedImage`, `IImageBuffer`), `ActivitySampleStore` (+ `IActivitySampleBuffer`)                              |
+| `Sync/`     | `ScreenshotUploader` (+ `IScreenshotUploading`), `ScreenshotSyncEngine`, `ActivityBatchSyncEngine`, `ActivitySamplePayload` (+ `ActivityBatchPayload`) |
+| `App/`      | `MessageWindowHost` / `IMessageHost` (moved out of `Activity` so a window factory is not forced to take a gate)                                        |
+
+**Decisions taken during S3, with reasons — do not silently reverse them:**
+
+- **GDI, not Windows Graphics Capture** (the design doc had locked WGC). WGC needs a TFM bump plus
+  several hundred lines of CI-unverifiable D3D11 interop, and draws a yellow capture border on
+  Windows 10 builds predating the opt-out. Cost of the swap: DRM video and some exclusive-fullscreen
+  D3D capture as black. `IDisplayGrabber` is the seam, so WGC later is one file and no test changes.
+- **`RID_HEADER`, not `RID_INPUT`.** Key identity is never copied into the process, rather than
+  fetched and ignored. This is the one place the Windows client is arguably _stronger_ than the Mac.
+- **No `ActivitySampleUploader` type.** `TimeEntryUploader` already takes a path; pointing it at
+  `activity-samples/batch` reuses the JSON POST, the 401 refresh-retry and `Classify` verbatim
+  instead of growing a second copy to drift.
+- **No permission preflight.** The macOS `isPermitted`/`onPermissionDenied` plumbing has no Windows
+  analogue — there is no TCC gate on screen capture — so it was dropped rather than ported as a
+  `() => true` stub with a warning state that can never be entered.
+- **`InternalsVisibleTo NiftyTimer.Tests`** added, so pure test seams (`MultipartBody`, `Describe`,
+  `Ordered`, `FileName`) stay `internal` instead of being made public to reach them.
+
+### Verification
+
+- `ActivitySamplerTests.MeasuredCyclesRescheduleContiguouslyRatherThanWaitingTheInterval` was
+  **mutation-verified**: changing `measured ? TimeSpan.Zero : _interval` to always wait the interval
+  fails that test with "got 1" sample instead of many.
+- `CaptureGateGuardTests` **caught a real offender during S3** (`MonitorEnumProc`, a P/Invoke
+  callback delegate). Delegates are now excluded — a delegate type is a signature with no body, so
+  it cannot bypass a gate — and the test additionally asserts it inspected ≥4 types, so it cannot
+  rot into a guard over an empty set.
+- `OfflineCaptureUnreachableTests` now covers all three installers in both directions, plus
+  `TheReachabilityWalkIsNotVacuous`, because an IL walk that silently stops resolving tokens would
+  make the negative test pass for the wrong reason.
+
+### Original build notes (kept for reference)
 
 - `Activity/EventCounter` — **Raw Input** (`RegisterRawInputDevices` + `WM_INPUT`) on its own
   `MessageWindow`. Discard `RAWKEYBOARD.VKey` / `MakeCode` inside the message handler. The only type
@@ -349,20 +390,30 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 Against a local stack with a dev-packaged client. Status as of S2:
 
-| #   | Check                                                                              | Status                      |
-| --- | ---------------------------------------------------------------------------------- | --------------------------- |
-| 1   | Gate closed — un-acknowledged user produces no capture at all                      | S3 (nothing to capture yet) |
-| 2   | Gate opens — ack succeeds, `AuditLog` row written, capture begins next tick        | ✅ ack half verified live   |
-| 3   | Offline asymmetry — manual works, capture structurally absent, buffer drains       | ✅ verified live            |
-| 4   | Round-trip — live entry ticks, samples and screenshots arrive grouped              | S3                          |
-| 5   | Idle — lock past threshold, away marked immediately, prompt defaults to discard    | ⬜ **needs a manual pass**  |
-| 6   | Crash recovery — kill mid-span, relaunch, Keep closes at `lastAlive`               | ⬜ **needs a manual pass**  |
-| 7   | 409 path — start on Mac then Windows, clear message, buffer not wedged             | ✅ verified live            |
-| 8   | Sign-out — buffers flush then clear; second user uploads nothing of the first's    | unit-tested, not in-app     |
-| 9   | Counts-not-content — type a known string, grep every request body and local file   | S3                          |
-| 10  | Mac not regressed — update feed and download URL still resolve after a Win release | S4                          |
+| #   | Check                                                                              | Status                     |
+| --- | ---------------------------------------------------------------------------------- | -------------------------- |
+| 1   | Gate closed — un-acknowledged user produces no capture at all                      | ⬜ **needs a manual pass** |
+| 2   | Gate opens — ack succeeds, `AuditLog` row written, capture begins next tick        | ⬜ **needs a manual pass** |
+| 3   | Offline asymmetry — manual works, capture structurally absent, buffer drains       | ✅ verified live           |
+| 4   | Round-trip — live entry ticks, samples and screenshots arrive grouped              | ⬜ **needs a manual pass** |
+| 5   | Idle — lock past threshold, away marked immediately, prompt defaults to discard    | ⬜ **needs a manual pass** |
+| 6   | Crash recovery — kill mid-span, relaunch, Keep closes at `lastAlive`               | ⬜ **needs a manual pass** |
+| 7   | 409 path — start on Mac then Windows, clear message, buffer not wedged             | ✅ verified live           |
+| 8   | Sign-out — buffers flush then clear; second user uploads nothing of the first's    | unit-tested, not in-app    |
+| 9   | Counts-not-content — type a known string, grep every request body and local file   | ⬜ **needs a manual pass** |
+| 10  | Mac not regressed — update feed and download URL still resolve after a Win release | S4                         |
 
-Rows 5 and 6 are the honest gaps from S2: the state machines, coordinators, prompts and
-`LiveSpanStore` are covered by unit tests, and the WPF prompts are driven headlessly — but nobody has
-yet locked a real workstation and watched the prompt appear, or killed the process mid-span and
-recovered it. Both are five-minute manual checks and worth doing before S3 builds on top.
+**These are the honest gaps, and they are the real remaining risk in S3.** Every state machine,
+store, uploader, scheduler and guard is unit-tested — 331 tests — and the two structural guards are
+mutation-verified. But three things in this slice cannot be tested without a display and a person:
+
+- **Rows 1, 2, 4 and 9 are new with S3.** Row 9 in particular is the only thing that
+  _empirically_ demonstrates invariant 3 rather than arguing it from the code: type a known string
+  into Notepad while capturing traffic, then grep every outbound body and every file under
+  `%LOCALAPPDATA%\NiftyTimer-dev\` for it. Zero hits. That result belongs in the S3 PR description.
+- **`WindowsDisplayGrabber` is build-verified only**, matching the macOS `ScreenCaptureKitGrabber`.
+  Nobody has yet confirmed a real two-monitor grab, the DPI handling on a scaled display, or the
+  JPEG size against the 10 MB cap.
+- **Rows 5 and 6 carry over from S2** and are still open.
+
+Each is a few minutes at a real machine. None of them is blocked on anything.

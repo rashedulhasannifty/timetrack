@@ -11,27 +11,68 @@ This directory is **outside the pnpm graph**, exactly like `apps/client-macos`. 
 enumerates apps explicitly, so nothing here is built by `pnpm build` and nothing here may import
 from `packages/*` — the wire contract is mirrored by hand and kept honest by tests.
 
-## Status — slice 2 of 4
+## Status — slice 3 of 4
 
 Shipped: sign-in, the acknowledgement gate, the always-visible tray indicator, manual tracking,
-the durable offline buffer, sync, idle detection with the away keep/discard prompt, and crash
-recovery.
+the durable offline buffer, sync, idle detection with the away keep/discard prompt, crash
+recovery, and — new in S3 — periodic screenshots, activity sampling and categorization.
 
-**There is still no screen or input capture in this build.** No screenshots, no activity sampling,
-no keyboard or pointer counting. Those land in S3, and only ever behind `Policy/AckGate`.
-
-Idle detection is the first thing here that watches the person continuously, so it is installed
-_through_ the gate — see "Two modes" below.
+**S3 is the first slice that captures anything**, so it is worth being precise about what that
+means here. The client counts input events, it never reads them: `Activity/EventCounter` asks
+Windows for the raw-input message _header_ and nothing else, so key identity is not merely
+ignored, it is never copied into the process. See "counts, never content" below.
 
 | Slice | Contents                                                           | State       |
 | ----- | ------------------------------------------------------------------ | ----------- |
 | S1    | Auth · AckGate · tray indicator · manual timer · buffer + sync     | done        |
 | S2    | Idle detection · away keep/discard · crash recovery                | done        |
-| S3    | Screenshots · activity sampling · categorizer                      | not started |
+| S3    | Screenshots · activity sampling · categorizer                      | done        |
 | S4    | Notifications · hotkey · updater · packaging · signing · dashboard | not started |
 
 Built but deliberately not wired yet: `ManualNudgeMonitor` (needs the S4 toast notifier) and
 `DailyTotalAccumulator` (feeds the S4 end-of-day summary). Both are tested; neither runs.
+
+## What gets captured, and what cannot be
+
+Everything below is installed **only** on the online, acknowledged branch of `AppDelegate`, and
+each subsystem re-checks `AckGate` on **every tick** — so revoking an acknowledgement stops
+capture within one interval rather than at the next launch.
+
+| Subsystem                     | Cadence                               | Sends                                                  |
+| ----------------------------- | ------------------------------------- | ------------------------------------------------------ |
+| `Activity/EventCounter`       | continuous                            | nothing — two in-memory counters, read by the sampler  |
+| `Activity/ActivitySampler`    | 60s, while the clock runs             | app name, bundleId, window title, activity %, category |
+| `Capture/ScreenshotScheduler` | policy interval, while the clock runs | one JPEG per attached display                          |
+
+Capture is tied to the clock: a stopped timer captures nothing, and — deliberately — does not even
+cost a policy fetch.
+
+### The `bundleId` convention — decided once, permanent
+
+`ObservedAppsSchema` surfaces whatever the client sends straight into the admin's rule picker, so
+an inconsistent convention pollutes that picker forever and cannot be cleaned up without touching
+every team's saved rules.
+
+This client sends **the lowercased executable filename without its extension** — `code`, `chrome`,
+`devenv` — as `bundleId`, and the executable's `FileDescription` (falling back to that filename) as
+`appName`. Full paths were rejected because they vary per machine and would fragment the picker
+into one entry per install location; AUMIDs were rejected because most Win32 applications have
+none.
+
+The macOS client sends reverse-DNS (`com.microsoft.VSCode`) for the same application, so a
+mixed-platform team sees both forms. That is unavoidable without a schema change, and harmless:
+`Categorizer` matches a rule against the bundleId **or** the display name, so one rule on the
+display name covers both platforms.
+
+### Known gap: no site categorization on Windows
+
+The macOS client reads the active browser tab's URL via AppleScript and categorizes by host.
+Windows has no equivalent — UI Automation against address bars is fragile and per-browser, and an
+extension is a separate product — so `host` is always null here.
+
+The site-matching rules are still ported in full (they are shared with the Mac and the server still
+sends site lists), they simply never fire. **The consequence is worth telling admins:** a Windows
+user browsing in Chrome is categorized by the _Chrome app rule_, not by the site they are on.
 
 ## Build and test
 
@@ -131,6 +172,45 @@ Each of these cost the macOS client a real bug. They are enforced by tests; do n
 - **Discard is the default for the away prompt, Keep for the recovery prompt — but dismissing
   either is always a Discard.** The default button answers "what should Enter do"; dismissal
   answers "what if nobody looks". An ignored prompt must never invent time.
+- **Counts, never content — and on Windows that has to be built, not inherited.**
+  `CGEventSource.counterForEventType` on macOS is physically incapable of returning key identity;
+  Windows Raw Input can. So `EventCounter` calls `GetRawInputData` with **`RID_HEADER`, not
+  `RID_INPUT`** — what comes back is the device type and nothing else, and the `RAWKEYBOARD`
+  payload carrying `VKey`/`MakeCode` never enters this process. That is deliberately stronger than
+  fetching the key and choosing not to look: there is no buffer here for a future change to start
+  reading. Never a `WH_KEYBOARD_LL` hook (CLAUDE.md §1 forbids it outright, and it is the classic
+  keylogger signature that enterprise EDR flags). The whole boundary is
+  `IInputCounting { long KeyEvents; long PointerEvents; }` and `EventCounterBoundaryTests` asserts
+  that member set **exactly**, so adding a third member fails CI.
+- **The counters are only ever compared against zero.** A keyboard raises raw input on press _and_
+  release, where the macOS counterpart counts only key-down, so the same typing yields roughly
+  twice the count here. Nothing depends on the magnitude — a sub-bucket is "active" if the delta is
+  positive — and telling press from release would mean reading `RAWKEYBOARD.Flags`, i.e. opening
+  the payload. Do not "fix" the double count.
+- **Screenshots use GDI, not Windows Graphics Capture.** WGC is the modern API and the design doc
+  originally picked it, but it needs a target-framework bump plus several hundred lines of D3D11
+  interop that CI cannot verify, and it draws a visible yellow capture border on Windows 10 builds
+  predating the opt-out — a border flashing on every monitor every ten minutes. The trade is real
+  and one-directional: GDI reads the composited desktop, so **DRM-protected video and some
+  exclusive-fullscreen D3D capture as black**. `IDisplayGrabber` is the seam, so switching later
+  touches one file and no test.
+- **A measured activity cycle reschedules at zero, a skipped one waits the full interval.** The
+  measurement itself consumes the interval, so rescheduling immediately is what keeps windows
+  contiguous — …[0,60][60,120]… Collapse it to "always wait the interval" and every measured window
+  is followed by a dead one: activity is sampled half as often and every rollup silently
+  under-reports. A skipped cycle must wait, or a closed gate busy-loops the policy endpoint.
+- **Every multipart TEXT field must precede the file part.** `@fastify/multipart`'s `req.file()`
+  only exposes fields parsed before the file, so a file-first body arrives with undefined metadata
+  and 422s every upload — permanently, so the screenshot is dropped rather than retried. That is
+  why `ScreenshotUploader` hand-builds the body instead of using `MultipartFormDataContent`: field
+  order in a pure builder can be asserted, order across a series of `Add` calls cannot.
+- **`displayIndex` is capped at 15 and `displayCount` at 16 by the server schema.** Over either is
+  a 422, which classifies as permanent and drops the capture, so the grabber caps the display count
+  rather than letting an unusual desk silently lose its screenshots.
+- **A screenshot's `timestamp` is stamped once, into the buffer filename, and reused verbatim on
+  every retry.** It is half the server's composite key `[id, timestamp]` **and** its monthly
+  partition key, so a retry that recomputed "now" would land in a different partition under a
+  different key — duplicating the row instead of upserting it.
 - **Never set `InvariantGlobalization`.** It looks like free hardening for an app whose wire
   formats are all culture-invariant, and it builds and unit-tests perfectly — but WPF reads the
   current input language through `CultureInfo` whenever keyboard focus moves, so the first Tab
@@ -196,17 +276,32 @@ src/NiftyTimer/
                 AppConfig · AppInstall · BuildStamp
   Auth/         AuthClient · AuthSession (single-flight refresh) · TokenStore (DPAPI) · JwtDecoder
   Policy/       AckGate · AckClient · AckMarker · LivePolicy · PolicyClient · EffectivePolicy
+                Categorizer (pure — app/site rules, no hardware)
   Tracking/     TimeTracker · UuidV7 · IdleMonitor · ManualIdleMonitor · IdleState
                 SessionObserver (+ FanOutSignalReceiver) · ManualNudgeMonitor
                 IdleEventPayload · LiveSpanRecovery · DailyTotalAccumulator
-  Storage/      BufferStore (file-per-record) · LiveSpanStore · UserSettings
-  Sync/         SyncEngine · TimeEntryUploader · LiveEntryPublisher · BackoffPolicy · TimeEntryPayload
+                ActivityRateMeter (pure)
+  Activity/     EventCounter (Raw Input, header only) · AppSampler · ActivitySampler
+  Capture/      IDisplayGrabber · WindowsDisplayGrabber (GDI) · ScreenshotScheduler
+  Storage/      BufferStore (file-per-record) · ImageBufferStore · ActivitySampleStore
+                LiveSpanStore · UserSettings
+  Sync/         SyncEngine · ScreenshotSyncEngine · ActivityBatchSyncEngine
+                TimeEntryUploader · ScreenshotUploader · LiveEntryPublisher
+                BackoffPolicy · TimeEntryPayload · ActivitySamplePayload
   Projects/     ProjectClient · ProjectCache · SelectionStore · SelectionResolver
   Reports/      SelfTotalsClient
   Notifications/ ILocalNotifier (toasts land in S4)
   UI/           TrayPopupWindow · LoginWindow · AckWindow · TimePromptWindow · Tokens.xaml
 tests/NiftyTimer.Tests/
 ```
+
+**Namespace placement is load-bearing**, not filing. `CaptureGateGuardTests` requires every
+behavioural type in `NiftyTimer.Capture` / `NiftyTimer.Activity` to take an `AckGate` in its
+constructor — which is what makes "no capture path can bypass the gate" literally true rather than
+a convention. So the pure pieces live elsewhere on purpose: `Categorizer` classifies policy lists,
+`ActivityRateMeter` does arithmetic, the stores hold what was already captured and the sync engines
+drain it. Putting one of those in a capture namespace would force an unused gate parameter on it,
+and a guard satisfied by ceremony stops being a guard.
 
 File names deliberately mirror `apps/client-macos/Sources/TimeTrack/`, so a bug fixed in one
 client points straight at its counterpart in the other.
