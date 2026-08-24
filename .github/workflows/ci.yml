@@ -93,15 +93,28 @@ jobs:
       # Postgres/Redis/MinIO. 26 specs, ~35s.
       - run: RUN_E2E=1 pnpm --filter @timetrack/worker test:e2e
 
-  # The apps bind host '0.0.0.0' — IPv4 only — but `localhost` inside an Alpine container
-  # also resolves to ::1, and busybox wget tries IPv6 first. A probe aimed at localhost
-  # therefore fails against a perfectly healthy process. That shipped once: the API sat
-  # `unhealthy` with a FailingStreak of 65 while serving fine, which blocked the dashboard
-  # (depends_on: service_healthy) and left the proxy — and so TLS — never started.
-  infra-probes:
+  # Three fast checks in ONE job, deliberately. Each used to be its own job doing seconds of
+  # work — 6s, 5s and 29s respectively — but Actions bills every job rounded UP to a whole
+  # minute, so they cost 3 billed minutes per run: ~1000 minutes a month across ~340 runs, for
+  # well under an hour of real compute. Merged, they fit inside a single minimum-billed minute.
+  #
+  # They stay a separate job from `verify` (so they still run in parallel with it, not behind
+  # it), and are ordered cheapest-first so a grep failure reports without first paying for the
+  # gitleaks download and a pnpm install.
+  #
+  # fetch-depth: 0 is needed twice over: gitleaks scans past commits, and the attribution scan
+  # diffs against origin/<base>.
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+
+      # The apps bind host '0.0.0.0' — IPv4 only — but `localhost` inside an Alpine container
+      # also resolves to ::1, and busybox wget tries IPv6 first. A probe aimed at localhost
+      # therefore fails against a perfectly healthy process. That shipped once: the API sat
+      # `unhealthy` with a FailingStreak of 65 while serving fine, which blocked the dashboard
+      # (depends_on: service_healthy) and left the proxy — and so TLS — never started.
       - name: Container probes must use 127.0.0.1, never localhost
         run: |
           if grep -nE '(wget|curl)[^|]*http://localhost' \
@@ -111,39 +124,7 @@ jobs:
           fi
           echo "✓ no localhost probes"
 
-  # The images are built from the workspace with NO .env present (.dockerignore excludes it),
-  # which is a different environment from `pnpm build` in the verify job above — that one has
-  # DATABASE_URL in process.env. A Dockerfile can therefore break while verify stays green.
-  # That happened once (prisma.config.ts resolving env('DATABASE_URL') at generate time), and
-  # it was only caught after merge by the deploy workflow. Build here, on the PR, and push
-  # nothing — deploy.yml owns publishing.
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with: { fetch-depth: 0 } # full history so gitleaks scans past commits too
-      - name: gitleaks — secret scan (full history)
-        env:
-          GITLEAKS_VERSION: '8.30.1'
-        run: |
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            | tar -xz gitleaks
-          ./gitleaks git --redact --config .gitleaks.toml
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with: { node-version: 24, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - name: Audit production dependencies (fail on high/critical CVEs)
-        # Scoped to --prod: dev-tooling advisories never ship and are handled by
-        # Dependabot; a high/critical CVE in a shipped dependency fails the build.
-        run: pnpm audit --prod --audit-level high
-
-  no-ai-attribution:
-    # CLAUDE.md §0 — enforced in CI as well as locally, because hooks can be skipped with --no-verify.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with: { fetch-depth: 0 }
+      # CLAUDE.md §0 — enforced in CI as well as locally, because hooks can be skipped with --no-verify.
       - name: Scan commit messages and authors
         run: |
           RANGE="origin/${{ github.base_ref || 'main' }}..HEAD"
@@ -152,3 +133,20 @@ jobs:
             git log --format='%h %an <%ae> %s' $RANGE
             exit 1
           fi
+
+      - name: gitleaks — secret scan (full history)
+        env:
+          GITLEAKS_VERSION: '8.30.1'
+        run: |
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks git --redact --config .gitleaks.toml
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Audit production dependencies (fail on high/critical CVEs)
+        # Scoped to --prod: dev-tooling advisories never ship and are handled by
+        # Dependabot; a high/critical CVE in a shipped dependency fails the build.
+        run: pnpm audit --prod --audit-level high
