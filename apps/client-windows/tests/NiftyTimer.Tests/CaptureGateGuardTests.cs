@@ -29,14 +29,21 @@ public class CaptureGateGuardTests
     public void EveryCaptureTypeTakesTheAckGate()
     {
         var offenders = new List<string>();
+        var inspected = new List<string>();
 
         foreach (var type in typeof(AckGate).Assembly.GetTypes())
         {
+            // Delegates are skipped because a delegate TYPE has no body — it is a signature, and
+            // the compiler-generated Invoke/BeginInvoke on it only look like behaviour to
+            // reflection. A P/Invoke callback signature declared next to the code that uses it is
+            // not a capture path, and cannot become one; whatever it eventually points AT is a
+            // method on some type this guard already checks.
             if (type.Namespace is null ||
                 !CaptureNamespaces.Contains(type.Namespace) ||
                 type.IsInterface ||
                 type.IsEnum ||
-                type.IsAbstract)
+                type.IsAbstract ||
+                typeof(Delegate).IsAssignableFrom(type))
             {
                 continue;
             }
@@ -51,7 +58,13 @@ public class CaptureGateGuardTests
                 .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                 .Any(m => !m.IsSpecialGetterOrSetter());
 
-            if (hasBehaviour && !takesGate)
+            if (!hasBehaviour)
+            {
+                continue;
+            }
+
+            inspected.Add(type.FullName!);
+            if (!takesGate)
             {
                 offenders.Add(type.FullName!);
             }
@@ -61,6 +74,15 @@ public class CaptureGateGuardTests
             offenders.Count == 0,
             "Capture types must be constructed with an AckGate so no capture path can bypass it. " +
             $"Offenders: {string.Join(", ", offenders)}");
+
+        // The guard passed — but a guard over an EMPTY set also passes, and that is how it would
+        // rot: capture code moves to another namespace, or the exclusions above widen by one
+        // reasonable-looking step at a time, and nothing goes red. S1 and S2 legitimately had
+        // nothing here; from S3 on there is capture code and this must be able to see it.
+        Assert.True(
+            inspected.Count >= 4,
+            "The gate guard is inspecting almost nothing, so it is no longer guarding anything. " +
+            $"Saw: {string.Join(", ", inspected)}");
     }
 }
 

@@ -27,11 +27,20 @@ namespace NiftyTimer.Tests;
 /// </summary>
 public class OfflineCaptureUnreachableTests
 {
-    /// <summary>Methods that begin observing the person. None may be reachable from offline.</summary>
+    /// <summary>
+    /// Methods that begin observing the person. None may be reachable from offline.
+    ///
+    /// Only INSTALLERS belong here. The sync engines and the durable buffers deliberately do not:
+    /// draining what was already captured is not capturing, they are started on both branches, and
+    /// an offline launch must still be able to deliver yesterday's screenshots. Adding one here
+    /// would make the negative test fail correctly — and the tempting "fix" would be to stop
+    /// draining offline, which loses data to satisfy a guard that was never about drains.
+    /// </summary>
     private static readonly string[] Installers =
     [
         "InstallIdleDetection",
-        // S3 adds InstallScreenshotCapture / InstallActivitySampling here.
+        "InstallActivitySampling",
+        "InstallScreenshotCapture",
     ];
 
     private static MethodInfo Method(string name) =>
@@ -59,12 +68,36 @@ public class OfflineCaptureUnreachableTests
     /// outright, or if the gated branch stopped calling it — a green guard over an app that no
     /// longer detects idle at all.
     /// </summary>
-    [Fact]
-    public void TheGatedBranchDoesInstallObservation()
+    [Theory]
+    [InlineData("InstallIdleDetection")]
+    [InlineData("InstallActivitySampling")]
+    [InlineData("InstallScreenshotCapture")]
+    public void TheGatedBranchDoesInstallObservation(string installer)
     {
-        var reachable = CalleesOf(Method("ProceedToPolicyAsync"), depth: 4);
+        var reachable = CalleesOf(Method("ProceedToPolicyAsync"), depth: 5);
 
-        Assert.Contains(Method("InstallIdleDetection"), reachable);
+        Assert.Contains(Method(installer), reachable);
+    }
+
+    /// <summary>
+    /// The walk must actually be finding things. Every guard here is an intersection or a
+    /// containment over a set built by IL scanning, and the failure mode of IL scanning is
+    /// returning nothing — at which point the negative test passes for the wrong reason and the
+    /// positive one is the only thing that would notice. This asserts the set is non-trivial, so
+    /// a scanner that silently stopped resolving tokens cannot hide behind a green suite.
+    /// </summary>
+    [Fact]
+    public void TheReachabilityWalkIsNotVacuous()
+    {
+        var offline = CalleesOf(Method("ProceedOffline"), depth: 4);
+        var gated = CalleesOf(Method("ProceedToPolicyAsync"), depth: 5);
+
+        Assert.NotEmpty(offline);
+        Assert.NotEmpty(gated);
+
+        // The offline branch does reach BecomeReady — it re-enables manual tracking. If this
+        // stopped holding, the negative test above would be scanning the wrong thing.
+        Assert.Contains(Method("BecomeReady"), offline);
     }
 
     /// <summary>

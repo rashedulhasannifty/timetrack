@@ -1,7 +1,9 @@
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Threading;
+using NiftyTimer.Activity;
 using NiftyTimer.Auth;
+using NiftyTimer.Capture;
 using NiftyTimer.Policy;
 using NiftyTimer.Projects;
 using NiftyTimer.Reports;
@@ -59,6 +61,14 @@ public sealed class AppDelegate : IDisposable
     private MenuViewModel _viewModel = null!;
     private DailyTotalAccumulator _dailyTotal = null!;
 
+    // The capture BUFFERS and their drains are built unconditionally, on both branches. Draining
+    // what was already captured is not capturing — an offline launch must still be able to deliver
+    // yesterday's screenshots — and the buffers must exist before sign-out can clear them.
+    private ImageBufferStore _imageBuffer = null!;
+    private ActivitySampleStore _activityStore = null!;
+    private ScreenshotSyncEngine _screenshotSync = null!;
+    private ActivityBatchSyncEngine _activitySync = null!;
+
     private TrayIconController _tray = null!;
     private TrayPopupWindow _popup = null!;
     private LoginWindow? _login;
@@ -71,6 +81,13 @@ public sealed class AppDelegate : IDisposable
     private AutoTrackingCoordinator? _autoCoordinator;
     private ManualIdleCoordinator? _manualIdleCoordinator;
     private bool _hasAttemptedRecovery;
+
+    // The capture SUBSYSTEMS, by contrast, are null until the gated branch installs them — and
+    // back to null on sign-out. Their nullability is the invariant, not an accident: there is no
+    // code path that assigns any of these outside InstallCapture.
+    private EventCounter? _eventCounter;
+    private ActivitySampler? _activitySampler;
+    private ScreenshotScheduler? _screenshotScheduler;
 
     private DispatcherTimer? _heartbeat;
     private DispatcherTimer? _refresh;
@@ -114,9 +131,23 @@ public sealed class AppDelegate : IDisposable
         _tracker = new TimeTracker(_buffer, liveSpan: _liveSpanStore);
         _dailyTotal = new DailyTotalAccumulator();
 
+        _imageBuffer = new ImageBufferStore(Path.Combine(support, "screenshots"));
+        _activityStore = new ActivitySampleStore(Path.Combine(support, "activity"));
+
         var uploader = new TimeEntryUploader(_http, _config.ApiBaseUri, _session);
         var idleUploader = new TimeEntryUploader(_http, _config.ApiBaseUri, _session, "idle-events");
+
+        // The activity batch reuses TimeEntryUploader pointed at a different path: the JSON POST,
+        // the single 401 refresh-retry and the status classification are identical, and a second
+        // copy of them is how the two paths drift apart.
+        var activityUploader = new TimeEntryUploader(
+            _http, _config.ApiBaseUri, _session, "activity-samples/batch");
+
         _sync = new SyncEngine(_buffer, uploader, idleUploader);
+        _screenshotSync = new ScreenshotSyncEngine(
+            _imageBuffer,
+            new ScreenshotUploader(_http, _config.ApiBaseUri, _session));
+        _activitySync = new ActivityBatchSyncEngine(_activityStore, activityUploader);
         _livePublisher = new LiveEntryPublisher(uploader);
 
         _viewModel = new MenuViewModel(_tracker, _selectionStore);
@@ -128,6 +159,8 @@ public sealed class AppDelegate : IDisposable
         WireEvents();
 
         _sync.Start();
+        _screenshotSync.Start();
+        _activitySync.Start();
         StartTimers();
 
         _ = BootstrapAsync();
@@ -150,9 +183,21 @@ public sealed class AppDelegate : IDisposable
         // whether that window was ever recorded, and only one of them would be right.
         TearDownIdleDetection();
 
+        // Quit does not join the in-flight capture cycle the way sign-out does, and does not need
+        // to: nothing here clears a buffer, so a cycle that finishes late enqueues for the SAME
+        // user and simply drains on the next launch. Unregistering Raw Input still matters, and
+        // that is what disposing the counter does.
+        _screenshotScheduler?.Stop();
+        _activitySampler?.Stop();
+        _screenshotScheduler?.Dispose();
+        _activitySampler?.Dispose();
+        _eventCounter?.Dispose();
+
         _shutdown.Cancel();
 
         _sync?.Dispose();
+        _screenshotSync?.Dispose();
+        _activitySync?.Dispose();
         _tray?.Dispose();
         _session?.Dispose();
         _http.Dispose();
@@ -302,10 +347,85 @@ public sealed class AppDelegate : IDisposable
         BecomeReady();
 
         await StartIdleDetectionAsync(policy.Settings).ConfigureAwait(true);
+        await StartCaptureAsync(policy.Settings).ConfigureAwait(true);
+    }
 
-        // ── S3 installs screenshot capture and activity sampling HERE, and nowhere else. ─────
-        // Every such subsystem must be constructed with `_ackGate` and must re-check the gate on
-        // every tick, so a revoked acknowledgement stops capture mid-session.
+    /// <summary>
+    /// Screenshot capture and activity sampling. Installed ONLY here, on the online acknowledged
+    /// branch, and only through <see cref="AckGate"/> — the same shape as
+    /// <see cref="StartIdleDetectionAsync"/>, for the same reason, and with the same dispatcher hop
+    /// (the gate resumes on the thread pool, where <c>HwndSource</c> throws).
+    ///
+    /// Each subsystem re-checks the gate on every tick of its own, so this install-time check is
+    /// the first of many rather than the only one: revoking acknowledgement stops capture within
+    /// one interval, not at the next launch.
+    /// </summary>
+    private async Task StartCaptureAsync(PolicySettings settings)
+    {
+        try
+        {
+            await _ackGate.WithCaptureAllowedAsync(
+                async _ => await _dispatcher.InvokeAsync(() => InstallCapture(settings)),
+                _shutdown.Token).ConfigureAwait(true);
+        }
+        catch (Exception e) when (e is AckGateException or NotAuthenticatedException
+                                      or AuthException or OperationCanceledException)
+        {
+            // Gate closed or policy unreadable → capture simply does not start. Manual tracking,
+            // already enabled, continues. Fail-safe; there is no fallback path.
+        }
+    }
+
+    private void InstallCapture(PolicySettings settings)
+    {
+        InstallActivitySampling();
+        InstallScreenshotCapture(settings);
+    }
+
+    /// <summary>
+    /// Activity sampling runs whenever the gate is open — there is no separate team switch for it,
+    /// unlike screenshots.
+    /// </summary>
+    private void InstallActivitySampling()
+    {
+        if (_activitySampler is not null)
+        {
+            return; // idempotent — a second policy fetch must not start a second sampler
+        }
+
+        // Arming Raw Input is itself gated (see EventCounter): subscribing to every keystroke on
+        // the machine is the observation, so it is the thing that needs authorizing. It reads only
+        // the message header, so no key identity ever enters this process.
+        var counter = new EventCounter(_ackGate);
+        _eventCounter = counter;
+        _ = counter.StartAsync(_shutdown.Token);
+
+        _activitySampler = new ActivitySampler(
+            _ackGate,
+            counter,
+            new AppSampler(_ackGate, _livePolicy),
+            _livePolicy,
+            _activityStore,
+            isTracking: () => _tracker.State is TrackerState.Tracking,
+            onSampled: () => OnUi(RefreshPendingCount));
+        _activitySampler.Start();
+    }
+
+    private void InstallScreenshotCapture(PolicySettings settings)
+    {
+        if (_screenshotScheduler is not null || !settings.ScreenshotsEnabled)
+        {
+            return;
+        }
+
+        _screenshotScheduler = new ScreenshotScheduler(
+            _ackGate,
+            new WindowsDisplayGrabber(_ackGate, _dispatcher),
+            _imageBuffer,
+            settings.ScreenshotIntervalMinutes,
+            isTracking: () => _tracker.State is TrackerState.Tracking,
+            onCaptured: () => OnUi(RefreshPendingCount));
+        _screenshotScheduler.Start();
     }
 
     /// <summary>
@@ -536,7 +656,16 @@ public sealed class AppDelegate : IDisposable
         }
     }
 
-    private void RefreshPendingCount() => _viewModel.PendingCount = _buffer.PendingCount();
+    /// <summary>
+    /// Everything still waiting to reach the server, across all three buffers — the menu's
+    /// "pending" figure means unsent work, and a person looking at it after a day offline would be
+    /// misled by a count that omitted their screenshots. All three read their directory listings
+    /// rather than any file contents, which is what makes this cheap enough to run on every menu
+    /// open.
+    /// </summary>
+    private void RefreshPendingCount() =>
+        _viewModel.PendingCount =
+            _buffer.PendingCount() + _imageBuffer.PendingCount() + _activityStore.PendingCount();
 
     private void UpdateTray()
     {
@@ -566,25 +695,41 @@ public sealed class AppDelegate : IDisposable
         // they drain later under the next person's token.
         TearDownIdleDetection();
 
+        // Capture comes down and SETTLES before anything drains. Stopping a scheduler does not
+        // abort a cycle that is already inside a grab or a measurement window, and such a cycle
+        // resumes later and enqueues — so joining it here does two things: it keeps that last
+        // capture out of a buffer we are about to clear (where it would be lost) and, more
+        // importantly, out of one we have already cleared (where it would upload under the NEXT
+        // person's token, because the server attributes by bearer token and not by any field we
+        // send). Joining first rather than last also means anything the final cycle produced is
+        // still included in the drain below, credited to the person it belongs to.
+        await TearDownCaptureAsync().ConfigureAwait(true);
+
         if (_tracker.State is TrackerState.Tracking)
         {
             _tracker.Stop();
         }
 
         _sync.Stop();
+        _screenshotSync.Stop();
+        _activitySync.Stop();
 
         try
         {
             // FlushAsync, not SyncNowAsync: the latter returns immediately when a cycle is already
             // in flight, so the "final drain" would silently not happen and Clear() below would
-            // discard real tracked time.
+            // discard real tracked time. The same applies to each capture buffer.
             await _sync.FlushAsync(_shutdown.Token).ConfigureAwait(true);
+            await _screenshotSync.FlushAsync(_shutdown.Token).ConfigureAwait(true);
+            await _activitySync.FlushAsync(_shutdown.Token).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
         }
 
         _buffer.Clear();
+        _imageBuffer.Clear();
+        _activityStore.Clear();
         _projectCache.Clear();
         _liveSpanStore.Clear();
         _dailyTotal.Reset();
@@ -601,7 +746,42 @@ public sealed class AppDelegate : IDisposable
         UpdateTray();
 
         _sync.Start();
+        _screenshotSync.Start();
+        _activitySync.Start();
         ShowLogin();
+    }
+
+    /// <summary>
+    /// Stop capturing, and wait for whatever was mid-cycle to finish.
+    ///
+    /// <c>Stop</c> cancels the cycle's token as well as killing the timer, so the join returns
+    /// promptly instead of waiting out a sixty-second measurement window — which is the difference
+    /// between a sign-out that feels instant and one that appears to hang.
+    /// </summary>
+    private async Task TearDownCaptureAsync()
+    {
+        _screenshotScheduler?.Stop();
+        _activitySampler?.Stop();
+
+        if (_screenshotScheduler is { } scheduler)
+        {
+            await scheduler.FinishInFlightAsync().ConfigureAwait(true);
+            scheduler.Dispose();
+            _screenshotScheduler = null;
+        }
+
+        if (_activitySampler is { } sampler)
+        {
+            await sampler.FinishInFlightAsync().ConfigureAwait(true);
+            sampler.Dispose();
+            _activitySampler = null;
+        }
+
+        // Last, so nothing is still counting input while a cycle drains. Disposing this
+        // unregisters Raw Input: leaving it registered would keep the process subscribed to every
+        // keystroke on the machine after the person has signed out.
+        _eventCounter?.Dispose();
+        _eventCounter = null;
     }
 
     /// <summary>

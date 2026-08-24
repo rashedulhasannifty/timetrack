@@ -21,6 +21,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Pure helpers that exist so a hardware seam can be tested without the hardware — the
+         multipart body builder, the app-snapshot shaping, the monitor ordering — are `internal`
+         rather than `public`: they are testing seams, not API, and making them public to reach
+         them from the test project would invite production callers. -->
+    <InternalsVisibleTo Include="NiftyTimer.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- WPF's implicit-using set deliberately omits System.IO, because System.Windows.Shapes.Path
          would collide with System.IO.Path. This client draws no shapes and touches the filesystem
          constantly (durable buffer, token store, caches), so trade the import the other way once
