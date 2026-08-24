@@ -27,8 +27,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # GHCR supports nested paths, so the three images live under one repo namespace.
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/timetrack
   # Under workflow_run, `github.sha` is the default branch's head when the event fired, NOT
   # the commit CI actually verified — they differ whenever a second merge lands during a run,
   # which would tag and deploy an unverified commit. head_sha is the verified one. The
@@ -61,6 +59,19 @@ jobs:
     # services still took ~1m25s each. In one job that setup happens once and steps 2-3 hit
     # the builder's LOCAL cache, with no export/import round-trip between them.
     steps:
+      # GHCR supports nested paths, so the three images live under one repo namespace — but
+      # Docker rejects an image reference whose namespace has capitals ("repository name must
+      # be lowercase") at PARSE time, before it ever reaches the registry.
+      # `github.repository_owner` preserves the account's case and Actions expressions have no
+      # lower(), so fold it here. This was invisible while the owner was all-lowercase and
+      # broke the moment the repo moved to one that is not.
+      - name: Resolve the GHCR namespace (Docker requires it lowercase)
+        # `tr`, not bash's ${VAR,,}: that needs bash 4+ and macOS ships 3.2, which would
+        # break this the moment it runs on a self-hosted Mac runner.
+        run: echo "IMAGE_PREFIX=ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/timetrack" >> "$GITHUB_ENV"
+        env:
+          OWNER: ${{ github.repository_owner }}
+
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.DEPLOY_SHA }}
@@ -123,6 +134,19 @@ jobs:
       contents: read
       packages: read
     steps:
+      # GHCR supports nested paths, so the three images live under one repo namespace — but
+      # Docker rejects an image reference whose namespace has capitals ("repository name must
+      # be lowercase") at PARSE time, before it ever reaches the registry.
+      # `github.repository_owner` preserves the account's case and Actions expressions have no
+      # lower(), so fold it here. This was invisible while the owner was all-lowercase and
+      # broke the moment the repo moved to one that is not.
+      - name: Resolve the GHCR namespace (Docker requires it lowercase)
+        # `tr`, not bash's ${VAR,,}: that needs bash 4+ and macOS ships 3.2, which would
+        # break this the moment it runs on a self-hosted Mac runner.
+        run: echo "IMAGE_PREFIX=ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/timetrack" >> "$GITHUB_ENV"
+        env:
+          OWNER: ${{ github.repository_owner }}
+
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.DEPLOY_SHA }}
