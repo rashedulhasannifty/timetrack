@@ -3,7 +3,9 @@
 Native Windows client. C# / .NET 9 + WPF, tray-resident, talking to the same `/v1` API and
 dashboard as the macOS client.
 
-Design doc: [`docs/superpowers/specs/2026-08-25-windows-client-design.md`](../../docs/superpowers/specs/2026-08-25-windows-client-design.md).
+- **Design doc** — the reasoning behind the port: [`docs/superpowers/specs/2026-08-25-windows-client-design.md`](../../docs/superpowers/specs/2026-08-25-windows-client-design.md)
+- **[`ROADMAP.md`](./ROADMAP.md)** — what is built, what is left in S3/S4, and how to pick it up on
+  another machine. **Start there if you are continuing the work.**
 
 This directory is **outside the pnpm graph**, exactly like `apps/client-macos`. `pnpm-workspace.yaml`
 enumerates apps explicitly, so nothing here is built by `pnpm build` and nothing here may import
