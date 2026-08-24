@@ -152,11 +152,13 @@ public sealed class LiveEntryPublisher
         switch (result)
         {
             case UploadResult.Success:
-                if (isClose)
-                {
-                    _closePending = false;
-                }
-
+                // Cleared on ANY success, not just a close. An OPEN that succeeds is itself proof
+                // the slot was free — the server would have refused it otherwise — so the doubt
+                // this flag represents is settled either way. Clearing only on a close would leave
+                // it stuck after the more common recovery (close fails, the next open goes
+                // through), and a genuine second-machine conflict later would then be softened into
+                // the vague "not recording" warning instead of naming the actual reason.
+                _closePending = false;
                 _consecutiveFailures = 0;
                 SetBlocked(false);
                 break;

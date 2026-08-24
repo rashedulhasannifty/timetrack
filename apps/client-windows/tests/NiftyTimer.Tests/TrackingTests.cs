@@ -403,6 +403,31 @@ public class LiveEntryPublisherTests
         Assert.Equal(["entry-1"], conflicts);
     }
 
+    /// <summary>
+    /// The commoner recovery: the close fails, but the NEXT OPEN succeeds anyway — which is itself
+    /// proof the slot was free, since the server would have refused it otherwise. The doubt is
+    /// settled, so a genuine conflict after that must still be named rather than softened into the
+    /// vague "not recording" warning.
+    /// </summary>
+    [Fact]
+    public async Task ASucceedingOpenAlsoSettlesTheDoubtFromAFailedClose()
+    {
+        var uploader = new FakeUploader(
+            new UploadResult.Transient(),
+            new UploadResult.Success(),
+            new UploadResult.Permanent(409));
+        var publisher = new LiveEntryPublisher(uploader);
+
+        var conflicts = new List<string>();
+        publisher.ConflictDetected += conflicts.Add;
+
+        await publisher.PublishCloseAsync(Closed());  // fails
+        await Publish(publisher);                     // the open lands — the slot was free
+        await Publish(publisher);                     // a later 409 is a real second machine
+
+        Assert.Equal(["entry-1"], conflicts);
+    }
+
     /// <summary>A failed publish must not wedge the chain for the rest of the session.</summary>
     [Fact]
     public async Task AFailedPublishDoesNotStallEverythingBehindIt()
