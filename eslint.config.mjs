@@ -86,5 +86,14 @@ export default tseslint.config(
     files: ['**/*.spec.ts', '**/*.e2e-spec.ts'],
     rules: { '@typescript-eslint/unbound-method': 'off' },
   },
-  { ignores: ['**/dist/**', '**/.next/**', '**/node_modules/**', 'apps/client-macos/**'] },
+  {
+    ignores: [
+      '**/dist/**',
+      '**/.next/**',
+      '**/node_modules/**',
+      // Both desktop clients are outside the pnpm graph and are not TypeScript.
+      'apps/client-macos/**',
+      'apps/client-windows/**',
+    ],
+  },
 );

@@ -16,6 +16,10 @@ apps/client-macos/.build/
 apps/client-macos/DerivedData/
 apps/client-macos/dist/
 apps/client-macos/.swiftpm/
+apps/client-windows/**/bin/
+apps/client-windows/**/obj/
+apps/client-windows/dist/
+apps/client-windows/publish/
 
 # Next writes these for AI agents. Generation is disabled in
 # apps/dashboard/next.config.ts (agentRules: false); this is the backstop so an
