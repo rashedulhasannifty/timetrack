@@ -119,6 +119,94 @@ final class MenuViewModelTests: XCTestCase {
         XCTAssertEqual(vm.phase, .idle)
     }
 
+    func testNoteIsEnqueuedWithTheSpan() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.start()
+        vm.note = "  drafting the release notes  "
+        clock.advance(600)
+        vm.stop()
+
+        // Trimmed, and carried on the entry the API stores.
+        XCTAssertEqual(spy.object(at: 0)["note"] as? String, "drafting the release notes")
+    }
+
+    func testTypingANoteDoesNotSplitTheRunningSpan() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.start()
+        clock.advance(300)
+        vm.note = "a"
+        vm.note = "ab"
+        vm.note = "abc"
+        clock.advance(300)
+        // A note re-describes the span; it must not re-attribute it the way a project switch does.
+        XCTAssertTrue(spy.entries.isEmpty, "nothing should have been closed while typing")
+        vm.stop()
+        XCTAssertEqual(spy.entries.count, 1)
+        XCTAssertEqual(spy.object(at: 0)["note"] as? String, "abc")
+    }
+
+    func testAWhitespaceOnlyNoteIsSentAsNull() {
+        let (vm, spy, _) = makeSwitchableVM()
+        vm.start()
+        vm.note = "   "
+        vm.stop()
+        XCTAssertNil(spy.object(at: 0)["note"] as? String)
+    }
+
+    func testStopClearsTheNoteSoTheNextEntryDoesNotInheritIt() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.start()
+        vm.note = "first task"
+        vm.stop()
+        vm.start()
+        clock.advance(60)
+        vm.stop()
+
+        XCTAssertEqual(vm.note, "")
+        XCTAssertNil(spy.object(at: 1)["note"] as? String)
+    }
+
+    func testSwitchingProjectCarriesTheNoteOntoTheNewSpan() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.select(choice("p1"))
+        vm.start()
+        vm.note = "same work, right project"
+        clock.advance(600)
+        vm.select(choice("p2"))
+        clock.advance(600)
+        vm.stop()
+
+        XCTAssertEqual(spy.object(at: 0)["note"] as? String, "same work, right project")
+        XCTAssertEqual(spy.object(at: 1)["note"] as? String, "same work, right project")
+    }
+
+    func testToggleStartsThenStops() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.toggle()
+        XCTAssertEqual(vm.phase, .tracking)
+        clock.advance(600)
+        vm.toggle()
+        XCTAssertEqual(vm.phase, .idle)
+        XCTAssertEqual(spy.entries.count, 1)
+    }
+
+    func testToggleResumesAPausedSessionRatherThanStartingFresh() {
+        let (vm, _, clock) = makeSwitchableVM()
+        vm.start()
+        clock.advance(300)
+        vm.pause()
+
+        vm.toggle()
+        // Starting fresh here would silently abandon a pause the person meant to come back to.
+        XCTAssertEqual(vm.phase, .tracking)
+    }
+
+    func testToggleIsInertUntilReady() {
+        let vm = makeVM()
+        vm.toggle()
+        XCTAssertEqual(vm.phase, .idle)
+    }
+
     func testStartIsNoOpUntilReady() {
         let vm = makeVM()
         vm.select(Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Acme", taskName: nil))

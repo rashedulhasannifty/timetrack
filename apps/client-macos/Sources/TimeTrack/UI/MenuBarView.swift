@@ -14,6 +14,8 @@ struct MenuBarView: View {
                     header
                     controls
                     Divider()
+                    noteField
+                    Divider()
                     picker
                     Divider()
                     footer
@@ -195,6 +197,21 @@ struct MenuBarView: View {
     private var pickerListHeight: CGFloat {
         let rows = max(viewModel.filteredChoices.count, 1)
         return min(CGFloat(rows) * 36, 300)
+    }
+
+    /// Free-text "what are you doing". Applied to the running entry as it is typed, so there
+    /// is no Save button to forget — and no split in the span when they stop typing.
+    @ViewBuilder private var noteField: some View {
+        VStack(alignment: .leading, spacing: TT.Space.x2) {
+            Text("NOTE")
+                .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)
+            TextField("What are you working on?", text: $viewModel.note)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 9).padding(.vertical, 6)
+                .background(TT.Palette.surface, in: RoundedRectangle(cornerRadius: TT.Radius.sm))
+        }
+        .padding(.horizontal, TT.Space.x4)
+        .padding(.vertical, TT.Space.x3)
     }
 
     @ViewBuilder private var picker: some View {

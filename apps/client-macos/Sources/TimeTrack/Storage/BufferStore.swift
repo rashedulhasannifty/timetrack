@@ -83,6 +83,14 @@ final class BufferStore {
         (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
     }
 
+    /// How many records are still waiting to reach the server.
+    ///
+    /// Counted from the directory listing, not by reading any payload — the filename carries
+    /// everything, which is the whole point of the naming scheme.
+    func pendingCount() -> Int {
+        allRecords().count
+    }
+
     private func parse(_ url: URL) -> Record? {
         let name = url.lastPathComponent
         guard name.hasSuffix(".json") else { return nil }
