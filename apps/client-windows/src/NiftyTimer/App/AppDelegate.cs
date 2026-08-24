@@ -144,9 +144,14 @@ public sealed class AppDelegate : IDisposable
 
         _heartbeat?.Stop();
         _refresh?.Stop();
+
+        // Quit must settle the same things sign-out does. Without this, quitting with an away
+        // window pending loses its UNRESOLVED idle event — the two exit paths would disagree about
+        // whether that window was ever recorded, and only one of them would be right.
+        TearDownIdleDetection();
+
         _shutdown.Cancel();
 
-        _sessionObserver?.Dispose();
         _sync?.Dispose();
         _tray?.Dispose();
         _session?.Dispose();
@@ -173,10 +178,16 @@ public sealed class AppDelegate : IDisposable
         _tracker.SpanOpened += (id, start, selection, source) =>
             _ = _livePublisher.PublishAsync(id, start, selection, source, _shutdown.Token);
 
-        _tracker.SpanClosed += (start, end) =>
+        _tracker.SpanClosed += span =>
         {
-            _dailyTotal.Add(start, end);
+            _dailyTotal.Add(span.Start, span.End);
             RefreshPendingCount();
+
+            // Publish the close immediately, ahead of the buffer's next drain. Every close here is
+            // followed within milliseconds by an open — project switch, resume, away resolution,
+            // recovery-then-start — and the server allows one open entry per user, so a close that
+            // arrives ninety seconds late means that open is refused with a 409.
+            _ = _livePublisher.PublishCloseAsync(span, _shutdown.Token);
         };
 
         _livePublisher.BlockedChanged += blocked =>

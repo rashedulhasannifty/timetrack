@@ -252,16 +252,46 @@ public class TimeTrackerTests
         var (tracker, _, _) = NewTracker(() => now);
 
         var opened = 0;
-        var closed = 0;
+        var closed = new List<ClosedSpan>();
         tracker.SpanOpened += (_, _, _, _) => opened++;
-        tracker.SpanClosed += (_, _) => closed++;
+        tracker.SpanClosed += closed.Add;
 
         tracker.Start("p1", null);
         now = T0.AddMinutes(1);
         tracker.Stop();
 
         Assert.Equal(1, opened);
-        Assert.Equal(1, closed);
+
+        // The closed span carries everything needed to publish it, not just its bounds — the close
+        // has to reach the server before the next open, or that open is refused with a 409.
+        var span = Assert.Single(closed);
+        Assert.Equal("id-1", span.EntryId);
+        Assert.Equal(T0, span.Start);
+        Assert.Equal(T0.AddMinutes(1), span.End);
+        Assert.Equal("p1", span.Selection.ProjectId);
+        Assert.Equal(TimeTracker.EntrySource.Manual, span.Source);
+    }
+
+    /// <summary>
+    /// The clamp that keeps a backwards clock step from producing an inverted span applies to the
+    /// published close as much as the buffered one — they must not disagree about when the entry
+    /// ended.
+    /// </summary>
+    [Fact]
+    public void AnInvertedCloseIsClampedInTheReportedSpanToo()
+    {
+        var now = T0;
+        var (tracker, _, _) = NewTracker(() => now);
+
+        var closed = new List<ClosedSpan>();
+        tracker.SpanClosed += closed.Add;
+
+        tracker.Start("p1", null);
+        tracker.Stop(T0.AddMinutes(-10));
+
+        var span = Assert.Single(closed);
+        Assert.Equal(T0, span.Start);
+        Assert.Equal(T0, span.End);
     }
 }
 
@@ -273,6 +303,164 @@ public class LiveEntryPublisherTests
 
     private static Task Publish(LiveEntryPublisher publisher) =>
         publisher.PublishAsync("entry-1", T0, Selection, TimeTracker.EntrySource.Manual);
+
+    private static ClosedSpan Closed(string id = "entry-1") =>
+        new(id, T0, T0.AddMinutes(20), Selection, TimeTracker.EntrySource.Manual);
+
+    [Fact]
+    public async Task PublishesACloseWithItsEndTime()
+    {
+        var uploader = new FakeUploader();
+        var publisher = new LiveEntryPublisher(uploader);
+
+        await publisher.PublishCloseAsync(Closed());
+
+        var payload = JsonSerializer.Deserialize<TimeEntryPayload>(Assert.Single(uploader.Uploads))!;
+        Assert.Equal("entry-1", payload.Id);
+        Assert.Equal("2026-08-25T09:00:00Z", payload.StartTime);
+        Assert.Equal("2026-08-25T09:20:00Z", payload.EndTime);
+    }
+
+    /// <summary>
+    /// The ordering the whole fix rests on. Every close is followed within milliseconds by an open,
+    /// and the server holds the one-open-entry slot until it hears the close — so if the open
+    /// overtakes it, the open is refused and the user is told they are tracking on another machine
+    /// they do not have. Two fire-and-forget HTTP calls can complete in either order, so the
+    /// publisher chains them.
+    /// </summary>
+    [Fact]
+    public async Task ACloseIsAlwaysSentBeforeAnOpenQueuedAfterIt()
+    {
+        var gate = new TaskCompletionSource();
+        var uploader = new OrderSpy(firstCallWaitsFor: gate.Task);
+        var publisher = new LiveEntryPublisher(uploader);
+
+        var close = publisher.PublishCloseAsync(Closed());
+        var open = publisher.PublishAsync("entry-2", T0.AddMinutes(20), Selection, TimeTracker.EntrySource.Manual);
+
+        // Release the close only after the open has had every chance to overtake it.
+        await Task.Delay(50);
+        Assert.Equal(["entry-1"], uploader.Started);
+
+        gate.SetResult();
+        await Task.WhenAll(close, open);
+
+        Assert.Equal(["entry-1", "entry-2"], uploader.Completed);
+    }
+
+    /// <summary>
+    /// A 409 immediately after one of our own closes failed to land is us holding our own slot, not
+    /// evidence of a second machine. Stopping the user's clock and telling them to "stop it there
+    /// first" over our own failed request is the worse wrong answer.
+    /// </summary>
+    [Fact]
+    public async Task AConflictIsNotBlamedOnAnotherMachineWhenOurOwnCloseFailed()
+    {
+        var uploader = new FakeUploader(new UploadResult.Transient(), new UploadResult.Permanent(409));
+        var publisher = new LiveEntryPublisher(uploader);
+
+        var conflicts = new List<string>();
+        publisher.ConflictDetected += conflicts.Add;
+
+        await publisher.PublishCloseAsync(Closed());          // fails
+        await Publish(publisher);                             // 409 against our own still-open row
+
+        Assert.Empty(conflicts);
+    }
+
+    [Fact]
+    public async Task AConflictAfterASuccessfulCloseIsStillReported()
+    {
+        var uploader = new FakeUploader(new UploadResult.Success(), new UploadResult.Permanent(409));
+        var publisher = new LiveEntryPublisher(uploader);
+
+        var conflicts = new List<string>();
+        publisher.ConflictDetected += conflicts.Add;
+
+        await publisher.PublishCloseAsync(Closed());
+        await Publish(publisher);
+
+        Assert.Equal(["entry-1"], conflicts);
+    }
+
+    /// <summary>The suppression must lift once the close finally lands, or 409s go unreported forever.</summary>
+    [Fact]
+    public async Task ReportingResumesOnceTheCloseGetsThrough()
+    {
+        var uploader = new FakeUploader(
+            new UploadResult.Transient(),
+            new UploadResult.Success(),
+            new UploadResult.Permanent(409));
+        var publisher = new LiveEntryPublisher(uploader);
+
+        var conflicts = new List<string>();
+        publisher.ConflictDetected += conflicts.Add;
+
+        await publisher.PublishCloseAsync(Closed());  // fails
+        await publisher.PublishCloseAsync(Closed());  // retried, lands
+        await Publish(publisher);                     // now a 409 means what it says
+
+        Assert.Equal(["entry-1"], conflicts);
+    }
+
+    /// <summary>A failed publish must not wedge the chain for the rest of the session.</summary>
+    [Fact]
+    public async Task AFailedPublishDoesNotStallEverythingBehindIt()
+    {
+        var uploader = new ThrowingThenWorkingUploader();
+        var publisher = new LiveEntryPublisher(uploader);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => Publish(publisher));
+        await Publish(publisher);
+
+        Assert.Equal(2, uploader.Calls);
+    }
+
+    private sealed class OrderSpy : IUploader
+    {
+        private readonly Task _firstCallWaitsFor;
+        private int _calls;
+
+        public OrderSpy(Task firstCallWaitsFor) => _firstCallWaitsFor = firstCallWaitsFor;
+
+        public List<string> Started { get; } = [];
+
+        public List<string> Completed { get; } = [];
+
+        public async Task<UploadResult> UploadAsync(byte[] payload, CancellationToken cancellationToken = default)
+        {
+            var id = JsonSerializer.Deserialize<TimeEntryPayload>(payload)!.Id;
+            lock (Started)
+            {
+                Started.Add(id);
+            }
+
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                await _firstCallWaitsFor;
+            }
+
+            lock (Completed)
+            {
+                Completed.Add(id);
+            }
+
+            return new UploadResult.Success();
+        }
+    }
+
+    private sealed class ThrowingThenWorkingUploader : IUploader
+    {
+        public int Calls { get; private set; }
+
+        public Task<UploadResult> UploadAsync(byte[] payload, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Calls == 1
+                ? throw new InvalidOperationException("boom")
+                : Task.FromResult<UploadResult>(new UploadResult.Success());
+        }
+    }
 
     [Fact]
     public async Task PublishesTheRunningEntryWithANullEndTime()

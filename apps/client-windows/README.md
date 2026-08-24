@@ -100,6 +100,13 @@ Each of these cost the macOS client a real bug. They are enforced by tests; do n
 - **`.nullable()` vs `.optional()`.** `projectId`, `taskId`, `endTime` must serialize as explicit
   `null`; `note` must be **omitted**. Request bodies are parsed in Zod strict mode, so an extra
   field — a helpful `platform` or `deviceId` — is a 422.
+- **A close must reach the server before the next open.** The server allows one open entry per
+  **user** and only retires a previous one once it has gone stale, which a just-heartbeated row has
+  not. Closes ride the durable buffer and arrive up to 90s later; opens publish immediately. So
+  close-then-reopen — a project switch, a resume, a resolved away window, recovery-then-start — put
+  a second open against a slot the first still holds: 409, clock stopped, "already tracking on
+  another machine", no other machine. `LiveEntryPublisher` publishes the close too, and chains every
+  publish so the ordering is a property of the code rather than of the network.
 - **Any 2xx is success.** Narrowing `Classify` to 200/201 is what wedged the Mac client's buffer
   when an endpoint answered 202.
 - **The heartbeat is a re-POST of the same open entry.** There is no `/heartbeat` route. Miss the

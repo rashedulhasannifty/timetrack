@@ -26,9 +26,12 @@ public sealed class LiveEntryPublisher
 {
     private readonly IUploader _uploader;
     private readonly int _failureThreshold;
+    private readonly Lock _chain = new();
 
+    private Task _tail = Task.CompletedTask;
     private int _consecutiveFailures;
     private bool _isBlocked;
+    private bool _closePending;
 
     public LiveEntryPublisher(IUploader uploader, int failureThreshold = 3)
     {
@@ -65,7 +68,7 @@ public sealed class LiveEntryPublisher
         TimeTracker.Selection selection,
         TimeTracker.EntrySource source,
         CancellationToken cancellationToken = default) =>
-        SendAsync(
+        EnqueueAsync(
             new TimeEntryPayload
             {
                 Id = entryId,
@@ -79,11 +82,64 @@ public sealed class LiveEntryPublisher
             cancellationToken);
 
     /// <summary>
+    /// Tell the server a span ended, without waiting for the buffer's next drain.
+    ///
+    /// The buffer is still the authoritative record and still uploads this entry — this is purely
+    /// about latency, and the latency matters because the server allows one open entry per USER.
+    /// Until it hears the close, that slot is held: the very next open, which for a project switch
+    /// or a resolved away window is milliseconds later, is refused with a 409 the client would
+    /// report as "already tracking on another machine". There is no other machine.
+    ///
+    /// Safe to send, unlike an open payload: the server's close is monotone, so a duplicate close
+    /// arriving later from the buffer cannot re-open or alter it.
+    /// </summary>
+    public Task PublishCloseAsync(ClosedSpan span, CancellationToken cancellationToken = default) =>
+        EnqueueAsync(
+            new TimeEntryPayload
+            {
+                Id = span.EntryId,
+                ProjectId = span.Selection.ProjectId,
+                TaskId = span.Selection.TaskId,
+                StartTime = UuidV7.Iso(span.Start),
+                EndTime = UuidV7.Iso(span.End),
+                Source = TimeTracker.SourceToken(span.Source),
+                Note = span.Selection.Note,
+            },
+            cancellationToken);
+
+    /// <summary>
     /// Re-publish the running span. Called on each heartbeat tick while tracking so the server's
     /// <c>heartbeatAt</c> stays fresh and the entry keeps showing as running.
     /// </summary>
     public Task HeartbeatAsync(TrackerState.Tracking span, CancellationToken cancellationToken = default) =>
         PublishAsync(span.EntryId, span.StartedAt, span.Selection, span.Source, cancellationToken);
+
+    /// <summary>
+    /// Serialize every publish into a single chain, in call order.
+    ///
+    /// Initiating the close first is not enough on its own: two fire-and-forget HTTP calls can
+    /// complete in either order, and if the open overtakes the close then the server sees a second
+    /// open against a still-held slot — the exact 409 this is meant to prevent, now intermittent
+    /// and impossible to reproduce on demand. A chain makes the ordering a property of the code
+    /// rather than of the network.
+    /// </summary>
+    private Task EnqueueAsync(TimeEntryPayload payload, CancellationToken cancellationToken)
+    {
+        lock (_chain)
+        {
+            // Continue off the tail whether or not it faulted — one failed publish must never
+            // wedge the chain for the rest of the session.
+            var next = _tail.ContinueWith(
+                    _ => SendAsync(payload, cancellationToken),
+                    CancellationToken.None,
+                    TaskContinuationOptions.None,
+                    TaskScheduler.Default)
+                .Unwrap();
+
+            _tail = next;
+            return next;
+        }
+    }
 
     private async Task SendAsync(TimeEntryPayload payload, CancellationToken cancellationToken)
     {
@@ -91,24 +147,48 @@ public sealed class LiveEntryPublisher
         // through the buffer. What the outcome decides is whether the person is TOLD that the
         // running entry is not reaching the server, and whether the clock has to be rolled back.
         var result = await _uploader.UploadAsync(payload.ToJsonUtf8(), cancellationToken).ConfigureAwait(false);
+        var isClose = payload.EndTime is not null;
 
         switch (result)
         {
             case UploadResult.Success:
+                if (isClose)
+                {
+                    _closePending = false;
+                }
+
                 _consecutiveFailures = 0;
                 SetBlocked(false);
                 break;
 
-            case UploadResult.Permanent { Status: 409 }:
+            case UploadResult.Permanent { Status: 409 } when !_closePending:
                 // Definite, and specific. Do not touch the failure counter: the rollback the
                 // handler performs stops the clock, so there is nothing left to warn about.
                 ConflictDetected?.Invoke(payload.Id);
                 break;
 
+            case UploadResult.Permanent { Status: 409 }:
+                // A 409 while one of OUR OWN closes has not landed says nothing about another
+                // machine — most likely we are holding our own slot, because the close that would
+                // have released it failed on the way out. Accusing the user of tracking somewhere
+                // else and stopping their clock over our own failed request is the worse of the two
+                // wrong answers, so treat it as a transient failure instead.
+                //
+                // It heals without help: the buffer still carries that close, the next drain
+                // delivers it, and the following heartbeat re-publishes the open successfully.
+                goto default;
+
             default:
                 // A 5xx, an expired session, no network — from here they are the same fact: the
                 // running entry is not being recorded. One is noise; several in a row is worth
                 // saying out loud.
+                if (isClose)
+                {
+                    // Remember that the server may still believe this entry is open, so the 409 the
+                    // next open is about to get can be read for what it is.
+                    _closePending = true;
+                }
+
                 _consecutiveFailures++;
                 if (_consecutiveFailures >= _failureThreshold)
                 {

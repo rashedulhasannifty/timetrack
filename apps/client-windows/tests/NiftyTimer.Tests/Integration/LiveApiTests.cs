@@ -341,6 +341,51 @@ public sealed class LiveApiTests : IDisposable
         Assert.Equal(422, permanent.Status);
     }
 
+    /// <summary>
+    /// The regression that matters most on Windows, because it fires on a path the user takes
+    /// constantly and blames it on hardware they do not own.
+    ///
+    /// Closes go to the durable buffer and reach the server on its next drain, up to ninety seconds
+    /// later. Opens are published immediately. The server allows one open entry per USER, and
+    /// retires a previous one only if it has gone stale — which a just-heartbeated row has not. So
+    /// close-then-reopen, the shape of a project switch, a resume, a resolved away window and a
+    /// recovery, put a second open against a slot still held by the first: 409, clock stopped,
+    /// "already tracking on another machine". There is no other machine.
+    ///
+    /// The fix is to publish the close first, strictly ordered ahead of the open. This asserts the
+    /// server agrees.
+    /// </summary>
+    [ApiFact]
+    public async Task ClosingAndReopeningOnThisMachineIsNotAConflict()
+    {
+        using var session = await NewSessionAsync();
+        var uploader = new TimeEntryUploader(_http, LiveApi.BaseUrl!, session);
+        var publisher = new LiveEntryPublisher(uploader);
+
+        var conflicts = new List<string>();
+        var blocked = new List<bool>();
+        publisher.ConflictDetected += conflicts.Add;
+        publisher.BlockedChanged += blocked.Add;
+
+        var start = DateTimeOffset.UtcNow;
+        var firstId = UuidV7.Generate(start);
+        var secondId = UuidV7.Generate(start.AddMilliseconds(1));
+        var selection = new TimeTracker.Selection(null, null);
+        var switchedAt = start.AddSeconds(1);
+
+        await publisher.PublishAsync(firstId, start, selection, TimeTracker.EntrySource.Manual);
+
+        // The switch: close the running span, then immediately open its replacement.
+        await publisher.PublishCloseAsync(
+            new ClosedSpan(firstId, start, switchedAt, selection, TimeTracker.EntrySource.Manual));
+        await publisher.PublishAsync(secondId, switchedAt, selection, TimeTracker.EntrySource.Manual);
+
+        Assert.Empty(conflicts);
+        Assert.Empty(blocked);
+
+        await CloseEntryAsync(uploader, secondId, switchedAt);
+    }
+
     private static byte[] OpenEntry(string id, DateTimeOffset start) => new TimeEntryPayload
     {
         Id = id,

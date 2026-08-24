@@ -46,8 +46,12 @@ public sealed class TimeTracker
     /// <summary>
     /// Observer of each closed span. Invoked after the entry is enqueued, on the calling
     /// (UI) thread.
+    ///
+    /// Carries the whole span, not just its bounds, because the close has to be publishable: the
+    /// server's one-running-entry index is only released when it hears the entry ended, and every
+    /// close here is immediately followed by an open (project switch, resume, away resolution).
     /// </summary>
-    public event Action<DateTimeOffset, DateTimeOffset>? SpanClosed;
+    public event Action<ClosedSpan>? SpanClosed;
 
     /// <summary>
     /// Observer of each span OPENING — this is what drives the live publish so the dashboard
@@ -152,8 +156,10 @@ public sealed class TimeTracker
         string? note = null,
         string? id = null)
     {
-        Enqueue(id ?? _idGen(start), projectId, taskId, start, end, source, note);
-        SpanClosed?.Invoke(start, end);
+        var entryId = id ?? _idGen(start);
+        Enqueue(entryId, projectId, taskId, start, end, source, note);
+        SpanClosed?.Invoke(
+            new ClosedSpan(entryId, start, end, new Selection(projectId, taskId, note), source));
     }
 
     /// <summary>
@@ -222,7 +228,15 @@ public sealed class TimeTracker
         // The span is now a durable, completed record — the crash-recovery copy has nothing left
         // to protect and must go, or the next launch would offer to recover a span already banked.
         _liveSpan.Clear();
-        SpanClosed?.Invoke(tracking.StartedAt, endTime);
+
+        var safeEnd = endTime < tracking.StartedAt ? tracking.StartedAt : endTime;
+        SpanClosed?.Invoke(
+            new ClosedSpan(
+                tracking.EntryId,
+                tracking.StartedAt,
+                safeEnd,
+                tracking.Selection,
+                tracking.Source));
     }
 
     private void Enqueue(
@@ -257,6 +271,17 @@ public sealed class TimeTracker
         _buffer.Enqueue(id, BufferKind.TimeEntry, payload.ToJsonUtf8());
     }
 }
+
+/// <summary>
+/// A span that has just finished. Everything needed to write it, so an observer can publish the
+/// close as well as tally it.
+/// </summary>
+public sealed record ClosedSpan(
+    string EntryId,
+    DateTimeOffset Start,
+    DateTimeOffset End,
+    TimeTracker.Selection Selection,
+    TimeTracker.EntrySource Source);
 
 /// <summary>The tracker's state. Closed hierarchy — no other cases exist.</summary>
 public abstract record TrackerState
