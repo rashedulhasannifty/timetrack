@@ -96,20 +96,43 @@ public sealed class EventCounter : IInputCounting, IDisposable
     /// Arm the counter, through the gate. Must be called on the UI (STA) thread — the hidden
     /// window is created here and Win32 delivers <c>WM_INPUT</c> to the thread that owns it.
     /// </summary>
-    public async Task StartAsync(CancellationToken cancellationToken = default)
+    /// <returns>
+    /// Whether the counter is now armed. Deliberately does NOT throw: the caller is a synchronous
+    /// installer running on the dispatcher, so an exception here would either be swallowed as an
+    /// unobserved task fault or would take down the install of everything after it. A closed gate
+    /// leaving the counter unarmed is the correct, fail-safe outcome — samples still go out,
+    /// carrying an activity percentage of zero, which is exactly what "we were not permitted to
+    /// count" should look like.
+    /// </returns>
+    public async Task<bool> StartAsync(CancellationToken cancellationToken = default)
     {
-        if (_host is not null || _disposed)
+        if (_disposed)
         {
-            return;
+            return false;
         }
 
-        await _ackGate.WithCaptureAllowedAsync(
-            _ =>
-            {
-                Register();
-                return Task.CompletedTask;
-            },
-            cancellationToken).ConfigureAwait(true);
+        if (_host is not null)
+        {
+            return IsRegistered;
+        }
+
+        try
+        {
+            await _ackGate.WithCaptureAllowedAsync(
+                _ =>
+                {
+                    Register();
+                    return Task.CompletedTask;
+                },
+                cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception e) when (e is AckGateException or Auth.NotAuthenticatedException
+                                      or Auth.AuthException or OperationCanceledException)
+        {
+            return false;
+        }
+
+        return IsRegistered;
     }
 
     public void Dispose()

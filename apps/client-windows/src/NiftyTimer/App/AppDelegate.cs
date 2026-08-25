@@ -396,6 +396,9 @@ public sealed class AppDelegate : IDisposable
         // Arming Raw Input is itself gated (see EventCounter): subscribing to every keystroke on
         // the machine is the observation, so it is the thing that needs authorizing. It reads only
         // the message header, so no key identity ever enters this process.
+        // StartAsync reports failure rather than throwing, so this fire-and-forget cannot become an
+        // unobserved task fault. An unarmed counter means activity percentages read zero while the
+        // rest of the sample stays true — the fail-safe outcome, not a crash.
         var counter = new EventCounter(_ackGate);
         _eventCounter = counter;
         _ = counter.StartAsync(_shutdown.Token);

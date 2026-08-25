@@ -353,10 +353,18 @@ implementation traps; these are the product rules.
 - **Unsigned pilot** — SmartScreen will warn. Signing is wired as a no-op step in S4.
 - **Antivirus/EDR** — expect some enterprise friction the Mac client never had. Raw Input is far less
   likely to trip heuristics than `WH_KEYBOARD_LL`, which is one reason it is the chosen mechanism.
-- **Rate limiting** — flat 100 req/min keyed on `req.ip`, shared across every client behind one
-  NAT'd office IP. A second client fleet doubles the pressure. The Windows `BackoffPolicy` has real
-  ±25% jitter (the Swift one defaults to identity, so a whole office retries in lockstep).
-  Follow-up ticket: per-user throttler tracker on `apps/api`.
+- **Rate limiting — worse after S3, with a number.** The API throttles at a flat 100 req/min keyed
+  on `req.ip`, which a whole office shares behind one NAT. S3 gates the hardware seams as well as
+  the orchestrators (`CaptureGateGuardTests` requires it, and the re-check immediately before the
+  window-title read is worth having), so **an activity tick now costs two `GET /policy/effective`
+  instead of one** — `ActivitySampler`'s and `AppSampler`'s. Per tracking client that is ~2 req/min
+  for policy, plus 1/min heartbeat and ~0.7/min sync: call it **4 req/min while tracking**, so the
+  shared limit is reached at roughly **25 concurrently-tracking clients on one IP**, and a second
+  platform makes that arrive sooner. The Windows `BackoffPolicy` has real ±25% jitter (the Swift one
+  defaults to identity, so a whole office retries in lockstep on a 429), which stops the limit
+  becoming self-sustaining but does not raise it. Follow-up ticket: per-user throttler tracker on
+  `apps/api`. Do not "optimize" this by dropping a gate call — the gate is the product requirement;
+  the throttler is the thing that should change.
 - **`apps/api` robustness gap, unrelated to this client:** `src/infra/storage/minio.service.ts:59-64`
   does HeadBucket → catch → CreateBucket in `onModuleInit`, and crashes the API on
   `BucketAlreadyOwnedByYou`. One `catch` away from robust. Not fixed — out of scope.
