@@ -251,6 +251,12 @@ Two existing guards start doing real work in S3 — **read them before writing c
   itself, so the swap must outlive the process. The macOS client shells out to a small script for
   the same reason. A dedicated updater `.exe` is the obvious follow-up and is a second binary to
   build, sign and ship.
+- **Updates apply only when asked.** The coordinator finds them; a menu action applies them. An
+  update that installed itself would restart the app mid-task, which for a time tracker means
+  restarting the thing recording someone's day. `UpdateWiringTests` reads the IL of
+  `ApplyUpdateAsync` and fails if it stops reaching `StageAsync`/`LaunchDetachedSwap` — the client
+  shipped once in exactly that state, detecting updates it had no path to apply, with every unit
+  test green because each half worked alone.
 - **Publisher TRANSITION rule, not a signature check.** While the pilot is unsigned there is no
   signature to verify, so the rule is: unsigned may replace unsigned, a publisher may replace
   itself, and everything else — signed → unsigned especially — is refused. Skipping the check

@@ -79,6 +79,15 @@
                        Visibility="Collapsed"
                        Margin="0,10,0,0" />
 
+            <StackPanel x:Name="UpdateRow" Orientation="Horizontal" Visibility="Collapsed"
+                        Margin="0,10,0,0">
+                <TextBlock x:Name="UpdateLabel" Style="{StaticResource CaptionText}"
+                           VerticalAlignment="Center" />
+                <Button x:Name="UpdateButton" Content="Update now" Padding="6,3" Margin="8,0,0,0"
+                        Click="OnUpdate"
+                        ToolTip="Downloads and verifies the new build, then restarts. Your tracked time is unaffected." />
+            </StackPanel>
+
             <Border BorderBrush="{StaticResource BorderBrushSubtle}" BorderThickness="0,1,0,0"
                     Margin="0,10,0,0" Padding="0,8,0,0">
                 <StackPanel Orientation="Horizontal">

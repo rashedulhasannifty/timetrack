@@ -56,6 +56,12 @@ public partial class TrayPopupWindow : Window
     public event Action? QuitRequested;
 
     /// <summary>
+    /// The person asked to apply a pending update. Advisory throughout: an update is never
+    /// applied without this, and declining it costs nothing but staying on the old build.
+    /// </summary>
+    public event Action? UpdateRequested;
+
+    /// <summary>
     /// Lifts the close guard for a real shutdown. <see cref="OnClosing"/> otherwise cancels every
     /// close so that dismissing the popup does not end the process.
     /// </summary>
@@ -119,6 +125,8 @@ public partial class TrayPopupWindow : Window
 
             NoticeLabel.Text = NoticeText() ?? string.Empty;
             NoticeLabel.Visibility = NoticeText() is null ? Visibility.Collapsed : Visibility.Visible;
+
+            SyncUpdateRow();
 
             StartStopButton.Content = _viewModel.IsTracking ? "Stop" : "Start";
             StartStopButton.IsEnabled = _viewModel.IsTracking ? _viewModel.CanStop : _viewModel.CanStart;
@@ -258,5 +266,23 @@ public partial class TrayPopupWindow : Window
     {
         Hide();
         QuitRequested?.Invoke();
+    }
+
+    private void OnUpdate(object sender, RoutedEventArgs e)
+    {
+        Hide();
+        UpdateRequested?.Invoke();
+    }
+
+    /// <summary>
+    /// Show or hide the update line. Called from the view model's change notification, so the
+    /// row appears the moment a check finds something rather than at the next menu open.
+    /// </summary>
+    private void SyncUpdateRow()
+    {
+        UpdateRow.Visibility = _viewModel.UpdateAvailable ? Visibility.Visible : Visibility.Collapsed;
+        UpdateLabel.Text = _viewModel.UpdateOverdue
+            ? "An update has been waiting a while."
+            : "A new version is available.";
     }
 }

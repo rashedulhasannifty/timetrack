@@ -1,3 +1,4 @@
+using System.Reflection;
 using NiftyTimer.Update;
 using Xunit;
 
@@ -290,5 +291,80 @@ public class UpdateInstallerTests
         Assert.Contains("Move-Item -Force $Install $backup", script, StringComparison.Ordinal);
         Assert.Contains("Move-Item -Force $backup $Install", script, StringComparison.Ordinal);
         Assert.Contains("Start-Process -FilePath $Relaunch", script, StringComparison.Ordinal);
+    }
+}
+
+/// <summary>
+/// A structural guard against the hole this file's subsystem shipped with once already: the
+/// coordinator polled, the evaluator decided, the tray showed a marker — and nothing anywhere
+/// constructed the installer. The app could detect an update it had no path to apply, and every
+/// unit test passed, because each half worked perfectly on its own.
+///
+/// So this asserts the halves are actually joined. It reads the IL rather than behaviour because
+/// the alternative is standing up a WPF application, and the failure being guarded is a missing
+/// call rather than a wrong one.
+/// </summary>
+public class UpdateWiringTests
+{
+    private static System.Reflection.MethodInfo Method(string name) =>
+        typeof(NiftyTimer.App.AppDelegate).GetMethod(
+            name,
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException($"AppDelegate.{name} is gone. If it was renamed, rename it here too.");
+
+    [Fact]
+    public void TheAppCanActuallyApplyAnUpdateItFinds()
+    {
+        var apply = Method("ApplyUpdateAsync");
+
+        // The body of an async method lives in its state machine.
+        var stateMachine = apply
+            .GetCustomAttribute<System.Runtime.CompilerServices.AsyncStateMachineAttribute>()
+            ?.StateMachineType;
+
+        Assert.NotNull(stateMachine);
+
+        var called = stateMachine!
+            .GetMethod("MoveNext", System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic)!
+            .GetMethodBody()!
+            .GetILAsByteArray()!;
+
+        Assert.NotEmpty(called);
+
+        // Both halves of applying an update must be reachable from here.
+        foreach (var required in new[] { nameof(UpdateInstaller.StageAsync), nameof(UpdateInstaller.LaunchDetachedSwap) })
+        {
+            Assert.True(
+                Calls(called, apply.Module, required),
+                $"AppDelegate.ApplyUpdateAsync no longer calls {required} — the client would detect " +
+                "updates it cannot apply.");
+        }
+    }
+
+    private static bool Calls(byte[] il, System.Reflection.Module module, string methodName)
+    {
+        for (var i = 0; i < il.Length - 4; i++)
+        {
+            if (il[i] is not (0x28 or 0x6F))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (module.ResolveMethod(BitConverter.ToInt32(il, i + 1))?.Name == methodName)
+                {
+                    return true;
+                }
+            }
+            catch (Exception e) when (e is ArgumentException or BadImageFormatException)
+            {
+                // A byte that merely looked like an opcode; this is a linear scan, not a decoder.
+            }
+        }
+
+        return false;
     }
 }

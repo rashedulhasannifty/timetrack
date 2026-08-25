@@ -67,6 +67,8 @@ public sealed class AppDelegate : IDisposable
     private LocalNotifier _notifier = null!;
     private EndOfDayScheduler _endOfDay = null!;
     private UpdateCoordinator _updates = null!;
+    private UpdateInstaller _updateInstaller = null!;
+    private bool _updateInProgress;
     private GlobalHotKey? _hotKey;
 
     // The capture BUFFERS and their drains are built unconditionally, on both branches. Draining
@@ -176,6 +178,7 @@ public sealed class AppDelegate : IDisposable
         _updates = new UpdateCoordinator(
             new GitHubReleaseFeed(_http, _config.UpdateRepo),
             enabled: AppInstall.IsProduction(_config.AppId));
+        _updateInstaller = new UpdateInstaller(_http);
 
         // Registration losing to another application that already owns Ctrl+Alt+T is normal and
         // must never be fatal: the tray icon is the primary control and still works.
@@ -257,6 +260,7 @@ public sealed class AppDelegate : IDisposable
         });
 
         _popup.SignOutRequested += () => _ = SignOutAsync();
+        _popup.UpdateRequested += () => _ = ApplyUpdateAsync();
         _popup.QuitRequested += () =>
         {
             // The popup cancels its own Closing so that dismissing it never ends the process —
@@ -824,6 +828,73 @@ public sealed class AppDelegate : IDisposable
         _screenshotSync.Start();
         _activitySync.Start();
         ShowLogin();
+    }
+
+    /// <summary>
+    /// Apply a pending update: verify, stage, hand the swap to a detached script, and quit.
+    ///
+    /// **Nothing on this path may stop tracking, and nothing on it may lose time.** Every failure
+    /// leaves the app running on the current build with a notice — never a stopped clock and never
+    /// a cleared buffer. The running entry is closed before quitting, exactly as Quit does, so the
+    /// span is recorded rather than left for crash recovery to find; and the buffer is left intact
+    /// so the new build drains it on first launch.
+    ///
+    /// Deliberately requires the person to ask. An update that applied itself would restart the
+    /// app under them mid-task, which for a time tracker means restarting the thing that is
+    /// recording their day.
+    /// </summary>
+    private async Task ApplyUpdateAsync()
+    {
+        if (_updateInProgress || _updates.Status.ManifestOrNull is not { } manifest)
+        {
+            return;
+        }
+
+        _updateInProgress = true;
+        try
+        {
+            if (!_updateInstaller.CanInstall())
+            {
+                // A machine-wide or MDM-deployed install. Checked before anything is downloaded,
+                // so the person is told rather than failing halfway through a swap.
+                _viewModel.Notice = "This copy can't update itself — ask IT, or download it again.";
+                return;
+            }
+
+            _viewModel.Notice = "Downloading update…";
+            var staged = await _updateInstaller.StageAsync(manifest, _shutdown.Token).ConfigureAwait(true);
+
+            // Close the running span first. The swap script waits for this process to exit, so a
+            // span left open here would be recovered as an interrupted one on the next launch and
+            // cost the person a keep-or-discard prompt for time that was never interrupted.
+            if (_tracker.State is TrackerState.Tracking)
+            {
+                _tracker.Stop();
+            }
+
+            try
+            {
+                await _sync.FlushAsync(_shutdown.Token).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            _updateInstaller.LaunchDetachedSwap(staged);
+            _popup.AllowClose = true;
+            Application.Current.Shutdown();
+        }
+        catch (Exception e) when (e is UpdateInstallException or HttpRequestException
+                                      or OperationCanceledException)
+        {
+            // A bad digest, a refused publisher transition, a dead network. The current build keeps
+            // running and keeps recording; that is always the better of the two outcomes.
+            _viewModel.Notice = "Update failed. You're still on the current version.";
+        }
+        finally
+        {
+            _updateInProgress = false;
+        }
     }
 
     /// <summary>

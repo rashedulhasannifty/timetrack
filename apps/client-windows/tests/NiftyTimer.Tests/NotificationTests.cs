@@ -222,3 +222,37 @@ public class EndOfDaySchedulerTests
         Assert.Equal(2, notifier.Sent.Count);
     }
 }
+
+public class EndOfDayBeforeSignInTests
+{
+    private static DateTimeOffset Local(string time) => DateTimeOffset.Parse($"2026-08-25T{time}", null);
+
+    /// <summary>
+    /// The app starts its scheduler before sign-in, and its first tick fires immediately. Someone
+    /// opening their laptop at 18:30 therefore polls while signed out, the fetch fails, and — if
+    /// the day were claimed before the await — they would silently never get a summary that day
+    /// despite signing in a minute later.
+    /// </summary>
+    [Fact]
+    public async Task AFetchThatFailedWhileSignedOutDoesNotConsumeTheDay()
+    {
+        var now = Local("18:30:00");
+        var notifier = new NotifierSpy();
+        var signedIn = false;
+
+        var totals = new FakeTotalsFetcher(() => signedIn
+            ? new SelfTotals("2026-08-25", "2026-08-24", "2026-08-01", 3600, 0, 0)
+            : throw new NiftyTimer.Auth.NotAuthenticatedException());
+
+        var scheduler = new EndOfDayScheduler(notifier, totals, new TimeOnly(18, 0), () => now);
+
+        Assert.False(await scheduler.TickAsync());
+        Assert.Empty(notifier.Sent);
+
+        signedIn = true;
+        now = Local("18:31:00");
+
+        Assert.True(await scheduler.TickAsync());
+        Assert.Single(notifier.Sent);
+    }
+}

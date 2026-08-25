@@ -34,6 +34,7 @@ public sealed class EndOfDayScheduler : IDisposable
     private readonly Lock _gate = new();
 
     private DateOnly? _lastFired;
+    private bool _sending;
     private Timer? _timer;
     private bool _disposed;
 
@@ -113,14 +114,18 @@ public sealed class EndOfDayScheduler : IDisposable
 
         lock (_gate)
         {
-            if (!IsDue(localNow))
+            // Two guards, for two different problems. `_sending` stops overlapping polls both
+            // passing the check across a slow fetch and sending two summaries. The DAY is claimed
+            // only after the fetch succeeds — claiming it up front would burn it on a launch that
+            // happened before sign-in, which is exactly when the fetch fails: someone opening
+            // their laptop at 18:30 and signing in a minute later would silently never get a
+            // summary that day.
+            if (_sending || !IsDue(localNow))
             {
                 return false;
             }
 
-            // Claim the day BEFORE the await. Two polls overlapping across a slow fetch would
-            // otherwise both pass the check and send two summaries.
-            _lastFired = DateOnly.FromDateTime(localNow.DateTime);
+            _sending = true;
         }
 
         SelfTotals totals;
@@ -131,9 +136,22 @@ public sealed class EndOfDayScheduler : IDisposable
         catch (Exception e) when (e is Auth.ResourceUnavailableException or Auth.NotAuthenticatedException
                                       or Auth.AuthException or OperationCanceledException)
         {
-            // No number, no notification. A summary reading "0m" because the network was down
-            // would be worse than silence — it looks like a claim about the person's day.
+            // No number, no notification, and no day consumed. A summary reading "0m" because the
+            // network was down would be worse than silence — it reads as a claim about the
+            // person's day.
             return false;
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _sending = false;
+            }
+        }
+
+        lock (_gate)
+        {
+            _lastFired = DateOnly.FromDateTime(localNow.DateTime);
         }
 
         _notifier.Notify(
