@@ -3,7 +3,7 @@
 **Status:** Draft v2 (stack-aligned) · foundation + auth built, feature work per `docs/ROADMAP.md`
 **Owner:** [fill in]
 **Last updated:** 2026-07-12
-**Target platforms:** macOS (native menu bar client), Web (manager/admin dashboard)
+**Target platforms:** macOS (native menu bar client), Windows (native system tray client), Web (manager/admin dashboard)
 
 > As-built refinements to this spec are listed in **§7.9**. Engineering rules live in `CLAUDE.md`; the phased build plan in `docs/ROADMAP.md`.
 
@@ -11,23 +11,24 @@
 
 ## 0. Stack Decision (locked)
 
-| Layer           | Choice                                       | Version (stable as of 2026-07-11)                                                  |
-| --------------- | -------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Runtime         | Node.js                                      | **24.x LTS**                                                                       |
-| API             | NestJS                                       | **11.1.x** (v12 targets Q3 2026 — ESM/Vitest/oxlint; do **not** adopt pre-release) |
-| HTTP adapter    | Fastify (`@nestjs/platform-fastify`)         | 11.x                                                                               |
-| ORM             | Prisma                                       | **7.8.x** (TypeScript query compiler, no Rust engine)                              |
-| Database        | PostgreSQL                                   | **18**                                                                             |
-| Validation      | Zod                                          | **4.4.x**                                                                          |
-| Logging         | Pino                                         | **10.3.x** + `nestjs-pino`                                                         |
-| Frontend        | Next.js (App Router) + React                 | **16.2.x** / React 19                                                              |
-| Styling         | Tailwind CSS                                 | 4.x                                                                                |
-| Charts          | Recharts                                     | latest stable                                                                      |
-| Queue           | BullMQ + Redis                               | latest stable                                                                      |
-| Object storage  | MinIO (S3-compatible, self-hosted)           | latest stable                                                                      |
-| Client (macOS)  | Swift 6 / SwiftUI + AppKit                   | Xcode 16+, macOS 14+ target                                                        |
-| Package manager | pnpm workspaces                              | 10.x                                                                               |
-| Testing         | Vitest (unit/integration) + Playwright (e2e) | latest stable                                                                      |
+| Layer            | Choice                                       | Version (stable as of 2026-07-11)                                                  |
+| ---------------- | -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Runtime          | Node.js                                      | **24.x LTS**                                                                       |
+| API              | NestJS                                       | **11.1.x** (v12 targets Q3 2026 — ESM/Vitest/oxlint; do **not** adopt pre-release) |
+| HTTP adapter     | Fastify (`@nestjs/platform-fastify`)         | 11.x                                                                               |
+| ORM              | Prisma                                       | **7.8.x** (TypeScript query compiler, no Rust engine)                              |
+| Database         | PostgreSQL                                   | **18**                                                                             |
+| Validation       | Zod                                          | **4.4.x**                                                                          |
+| Logging          | Pino                                         | **10.3.x** + `nestjs-pino`                                                         |
+| Frontend         | Next.js (App Router) + React                 | **16.2.x** / React 19                                                              |
+| Styling          | Tailwind CSS                                 | 4.x                                                                                |
+| Charts           | Recharts                                     | latest stable                                                                      |
+| Queue            | BullMQ + Redis                               | latest stable                                                                      |
+| Object storage   | MinIO (S3-compatible, self-hosted)           | latest stable                                                                      |
+| Client (macOS)   | Swift 6 / SwiftUI + AppKit                   | Xcode 16+, macOS 14+ target                                                        |
+| Client (Windows) | C# 13 / WPF on .NET 9                        | Windows 10 1809+ target, self-contained win-x64; no runtime dependencies           |
+| Package manager  | pnpm workspaces                              | 10.x                                                                               |
+| Testing          | Vitest (unit/integration) + Playwright (e2e) | latest stable                                                                      |
 
 **Why Swift for the client:** screenshot capture (`ScreenCaptureKit`), idle detection (`CGEventSource`), and app/window sampling (`NSWorkspace`, Accessibility API) have no viable cross-platform equivalent. Electron would double resource usage and still need native shims. The client is the only non-TypeScript surface.
 
@@ -37,7 +38,7 @@
 
 ## 1. Summary
 
-An internal, self-hosted tool for tracking employee time, activity, and productivity across a 10–50 person team. Employees run a lightweight macOS menu bar app that tracks time (manual + automatic), captures periodic screenshots, samples activity levels, and surfaces idle/distraction nudges locally. Managers view aggregated data through a Next.js dashboard backed by a NestJS API.
+An internal, self-hosted tool for tracking employee time, activity, and productivity across a 10–50 person team. Employees run a lightweight macOS menu bar app or Windows system tray app that tracks time (manual + automatic), captures periodic screenshots, samples activity levels, and surfaces idle/distraction nudges locally. Managers view aggregated data through a Next.js dashboard backed by a NestJS API.
 
 ## 2. Goals
 
@@ -169,7 +170,8 @@ timetrack/
 │   ├── api/                 NestJS 11 (Fastify) — HTTP
 │   ├── worker/              NestJS standalone — BullMQ processors
 │   ├── dashboard/           Next.js 16 (App Router)
-│   └── client-macos/        Swift (outside the pnpm graph)
+│   ├── client-macos/        Swift (outside the pnpm graph)
+│   └── client-windows/      C# / .NET (outside the pnpm graph)
 ├── packages/
 │   ├── contracts/           Zod schemas + inferred types (shared api <-> dashboard)
 │   ├── db/                  Prisma schema, migrations, generated client

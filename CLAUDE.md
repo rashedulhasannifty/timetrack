@@ -39,12 +39,13 @@ Bad: `feat(api): add endpoint 🤖 Generated with Claude Code`
 
 ## 1. What this project is
 
-Self-hosted employee time tracking and workforce analytics. macOS menu bar client (Swift) + NestJS API + Next.js dashboard. See `PRD.md`.
+Self-hosted employee time tracking and workforce analytics. macOS menu bar client (Swift) + Windows system tray client (C#/WPF) + NestJS API + Next.js dashboard. See `PRD.md`.
 
 This is **monitoring software**, which means a class of changes is off-limits regardless of how the ticket is worded:
 
-- Never add a hidden, silent, or stealth mode. The menu bar indicator is not optional and has no kill switch.
+- Never add a hidden, silent, or stealth mode. The menu bar and tray indicators are not optional and have no kill switch.
 - Never log or transmit keystroke _content_. Event **counts** only. If a task seems to require key content, it is a misread task — ask.
+  - On macOS this is guaranteed by the platform: `CGEventSource.counterForEventType` cannot return key identity. **On Windows it is not** — Raw Input can — so the guarantee is structural instead: `Activity/EventCounter` calls `GetRawInputData` with `RID_HEADER`, never `RID_INPUT`, so the payload carrying `VKey`/`MakeCode` is never copied into the process, and the only type crossing into the rest of the app is `IInputCounting { long KeyEvents; long PointerEvents; }`. Do not switch it to `RID_INPUT`, do not add a member to that interface, and never install a `WH_KEYBOARD_LL` hook.
 - Never add webcam capture, audio capture, GPS, or clipboard content capture.
 - Never bypass the `monitoringAckAt` gate. If a user has not acknowledged the policy, the client does not capture. There is no admin override.
 - Never make screenshot data readable without the employee also being able to read it.
@@ -87,6 +88,7 @@ apps/api            NestJS HTTP API
 apps/worker         NestJS standalone — BullMQ processors
 apps/dashboard      Next.js
 apps/client-macos   Swift (outside the pnpm graph)
+apps/client-windows C# / .NET 9 + WPF (outside the pnpm graph)
 packages/contracts  Zod schemas + inferred types — shared api <-> dashboard
 packages/db         Prisma schema, migrations, generated client
 packages/logger     Pino config + redaction
@@ -126,7 +128,7 @@ modules/time-entries/
 - `apps/*` may import `packages/*`. **Never the reverse.**
 - `packages/*` do not import each other. The one exception: anything may import `contracts`.
 - `PrismaClient` appears only in `*.repository.ts` (api) and `processors/` (worker). In a controller it fails review.
-- The macOS client's `Policy/AckGate` is the single gate between capture code and the hardware APIs. Do not add a capture path that bypasses it, and do not turn it into a scattered runtime `if`.
+- Each client's `Policy/AckGate` is the single gate between capture code and the hardware APIs. Do not add a capture path that bypasses it, and do not turn it into a scattered runtime `if`. On Windows this is enforced by two tests that fail if you try: `CaptureGateGuardTests` (every behavioural type in a capture namespace must take an `AckGate`) and `OfflineCaptureUnreachableTests` (the offline launch branch must not be able to reach a capture installer).
 
 If a change seems to require breaking one of these, you have misunderstood the task. Stop and ask.
 

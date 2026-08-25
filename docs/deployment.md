@@ -281,7 +281,7 @@ The client is outside the pnpm graph and ships separately (`PRD §7.1.6`).
 - **Permissions:** the app requests **Screen Recording** and **Accessibility** (window titles + idle) — document the grant steps for employees; capture cannot start until granted **and** the policy is acknowledged.
 - **Auto-start:** ship as a **LaunchAgent** for login start (default **off**, `PRD §6.1`).
 - **Config:** the client is pointed at the deployment's API URL (build config or first-run setup).
-- **Updates:** Sparkle (or MDM push). The always-visible indicator and the `AckGate` are present in **every** build — there is no target that removes them.
+- **Updates:** GitHub releases, not Sparkle — that was evaluated and abandoned. Each client polls its own distribution repository's `releases/latest`, verifies the published SHA-256 sidecar, and checks the signing identity before swapping (macOS against its designated requirement; Windows against a publisher-transition rule that refuses signed → unsigned). **The two platforms publish to SEPARATE repositories.** GitHub exposes one `releases/latest` per repository, so a Windows release published alongside the macOS one would become `latest` and every installed Mac client would go silently blind to updates. Nothing in either update path can stop tracking; the strongest state is a visible warning. The always-visible indicator and the `AckGate` are present in **every** build — there is no target that removes them.
 
 ---
 
