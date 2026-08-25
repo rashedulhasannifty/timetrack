@@ -51,3 +51,18 @@ jobs:
 
       - name: Test
         run: dotnet test NiftyTimer.sln -c Release --no-build --verbosity normal
+
+      # Packaging is part of the gate, not a release-day step. The script rewrites appsettings,
+      # copies the tray icons by explicit name and refuses an API base without its /v1 suffix —
+      # all things that would otherwise fail for the first time on release day, against a build
+      # nobody had a chance to test. Dev URLs, so CI never produces something mistakable for a
+      # real artifact.
+      - name: Package
+        run: ./scripts/package-app.ps1 -Dev
+        shell: pwsh
+
+      # A no-op with a warning until a certificate exists (see SIGNING.md). Running it anyway
+      # keeps the pipeline honest: the day signing is switched on, this step is already here.
+      - name: Sign
+        run: ./scripts/sign.ps1
+        shell: pwsh
