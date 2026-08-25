@@ -124,6 +124,24 @@ export const TeamSettingsSchema = z.object({
     'Slack',
     // Fragile display name ('zoom.us') — seed the stable bundleId instead.
     'us.zoom.xos',
+    // Windows entries. The Windows client sends the lowercased executable stem as `bundleId`
+    // (`devenv`, `zoom`) and the executable's FileDescription as `appName`, and an app rule
+    // matches EITHER — so most of the list above already covers Windows, because VS Code,
+    // Word, Outlook, Teams and Slack all report the same display name on both platforms.
+    // What needs adding is the apps that exist only on Windows, plus the ones whose Windows
+    // identity matches neither an existing display name nor a macOS bundleId.
+    'Windows Terminal',
+    'windowsterminal',
+    'powershell',
+    'pwsh',
+    // Visual Studio: the display name carries the year ('Microsoft Visual Studio 2022'), so
+    // seed the stable executable stem instead — the same reasoning as Zoom on macOS.
+    'devenv',
+    // Zoom on Windows reports 'Zoom Meetings' and has no macOS bundle id, so neither entry
+    // above reaches it.
+    'zoom',
+    'Notepad++',
+    'notepad++',
   ]),
   unproductiveSites: teamSettingsFields.unproductiveSites.default([]),
   // Registrable domains — dotted-suffix match means subdomains inherit (`niftyhq.ai` covers

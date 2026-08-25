@@ -5,7 +5,12 @@ export const ActivitySampleSchema = z.object({
   id: z.uuid(),
   timestamp: z.iso.datetime(),
   appName: z.string().max(200),
-  // Stable macOS bundle identifier (e.g. 'com.microsoft.VSCode'), for rename-proof matching.
+  // Stable per-platform application identifier, for rename-proof matching. macOS sends a bundle
+  // identifier ('com.microsoft.VSCode'); Windows sends the lowercased executable filename without
+  // its extension ('code', 'devenv') — full paths vary per machine and would fragment the admin's
+  // rule picker, and most Win32 apps have no AUMID. A mixed team therefore sees both forms, which
+  // is harmless: an app rule matches this OR the display name, so one display-name rule covers
+  // both platforms.
   // Optional + nullable and additive to /v1: the shipped client omits it; a newer client sends it
   // or null. Deploy the API (which accepts it) BEFORE releasing a client that sends it.
   bundleId: z.string().max(255).nullable().optional(),
