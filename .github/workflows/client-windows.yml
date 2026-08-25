@@ -1,0 +1,68 @@
+name: Client (Windows)
+
+# The Windows client is outside the pnpm graph and needs a Windows runner, so ci.yml — every
+# job of which is `ubuntu-latest` — never compiles a line of it. This is that gate, and it is
+# a deliberate sibling of client.yml rather than a shared matrix: the two clients have nothing
+# in common at the build level (SwiftPM vs MSBuild) and coupling them would mean a Swift-only
+# change burning Windows minutes and vice versa.
+#
+# Path-filtered on purpose: Windows minutes bill at 2x on a private repo, and the client only
+# breaks when the client (or this workflow) changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/client-windows/**'
+      - '.github/workflows/client-windows.yml'
+  pull_request:
+    paths:
+      - 'apps/client-windows/**'
+      - '.github/workflows/client-windows.yml'
+
+# Same rationale as ci.yml: a new push makes the in-flight run obsolete.
+concurrency:
+  group: client-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: apps/client-windows
+
+jobs:
+  dotnet:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          # Pinned to the major the client targets. A floating version would let a runner
+          # image bump change the toolchain under us without a commit.
+          dotnet-version: '9.0.x'
+
+      # No lockfile to restore from and no third-party runtime dependencies (CLAUDE.md §2) —
+      # restore only pulls the test-time packages.
+      - name: Restore
+        run: dotnet restore NiftyTimer.sln
+
+      # The app project builds with TreatWarningsAsErrors, so this is also the lint gate.
+      - name: Build
+        run: dotnet build NiftyTimer.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test NiftyTimer.sln -c Release --no-build --verbosity normal
+
+      # Packaging is part of the gate, not a release-day step. The script rewrites appsettings,
+      # copies the tray icons by explicit name and refuses an API base without its /v1 suffix —
+      # all things that would otherwise fail for the first time on release day, against a build
+      # nobody had a chance to test. Dev URLs, so CI never produces something mistakable for a
+      # real artifact.
+      - name: Package
+        run: ./scripts/package-app.ps1 -Dev
+        shell: pwsh
+
+      # A no-op with a warning until a certificate exists (see SIGNING.md). Running it anyway
+      # keeps the pipeline honest: the day signing is switched on, this step is already here.
+      - name: Sign
+        run: ./scripts/sign.ps1
+        shell: pwsh

@@ -34,6 +34,14 @@ work, not code — see **Next**.
   (`docs/deployment.md`). macOS client distribution wired: real bundle id
   (`com.niftyitsolution.niftytimer`) + build-time-parameterized packaging + `apps/client-macos/SIGNING.md`.
 
+- **Windows client** — in progress on `feat/client-windows`, not yet merged. A native tray client
+  (C# / WPF on .NET 9) reusing `/v1` and the existing dashboard unchanged; no schema change, no API
+  change. Four slices, S1–S3 done and S4 code-complete: auth + acknowledgement gate + tray indicator
+  - manual tracking + sync; idle detection, away resolution and crash recovery; screenshots,
+    activity sampling and categorization; notifications, hotkey, updater, packaging and the dashboard
+    split. See [`apps/client-windows/ROADMAP.md`](../apps/client-windows/ROADMAP.md) for status,
+    invariants, and the end-to-end checks that still need a real machine.
+
 **Next — close the Phase 2 §11 gate (self-view ships _with_ capture, PRD §11):**
 
 1. Renew the Apple Developer membership, then sign + notarize the client on one host, and run the
@@ -94,6 +102,7 @@ These span phases; each phase plan calls out its portion.
 - **Observability** (`PRD.md §8`): `/health` + `/health/ready`, Pino JSON, `requestId` on every line.
 - **Security** (`PRD.md §8`): TLS everywhere, presigned URLs only, deny-by-default guards, resource-level authorization in services.
 - **Deployment** (`docs/deployment.md`): docker-compose on one VM, migrations on deploy, backups, client distribution.
+- **Clients** (`PRD.md §1`): two native clients over one frozen `/v1`. They mirror each other file-for-file on purpose, so a bug fixed in one points straight at its counterpart. Both distribute through GitHub releases from **separate** repositories — one `releases/latest` per repo means sharing one would blind the other's installed base to updates.
 
 ---
 

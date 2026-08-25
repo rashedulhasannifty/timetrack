@@ -23,7 +23,7 @@ Legend: **When** is the earliest milestone that needs it (phases per `docs/ROADM
 | Off-box backup target         | First deploy (before real data)                     | minutes                              | $          | Postgres dumps + MinIO mirror (payroll = system of record)   |
 | Log sink (optional)           | First deploy                                        | minutes                              | free–$     | Ship Pino JSON somewhere queryable                           |
 | SSO Identity Provider         | Phase 4                                             | depends on org                       | varies     | OIDC/SAML login (the customer's IdP)                         |
-| Sparkle update signing        | Deferred (post-Phase 1)                             | minutes                              | free       | Signed auto-updates (EdDSA keys + appcast hosting)           |
+| Client update distribution    | Done — GitHub releases, one repo per platform       | minutes                              | free       | Auto-updates gated on a published SHA-256 + signing identity |
 
 ---
 
@@ -85,11 +85,26 @@ machines that aren't yours; without them employees get a "cannot be opened" bloc
 - **Why:** enterprise login + provisioning; maps SSO identities to team/role.
 - **Plugs in:** OIDC config → `packages/config` env + `.env.example`.
 
-## Auto-updates (Sparkle) — deferred
+## Auto-updates — shipped, without Sparkle
 
-When you add signed auto-updates: generate an **EdDSA key pair** (`generate_keys`), ship the
-public key in `Info.plist` (`SUPublicEDKey`), and host a signed `appcast.xml` + release
-archives somewhere reachable. Not needed for Phase 1.
+Sparkle was evaluated and abandoned; there is no appcast and no EdDSA key pair to generate.
+Both clients read GitHub's `releases/latest` API unauthenticated and gate the swap on two
+independent checks: the SHA-256 published as a sidecar asset beside the zip, and the signing
+identity of the downloaded build compared against the running one.
+
+Two things about it are load-bearing:
+
+- **Each platform publishes to its own repository.** GitHub exposes a single `releases/latest`
+  per repo, and the shipped macOS client resolves its update through that endpoint. A Windows
+  release published into the macOS repo becomes `latest`, and every installed Mac client goes
+  silently blind to updates — fixable only by shipping a Mac update through the path that just
+  broke.
+- **The asset filenames are contract.** `NiftyTimer-pilot.zip` (macOS) and
+  `NiftyTimer-windows-pilot.zip` (Windows), each with a `.sha256` sidecar. A release missing
+  either is refused by the client rather than installed unverified.
+
+Signing is separate and still outstanding on both platforms: macOS is unnotarized, Windows is
+unsigned. See each client's `SIGNING.md`.
 
 ---
 

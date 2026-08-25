@@ -20,3 +20,20 @@ regexTarget = "match"
 regexes = [
   '''(this\.env|process\.env|env)\.[A-Z0-9_]+''',
 ]
+
+# Scoped with condition = "AND" so BOTH the path and the value must match. A path-only
+# allowlist would exempt the whole file, and a real credential added to it later would then
+# pass the scan silently — which is the failure mode an allowlist is most likely to cause.
+#
+# The value is a placeholder, not a credential: nothing in the repository defines it. The seed
+# script reads SEED_ADMIN_PASSWORD from the environment (packages/db/prisma/seed.ts) and has no
+# hardcoded fallback, so this string authenticates nothing anywhere.
+#
+# It only needs allowlisting because the CI step scans FULL history and the string is in a
+# commit that is already published; the current source uses an unmistakable placeholder instead.
+[[allowlists]]
+description = "A documented example password in the Windows client's integration-test instructions."
+condition = "AND"
+paths = ['''apps/client-windows/tests/NiftyTimer\.Tests/Integration/LiveApiTests\.cs$''']
+regexTarget = "secret"
+regexes = ['''^verify-pass-123$''']

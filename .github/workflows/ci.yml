@@ -125,12 +125,31 @@ jobs:
           echo "✓ no localhost probes"
 
       # CLAUDE.md §0 — enforced in CI as well as locally, because hooks can be skipped with --no-verify.
+      #
+      # Identity and message are scanned with DIFFERENT strictness, deliberately.
+      #
+      # The author and committer are scanned broadly, and now cover the committer too: a bare
+      # "claude" or "anthropic" in a name or email is disqualifying outright, and there is no
+      # legitimate reason for one to appear there.
+      #
+      # The message BODY needs the narrower patterns, because a commit that changes the
+      # engineering rules has to be able to name the file it changed. The previous broad pattern
+      # rejected `docs: ... CLAUDE.md gains ...` — a correct commit describing a correct change —
+      # and a guard that fires on correct work is one that gets disabled rather than fixed. These
+      # patterns match `.husky/commit-msg`; keep the two in step.
       - name: Scan commit messages and authors
         run: |
           RANGE="origin/${{ github.base_ref || 'main' }}..HEAD"
-          if git log --format='%an <%ae>%n%B' $RANGE | grep -Eiq 'claude|anthropic|co-authored-by:.*(copilot|cursor|gpt|gemini)|generated with'; then
-            echo "::error::AI attribution found in commit author or message. See CLAUDE.md §0."
-            git log --format='%h %an <%ae> %s' $RANGE
+
+          if git log --format='%an <%ae>%n%cn <%ce>' $RANGE | grep -Eiq 'claude|anthropic|copilot|cursor|codex'; then
+            echo "::error::AI attribution found in a commit author or committer. See CLAUDE.md §0."
+            git log --format='%h %an <%ae> | %cn <%ce>' $RANGE
+            exit 1
+          fi
+
+          if git log --format='%B' $RANGE | grep -Eiq 'co-authored-by:[[:space:]]*(claude|anthropic|copilot|cursor|codex|gpt|gemini)|generated with .*(claude|copilot|cursor|ai)|claude code|anthropic\.com|🤖 generated|ai-assisted'; then
+            echo "::error::AI attribution found in a commit message. See CLAUDE.md §0."
+            git log --format='%h %s' $RANGE
             exit 1
           fi
 

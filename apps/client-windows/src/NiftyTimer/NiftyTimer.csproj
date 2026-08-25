@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>NiftyTimer</RootNamespace>
+    <AssemblyName>NiftyTimer</AssemblyName>
+    <Version>0.1.0</Version>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Do NOT set InvariantGlobalization. WPF reads the current input language through
+         CultureInfo when keyboard focus moves, so in invariant mode the very first Tab between
+         two text fields throws CultureNotFoundException on the UI thread and kills the process —
+         it took an end-to-end sign-in to find, because nothing below the UI layer touches it.
+         Wire formats stay culture-independent the honest way: every format/parse call that
+         reaches the API passes CultureInfo.InvariantCulture explicitly. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pure helpers that exist so a hardware seam can be tested without the hardware — the
+         multipart body builder, the app-snapshot shaping, the monitor ordering — are `internal`
+         rather than `public`: they are testing seams, not API, and making them public to reach
+         them from the test project would invite production callers. -->
+    <InternalsVisibleTo Include="NiftyTimer.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WPF's implicit-using set deliberately omits System.IO, because System.Windows.Shapes.Path
+         would collide with System.IO.Path. This client draws no shapes and touches the filesystem
+         constantly (durable buffer, token store, caches), so trade the import the other way once
+         here rather than repeating `using System.IO;` in a dozen files. -->
+    <Using Include="System.IO" />
+    <Using Remove="System.Windows.Shapes" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Copied by explicit name, not a glob: the tray icon is the always-visible indicator
+         (PRD §4.2), so a renamed or missing file must fail the build rather than produce an app
+         that silently starts without one. TrayIconController throws if either is unreadable. -->
+    <Content Include="Resources\tray-idle.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\tray-tracking.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

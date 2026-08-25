@@ -45,7 +45,7 @@ const PRIMARY: Item[] = [
 // leaves the shell; the marketing nav there offers "Open dashboard" as the way back.
 const SECONDARY: Item[] = [
   { href: '/me', label: 'My time', Icon: IconClock },
-  { href: '/install', label: 'Install the Mac app', Icon: IconDownload },
+  { href: '/install', label: 'Install the app', Icon: IconDownload },
 ];
 
 function isActive(pathname: string, item: Item): boolean {
