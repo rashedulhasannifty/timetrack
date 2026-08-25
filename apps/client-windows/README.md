@@ -4,33 +4,37 @@ Native Windows client. C# / .NET 9 + WPF, tray-resident, talking to the same `/v
 dashboard as the macOS client.
 
 - **Design doc** — the reasoning behind the port: [`docs/superpowers/specs/2026-08-25-windows-client-design.md`](../../docs/superpowers/specs/2026-08-25-windows-client-design.md)
-- **[`ROADMAP.md`](./ROADMAP.md)** — what is built, what is left in S3/S4, and how to pick it up on
-  another machine. **Start there if you are continuing the work.**
+- **[`ROADMAP.md`](./ROADMAP.md)** — what is built, what still needs a real machine, and how to
+  pick it up elsewhere. **Start there if you are continuing the work.**
+- **[`SIGNING.md`](./SIGNING.md)** — what the unsigned pilot costs, and how to switch signing on.
 
 This directory is **outside the pnpm graph**, exactly like `apps/client-macos`. `pnpm-workspace.yaml`
 enumerates apps explicitly, so nothing here is built by `pnpm build` and nothing here may import
 from `packages/*` — the wire contract is mirrored by hand and kept honest by tests.
 
-## Status — slice 3 of 4
+## Status — all four slices complete
 
-Shipped: sign-in, the acknowledgement gate, the always-visible tray indicator, manual tracking,
-the durable offline buffer, sync, idle detection with the away keep/discard prompt, crash
-recovery, and — new in S3 — periodic screenshots, activity sampling and categorization.
+Shipped: sign-in, the acknowledgement gate, the always-visible tray indicator, manual and auto
+tracking, the durable offline buffer, sync, idle detection with the away keep/discard prompt,
+crash recovery, periodic screenshots, activity sampling and categorization, local nudges, a global
+hotkey, self-updating, and packaging.
 
-**S3 is the first slice that captures anything**, so it is worth being precise about what that
-means here. The client counts input events, it never reads them: `Activity/EventCounter` asks
-Windows for the raw-input message _header_ and nothing else, so key identity is not merely
-ignored, it is never copied into the process. See "counts, never content" below.
+**On counts versus content, precisely.** The client counts input events, it never reads them:
+`Activity/EventCounter` asks Windows for the raw-input message _header_ and nothing else, so key
+identity is not merely ignored, it is never copied into the process. See "counts, never content"
+below.
 
-| Slice | Contents                                                           | State       |
-| ----- | ------------------------------------------------------------------ | ----------- |
-| S1    | Auth · AckGate · tray indicator · manual timer · buffer + sync     | done        |
-| S2    | Idle detection · away keep/discard · crash recovery                | done        |
-| S3    | Screenshots · activity sampling · categorizer                      | done        |
-| S4    | Notifications · hotkey · updater · packaging · signing · dashboard | not started |
+| Slice | Contents                                                           | State |
+| ----- | ------------------------------------------------------------------ | ----- |
+| S1    | Auth · AckGate · tray indicator · manual timer · buffer + sync     | done  |
+| S2    | Idle detection · away keep/discard · crash recovery                | done  |
+| S3    | Screenshots · activity sampling · categorizer                      | done  |
+| S4    | Notifications · hotkey · updater · packaging · signing · dashboard | done  |
 
-Built but deliberately not wired yet: `ManualNudgeMonitor` (needs the S4 toast notifier) and
-`DailyTotalAccumulator` (feeds the S4 end-of-day summary). Both are tested; neither runs.
+Everything is code-complete. What is left is the end-to-end checks that need a real machine and a
+published release — see [`ROADMAP.md`](./ROADMAP.md). In particular nobody has yet run a real
+screen grab, and row 9 (type a known string, grep every outbound body and local file) is the only
+empirical demonstration of counts-not-content.
 
 ## What gets captured, and what cannot be
 
@@ -84,8 +88,22 @@ dotnet test  NiftyTimer.sln
 dotnet run --project src/NiftyTimer      # talks to 127.0.0.1:3001 by default
 ```
 
-`TreatWarningsAsErrors` is on for both projects, so the build is also the lint gate. CI runs the
-same three commands on `windows-latest` (`.github/workflows/client-windows.yml`).
+`TreatWarningsAsErrors` is on for both projects, so the build is also the lint gate. CI runs build,
+test, package and sign on `windows-latest` (`.github/workflows/client-windows.yml`) — packaging is
+part of the gate rather than a release-day step, so it cannot fail for the first time against a
+build nobody had a chance to test.
+
+To produce a distributable build:
+
+```powershell
+./scripts/package-app.ps1        # production URLs; -Dev for localhost
+./scripts/sign.ps1               # no-op with a warning until a certificate exists
+./scripts/release-assets.ps1     # NiftyTimer-windows-pilot.zip + .sha256 sidecar
+```
+
+Both asset filenames are contract — the update feed refuses a release missing either — and
+`PackagingContractTests` asserts the scripts still agree with the constants the client compiles
+against.
 
 To run against a local stack: `docker compose -f infra/docker-compose.yml up -d`, `pnpm dev`,
 `pnpm db:seed`, then launch the client. `src/NiftyTimer/appsettings.json` already points at
@@ -124,9 +142,14 @@ Consequences worth knowing, since each replaces a package someone will reach for
   `System.Security.Cryptography.ProtectedData`.
 - **The tray icon** is hand-rolled over `Shell_NotifyIcon` (`App/TrayIconController.cs`) rather
   than taking a tray-icon package.
-- **Win32 signatures** are hand-written `DllImport`s. The surface is small in S1; if S3's capture
-  work makes it large, that is the moment to discuss adopting CsWin32 (a build-time source
-  generator, no runtime assembly) — ask first.
+- **Win32 signatures** are hand-written `DllImport`s throughout — raw input, GDI capture, monitor
+  enumeration, DPAPI, the tray, the hotkey. The surface stayed small enough that CsWin32 (a
+  build-time source generator, no runtime assembly) was never adopted; if it grows much further,
+  that is the conversation to have — ask first.
+- **Toasts are tray balloons**, not `Windows.UI.Notifications`. WinRT does not resolve from
+  `net9.0-windows` — the same target-framework bump declined for screen capture — and a real toast
+  would additionally need an AUMID registered by a Start Menu shortcut the unsigned pilot has no
+  installer to create. Windows 10 and 11 render balloons through the Action Center regardless.
 
 ## Things that will bite you
 

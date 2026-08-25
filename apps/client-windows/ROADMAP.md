@@ -1,22 +1,22 @@
 # Nifty Timer for Windows — build plan and progress
 
-Working status for the Windows client, written so the next two slices can be picked up on a
-different machine without re-deriving anything.
+Working status for the Windows client. All four slices are code-complete; what is left is the
+end-to-end checks that need a real machine, listed at the bottom.
 
 - **Design doc (the "why"):** [`docs/superpowers/specs/2026-08-25-windows-client-design.md`](../../docs/superpowers/specs/2026-08-25-windows-client-design.md)
 - **Client guide (the "how", day to day):** [`README.md`](./README.md)
 - **This file (the "where we are"):** what is done, what is left, and what must not be broken.
 
-| Slice  | Contents                                                           | State          |
-| ------ | ------------------------------------------------------------------ | -------------- |
-| **S1** | Auth · AckGate · tray indicator · manual timer · buffer + sync     | ✅ **done**    |
-| **S2** | Idle detection · away keep/discard · crash recovery                | ✅ **done**    |
-| **S3** | Screenshots · activity sampling · categorizer                      | ✅ **done**    |
-| **S4** | Notifications · hotkey · updater · packaging · signing · dashboard | ⬜ not started |
+| Slice  | Contents                                                           | State       |
+| ------ | ------------------------------------------------------------------ | ----------- |
+| **S1** | Auth · AckGate · tray indicator · manual timer · buffer + sync     | ✅ **done** |
+| **S2** | Idle detection · away keep/discard · crash recovery                | ✅ **done** |
+| **S3** | Screenshots · activity sampling · categorizer                      | ✅ **done** |
+| **S4** | Notifications · hotkey · updater · packaging · signing · dashboard | ✅ **done** |
 
 Branch: `feat/client-windows`. Nothing is merged to `main` yet.
-Current: **331 tests pass offline** (13 integration skipped). Release build clean,
-`TreatWarningsAsErrors` on.
+Current: **379 tests pass offline** (13 integration skipped). Release build clean,
+`TreatWarningsAsErrors` on. The root `pnpm lint && typecheck && test && build` is green too.
 
 ---
 
@@ -43,8 +43,9 @@ and cannot touch a released install's buffers.
 
 Twelve of the thirteen skipped tests are `Integration/LiveApiTests`. They drive the **real** HTTP
 clients against a running API — everything else stops at the `IUploader` / `IPolicyProvider` seam, so
-without these the request construction itself is never executed. Worth the setup before shipping
-either remaining slice.
+without these the request construction itself is never executed. Worth the setup before the pilot
+goes out. Note they do **not** yet cover the S3 upload paths (`screenshots` multipart and
+`activity-samples/batch`), which are exercised only against fakes.
 
 ```powershell
 docker compose -f infra/docker-compose.yml up -d
@@ -96,13 +97,15 @@ Also done in S1's tooling commit, so **S4 does not need to redo them**: `.github
 | `UI/`            | `TimePromptWindow` (+ `TimePrompt`, `TimePrompts`, `OneShotResolution`)                                                                                                                                                                                             |
 | `Notifications/` | `ILocalNotifier` — interface only; the toast implementation is S4                                                                                                                                                                                                   |
 
-**Built but deliberately not wired.** Both are tested and inert; wire them in S4:
+**Both of these were resolved in S4, in opposite directions:**
 
-- `ManualNudgeMonitor` — needs the S4 toast notifier. Wiring it against a no-op notifier would mean
-  a live 15s timer with zero observable effect.
-- `DailyTotalAccumulator` — feeds the S4 end-of-day summary. It uses the machine's **local**
-  calendar, which is only acceptable because nothing it produces reaches the API. Routing it into a
-  request body or showing it as an authoritative total breaks the `APP_TIMEZONE` rule.
+- `ManualNudgeMonitor` is now wired, manual mode only, behind the gate, driven by the same poller
+  through `NudgeSignalAdapter` rather than a second timer over the same idle scalar.
+- `DailyTotalAccumulator` was **deleted**. It tallied against the machine's local calendar while
+  the product calendar is `Asia/Dhaka`, so the end-of-day toast it fed would have contradicted the
+  dashboard for anyone not on Dhaka time — its own documentation predicted exactly that. The
+  summary reads `reports/my-totals` instead, which arrives with the day boundary already resolved
+  server-side, and the accumulator had no remaining consumer.
 
 ### Defects found and fixed while building S2 — do not reintroduce
 
@@ -220,92 +223,63 @@ Two existing guards start doing real work in S3 — **read them before writing c
 - `OfflineCaptureUnreachableTests` IL-scans `AppDelegate.ProceedOffline` for installer calls. **Add
   each new installer to its `Installers` array** — there is a `// S3 adds ... here` marker.
 
-## ⬜ S4 — Notifications, hotkey, updater, packaging, dashboard
+## ✅ S4 — Notifications, hotkey, updater, packaging, dashboard (done)
 
-### Client
+| Area             | Files                                                                                                                              |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `Notifications/` | `LocalNotifier` (tray balloon + per-id de-duplication), `EndOfDayScheduler`                                                        |
+| `App/`           | `GlobalHotKey`, `MenuViewModel.ToggleTracking`, `AppConfig.UpdateRepo`, tray balloon on `TrayIconController`                       |
+| `Tracking/`      | `NudgeSignalAdapter` (rides the existing poller rather than starting a second timer)                                               |
+| `Update/`        | `AppVersion`, `UpdateStatus` (+ `ReleaseManifest`, `UpdateEvaluator`), `GitHubReleaseFeed`, `UpdateInstaller`, `UpdateCoordinator` |
+| `scripts/`       | `package-app.ps1`, `package-dev-app.ps1`, `sign.ps1`, `release-assets.ps1`                                                         |
+| repo             | `SIGNING.md`, dashboard `/install` split + `WindowsDownloadPlate`, contracts seed defaults, PRD/CLAUDE.md/docs                     |
 
-- `Notifications/LocalNotifier` — implement `ILocalNotifier` with Windows toasts via an AUMID
-  registered by a Start Menu shortcut created at install. Four nudges: idle, forgot-to-start (10 min),
-  end-of-day summary (18:00), distraction. Denied/disabled notifications are a silent no-op; the
-  distraction nudge alone falls back to a visible in-app window.
-- **Wire `ManualNudgeMonitor`** (manual mode only, behind the gate, alongside `ManualIdleCoordinator`)
-  and **`DailyTotalAccumulator`** (already fed by `TimeTracker.SpanClosed`; read it for the summary).
-- `App/GlobalHotKey` — `RegisterHotKey`, **Ctrl+Alt+T**.
-- `Update/` — `UpdateFeed` polls `https://api.github.com/repos/{repo}/releases/latest` unauthenticated
-  every 6h plus on menu-open throttled to 30 min (no token ships in a binary on employee laptops);
-  `rateLimited` collapses silently to unknown-or-current. `UpdateEvaluator` escalates
-  available → overdue after a 7-day grace. `UpdateInstaller` gates the swap on **two independent
-  checks**: published SHA-256, and Authenticode publisher identity matching the running module's —
-  the unsigned pilot enforces SHA-256 only and refuses a signed→unsigned or cross-publisher
-  transition. Gated on `AppInstall.IsProduction`. **Nothing in the update path may stop tracking**;
-  the strongest state is a visible warning. Swap mechanism: detached updater `.exe` →
-  wait-for-PID → rename aside → move in → rollback → relaunch.
+**Decisions taken during S4, with reasons — do not silently reverse them:**
 
-### Packaging
-
-- `scripts/package-app.ps1` — self-contained `dotnet publish -r win-x64`; rewrite `ApiBaseUrl` /
-  `DashboardUrl` / app id into `appsettings.json`; default to **production**
-  (`https://timer.niftyitsolution.com/v1` — the `/v1` suffix is load-bearing, Caddy routes `/v1/*`);
-  copy tray icons **by explicit name** so a rename is a build failure.
-- `scripts/package-dev-app.ps1` — side-by-side "Nifty Timer Dev" with its own `%LOCALAPPDATA%`
-  container and localhost URLs. Sharing state is _lossy_, not untidy: both processes drain the same
-  buffers.
-- `scripts/sign.ps1` — `signtool sign /fd SHA256 /tr <rfc3161> /td SHA256`. **No-op with a warning
-  when no cert env vars are present**, so the pipeline works today and switches on later without
-  rework. `SIGNING.md` documents the cutover and the SmartScreen reputation caveat.
-- `scripts/release-assets.ps1` — `NiftyTimer-windows-pilot.zip` + `.sha256` sidecar. **Both names are
-  contract** (`UpdateFeed` refuses a release with no matching digest). Tag `vX.Y.Z-windows-pilot`.
-- Add `./scripts/package-app.ps1` as a third step to `.github/workflows/client-windows.yml` (the
-  workflow already exists and runs build + test).
+- **Tray balloons, not WinRT toasts.** Verified rather than assumed: `Windows.UI.Notifications` does
+  not resolve from `net9.0-windows`, so real toasts would cost the same TFM bump declined for screen
+  capture, plus an AUMID registered by a Start Menu shortcut the unsigned pilot has no installer to
+  create. Windows 10/11 render balloons through the Action Center anyway. Cost: no action buttons,
+  body truncated at 255 characters. All four nudges are informational.
+- **`DailyTotalAccumulator` deleted, not wired.** See S2 above — the end-of-day figure comes from
+  `reports/my-totals` so it agrees with the dashboard for everyone, not only for people on Dhaka
+  time.
+- **`RegisterHotKey`, never the input counter.** Recognising a chord through raw input would mean
+  inspecting keys, which is the capability `EventCounter` exists to lack. Losing the registration to
+  an app that already owns Ctrl+Alt+T degrades to no hotkey; it never throws at launch.
+- **PowerShell swap script, not a second updater binary.** A running executable cannot replace
+  itself, so the swap must outlive the process. The macOS client shells out to a small script for
+  the same reason. A dedicated updater `.exe` is the obvious follow-up and is a second binary to
+  build, sign and ship.
+- **Publisher TRANSITION rule, not a signature check.** While the pilot is unsigned there is no
+  signature to verify, so the rule is: unsigned may replace unsigned, a publisher may replace
+  itself, and everything else — signed → unsigned especially — is refused. Skipping the check
+  entirely would make the updater the mechanism for downgrading a signed install later.
 
 ### ⚠️ Distribution — the Mac-regression trap
 
-**Publish Windows assets to a separate GitHub distribution repo.** GitHub has one `releases/latest`
-per repo; the Mac client's `UpdateFeed` requires an asset literally named `NiftyTimer-pilot.zip` on
-it, and `MacDownloadPlate.DOWNLOAD_URL` resolves through it. A Windows release published to the same
-repo becomes `latest` → **every installed Mac client goes silently blind to updates and the dashboard
-download button 404s.**
+**Windows assets publish to a separate GitHub repository** (`Chishty-NiftyIT/niftytimer-windows`,
+set in `AppConfig.UpdateRepo` and `WindowsDownloadPlate`). GitHub has one `releases/latest` per
+repo; the Mac client's `UpdateFeed` requires an asset named `NiftyTimer-pilot.zip` on it, and
+`MacDownloadPlate.DOWNLOAD_URL` resolves through it. A Windows release published to the same repo
+becomes `latest` → **every installed Mac client goes silently blind to updates and the dashboard
+download button 404s** — fixable only by shipping a Mac update through the path that just broke.
 
-`GitHubReleaseFeed.repo` is already injectable and `release-assets.sh` already takes `--repo`, so a
-separate repo needs **zero change to already-shipped Mac clients**.
+**The repository does not exist yet.** `UpdateFeed` and `WindowsDownloadPlate` are written against
+the configured name, and both filenames are asserted by `PackagingContractTests`, but nobody has
+confirmed the feed resolves or that the Mac path survives a real Windows release. Checklist row 10
+stays open.
 
-### Dashboard (`apps/dashboard`)
+### Verification
 
-Several strings become factually wrong the day Windows ships.
-
-- **New** `src/app/install/windows/page.tsx`. `src/app/install/page.tsx` is macOS-only end to end
-  (`xattr -dr com.apple.quarantine`, Gatekeeper "Open Anyway", `pgrep` troubleshooting) and **cannot
-  be genericised in place** — move it to `src/app/install/macos/page.tsx` and make `/install` a short
-  platform chooser. `/install` must keep working; it is already advertised. Reuse
-  `MarketingChrome.tsx` (`Section`, `SpecPlate`, `Prose`) and `CopyCommand.tsx`, both
-  platform-neutral. Cover the SmartScreen "More info → Run anyway" flow for the unsigned pilot.
-- **New** `src/components/marketing/WindowsDownloadPlate.tsx` alongside `MacDownloadPlate.tsx`, with
-  its own `DOWNLOAD_URL` pointing at the Windows distribution repo. Do **not** change
-  `MacDownloadPlate`'s constants.
-- `src/app/page.tsx` — metadata description; "Self-hosted · macOS + web" → "macOS, Windows + web";
-  the "Download for Mac" CTA → two buttons; the "A menu bar app on each Mac…" copy; the
-  `['Client', 'Swift 6, SwiftUI and AppKit — macOS 14…']` spec row; and the
-  `<Section eyebrow="Download" title="macOS client — pilot build">` heading.
-- `src/app/(app)/overview/page.tsx:353,361` — "Numbers appear here as soon as someone starts the Mac
-  app" and the "Install the Mac app" button → platform-neutral, pointing at `/install`.
-- `src/app/(app)/admin/settings/SettingsForm.tsx:187` — "Applies to every macOS client on this team."
-  → "every client on this team".
-- **`TeamSettings` seed defaults are macOS-shaped** (`packages/contracts/src/team-settings.ts:94-127`:
-  `Terminal`, `iTerm2`, `Warp`, `Ghostty`, `Xcode`, `us.zoom.xos`), so Windows users get everything
-  `NEUTRAL` until an admin edits the lists. Add Windows equivalents (`windowsterminal`, `powershell`,
-  `devenv`, `code`, `zoom`, `teams`, `outlook`, `explorer`). Contracts change → **its own commit**;
-  it does not alter any request/response shape.
-
-### Docs
-
-- `PRD.md` — §1 target platforms; §2 stack table (add the Windows client row); new §7.1.8
-  `apps/client-windows` tree; §13 the single-device assumption now has a stated resolution (409 UX).
-- `CLAUDE.md` — §1 add the counts-not-content structural note for Raw Input; §3 layout add
-  `apps/client-windows` (Swift and C#, both outside the pnpm graph).
-- `docs/ROADMAP.md` — add the Windows workstream.
-- `docs/deployment.md:284` and `docs/PREREQUISITES.md:26,88-92` still describe **Sparkle/appcast,
-  which was abandoned** — correct them to the GitHub-releases + SHA-256 + signature-check mechanism
-  actually shipped, and document both platforms.
+- The packaging pipeline was **run**, not just written: `package-app.ps1 -Dev` produces a
+  self-contained build carrying the stamped `appsettings.json` and both tray icons;
+  `release-assets.ps1` produces the zip and a sidecar whose digest matches `Get-FileHash`.
+- `sign.ps1` with no certificate exits 0 with a warning, as the pipeline requires.
+- `PackagingContractTests` reads the scripts and asserts they still agree with the constants the
+  client compiles against. That failure mode is otherwise invisible: publishing succeeds, the
+  release looks correct, and every installed client simply stops seeing updates.
+- Root `pnpm lint && typecheck && test && build` green; all three `/install` routes build.
 
 ---
 
@@ -350,7 +324,16 @@ implementation traps; these are the product rules.
   closed, no network), starting here **succeeds** and silently closes the Mac's entry; the Mac then
   keeps heartbeating a closed row and shows "tracking" while accruing nothing. Inherent to a second
   platform without a schema change.
-- **Unsigned pilot** — SmartScreen will warn. Signing is wired as a no-op step in S4.
+- **Unsigned pilot** — SmartScreen warns once on first run. `scripts/sign.ps1` is wired in and is a
+  no-op with a warning until a certificate exists; see `SIGNING.md` for the cutover, including the
+  fact that a signing-identity change **cannot** be delivered by the updater (the transition rule
+  refuses it, by design) and needs a manual re-download.
+- **The Windows distribution repo does not exist yet**, so the update feed has never resolved
+  against a real release and checklist row 10 — "the Mac path is not regressed" — is unverified.
+- **No integration coverage for the S3 upload paths.** `LiveApiTests` covers time entries, idle
+  events, auth and policy against a real API; the `screenshots` multipart POST and
+  `activity-samples/batch` are exercised only against fakes. The multipart field-order rule in
+  particular is asserted on a pure builder, not against `@fastify/multipart`.
 - **Antivirus/EDR** — expect some enterprise friction the Mac client never had. Raw Input is far less
   likely to trip heuristics than `WH_KEYBOARD_LL`, which is one reason it is the chosen mechanism.
 - **Rate limiting — worse after S3, with a number.** The API throttles at a flat 100 req/min keyed
@@ -369,9 +352,9 @@ implementation traps; these are the product rules.
   does HeadBucket → catch → CreateBucket in `onModuleInit`, and crashes the API on
   `BucketAlreadyOwnedByYou`. One `catch` away from robust. Not fixed — out of scope.
 
-## Working agreements for the remaining slices
+## Working agreements
 
-- **One slice, one PR.** Spec → plan → PR, as S1 and S2 were done.
+- **One slice, one PR.** Spec → plan → PR, as S1–S4 were done.
 - **Commit scope is `client`** (CLAUDE.md §0 enum). Type ∈ `feat | fix | refactor | perf | test | docs | chore | build | ci`.
 - **No AI attribution anywhere** — not in the author, committer, message, trailers, branch name, tag,
   PR title, or PR body. The commit-msg hook enforces it; CI re-enforces it.
@@ -396,32 +379,42 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 ## End-to-end checklist (design doc §Verification)
 
-Against a local stack with a dev-packaged client. Status as of S2:
+Against a local stack with a dev-packaged client. Status as of S4:
 
-| #   | Check                                                                              | Status                     |
-| --- | ---------------------------------------------------------------------------------- | -------------------------- |
-| 1   | Gate closed — un-acknowledged user produces no capture at all                      | ⬜ **needs a manual pass** |
-| 2   | Gate opens — ack succeeds, `AuditLog` row written, capture begins next tick        | ⬜ **needs a manual pass** |
-| 3   | Offline asymmetry — manual works, capture structurally absent, buffer drains       | ✅ verified live           |
-| 4   | Round-trip — live entry ticks, samples and screenshots arrive grouped              | ⬜ **needs a manual pass** |
-| 5   | Idle — lock past threshold, away marked immediately, prompt defaults to discard    | ⬜ **needs a manual pass** |
-| 6   | Crash recovery — kill mid-span, relaunch, Keep closes at `lastAlive`               | ⬜ **needs a manual pass** |
-| 7   | 409 path — start on Mac then Windows, clear message, buffer not wedged             | ✅ verified live           |
-| 8   | Sign-out — buffers flush then clear; second user uploads nothing of the first's    | unit-tested, not in-app    |
-| 9   | Counts-not-content — type a known string, grep every request body and local file   | ⬜ **needs a manual pass** |
-| 10  | Mac not regressed — update feed and download URL still resolve after a Win release | S4                         |
+| #   | Check                                                                              | Status                      |
+| --- | ---------------------------------------------------------------------------------- | --------------------------- |
+| 1   | Gate closed — un-acknowledged user produces no capture at all                      | ⬜ **needs a manual pass**  |
+| 2   | Gate opens — ack succeeds, `AuditLog` row written, capture begins next tick        | ⬜ **needs a manual pass**  |
+| 3   | Offline asymmetry — manual works, capture structurally absent, buffer drains       | ✅ verified live            |
+| 4   | Round-trip — live entry ticks, samples and screenshots arrive grouped              | ⬜ **needs a manual pass**  |
+| 5   | Idle — lock past threshold, away marked immediately, prompt defaults to discard    | ⬜ **needs a manual pass**  |
+| 6   | Crash recovery — kill mid-span, relaunch, Keep closes at `lastAlive`               | ⬜ **needs a manual pass**  |
+| 7   | 409 path — start on Mac then Windows, clear message, buffer not wedged             | ✅ verified live            |
+| 8   | Sign-out — buffers flush then clear; second user uploads nothing of the first's    | unit-tested, not in-app     |
+| 9   | Counts-not-content — type a known string, grep every request body and local file   | ⬜ **needs a manual pass**  |
+| 10  | Mac not regressed — update feed and download URL still resolve after a Win release | ⬜ **blocked: no repo yet** |
+| 11  | Nudges — idle, forgot-to-start and the 18:00 summary appear as real notifications  | ⬜ **needs a manual pass**  |
+| 12  | Hotkey — Ctrl+Alt+T starts and stops from another app, and loses gracefully        | ⬜ **needs a manual pass**  |
+| 13  | Update — a staged build verifies, swaps, relaunches, and rolls back on failure     | ⬜ **needs a manual pass**  |
 
-**These are the honest gaps, and they are the real remaining risk in S3.** Every state machine,
-store, uploader, scheduler and guard is unit-tested — 331 tests — and the two structural guards are
-mutation-verified. But three things in this slice cannot be tested without a display and a person:
+**These are the honest gaps, and they are the real remaining risk.** Every state machine, store,
+uploader, scheduler, parser and guard is unit-tested — 379 tests — the two structural guards are
+mutation-verified, and the packaging pipeline has actually been run end to end. But several things
+cannot be tested without a display, a person, and a published release:
 
-- **Rows 1, 2, 4 and 9 are new with S3.** Row 9 in particular is the only thing that
-  _empirically_ demonstrates invariant 3 rather than arguing it from the code: type a known string
-  into Notepad while capturing traffic, then grep every outbound body and every file under
-  `%LOCALAPPDATA%\NiftyTimer-dev\` for it. Zero hits. That result belongs in the S3 PR description.
-- **`WindowsDisplayGrabber` is build-verified only**, matching the macOS `ScreenCaptureKitGrabber`.
-  Nobody has yet confirmed a real two-monitor grab, the DPI handling on a scaled display, or the
-  JPEG size against the 10 MB cap.
-- **Rows 5 and 6 carry over from S2** and are still open.
+- **Row 9 is the important one.** It is the only thing that demonstrates counts-not-content
+  _empirically_ rather than by reading the source: type a known string into Notepad while capturing
+  traffic, then grep every outbound body and every file under `%LOCALAPPDATA%\NiftyTimer-dev\` for it. Zero hits.
+  That result belongs in the PR description, which is where CLAUDE.md §1 expects it reviewed.
+- **`WindowsDisplayGrabber` has never been executed.** Nobody has confirmed a real two-monitor
+  grab, the DPI handling on a scaled display, or the JPEG size against the server's 10 MB cap. One
+  specific thing to watch: it reads `DESKTOPHORZRES` for true pixel dimensions, which is belt and
+  braces if WPF is already per-monitor DPI aware — but if that assumption is wrong on a scaled
+  monitor, `BitBlt` reads past the logical surface and produces a partly black frame that looks
+  exactly like a DRM artifact.
+- **Row 10 is blocked, not pending.** The Windows distribution repository does not exist, so the
+  update feed has never resolved and the claim that the Mac path is unaffected is reasoning rather
+  than evidence.
+- **Rows 5 and 6 have been open since S2.**
 
-Each is a few minutes at a real machine. None of them is blocked on anything.
+None of these is blocked on anything except a machine and a repository.
