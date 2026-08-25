@@ -18,7 +18,7 @@ namespace NiftyTimer.Tests.Integration;
 /// <code>
 /// $env:NIFTYTIMER_E2E_API      = "http://127.0.0.1:3001/v1"
 /// $env:NIFTYTIMER_E2E_EMAIL    = "admin@example.com"
-/// $env:NIFTYTIMER_E2E_PASSWORD = "verify-pass-123"
+/// $env:NIFTYTIMER_E2E_PASSWORD = "&lt;your seeded password&gt;"
 /// dotnet test
 /// </code>
 /// </summary>
