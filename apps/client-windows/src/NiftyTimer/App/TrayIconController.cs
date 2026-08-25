@@ -34,6 +34,10 @@ public sealed class TrayIconController : IDisposable
     private const int NifMessage = 0x1;
     private const int NifIcon = 0x2;
     private const int NifTip = 0x4;
+    private const int NifInfo = 0x10;
+
+    /// <summary>Balloon icon: informational. NIIF_NONE would render no glyph at all.</summary>
+    private const int NiifInfo = 0x1;
 
     private const uint ImageIcon = 1;
     private const uint LrLoadFromFile = 0x0010;
@@ -118,6 +122,39 @@ public sealed class TrayIconController : IDisposable
         }
     }
 
+    /// <summary>
+    /// Show a balloon notification from the tray icon. Windows 10 and 11 render these through the
+    /// Action Center, so they look and behave like ordinary toasts.
+    ///
+    /// This is deliberately not the WinRT <c>ToastNotificationManager</c> route. That would need a
+    /// target-framework bump to pull in the Windows SDK projections — the same cost declined for
+    /// screen capture — plus an Application User Model ID registered by a Start Menu shortcut,
+    /// which the unsigned pilot has no installer to create. The cost of this choice is no action
+    /// buttons and a body the shell truncates past 255 characters; every nudge this client sends
+    /// is informational, and the one that wants interaction (the distraction nudge) already falls
+    /// back to a real in-app window.
+    ///
+    /// Best-effort by design. A user who has turned notifications off, or a shell that simply
+    /// declines, is a silent no-op — never an error, and never a change to what is tracked.
+    /// </summary>
+    public void ShowBalloon(string title, string body)
+    {
+        if (!_added || _disposed)
+        {
+            return;
+        }
+
+        var data = NewData(NifInfo);
+        data.szInfoTitle = Truncate(title, 63);
+        data.szInfo = Truncate(body, 255);
+        data.dwInfoFlags = NiifInfo;
+
+        Shell_NotifyIcon(NimModify, ref data);
+    }
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..max];
+
     public void Dispose()
     {
         if (_disposed)
@@ -190,6 +227,11 @@ public sealed class TrayIconController : IDisposable
         uCallbackMessage = WmTrayCallback,
         hIcon = _icons.GetValueOrDefault(_state),
         szTip = _tooltip,
+
+        // The ByValTStr fields must never be null: marshalling a null fixed-length buffer throws,
+        // and it would throw from inside the tray update path — the one path that must not fail.
+        szInfo = string.Empty,
+        szInfoTitle = string.Empty,
     };
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -223,8 +265,15 @@ public sealed class TrayIconController : IDisposable
         return IntPtr.Zero;
     }
 
+    /// <summary>
+    /// The full modern <c>NOTIFYICONDATAW</c>. Every field is present even though only some are
+    /// used, because <c>cbSize</c> is how the shell decides which layout it was handed — a struct
+    /// truncated after <c>szTip</c> reports a size matching no documented version, and the shell
+    /// is entitled to reject it. <c>TrayIconLayoutTests</c> pins the offsets, since a wrong one
+    /// here is not a compile error or an exception but a tray entry built from misread memory.
+    /// </summary>
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct NotifyIconData
+    internal struct NotifyIconData
     {
 #pragma warning disable SA1307 // Win32 struct field names must match the native layout.
         public int cbSize;
@@ -236,6 +285,25 @@ public sealed class TrayIconController : IDisposable
 
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
         public string szTip;
+
+        public int dwState;
+        public int dwStateMask;
+
+        /// <summary>The balloon body. The shell truncates past 255 characters.</summary>
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string szInfo;
+
+        /// <summary>A union of uTimeout and uVersion; the shell ignores the timeout on
+        /// Windows Vista and later, which is every version this client supports.</summary>
+        public int uVersion;
+
+        /// <summary>The balloon title. The shell truncates past 63 characters.</summary>
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+        public string szInfoTitle;
+
+        public int dwInfoFlags;
+        public Guid guidItem;
+        public IntPtr hBalloonIcon;
 #pragma warning restore SA1307
     }
 

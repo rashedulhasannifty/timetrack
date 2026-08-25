@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using NiftyTimer.Activity;
 using NiftyTimer.Auth;
 using NiftyTimer.Capture;
+using NiftyTimer.Notifications;
 using NiftyTimer.Policy;
 using NiftyTimer.Projects;
 using NiftyTimer.Reports;
@@ -11,6 +12,7 @@ using NiftyTimer.Storage;
 using NiftyTimer.Sync;
 using NiftyTimer.Tracking;
 using NiftyTimer.UI;
+using NiftyTimer.Update;
 
 namespace NiftyTimer.App;
 
@@ -30,6 +32,9 @@ public sealed class AppDelegate : IDisposable
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(60);
+
+    /// <summary>How long someone may be present and not tracking before the nudge fires.</summary>
+    private const int ForgotToStartSeconds = 600;
 
     /// <summary>
     /// The UI dispatcher, captured at construction — i.e. on the UI thread. Read directly rather
@@ -59,7 +64,10 @@ public sealed class AppDelegate : IDisposable
     private SyncEngine _sync = null!;
     private LiveEntryPublisher _livePublisher = null!;
     private MenuViewModel _viewModel = null!;
-    private DailyTotalAccumulator _dailyTotal = null!;
+    private LocalNotifier _notifier = null!;
+    private EndOfDayScheduler _endOfDay = null!;
+    private UpdateCoordinator _updates = null!;
+    private GlobalHotKey? _hotKey;
 
     // The capture BUFFERS and their drains are built unconditionally, on both branches. Draining
     // what was already captured is not capturing — an offline launch must still be able to deliver
@@ -88,6 +96,11 @@ public sealed class AppDelegate : IDisposable
     private EventCounter? _eventCounter;
     private ActivitySampler? _activitySampler;
     private ScreenshotScheduler? _screenshotScheduler;
+
+    // Manual-mode only, and gated with the rest of the observation: it reads the same continuous
+    // idle scalar. It never stops a clock, but it does watch the person, which is what decides
+    // where it may be installed.
+    private ManualNudgeMonitor? _nudgeMonitor;
 
     private DispatcherTimer? _heartbeat;
     private DispatcherTimer? _refresh;
@@ -129,7 +142,6 @@ public sealed class AppDelegate : IDisposable
             Path.Combine(support, "live-span.json"),
             () => _session.UserId);
         _tracker = new TimeTracker(_buffer, liveSpan: _liveSpanStore);
-        _dailyTotal = new DailyTotalAccumulator();
 
         _imageBuffer = new ImageBufferStore(Path.Combine(support, "screenshots"));
         _activityStore = new ActivitySampleStore(Path.Combine(support, "activity"));
@@ -156,8 +168,23 @@ public sealed class AppDelegate : IDisposable
         _tray = new TrayIconController(Path.Combine(AppContext.BaseDirectory, "Resources"));
         _popup = new TrayPopupWindow(_viewModel, _config.DashboardUri, BuildStamp.Describe(_config.AppId));
 
+        // The notifier rides the tray icon that already exists, so there is nothing extra to
+        // register with the shell and nothing to fail at launch.
+        _notifier = new LocalNotifier(_tray);
+        _endOfDay = new EndOfDayScheduler(_notifier, _totalsClient);
+
+        _updates = new UpdateCoordinator(
+            new GitHubReleaseFeed(_http, _config.UpdateRepo),
+            enabled: AppInstall.IsProduction(_config.AppId));
+
+        // Registration losing to another application that already owns Ctrl+Alt+T is normal and
+        // must never be fatal: the tray icon is the primary control and still works.
+        _hotKey = new GlobalHotKey(() => OnUi(() => _viewModel.ToggleTracking()));
+
         WireEvents();
 
+        _endOfDay.Start();
+        _updates.Start();
         _sync.Start();
         _screenshotSync.Start();
         _activitySync.Start();
@@ -193,6 +220,10 @@ public sealed class AppDelegate : IDisposable
         _activitySampler?.Dispose();
         _eventCounter?.Dispose();
 
+        _hotKey?.Dispose();
+        _endOfDay?.Dispose();
+        _updates?.Dispose();
+
         _shutdown.Cancel();
 
         _sync?.Dispose();
@@ -206,8 +237,24 @@ public sealed class AppDelegate : IDisposable
 
     private void WireEvents()
     {
-        _tray.Activated += () => _popup.ShowNearTray();
+        _tray.Activated += () =>
+        {
+            _popup.ShowNearTray();
+
+            // Throttled to once every thirty minutes inside the coordinator, so opening the menu
+            // repeatedly cannot spend the unauthenticated GitHub rate limit.
+            _ = _updates.CheckOnMenuOpenAsync(_shutdown.Token);
+        };
         _tray.ContextMenuRequested += () => _popup.ShowNearTray();
+
+        // An out-of-date build keeps tracking. The strongest thing this may do is put a marker on
+        // the tray and a line in the menu — never stop the clock, never block a start.
+        _updates.StatusChanged += status => OnUi(() =>
+        {
+            _viewModel.UpdateAvailable = status.ManifestOrNull is not null;
+            _viewModel.UpdateOverdue = status.IsOverdue;
+            UpdateTray();
+        });
 
         _popup.SignOutRequested += () => _ = SignOutAsync();
         _popup.QuitRequested += () =>
@@ -225,7 +272,6 @@ public sealed class AppDelegate : IDisposable
 
         _tracker.SpanClosed += span =>
         {
-            _dailyTotal.Add(span.Start, span.End);
             RefreshPendingCount();
 
             // Publish the close immediately, ahead of the buffer's next drain. Every close here is
@@ -488,6 +534,21 @@ public sealed class AppDelegate : IDisposable
 
         ISignalReceiver receiver = manual;
 
+        if (!settings.AutoStartOnLogin)
+        {
+            // Manual mode only. In auto mode the coordinator starts the clock itself, so a
+            // "you have been active without tracking" nudge would be telling the person about a
+            // situation the app just created and is about to resolve.
+            var nudges = new ManualNudgeMonitor(
+                _notifier,
+                thresholdSeconds,
+                ForgotToStartSeconds,
+                isTracking: () => _tracker.State is TrackerState.Tracking,
+                isPaused: () => _tracker.State is TrackerState.Paused);
+            _nudgeMonitor = nudges;
+            receiver = new FanOutSignalReceiver(manual, new NudgeSignalAdapter(nudges, thresholdSeconds));
+        }
+
         if (settings.AutoStartOnLogin)
         {
             var auto = new AutoTrackingCoordinator(
@@ -673,9 +734,15 @@ public sealed class AppDelegate : IDisposable
     private void UpdateTray()
     {
         _tray.State = _viewModel.IsTracking ? TrayState.Tracking : TrayState.Idle;
-        _tray.Tooltip = _viewModel.IsTracking
+
+        var status = _viewModel.IsTracking
             ? $"Nifty Timer — tracking {_viewModel.ElapsedLabel}"
             : "Nifty Timer — not tracking";
+
+        // The update marker rides the tooltip rather than changing the icon. The icon carries one
+        // meaning — whether the clock is running — and overloading it with a second would make the
+        // always-visible indicator ambiguous about the thing it exists to show.
+        _tray.Tooltip = _viewModel.UpdateOverdue ? status + " (update available)" : status;
     }
 
     /// <summary>
@@ -735,7 +802,6 @@ public sealed class AppDelegate : IDisposable
         _activityStore.Clear();
         _projectCache.Clear();
         _liveSpanStore.Clear();
-        _dailyTotal.Reset();
 
         if (userId is not null)
         {
@@ -744,6 +810,12 @@ public sealed class AppDelegate : IDisposable
         }
 
         _session.Logout();
+
+        // Both hold per-person state: the notifier suppresses a repeat of the same nudge, and the
+        // scheduler remembers that today's summary was sent. Carried over, the next person on this
+        // machine would silently lose a nudge because the previous one saw it.
+        _notifier.Reset();
+        _endOfDay.Reset();
 
         _viewModel.Reset();
         UpdateTray();
@@ -807,6 +879,7 @@ public sealed class AppDelegate : IDisposable
         _manualIdleCoordinator?.Deactivate();
         _autoCoordinator = null;
         _manualIdleCoordinator = null;
+        _nudgeMonitor = null;
 
         _awayPrompt.DismissIfShowing();
 

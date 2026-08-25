@@ -112,3 +112,34 @@ public sealed class ManualNudgeMonitor
         }
     }
 }
+
+/// <summary>
+/// Adapts <see cref="ManualNudgeMonitor"/> to the signal edge, so it rides the same poller as
+/// everything else rather than starting a second timer over the same idle scalar.
+///
+/// Sleep and lock are treated as an immediate long idle rather than being ignored. A machine that
+/// has just woken has plainly not been "active without tracking", so the forgot-to-start stretch
+/// has to break — otherwise closing the lid for an hour would be indistinguishable from working.
+/// </summary>
+public sealed class NudgeSignalAdapter : ISignalReceiver
+{
+    private readonly ManualNudgeMonitor _monitor;
+    private readonly int _awaySeconds;
+    private readonly Func<DateTimeOffset> _clock;
+
+    public NudgeSignalAdapter(
+        ManualNudgeMonitor monitor,
+        int awaySeconds,
+        Func<DateTimeOffset>? clock = null)
+    {
+        _monitor = monitor;
+        _awaySeconds = awaySeconds;
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
+    }
+
+    public void Tick(int idleSeconds) => _monitor.Tick(idleSeconds, _clock());
+
+    public void MarkAway() => _monitor.Tick(_awaySeconds, _clock());
+
+    public void Resume() => _monitor.Reset();
+}

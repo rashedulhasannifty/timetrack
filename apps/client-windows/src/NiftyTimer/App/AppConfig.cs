@@ -29,6 +29,18 @@ public sealed record AppConfig
     public string DashboardUrl { get; init; } = "http://127.0.0.1:3000";
 
     /// <summary>
+    /// The GitHub repository the update feed reads.
+    ///
+    /// **Deliberately a SEPARATE repository from the macOS client.** GitHub has one
+    /// <c>releases/latest</c> per repo, and the shipped Mac client resolves its update through
+    /// that endpoint. A Windows release published alongside it would become <c>latest</c> and every
+    /// installed Mac client would go silently blind to updates — a regression that could only be
+    /// fixed by shipping a Mac update, through the very path that had just broken.
+    /// </summary>
+    [JsonPropertyName("updateRepo")]
+    public string UpdateRepo { get; init; } = "Chishty-NiftyIT/niftytimer-windows";
+
+    /// <summary>
     /// The API base as a <see cref="Uri"/>, guaranteed to end in a slash.
     ///
     /// This matters: <c>new Uri(base, "projects")</c> against

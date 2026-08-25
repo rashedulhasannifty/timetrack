@@ -28,6 +28,8 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     private SelfTotals? _totals;
     private int _pendingCount;
     private bool _liveSyncBlocked;
+    private bool _updateAvailable;
+    private bool _updateOverdue;
     private string? _notice;
     private string _note = string.Empty;
     private DateTimeOffset? _displayStart;
@@ -98,6 +100,23 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     {
         get => _liveSyncBlocked;
         set => Set(ref _liveSyncBlocked, value);
+    }
+
+    /// <summary>
+    /// A newer build has been published. Advisory only — nothing in the update path may stop,
+    /// block or alter tracking, so this drives a menu line and nothing else.
+    /// </summary>
+    public bool UpdateAvailable
+    {
+        get => _updateAvailable;
+        set => Set(ref _updateAvailable, value);
+    }
+
+    /// <summary>The newer build has been available past the grace period. Adds a tray marker.</summary>
+    public bool UpdateOverdue
+    {
+        get => _updateOverdue;
+        set => Set(ref _updateOverdue, value);
     }
 
     /// <summary>A one-line message for the user; null when there is nothing to say.</summary>
@@ -195,6 +214,24 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         _tracker.Start(_selection?.ProjectId, _selection?.TaskId, NoteOrNull());
         TrackingStarted?.Invoke();
         RaiseTrackingState();
+    }
+
+    /// <summary>
+    /// What the global hotkey does: start if we can, stop if we are running, and otherwise do
+    /// nothing at all. Silence is the right answer for the third case — the hotkey fires from
+    /// whatever application has focus, so a person who pressed it before signing in should not be
+    /// interrupted by an error they did not ask for.
+    /// </summary>
+    public void ToggleTracking()
+    {
+        if (CanStop)
+        {
+            Stop();
+        }
+        else if (CanStart)
+        {
+            Start();
+        }
     }
 
     public void Stop()
