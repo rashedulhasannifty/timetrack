@@ -2,6 +2,10 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getSession } from '../lib/session';
 import { DOWNLOAD_URL, MacDownloadPlate } from '../components/marketing/MacDownloadPlate';
+import {
+  DOWNLOAD_URL as WINDOWS_DOWNLOAD_URL,
+  WindowsDownloadPlate,
+} from '../components/marketing/WindowsDownloadPlate';
 import { LimitsLedger } from '../components/marketing/RecordsTable';
 import {
   MarketingChrome,
@@ -14,7 +18,7 @@ import {
 export const metadata: Metadata = {
   title: 'Nifty Timer — self-hosted time tracking',
   description:
-    'Self-hosted time tracking and workforce analytics for teams of 10–50. The macOS client cannot run hidden and cannot read what you type.',
+    'Self-hosted time tracking and workforce analytics for teams of 10–50. The macOS and Windows clients cannot run hidden and cannot read what you type.',
 };
 
 /**
@@ -37,16 +41,16 @@ export default async function HomePage() {
       <header className="grid items-start gap-x-16 gap-y-10 py-16 lg:grid-cols-[minmax(0,1fr)_24rem] lg:py-24">
         <div className="flex flex-col gap-6">
           <p className="text-caption text-accent font-mono tracking-[0.14em] uppercase">
-            Self-hosted · macOS + web
+            Self-hosted · macOS, Windows + web
           </p>
           <h1 className="font-display text-[clamp(2.5rem,6vw,4rem)] leading-[1.03] font-semibold tracking-[-0.035em] text-balance">
             Time tracking your team can audit.
           </h1>
           <p className="text-text-secondary max-w-[54ch] text-[1.125rem] leading-relaxed text-pretty">
             Workforce analytics for teams of 10–50, running entirely on your own infrastructure. The
-            macOS client cannot be hidden, cannot read what you type, and shows every person exactly
-            what was recorded about them — because those are constraints in the code, not promises
-            in a policy document.
+            client cannot be hidden, cannot read what you type, and shows every person exactly what
+            was recorded about them — because those are constraints in the code, not promises in a
+            policy document.
           </p>
           <div className="flex flex-wrap gap-3 pt-2">
             <Link
@@ -60,6 +64,12 @@ export default async function HomePage() {
               className="border-separator bg-surface-raised hover:border-text-secondary shadow-e1 rounded-full border px-5 py-2.5 text-[0.9375rem] font-semibold transition-colors"
             >
               Download for Mac
+            </a>
+            <a
+              href={WINDOWS_DOWNLOAD_URL}
+              className="border-separator bg-surface-raised hover:border-text-secondary shadow-e1 rounded-full border px-5 py-2.5 text-[0.9375rem] font-semibold transition-colors"
+            >
+              Download for Windows
             </a>
             <Link
               href="/install"
@@ -127,8 +137,8 @@ export default async function HomePage() {
       <Section eyebrow="What it does" title="Three surfaces, one record">
         <Prose>
           <p className="text-text-secondary mb-6">
-            A menu bar app on each Mac, a web dashboard for managers, and an admin surface for the
-            people who have to answer for it.
+            A menu bar or system tray app on each machine, a web dashboard for managers, and an
+            admin surface for the people who have to answer for it.
           </p>
         </Prose>
         <div className="flex flex-col">
@@ -202,7 +212,10 @@ export default async function HomePage() {
             ['Dashboard', 'Next.js App Router, React 19'],
             ['Jobs', 'BullMQ on Redis — rollups, retention, email summaries'],
             ['Storage', 'MinIO, or any S3-compatible endpoint'],
-            ['Client', 'Swift 6, SwiftUI and AppKit — macOS 14 Sonoma or newer, Apple Silicon'],
+            [
+              'Clients',
+              'Swift 6, SwiftUI and AppKit on macOS 14+; C# 13 and WPF on .NET 9 for Windows 10 1809+',
+            ],
             ['Deploy', 'Docker Compose behind a Caddy TLS proxy'],
           ]}
         />
@@ -210,6 +223,10 @@ export default async function HomePage() {
 
       <Section eyebrow="Download" title="macOS client — pilot build">
         <MacDownloadPlate />
+      </Section>
+
+      <Section eyebrow="Download" title="Windows client — pilot build">
+        <WindowsDownloadPlate />
       </Section>
     </MarketingChrome>
   );

@@ -16,7 +16,7 @@ import { BrandMark } from '../ui/BrandMark';
  *
  * The nav reads the session purely to pick its last link: a signed-in visitor gets "Open
  * dashboard" instead of "Sign in", which is the only route back to the app once the
- * sidebar's "Install the Mac app" has dropped them out here. Reading the cookie makes both
+ * sidebar's "Install the app" has dropped them out here. Reading the cookie makes both
  * public pages dynamic — acceptable for a self-hosted dashboard, and the pages hold no
  * per-user data beyond that one label. An expired access token reads as signed-out and
  * shows "Sign in"; that lands on /login, which is a correct, if slightly long, way home.

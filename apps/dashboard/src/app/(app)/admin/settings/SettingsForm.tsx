@@ -183,9 +183,7 @@ export function SettingsForm({
       <Card padding="md" className="flex flex-col gap-4">
         <div>
           <h2 className="text-text text-[15px] font-semibold">Screenshots</h2>
-          <p className="text-text-secondary text-caption">
-            Applies to every macOS client on this team.
-          </p>
+          <p className="text-text-secondary text-caption">Applies to every client on this team.</p>
         </div>
         <Toggle
           name="screenshotsEnabled"

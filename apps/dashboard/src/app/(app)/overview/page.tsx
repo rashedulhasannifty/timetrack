@@ -350,15 +350,15 @@ function EmptyOverview() {
       </span>
       <span className="text-h2 font-extrabold tracking-[-0.02em]">No time tracked yet</span>
       <span className="text-text-secondary max-w-[400px] text-[13.5px] leading-relaxed text-pretty">
-        Numbers appear here as soon as someone starts the Mac app. Invite your team, or start your
-        own timer to see how it works.
+        Numbers appear here as soon as someone starts the app. Invite your team, or start your own
+        timer to see how it works.
       </span>
       <div className="mt-1.5 flex gap-2.5">
         <Button href="/admin/users" variant="primary" size="md">
           Invite your team
         </Button>
         <Button href="/install" variant="secondary" size="md">
-          Install the Mac app
+          Install the app
         </Button>
       </div>
     </div>
