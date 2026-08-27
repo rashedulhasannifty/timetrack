@@ -262,6 +262,21 @@ final class MenuViewModel: ObservableObject {
         sync()
     }
 
+    /// Re-derive `phase`/`startedAt` (and therefore the menu-bar indicator) from `TimeTracker`'s
+    /// CURRENT state, without starting, stopping or re-filing anything.
+    ///
+    /// Every manual affordance on this type calls `sync()` itself, but auto tracking writes
+    /// straight to `TimeTracker` from `AutoTrackingCoordinator`, so nothing here ran: the
+    /// always-visible indicator stayed idle for the whole login-to-first-idle AUTO span and would
+    /// have stayed "tracking" after an auto-stop. This is the seam that lets that path refresh
+    /// the UI. The display anchor is dropped because an auto transition always opens or closes a
+    /// real span — there is no worked-time continuation to preserve (that is Discard's job, and
+    /// `continueClockAfterDiscard` owns it).
+    func refreshFromTracker() {
+        displayStartOverride = nil
+        sync()
+    }
+
     func resume() {
         guard isReady else { return }
         displayStartOverride = nil

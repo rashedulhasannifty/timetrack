@@ -472,4 +472,47 @@ final class MenuViewModelTests: XCTestCase {
         vm.query = ""
         XCTAssertEqual(vm.filteredChoices.count, 3) // Acme, Acme›Design, Beta
     }
+
+    // Regression: auto tracking writes straight to `TimeTracker` from `AutoTrackingCoordinator`,
+    // so no method on this type ever ran when an AUTO span opened or closed. `sync()` — the only
+    // thing that moves `phase`/`startedAt` and fires `onPhaseChanged` — is reachable only from
+    // the manual affordances, so the always-visible menu-bar indicator read "idle" for the whole
+    // login-to-first-idle AUTO span, and would have read "tracking" after an auto-stop. Wire the
+    // two the way AppDelegate does and assert the indicator follows the real tracker state.
+    func testAutoTrackingStartAndStopDriveTheMenuBarPhase() {
+        let spy = BufferSpy()
+        let clock = MutableClock(Date(timeIntervalSince1970: 1_700_000_000))
+        var n = 0
+        let tracker = TimeTracker(buffer: spy,
+                                  clock: clock.read,
+                                  idGen: { _ in n += 1; return "id-\(n)" })
+        let vm = MenuViewModel(tracker: tracker,
+                               dashboardURL: URL(string: "http://localhost:3000")!,
+                               openURL: { _ in }, onSignIn: {}, onSignOut: {}, onQuit: {},
+                               selectionStore: makeIsolatedStore())
+        vm.markReady()
+        var iconStates: [Bool] = []
+        vm.onPhaseChanged = { isTracking, _ in iconStates.append(isTracking) }
+
+        let coordinator = AutoTrackingCoordinator(
+            tracker: tracker,
+            buffer: spy,
+            thresholdSeconds: 300,
+            currentSelection: { vm.selectionForAuto },
+            presentAwayPrompt: { _, _ in },
+            clock: clock.read,
+            onTrackingStateChanged: { [weak vm] in vm?.refreshFromTracker() })
+
+        coordinator.activate()                     // login: the AUTO span opens
+        XCTAssertEqual(vm.phase, .tracking)
+        XCTAssertEqual(vm.startedAt, clock.now)
+
+        clock.advance(300)
+        coordinator.tick(idleSeconds: 300)         // idle threshold: the AUTO span auto-stops
+        XCTAssertEqual(vm.phase, .idle)
+        XCTAssertNil(vm.startedAt)
+
+        XCTAssertEqual(iconStates, [true, false],
+                       "the menu-bar indicator must follow both auto transitions, not just the start")
+    }
 }

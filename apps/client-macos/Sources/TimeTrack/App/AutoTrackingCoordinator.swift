@@ -16,6 +16,10 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
     private let clock: () -> Date
     private let idGen: (Date) -> String
     private let onIdleThresholdCrossed: (Int) -> Void
+    /// Fired after EVERY auto open/close so the UI can re-read `TimeTracker`. Defaulted: this
+    /// type is built at two call sites and in a dozen tests, and a required parameter on a shared
+    /// client type breaks all of them in the same task.
+    private let onTrackingStateChanged: () -> Void
 
     init(
         tracker: TimeTracker,
@@ -25,7 +29,8 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
         presentAwayPrompt: @escaping (_ minutes: Int, _ resolve: @escaping (AwayResolution) -> Void) -> Void,
         clock: @escaping () -> Date = Date.init,
         idGen: @escaping (Date) -> String = { UUIDv7.generate(now: $0) },
-        onIdleThresholdCrossed: @escaping (Int) -> Void = { _ in }
+        onIdleThresholdCrossed: @escaping (Int) -> Void = { _ in },
+        onTrackingStateChanged: @escaping () -> Void = {}
     ) {
         self.tracker = tracker
         self.buffer = buffer
@@ -35,6 +40,7 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
         self.clock = clock
         self.idGen = idGen
         self.onIdleThresholdCrossed = onIdleThresholdCrossed
+        self.onTrackingStateChanged = onTrackingStateChanged
         self.monitor.delegate = self
     }
 
@@ -70,10 +76,12 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
     func idleMonitorShouldStartTracking(_ monitor: IdleMonitor) {
         let s = currentSelection()
         tracker.start(projectId: s.projectId, taskId: s.taskId, source: .auto)
+        onTrackingStateChanged()
     }
 
     func idleMonitor(_ monitor: IdleMonitor, shouldStopTrackingAt awayStart: Date) {
         tracker.stop(at: awayStart)
+        onTrackingStateChanged()
     }
 
     func idleMonitor(_ monitor: IdleMonitor, didBecomeAwayForSeconds seconds: Int) {
