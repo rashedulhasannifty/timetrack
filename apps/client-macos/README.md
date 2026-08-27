@@ -58,3 +58,9 @@ that lands the item in `.requiresApproval`, which the client never re-registers 
 
 Registration only runs while the app is open, so flipping the toggle reaches an employee
 at their **next** login, not the one already in progress. The settings page says so.
+
+`SMAppService.mainApp` registers **whichever bundle is running**, and `status` is
+per-bundle. On a machine with both `Nifty Timer.app` and `Nifty Timer Dev.app` installed,
+each one sees itself as unregistered and will register itself — so opening the dev build
+against a policy with auto-start on puts a _second_ entry in Login Items. Check there
+after testing with both installed.
