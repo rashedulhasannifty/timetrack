@@ -43,11 +43,18 @@ Local notifications ask separately at first launch; denied is a silent no-op
 ## Auto-start
 
 `autoStartOnLogin` is a **team setting** (`TeamSettings`, default off, edited by an admin
-in the dashboard) that rides `EffectivePolicy` to the client. It selects the tracking
-mode, not a login item: on, `Tracking/WorkspaceObserver` starts tracking on active-app
-and auto-stops on idle; off, tracking is manual and `Tracking/ManualNudgeMonitor` runs
-instead. Exactly one idle poller per mode.
+in the dashboard) that rides `EffectivePolicy` to the client and does two things.
 
-The app does not register itself as a macOS login item — there is no `SMAppService` call
-and no LaunchAgent in the bundle. Launching at login is the user's own System Settings
-choice today.
+It selects the tracking mode: on, `Tracking/WorkspaceObserver` starts tracking on
+active-app and auto-stops on idle; off, tracking is manual and
+`Tracking/ManualNudgeMonitor` runs instead. Exactly one idle poller per mode.
+
+And it owns the login item (`Policy/LoginItem`), because a menu bar app cannot start
+tracking on a Mac that never opened it. On, the app registers itself through
+`SMAppService.mainApp`; off, it unregisters. There is no LaunchAgent in the bundle and
+nothing hidden: the item shows in System Settings › General › Login Items, macOS
+announces it when it is added, and an employee who switches it off there is left alone —
+that lands the item in `.requiresApproval`, which the client never re-registers over.
+
+Registration only runs while the app is open, so flipping the toggle reaches an employee
+at their **next** login, not the one already in progress. The settings page says so.

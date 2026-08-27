@@ -49,6 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let timeTracker: TimeTracker
     private let menuViewModel: MenuViewModel
     private let liveSpanStore: LiveSpanStore
+    /// Owns whether the app itself opens at login. `MainAppLoginItem` stores nothing and reads
+    /// `SMAppService` only when asked, so constructing it here touches no system state.
+    private let loginItem: LoginItemControlling = MainAppLoginItem()
     private let liveEntryPublisher: LiveEntryPublisher
     private let userIdBox: UserIdBox
 
@@ -310,6 +313,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 // Seed the box before anything reads it — the gate refreshes it from here on.
                 livePolicy.update(from: policy.settings)
+                // `autoStartOnLogin` picks the tracking MODE below, but it cannot pick a mode on
+                // a Mac that never opened the app — so the same setting also owns the login item.
+                // Deliberately outside AckGate: this launches the app, it captures nothing.
+                LoginItemSync.apply(autoStartOnLogin: policy.settings.autoStartOnLogin, to: loginItem)
                 await becomeReady()
                 await startAutoTrackingIfEnabled(policy)   // online, !ackRequired: capture is allowed
                 await startScreenshotCaptureIfEnabled(policy)
