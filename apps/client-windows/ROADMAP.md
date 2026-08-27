@@ -15,7 +15,7 @@ end-to-end checks that need a real machine, listed at the bottom.
 | **S4** | Notifications · hotkey · updater · packaging · signing · dashboard | ✅ **done** |
 
 Merged to `main` (PR #167, `c4642f2`); released as 0.6.0.
-Current: **381 tests pass offline** (14 integration skipped — 13 need a live API, 1 needs a real
+Current: **394 tests pass offline** (14 integration skipped — 13 need a live API, 1 needs a real
 display). Release build clean, `TreatWarningsAsErrors` on. The root
 `pnpm lint && typecheck && test && build` is green too.
 
@@ -419,9 +419,10 @@ Against a local stack with a dev-packaged client. Status as of S4:
 | 11  | Nudges — idle, forgot-to-start and the 18:00 summary appear as real notifications  | ⬜ **needs a manual pass**  |
 | 12  | Hotkey — Ctrl+Alt+T starts and stops from another app, and loses gracefully        | ⬜ **needs a manual pass**  |
 | 13  | Update — a staged build verifies, swaps, relaunches, and rolls back on failure     | ⬜ **needs a manual pass**  |
+| 14  | Login item — auto-start on writes the Run value, off removes it, disable survives  | ⬜ **needs a manual pass**  |
 
 **These are the honest gaps, and they are the real remaining risk.** Every state machine, store,
-uploader, scheduler, parser and guard is unit-tested — 381 tests — the two structural guards are
+uploader, scheduler, parser and guard is unit-tested — 394 tests — the two structural guards are
 mutation-verified, and the packaging pipeline has actually been run end to end. But several things
 cannot be tested without a display, a person, and a published release:
 
@@ -448,6 +449,12 @@ cannot be tested without a display, a person, and a published release:
   whole-frame average, because that is where an over-read would land. Re-run it on a scaled
   multi-monitor desk.
 
+- **`RunKeyLoginItem` has never written to a real registry** (row 14, #169). `LoginItemSync` — the
+  decision — is unit-tested against a fake, and `LoginItemWiringTests` IL-scans
+  `ProceedToPolicyAsync` so the two cannot drift apart the way the updater's halves once did. But
+  the HKCU write itself is untested by construction, exactly as macOS leaves `MainAppLoginItem`.
+  Verify by hand: toggle auto-start on, reopen the app, check Task Manager › Startup apps, then
+  **disable it there** and confirm a later launch does not re-enable it.
 - **Row 10 is blocked, not pending.** The Windows distribution repository does not exist, so the
   update feed has never resolved and the claim that the Mac path is unaffected is reasoning rather
   than evidence.

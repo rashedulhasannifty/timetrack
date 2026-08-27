@@ -396,6 +396,14 @@ public sealed class AppDelegate : IDisposable
 
         BecomeReady();
 
+        // Deliberately OUTSIDE the AckGate: this launches the app at the next login and captures
+        // nothing. Gating it would be ceremony, and would also mean the setting silently failed to
+        // apply on every launch where the policy fetch succeeded but a capture check did not.
+        //
+        // Best-effort by design — the Outcome is not acted on. A registry failure leaves the item
+        // as it was, and there is nothing here worth interrupting an employee's launch over.
+        LoginItemSync.Apply(policy.Settings.AutoStartOnLogin, new RunKeyLoginItem(_config.AppId));
+
         await StartIdleDetectionAsync(policy.Settings).ConfigureAwait(true);
         await StartCaptureAsync(policy.Settings).ConfigureAwait(true);
     }
