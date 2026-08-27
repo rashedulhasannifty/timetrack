@@ -38,7 +38,10 @@ namespace NiftyTimer.Capture;
 /// before the read — rather than trusting a check made higher up the tick — is worth one extra
 /// policy fetch per screenshot interval.
 ///
-/// Build-verified only, matching the macOS <c>ScreenCaptureKitGrabber</c>: it needs a real display.
+/// Needs a real display, so it cannot run in CI — the macOS <c>ScreenCaptureKitGrabber</c> has the
+/// same problem. <c>Integration/LiveDisplayGrabTests</c> exercises it on a developer machine when
+/// <c>NIFTYTIMER_E2E_DISPLAY=1</c>, checking the frame against <c>EnumDisplaySettings</c> rather
+/// than reading <c>DESKTOPHORZRES</c> back, which would only prove this code agrees with itself.
 /// </summary>
 public sealed class WindowsDisplayGrabber : IDisplayGrabber
 {
