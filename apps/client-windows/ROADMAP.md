@@ -440,6 +440,10 @@ cannot be tested without a display, a person, and a published release:
   UTF-16, for `VK_<char>` names, and for JSON fields no payload should ever carry (`"keys"`,
   `"scanCode"`, `"text"`).
 
+  The needle must be **alphanumeric**, and the script rejects anything else rather than searching
+  for it: the payloads are JSON, so a quote or backslash reaches disk escaped and a raw-byte search
+  would miss a leak that is plainly there.
+
   **It refuses to report a reassuring zero.** A clean result means nothing if the search is broken
   or there is nothing to search, so the script plants its own needle and aborts unless it finds it
   (exit 3), and aborts on an empty container (exit 4). Exit 1 is a leak; 0 is clean. All four paths

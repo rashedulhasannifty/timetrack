@@ -51,6 +51,23 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# The search reads raw file bytes, and the payloads it searches are JSON. A needle containing a
+# quote, a backslash or any non-ASCII character is written to disk ESCAPED -- as \" or \ or a
+# \u sequence -- so a raw-byte search for the character itself would miss a leak that is plainly
+# there. Constrain the input rather than teach the search to decode JSON: an unusual alphanumeric
+# string is just as good a needle and cannot be hidden this way.
+#
+# Without this the harness would pass its own fixtures (which happened to be lowercase ASCII) and
+# quietly under-report on a needle someone chose more imaginatively.
+if ($Needle -notmatch '^[A-Za-z0-9]+$') {
+    Write-Host ''
+    Write-Host 'The needle must be letters and digits only.' -ForegroundColor Red
+    Write-Host 'JSON escaping would write anything else to disk in an escaped form that a' -ForegroundColor Red
+    Write-Host 'raw-byte search cannot see, so a leak could be missed. Pick something unusual' -ForegroundColor Red
+    Write-Host 'but alphanumeric, e.g. correcthorsebatterystaple or zqxjvwkhbd.' -ForegroundColor Red
+    exit 2
+}
+
 function Write-Result {
     param([string] $Label, [bool] $Ok, [string] $Detail = '')
     $mark = if ($Ok) { 'PASS' } else { 'FAIL' }
