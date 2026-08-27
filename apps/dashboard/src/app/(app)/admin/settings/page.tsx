@@ -102,7 +102,9 @@ export default async function AdminSettingsPage({
             />
           </div>
           <p className="text-text-secondary text-caption">
-            Changes take effect on each client’s next heartbeat (≤60s).
+            Most changes take effect on each client’s next heartbeat (≤60s). The idle threshold, the
+            screenshot interval and auto-start are read when the app launches, so they apply the
+            next time the employee opens it.
           </p>
         </Card>
       </div>

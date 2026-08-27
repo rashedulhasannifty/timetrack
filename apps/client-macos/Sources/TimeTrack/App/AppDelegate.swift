@@ -49,6 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let timeTracker: TimeTracker
     private let menuViewModel: MenuViewModel
     private let liveSpanStore: LiveSpanStore
+    /// Owns whether the app itself opens at login. `MainAppLoginItem` stores nothing and reads
+    /// `SMAppService` only when asked, so constructing it here touches no system state.
+    private let loginItem: LoginItemControlling = MainAppLoginItem()
     private let liveEntryPublisher: LiveEntryPublisher
     private let userIdBox: UserIdBox
 
@@ -310,6 +313,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 // Seed the box before anything reads it — the gate refreshes it from here on.
                 livePolicy.update(from: policy.settings)
+                // `autoStartOnLogin` picks the tracking MODE below, but it cannot pick a mode on
+                // a Mac that never opened the app — so the same setting also owns the login item.
+                // Deliberately outside AckGate: this launches the app, it captures nothing.
+                LoginItemSync.apply(autoStartOnLogin: policy.settings.autoStartOnLogin, to: loginItem)
                 await becomeReady()
                 await startAutoTrackingIfEnabled(policy)   // online, !ackRequired: capture is allowed
                 await startScreenshotCaptureIfEnabled(policy)
@@ -790,7 +797,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let minutes = max(1, Int((Double(seconds) / 60.0).rounded()))
                 self?.notifier?.notify(id: "idle-nudge", title: "Time tracking",
                                        body: "Idle for \(minutes) min — still working?")
-            }
+            },
+            // The auto layer writes straight to `TimeTracker`, so nothing on the view model runs
+            // on its own. Without this the always-visible indicator (PRD §4.2) reported "idle"
+            // for the entire login-to-first-idle AUTO span — the feature looked dead even while
+            // the entry was being recorded and uploaded. Display only; no capture happens here.
+            onTrackingStateChanged: { [weak self] in self?.menuViewModel.refreshFromTracker() }
         )
         let manual = ManualIdleCoordinator(
             tracker: timeTracker,
