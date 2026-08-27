@@ -192,6 +192,22 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
 
+  # One-off repair for time entries that ran unattended (see the script's own header). Its own
+  # `ops` profile, NOT `setup`: `--profile setup run` is part of every deploy, and this must never
+  # be swept along by one. DRY RUN unless `--apply` is passed:
+  #
+  #   docker compose -f docker-compose.prod.yml --profile ops run --rm trim-runaway
+  #   docker compose -f docker-compose.prod.yml --profile ops run --rm trim-runaway --apply
+  #
+  # Args after the service name are appended to `command`.
+  trim-runaway:
+    image: ${IMAGE_PREFIX:-timetrack}/worker:${TAG}
+    profiles: ['ops']
+    command: ['node', 'dist/scripts/trim-runaway-entries.js']
+    env_file: ['../.env.prod']
+    depends_on:
+      postgres: { condition: service_healthy }
+
 volumes:
   pgdata:
   redisdata:

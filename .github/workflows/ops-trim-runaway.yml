@@ -1,0 +1,70 @@
+name: Ops — trim runaway entries
+
+# Manual one-off: repair time entries that ran unattended. See
+# apps/worker/src/scripts/trim-runaway-entries.ts for what it does and why.
+#
+# It exists as a workflow rather than a "ssh in and run it" note because it REWRITES recorded
+# hours. Going through Actions means every run has an operator, a timestamp, and a log of exactly
+# what changed — the same trail the repairs themselves write to audit_log.
+#
+# DRY RUN unless mode is `apply`, and `apply` additionally requires typing the confirmation.
+
+on:
+  workflow_dispatch:
+    inputs:
+      min_hours:
+        description: 'Only consider entries longer than this many hours'
+        required: true
+        default: '12'
+      mode:
+        description: 'dry-run reports and writes nothing; apply rewrites recorded hours'
+        required: true
+        default: 'dry-run'
+        type: choice
+        options: ['dry-run', 'apply']
+      confirm:
+        description: 'Type TRIM to confirm (apply only)'
+        required: false
+        default: ''
+
+# Never concurrently with a deploy: that runs migrations and rolls the stack, and this reads and
+# rewrites the same tables.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  trim:
+    runs-on: ubuntu-latest
+    steps:
+      # Checked BEFORE reaching the host, so a mistyped confirmation costs nothing.
+      - name: Refuse an unconfirmed apply
+        if: inputs.mode == 'apply' && inputs.confirm != 'TRIM'
+        run: |
+          echo "::error::mode=apply requires confirm=TRIM. Nothing was run."
+          exit 1
+
+      - name: Run the repair
+        uses: appleboy/ssh-action@v1
+        env:
+          MIN_HOURS: ${{ inputs.min_hours }}
+          MODE: ${{ inputs.mode }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          envs: MIN_HOURS,MODE
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+
+            # No `pull`: this runs the worker image the host is ALREADY serving, so the repair
+            # and the running client policy agree about the idle threshold.
+            COMPOSE="docker compose --env-file .env.prod -f infra/docker-compose.prod.yml"
+
+            ARGS="--min-hours ${MIN_HOURS}"
+            if [ "${MODE}" = "apply" ]; then ARGS="${ARGS} --apply"; fi
+
+            echo "→ ${MODE} (entries over ${MIN_HOURS}h)"
+            $COMPOSE --profile ops run --rm trim-runaway ${ARGS}
