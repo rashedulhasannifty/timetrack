@@ -14,9 +14,10 @@ end-to-end checks that need a real machine, listed at the bottom.
 | **S3** | Screenshots · activity sampling · categorizer                      | ✅ **done** |
 | **S4** | Notifications · hotkey · updater · packaging · signing · dashboard | ✅ **done** |
 
-Branch: `feat/client-windows`. Nothing is merged to `main` yet.
-Current: **379 tests pass offline** (13 integration skipped). Release build clean,
-`TreatWarningsAsErrors` on. The root `pnpm lint && typecheck && test && build` is green too.
+Merged to `main` (PR #167, `c4642f2`); released as 0.6.0.
+Current: **381 tests pass offline** (14 integration skipped — 13 need a live API, 1 needs a real
+display). Release build clean, `TreatWarningsAsErrors` on. The root
+`pnpm lint && typecheck && test && build` is green too.
 
 ---
 
@@ -57,9 +58,24 @@ $env:NIFTYTIMER_E2E_PASSWORD = "<seeded password>"
 dotnet test
 ```
 
-They acknowledge monitoring for that account and briefly open and close entries. They share one
-seeded user and are **state-sensitive**: a test that fails mid-way can leave an open row behind,
-which then fails every later live-entry test until it goes stale (300s) or is closed by hand:
+The fourteenth needs a **display** rather than an API. `Integration/LiveDisplayGrabTests` is the
+only test that actually executes `WindowsDisplayGrabber`; everything else stops at the
+`IDisplayGrabber` seam. It stays skipped in CI, where the agent's session may enumerate a single
+virtual display that captures as black:
+
+```powershell
+$env:NIFTYTIMER_E2E_DISPLAY = "1"
+dotnet test --filter LiveDisplayGrabTests --logger "console;verbosity=detailed"
+```
+
+It prints `COVERAGE:` lines saying whether this machine's displays actually exercise the
+multi-monitor and DPI-scaled cases, so a green run on one unscaled monitor is not mistaken for
+covering either. Run it on a scaled multi-monitor desk before the pilot goes out.
+
+The live-API tests acknowledge monitoring for that account and briefly open and close entries. They
+share one seeded user and are **state-sensitive**: a test that fails mid-way can leave an open row
+behind, which then fails every later live-entry test until it goes stale (300s) or is closed by
+hand:
 
 ```bash
 docker exec <pg> psql -U timetrack -d timetrack \
@@ -213,7 +229,8 @@ Document it in the README when it lands.
 `ScreenshotSchedulerTests` (including the gate re-check per tick), `ImageBufferStoreTests`,
 `ActivitySampleStoreTests`, `ScreenshotSyncEngineTests`, `ActivityBatchSyncEngineTests`,
 `ScreenshotUploaderTests` (**multipart field-order assertion**), `ActivitySampleUploaderTests`.
-`DisplayGrabber` is build-verified only, matching the Swift `ScreenCaptureKitGrabber`.
+`WindowsDisplayGrabber` itself is covered by `Integration/LiveDisplayGrabTests`, which needs a
+real display and is skipped unless `NIFTYTIMER_E2E_DISPLAY=1`.
 
 Two existing guards start doing real work in S3 — **read them before writing capture code**:
 
@@ -404,7 +421,7 @@ Against a local stack with a dev-packaged client. Status as of S4:
 | 13  | Update — a staged build verifies, swaps, relaunches, and rolls back on failure     | ⬜ **needs a manual pass**  |
 
 **These are the honest gaps, and they are the real remaining risk.** Every state machine, store,
-uploader, scheduler, parser and guard is unit-tested — 379 tests — the two structural guards are
+uploader, scheduler, parser and guard is unit-tested — 381 tests — the two structural guards are
 mutation-verified, and the packaging pipeline has actually been run end to end. But several things
 cannot be tested without a display, a person, and a published release:
 
@@ -412,12 +429,24 @@ cannot be tested without a display, a person, and a published release:
   _empirically_ rather than by reading the source: type a known string into Notepad while capturing
   traffic, then grep every outbound body and every file under `%LOCALAPPDATA%\NiftyTimer-dev\` for it. Zero hits.
   That result belongs in the PR description, which is where CLAUDE.md §1 expects it reviewed.
-- **`WindowsDisplayGrabber` has never been executed.** Nobody has confirmed a real two-monitor
-  grab, the DPI handling on a scaled display, or the JPEG size against the server's 10 MB cap. One
-  specific thing to watch: it reads `DESKTOPHORZRES` for true pixel dimensions, which is belt and
-  braces if WPF is already per-monitor DPI aware — but if that assumption is wrong on a scaled
-  monitor, `BitBlt` reads past the logical surface and produces a partly black frame that looks
-  exactly like a DRM artifact.
+- **`WindowsDisplayGrabber` has now been executed — on one unscaled display only.**
+  `LiveDisplayGrabTests` grabs for real and checks the frame against `EnumDisplaySettings`, an
+  oracle independent of the `EnumDisplayMonitors` path the grabber uses. Observed on a 1366×768
+  laptop panel at 96 DPI: a decodable JPEG at exactly the display's native resolution, 72,600
+  bytes — **0.69% of the server's 10 MB multipart cap**, so the cap is not a concern at this
+  quality — and a non-black bottom-right corner. That settles the "does it run at all" and the
+  JPEG-size questions.
+
+  **Two of the three original unknowns remain open, and no green run on this machine can close
+  them:** a genuine two-monitor grab, and the DPI handling on a **scaled** display. The grabber
+  reads `DESKTOPHORZRES` for true pixel dimensions, which is belt and braces if WPF is already
+  per-monitor DPI aware — but if that assumption is wrong on a scaled monitor, `BitBlt` reads past
+  the logical surface and produces a partly black frame that looks exactly like a DRM artifact. On
+  a 96 DPI panel `HORZRES == DESKTOPHORZRES`, so the two cannot be told apart. The test prints a
+  `COVERAGE:` line stating exactly this, and samples the **bottom-right corner** rather than a
+  whole-frame average, because that is where an over-read would land. Re-run it on a scaled
+  multi-monitor desk.
+
 - **Row 10 is blocked, not pending.** The Windows distribution repository does not exist, so the
   update feed has never resolved and the claim that the Mac path is unaffected is reasoning rather
   than evidence.
