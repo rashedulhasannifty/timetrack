@@ -59,6 +59,31 @@ that lands the item in `.requiresApproval`, which the client never re-registers 
 Registration only runs while the app is open, so flipping the toggle reaches an employee
 at their **next** login, not the one already in progress. The settings page says so.
 
+## Inactivity timeout
+
+`idleThresholdMinutes` does more than drive a nudge: it is the point at which a session
+stops. Both modes now bound unattended time, but they answer the idle minutes differently.
+
+**Auto** (`Tracking/IdleMonitor`) closes the span at the away-start — every idle minute is
+trimmed — and offers the window back on return through the keep/discard prompt.
+
+**Manual** (`Tracking/ManualIdleMonitor`) closes it at `awayStart + threshold`, so the
+minutes up to the timeout stay on the entry and are recorded as a KEPT idle window for the
+Idle panel. Everything after the timeout is untracked, and there is no prompt on return —
+policy has already decided, so there is nothing left to adjudicate. The person restarts the
+timer themselves. Sleep and screen lock stop at the instant input stopped, crediting no idle
+minutes: a closed lid is not a long read.
+
+Manual tracking used to run straight through the away window and KEEP it unless the employee
+came back and discarded it. A Mac left awake produced a 47-hour span whose start day reported
+50h tracked out of a possible 24. Time Doctor's equivalent is its "Timeout After" setting
+(default 15 min, max 6 h) — same shape, except we reuse the idle threshold rather than adding
+a second knob.
+
+Inactivity is measured from when the monitor armed, not from the raw OS idle counter: that
+counter keeps running across a Stop/Start, and an inherited reading would close a new span
+the moment it opened.
+
 `SMAppService.mainApp` registers **whichever bundle is running**, and `status` is
 per-bundle. On a machine with both `Nifty Timer.app` and `Nifty Timer Dev.app` installed,
 each one sees itself as unregistered and will register itself — so opening the dev build

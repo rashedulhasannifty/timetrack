@@ -616,10 +616,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tracker: timeTracker,
             buffer: BufferStore.shared,
             thresholdSeconds: thresholdMinutes * 60,
-            presentAwayPrompt: { minutes, resolve in
-                AwayResolutionWindowController.present(minutes: minutes, resolve: resolve)
-            },
-            onEntryReplaced: { [weak self] idle in self?.menuViewModel.continueClockAfterDiscard(idleSeconds: idle) }
+            // The timeout closes the entry directly on `TimeTracker`; the menu bar reads
+            // `MenuViewModel`, which cannot see that on its own.
+            onTrackingStopped: { [weak self] in self?.menuViewModel.refreshFromTracker() }
         )
         let observer = WorkspaceObserver(receiver: manual)
         self.manualIdleCoordinator = manual
@@ -808,10 +807,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tracker: timeTracker,
             buffer: BufferStore.shared,
             thresholdSeconds: thresholdMinutes * 60,
-            presentAwayPrompt: { minutes, resolve in
-                AwayResolutionWindowController.present(minutes: minutes, resolve: resolve)
-            },
-            onEntryReplaced: { [weak self] idle in self?.menuViewModel.continueClockAfterDiscard(idleSeconds: idle) }
+            // The timeout closes the entry directly on `TimeTracker`; the menu bar reads
+            // `MenuViewModel`, which cannot see that on its own.
+            onTrackingStopped: { [weak self] in self?.menuViewModel.refreshFromTracker() }
         )
         let fanOut = FanOutSignalReceiver([coordinator, manual])
         let observer = WorkspaceObserver(receiver: fanOut)
