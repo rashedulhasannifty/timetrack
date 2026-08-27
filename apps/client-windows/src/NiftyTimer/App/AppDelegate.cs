@@ -560,7 +560,8 @@ public sealed class AppDelegate : IDisposable
                 _buffer,
                 thresholdSeconds,
                 currentSelection: () => _viewModel.SelectionForAuto,
-                presentAwayPrompt: (minutes, resolve) => _awayPrompt.PresentAway(minutes, resolve));
+                presentAwayPrompt: (minutes, resolve) => _awayPrompt.PresentAway(minutes, resolve),
+                onTrackingStateChanged: () => _viewModel.RefreshFromTracker());
             _autoCoordinator = auto;
             receiver = new FanOutSignalReceiver(auto, manual);
         }

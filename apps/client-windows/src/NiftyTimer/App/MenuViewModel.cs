@@ -266,6 +266,21 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// Re-read the tracker and republish the derived state.
+    ///
+    /// The manual affordances all mutate the tracker THROUGH this view model, so they can raise as
+    /// they go. The AUTO path does not — <see cref="AutoTrackingCoordinator"/> writes straight to
+    /// <see cref="TimeTracker"/> — so an auto open or close is invisible from here until something
+    /// asks. This is that seam, and it derives everything from the tracker rather than taking a
+    /// state argument, so it cannot drift from what the tracker actually holds.
+    /// </summary>
+    public void RefreshFromTracker()
+    {
+        _displayStart = null;
+        RaiseTrackingState();
+    }
+
+    /// <summary>
     /// A discarded idle window replaced the running entry (see
     /// <see cref="ManualIdleCoordinator"/>). <paramref name="displayStart"/> is the instant the
     /// clock should count from so it keeps reading worked time rather than jumping back to zero —

@@ -23,6 +23,7 @@ public sealed class AutoTrackingCoordinator : IIdleMonitorDelegate, ISignalRecei
     private readonly Action<int, Action<AwayResolution>> _presentAwayPrompt;
     private readonly Func<DateTimeOffset, string> _idGen;
     private readonly Action<int> _onIdleThresholdCrossed;
+    private readonly Action _onTrackingStateChanged;
 
     public AutoTrackingCoordinator(
         TimeTracker tracker,
@@ -32,7 +33,8 @@ public sealed class AutoTrackingCoordinator : IIdleMonitorDelegate, ISignalRecei
         Action<int, Action<AwayResolution>> presentAwayPrompt,
         Func<DateTimeOffset>? clock = null,
         Func<DateTimeOffset, string>? idGen = null,
-        Action<int>? onIdleThresholdCrossed = null)
+        Action<int>? onIdleThresholdCrossed = null,
+        Action? onTrackingStateChanged = null)
     {
         _tracker = tracker;
         _buffer = buffer;
@@ -41,6 +43,7 @@ public sealed class AutoTrackingCoordinator : IIdleMonitorDelegate, ISignalRecei
         _presentAwayPrompt = presentAwayPrompt;
         _idGen = idGen ?? (now => UuidV7.Generate(now));
         _onIdleThresholdCrossed = onIdleThresholdCrossed ?? (_ => { });
+        _onTrackingStateChanged = onTrackingStateChanged ?? (() => { });
         _monitor.Delegate = this;
     }
 
@@ -95,13 +98,22 @@ public sealed class AutoTrackingCoordinator : IIdleMonitorDelegate, ISignalRecei
         }
     }
 
+    // Both transitions notify. AUTO writes straight to the tracker, which nothing else observes,
+    // so without this the always-visible indicator (PRD §4.2) reads "idle" for the whole
+    // login-to-first-idle AUTO span and stays "tracking" after an auto-stop. Notifying on start
+    // alone leaves the icon stuck the other way, which is why both are here and both are tested.
     public void ShouldStartTracking()
     {
         var selection = _currentSelection();
         _tracker.Start(selection.ProjectId, selection.TaskId, source: TimeTracker.EntrySource.Auto);
+        _onTrackingStateChanged();
     }
 
-    public void ShouldStopTracking(DateTimeOffset awayStart) => _tracker.Stop(awayStart);
+    public void ShouldStopTracking(DateTimeOffset awayStart)
+    {
+        _tracker.Stop(awayStart);
+        _onTrackingStateChanged();
+    }
 
     public void DidBecomeAway(int seconds) =>
         _presentAwayPrompt(AwayMinutes.Of(seconds), action => _monitor.Resolve(action));

@@ -32,6 +32,13 @@ public class AutoTrackingCoordinatorTests
 
         public List<int> IdleNudges { get; } = [];
 
+        /// <summary>
+        /// Whether the tracker was running at the instant each notification fired. Recording
+        /// the state rather than just the count catches a callback raised BEFORE the tracker
+        /// write, which would refresh the indicator from the state being replaced.
+        /// </summary>
+        public List<bool> NotifiedWhileTracking { get; } = [];
+
         public Action<AwayResolution>? Resolve { get; private set; }
 
         public static Harness Build()
@@ -52,7 +59,8 @@ public class AutoTrackingCoordinatorTests
                 },
                 clock: () => h.Now,
                 idGen: _ => $"idle-{++m}",
-                onIdleThresholdCrossed: seconds => h.IdleNudges.Add(seconds));
+                onIdleThresholdCrossed: seconds => h.IdleNudges.Add(seconds),
+                onTrackingStateChanged: () => h.NotifiedWhileTracking.Add(h.Tracker.IsRunning));
             return h;
         }
 
@@ -65,6 +73,37 @@ public class AutoTrackingCoordinatorTests
             .Where(e => e.Kind == BufferKind.TimeEntry)
             .Select(e => JsonSerializer.Deserialize<TimeEntryPayload>(e.Payload)!)
             .ToList();
+    }
+
+    /// <summary>
+    /// PRD §4.2 — the tray indicator is always visible and must tell the truth. AUTO writes
+    /// straight to the tracker, which the view model does not observe, so before this callback
+    /// existed the icon read "idle" for the entire login-to-first-idle AUTO span.
+    /// </summary>
+    [Fact]
+    public void OpeningAnAutoSpanNotifiesAfterTheTrackerIsRunning()
+    {
+        var h = Harness.Build();
+
+        h.Coordinator.Activate();
+
+        Assert.True(Assert.Single(h.NotifiedWhileTracking));
+    }
+
+    /// <summary>
+    /// The other half, and the one a start-only callback would miss: after an auto-stop the icon
+    /// would stay lit, claiming the person is being tracked when they are not.
+    /// </summary>
+    [Fact]
+    public void ClosingAnAutoSpanNotifiesAfterTheTrackerHasStopped()
+    {
+        var h = Harness.Build();
+        h.Coordinator.Activate();
+
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600);
+
+        Assert.Equal([true, false], h.NotifiedWhileTracking);
     }
 
     [Fact]
