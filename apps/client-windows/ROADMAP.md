@@ -449,12 +449,21 @@ cannot be tested without a display, a person, and a published release:
   whole-frame average, because that is where an over-read would land. Re-run it on a scaled
   multi-monitor desk.
 
-- **`RunKeyLoginItem` has never written to a real registry** (row 14, #169). `LoginItemSync` — the
-  decision — is unit-tested against a fake, and `LoginItemWiringTests` IL-scans
-  `ProceedToPolicyAsync` so the two cannot drift apart the way the updater's halves once did. But
-  the HKCU write itself is untested by construction, exactly as macOS leaves `MainAppLoginItem`.
-  Verify by hand: toggle auto-start on, reopen the app, check Task Manager › Startup apps, then
-  **disable it there** and confirm a later launch does not re-enable it.
+- **`RunKeyLoginItem` works, but has never run inside the app** (row 14, #169). `LoginItemSync` —
+  the decision — is unit-tested against a fake, and `LoginItemWiringTests` IL-scans
+  `ProceedToPolicyAsync` so the two cannot drift apart the way the updater's halves once did. The
+  registry code itself is not unit-tested (a test that writes to the real `Run` key would leave a
+  startup entry on whatever machine ran it, which is why macOS leaves `MainAppLoginItem` alone
+  too), but it was **exercised once by hand** against a throwaway value name: register → read back
+  the quoted path → re-apply as `Unchanged` → unregister → delete-when-absent, all passing, value
+  removed afterwards.
+
+  What that does **not** cover is the app actually doing it on a policy resolution. Verify by hand
+  against a build from `package-app.ps1 -Dev` — toggle auto-start on, reopen the app, check Task
+  Manager › Startup apps, then **disable it there** and confirm a later launch does not re-enable
+  it. The last step is the one that matters: it is the whole "don't fight the user" guarantee, and
+  it is the part Windows cannot enforce as strongly as macOS.
+
 - **Row 10 is blocked, not pending.** The Windows distribution repository does not exist, so the
   update feed has never resolved and the claim that the Mac path is unaffected is reasoning rather
   than evidence.

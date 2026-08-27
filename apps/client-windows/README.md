@@ -280,6 +280,13 @@ Three things to know:
   never registering, so the next launch recreates it.
 - **It reaches the employee at their _next_ login**, not the one in progress — registration only
   runs while the app is open. The settings page says so.
+- **It survives sign-out, deliberately.** `SignOutAsync` tears down capture and clears the session
+  but leaves the Run value alone, so the app still opens at the next login and shows the sign-in
+  window — which is what someone who signed out temporarily wants. Removing it would strand them:
+  the item can only be recreated by a launch that resolves a policy, so they would have to find and
+  open the app by hand first. `HKCU` is per-Windows-account, so this does not leak an entry to a
+  different Windows user; two employees sharing one Windows login is out of scope for monitoring
+  software generally.
 - **The value name is variant-scoped** (`Nifty Timer` vs `Nifty Timer (dev)`), like the
   `%LOCALAPPDATA%` container and the token file. With one shared name a dev build and a released
   install would overwrite each other's entry and whichever ran last would decide which one starts.
