@@ -432,10 +432,11 @@ cannot be tested without a display, a person, and a published release:
 - **`WindowsDisplayGrabber` has now been executed — on one unscaled display only.**
   `LiveDisplayGrabTests` grabs for real and checks the frame against `EnumDisplaySettings`, an
   oracle independent of the `EnumDisplayMonitors` path the grabber uses. Observed on a 1366×768
-  laptop panel at 96 DPI: a decodable JPEG at exactly the display's native resolution, 72,600
-  bytes — **0.69% of the server's 10 MB multipart cap**, so the cap is not a concern at this
-  quality — and a non-black bottom-right corner. That settles the "does it run at all" and the
-  JPEG-size questions.
+  laptop panel at 96 DPI: a decodable JPEG at exactly the display's native resolution, 57–73 kB
+  across runs — **around 0.6% of the server's 10 MB multipart cap** — and a non-black bottom-right
+  corner. The size varies with what is on screen, so treat it as an order of magnitude rather than
+  a constant; even so, quality 60 leaves so much headroom that a 4K panel would still land far
+  inside the cap. That settles the "does it run at all" and the JPEG-size questions.
 
   **Two of the three original unknowns remain open, and no green run on this machine can close
   them:** a genuine two-monitor grab, and the DPI handling on a **scaled** display. The grabber

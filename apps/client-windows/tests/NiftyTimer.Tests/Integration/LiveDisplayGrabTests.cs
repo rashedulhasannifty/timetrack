@@ -82,13 +82,17 @@ internal sealed class StaDispatcher : IDisposable
 /// gets an assertion here:
 ///
 /// <list type="number">
-/// <item>that a grab produces a decodable JPEG per attached display, in a stable order;</item>
+/// <item>that a grab produces a decodable JPEG for every attached display;</item>
 /// <item>that the frame is at the display's TRUE pixel resolution — the <c>DESKTOPHORZRES</c>
 /// assumption — checked against <c>EnumDisplaySettings</c>, an INDEPENDENT oracle. Reading
 /// <c>DESKTOPHORZRES</c> back would only prove the call is consistent with itself;</item>
 /// <item>that the encoded frame fits the server's 10 MB multipart cap, which a 4K PNG would
 /// not.</item>
 /// </list>
+///
+/// Index STABILITY is not among them — <c>ScreenshotCaptureTests</c> covers
+/// <c>WindowsDisplayGrabber.Ordered</c> as a pure function, and this test mirrors that same sort
+/// rather than deriving it, so it could not catch an ordering regression even in principle.
 ///
 /// It also samples the BOTTOM-RIGHT corner. If the DPI reasoning is wrong on a scaled monitor,
 /// <c>BitBlt</c> reads past the logical surface and the excess lands on the right and bottom
@@ -151,7 +155,12 @@ public sealed class LiveDisplayGrabTests : IDisposable
         var byIndex = result.Captures.OrderBy(c => c.Index).ToList();
         Assert.Equal(Enumerable.Range(0, byIndex.Count), byIndex.Select(c => c.Index));
 
-        // The grabber's documented order: primary first, then by device name.
+        // Mirrors the grabber's documented order — primary first, then by device name — purely to
+        // decide which display each capture SHOULD match in the resolution assertions below.
+        // Because the sort is copied rather than derived, index stability is NOT what this test
+        // verifies; `Ordered` has its own unit test for that. What is verified here is that
+        // capture[i] carries the pixel dimensions of a real display, from an oracle the grabber
+        // does not share.
         var ordered = attached
             .OrderBy(d => d.IsPrimary ? 0 : 1)
             .ThenBy(d => d.DeviceName, StringComparer.Ordinal)
@@ -227,6 +236,12 @@ public sealed class LiveDisplayGrabTests : IDisposable
     /// Enumerated through <c>EnumDisplayDevices</c> + <c>EnumDisplaySettings</c> — deliberately
     /// NOT the <c>EnumDisplayMonitors</c> path the grabber uses, so the expectation is independent
     /// of the code under test.
+    ///
+    /// <c>EnumDisplayDevices</c> walks display devices across every adapter, so a machine with an
+    /// iGPU plus a discrete card, or a virtual display driver, surfaces entries the grabber will
+    /// never see; <c>DISPLAY_DEVICE_ATTACHED_TO_DESKTOP</c> is what filters them back down. If the
+    /// first multi-monitor run fails on the <c>Attempted</c> count rather than on a frame, it is
+    /// the two enumerations disagreeing and this is the method to reconcile — not a grabber bug.
     /// </summary>
     private static List<DisplayFacts> AttachedDisplays()
     {
