@@ -524,6 +524,93 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     });
     expect(listedAfter.map((e) => e.id)).toContain(openedId);
   });
+
+  // Regression: `list` filtered on `startTime` alone — no overlap test, no clipping — so a span
+  // crossing midnight was returned WHOLE on the day it started and was invisible on every day it
+  // ran through. Seen in production: a span from 25 Aug 14:10 to 27 Aug 13:50 made 25 Aug report
+  // "Tracked 50h 6m" on a 24-hour day, while 26 Aug said "No entries in range" and 23h59m
+  // untracked. `reports.repository.ts` has clipped correctly all along, so the two surfaces
+  // disagreed about the same person on the same day.
+  describe('a span crossing midnight', () => {
+    const SPANNING = '019797a0-0000-7000-8000-0000000000c1';
+    const START = '2026-07-10T14:10:00.000Z';
+    const END = '2026-07-12T13:50:00.000Z';
+
+    // The inclusive [midnight, next-midnight-minus-1ms] window `dayRangeFor()` sends.
+    function day(dayOfMonth: number) {
+      const d = String(dayOfMonth).padStart(2, '0');
+      return { from: `2026-07-${d}T00:00:00.000Z`, to: `2026-07-${d}T23:59:59.999Z` };
+    }
+
+    async function seedSpanning() {
+      const user = await seedUser();
+      await repo().upsert(
+        { ...createDto(SPANNING), startTime: START, endTime: END },
+        user.id,
+      );
+      return user;
+    }
+
+    it('is clipped to the day it starts on, not reported whole', async () => {
+      const user = await seedSpanning();
+      const listed = await repo().list({ userId: user.id, ...day(10) });
+      expect(listed).toHaveLength(1);
+      expect(listed[0]?.startTime).toBe(START); // starts inside the day — untouched
+      expect(listed[0]?.endTime).toBe('2026-07-10T23:59:59.999Z'); // NOT the real 12 Jul end
+    });
+
+    // The discriminating case: today this returns nothing at all.
+    it('appears, clipped to the full day, on a day it merely runs through', async () => {
+      const user = await seedSpanning();
+      const listed = await repo().list({ userId: user.id, ...day(11) });
+      expect(listed).toHaveLength(1);
+      expect(listed[0]?.startTime).toBe('2026-07-11T00:00:00.000Z');
+      expect(listed[0]?.endTime).toBe('2026-07-11T23:59:59.999Z');
+    });
+
+    it('is clipped to the day it ends on', async () => {
+      const user = await seedSpanning();
+      const listed = await repo().list({ userId: user.id, ...day(12) });
+      expect(listed).toHaveLength(1);
+      expect(listed[0]?.startTime).toBe('2026-07-12T00:00:00.000Z');
+      expect(listed[0]?.endTime).toBe(END); // ends inside the day — untouched
+    });
+
+    it('does not leak into a day it never touched', async () => {
+      const user = await seedSpanning();
+      expect(await repo().list({ userId: user.id, ...day(13) })).toHaveLength(0);
+      expect(await repo().list({ userId: user.id, ...day(9) })).toHaveLength(0);
+    });
+
+    // An OPEN span keeps a null endTime — the dashboard clamps a running entry against its own
+    // activity-sample horizon, so the API must not close it here.
+    it('carries an open span into the days it is still running through', async () => {
+      const user = await seedUser();
+      const openId = '019797a0-0000-7000-8000-0000000000c2';
+      await repo().upsert({ ...createDto(openId), startTime: START, endTime: null }, user.id);
+
+      const listed = await repo().list({ userId: user.id, ...day(11) });
+      expect(listed).toHaveLength(1);
+      expect(listed[0]?.startTime).toBe('2026-07-11T00:00:00.000Z');
+      expect(listed[0]?.endTime).toBeNull();
+    });
+
+    // A span that ends exactly on the window's opening instant shares no time with it.
+    it('excludes a span that merely touches the window edge', async () => {
+      const user = await seedUser();
+      const touching = '019797a0-0000-7000-8000-0000000000c3';
+      await repo().upsert(
+        {
+          ...createDto(touching),
+          startTime: '2026-07-10T22:00:00.000Z',
+          endTime: '2026-07-11T00:00:00.000Z',
+        },
+        user.id,
+      );
+      expect(await repo().list({ userId: user.id, ...day(11) })).toHaveLength(0);
+      expect(await repo().list({ userId: user.id, ...day(10) })).toHaveLength(1);
+    });
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.
