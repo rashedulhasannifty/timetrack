@@ -1,6 +1,13 @@
 import XCTest
 @testable import TimeTrack
 
+/// The bug these pin: a manual entry ran through an away window and KEPT it unless the employee
+/// came back and discarded it. A Mac left awake produced a 47-hour span, and its start day
+/// reported 50h tracked out of a possible 24. Inactivity now closes the entry by policy.
+///
+/// Note what this type no longer has: no `presentAwayPrompt`. Once the timeout has closed the
+/// entry there is nothing left for the employee to adjudicate on return, so the prompt is gone by
+/// construction rather than by assertion.
 final class ManualIdleCoordinatorTests: XCTestCase {
     private final class MutableClock {
         private(set) var now: Date
@@ -15,208 +22,142 @@ final class ManualIdleCoordinatorTests: XCTestCase {
     }
 
     private func make(threshold: Int = 300)
-        -> (ManualIdleCoordinator, TimeTracker, BufferSpy, MutableClock, () -> ((AwayResolution) -> Void)?, () -> Int) {
+        -> (ManualIdleCoordinator, TimeTracker, BufferSpy, MutableClock, () -> Int) {
         let clock = MutableClock(t0)
         let spy = BufferSpy()
         let tracker = TimeTracker(buffer: spy, clock: clock.read, idGen: sequentialIdGen())
-        var pendingResolve: ((AwayResolution) -> Void)?
-        var dismissals = 0
+        var stopNotifications = 0
         let coordinator = ManualIdleCoordinator(
             tracker: tracker,
             buffer: spy,
             thresholdSeconds: threshold,
-            presentAwayPrompt: { _, resolve in pendingResolve = resolve },
             clock: clock.read,
             idGen: sequentialIdGen(),
-            dismissPrompt: { dismissals += 1 }
+            onTrackingStopped: { stopNotifications += 1 }
         )
-        return (coordinator, tracker, spy, clock, { pendingResolve }, { dismissals })
+        return (coordinator, tracker, spy, clock, { stopNotifications })
     }
 
-    // Helper: decoded idle-events only (kind == .idleEvent).
     private func idleEvents(_ spy: BufferSpy) -> [[String: Any]] {
         spy.entries.enumerated()
             .filter { spy.entries[$0.offset].kind == .idleEvent }
             .map { spy.object(at: $0.offset) }
     }
 
-    func testKeepLeavesEntryRunningAndEmitsKeptIdleEvent() {
-        let (c, tracker, spy, clock, resolver, _) = make(threshold: 300)
-        tracker.start(projectId: "p1", taskId: "k1")          // manual entry opens at t0
-        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0 (timer NOT stopped)
-        XCTAssertTrue(tracker.isRunning, "manual timer keeps running while away")
-        clock.advance(120); c.tick(idleSeconds: 5)            // resume at t0+420 → prompt
-        resolver()?(.keep)
+    private func timeEntries(_ spy: BufferSpy) -> [[String: Any]] {
+        spy.entries.enumerated()
+            .filter { spy.entries[$0.offset].kind == .timeEntry }
+            .map { spy.object(at: $0.offset) }
+    }
 
-        XCTAssertTrue(tracker.isRunning, "keep leaves the entry running, untouched")
+    // The headline. Before this, the entry was still running here and would have kept running for
+    // as long as the Mac stayed awake.
+    func testInactivityClosesTheManualEntryAtTheThreshold() {
+        let (c, tracker, spy, clock, _) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: "k1")           // manual entry opens at t0
+        clock.advance(60); c.tick(idleSeconds: 0)              // the poller arms; still working
+        clock.advance(300); c.tick(idleSeconds: 300)           // idle since t0+60
+
+        XCTAssertFalse(tracker.isRunning, "an unattended manual timer must not keep counting")
+        let entries = timeEntries(spy)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0]["startTime"] as? String, "2023-11-14T22:13:20Z")   // t0
+        XCTAssertEqual(entries[0]["endTime"] as? String, "2023-11-14T22:19:20Z")     // t0+60+300
+    }
+
+    // The other half of the policy: the minutes before the timeout stay ON the entry, and the
+    // window is recorded so the Idle panel can show what they were.
+    func testTheKeptIdleWindowIsRecorded() {
+        let (c, tracker, spy, clock, _) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: nil)
+        c.tick(idleSeconds: 0)                                 // the poller arms the session
+        clock.advance(300); c.tick(idleSeconds: 300)
+
         let events = idleEvents(spy)
         XCTAssertEqual(events.count, 1)
         XCTAssertEqual(events[0]["resolvedAction"] as? String, "KEPT")
-        // No time-entry was enqueued (nothing closed).
-        XCTAssertFalse(spy.entries.contains { $0.kind == .timeEntry })
+        XCTAssertEqual(events[0]["startTime"] as? String, "2023-11-14T22:13:20Z")    // t0
+        XCTAssertEqual(events[0]["endTime"] as? String, "2023-11-14T22:18:20Z")      // t0+300
     }
 
-    func testDiscardTrimsAtAwayStartAndStartsNewManualEntry() {
-        let (c, tracker, spy, clock, resolver, _) = make(threshold: 300)
-        tracker.start(projectId: "p1", taskId: "k1")          // entry A opens at t0
-        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0
-        clock.advance(120); c.tick(idleSeconds: 5)            // resume at t0+420 → prompt
-        resolver()?(.discard)
+    // Sleep/lock knows exactly when input stopped, so it credits nothing and records no window.
+    func testSleepClosesTheEntryWithoutCreditingIdleTime() {
+        let (c, tracker, spy, clock, _) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: nil)
+        clock.advance(60); c.markAway()
 
-        // Entry A closed at away-start (t0..t0), a new manual entry is now running.
-        let timeEntries = spy.entries.enumerated().filter { $0.element.kind == .timeEntry }.map { spy.object(at: $0.offset) }
-        XCTAssertEqual(timeEntries.count, 1, "the trimmed entry A is flushed")
-        XCTAssertEqual(timeEntries[0]["source"] as? String, "MANUAL")
-        XCTAssertEqual(timeEntries[0]["endTime"] as? String, timeEntries[0]["startTime"] as? String,
-                       "entry A trimmed to away-start (start == end == t0)")
-        XCTAssertEqual(timeEntries[0]["projectId"] as? String, "p1")
-        XCTAssertTrue(tracker.isRunning, "a fresh manual entry continues from the return instant")
-
-        let events = idleEvents(spy)
-        XCTAssertEqual(events.last?["resolvedAction"] as? String, "DISCARDED")
-    }
-
-    // The Discard branch replaces the live entry directly on TimeTracker (trim + fresh start),
-    // which the menu-bar clock can't observe on its own. `onEntryReplaced` is the signal the owner
-    // uses to shift the clock forward by the discarded idle gap. It MUST fire on Discard with the
-    // idle-gap seconds, and MUST NOT fire on Keep/unresolved.
-    private func makeWithReplaceCapture(threshold: Int = 300)
-        -> (ManualIdleCoordinator, TimeTracker, MutableClock, () -> ((AwayResolution) -> Void)?, () -> [TimeInterval]) {
-        let clock = MutableClock(t0)
-        let spy = BufferSpy()
-        let tracker = TimeTracker(buffer: spy, clock: clock.read, idGen: sequentialIdGen())
-        var pendingResolve: ((AwayResolution) -> Void)?
-        var replacedWith: [TimeInterval] = []
-        let coordinator = ManualIdleCoordinator(
-            tracker: tracker,
-            buffer: spy,
-            thresholdSeconds: threshold,
-            presentAwayPrompt: { _, resolve in pendingResolve = resolve },
-            clock: clock.read,
-            idGen: sequentialIdGen(),
-            onEntryReplaced: { replacedWith.append($0) },
-            dismissPrompt: {}
-        )
-        return (coordinator, tracker, clock, { pendingResolve }, { replacedWith })
-    }
-
-    func testDiscardFiresOnEntryReplacedWithIdleGap() {
-        let (c, tracker, clock, resolver, replaced) = makeWithReplaceCapture(threshold: 300)
-        tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0 (away-start)
-        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0
-        clock.advance(120); c.tick(idleSeconds: 5)            // resume at t0+420 → prompt
-        resolver()?(.discard)
-        XCTAssertEqual(replaced(), [420],
-                       "Discard fires once, carrying the idle gap (away-start t0 → resume t0+420 = 420s)")
-    }
-
-    func testKeepDoesNotFireOnEntryReplaced() {
-        let (c, tracker, clock, resolver, replaced) = makeWithReplaceCapture(threshold: 300)
-        tracker.start(projectId: "p1", taskId: "k1")
-        clock.advance(300); c.tick(idleSeconds: 300)
-        clock.advance(120); c.tick(idleSeconds: 5)
-        resolver()?(.keep)
-        XCTAssertTrue(replaced().isEmpty, "Keep leaves the entry untouched → no clock shift")
-    }
-
-    func testDiscardAfterEntryChangedDoesNotFireOnEntryReplaced() {
-        let (c, tracker, clock, resolver, replaced) = makeWithReplaceCapture(threshold: 300)
-        tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0
-        clock.advance(300); c.tick(idleSeconds: 300)          // away
-        clock.advance(120); c.tick(idleSeconds: 5)            // resume → prompt
-        tracker.stop()                                        // user replaces the entry themselves
-        tracker.start(projectId: "p2", taskId: nil)           // entry B
-        resolver()?(.discard)                                 // → unresolved branch, no trim
-        XCTAssertTrue(replaced().isEmpty, "unresolved Discard doesn't touch the live entry → no clock shift")
-    }
-
-    func testSignalsAreNoOpWhenNotInManualSession() {
-        let (c, tracker, spy, clock, _, _) = make(threshold: 300)
-        // tracker is idle (no manual session)
-        clock.advance(300); c.tick(idleSeconds: 300)
-        clock.advance(120); c.tick(idleSeconds: 5)
         XCTAssertFalse(tracker.isRunning)
-        XCTAssertTrue(spy.entries.isEmpty, "no prompt, no events without a manual session")
+        XCTAssertEqual(timeEntries(spy)[0]["endTime"] as? String, "2023-11-14T22:14:20Z")  // t0+60
+        XCTAssertTrue(idleEvents(spy).isEmpty, "no idle minutes were credited, so there is no window")
     }
 
-    func testAutoSessionIsIgnored() {
-        let (c, tracker, spy, clock, resolver, _) = make(threshold: 300)
-        tracker.start(projectId: "p1", taskId: "k1", source: .auto)  // AUTO, not manual
+    // The menu bar reads MenuViewModel and cannot see a stop performed on the tracker directly —
+    // without this the indicator would keep reporting a session that policy already ended.
+    func testTheOwnerIsToldSoTheIndicatorCanFollow() {
+        let (c, tracker, _, clock, stops) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: nil)
+        c.tick(idleSeconds: 0)
+        XCTAssertEqual(stops(), 0)
         clock.advance(300); c.tick(idleSeconds: 300)
-        clock.advance(120); c.tick(idleSeconds: 5)
-        XCTAssertNil(resolver(), "manual coordinator does not act on an AUTO session")
-        XCTAssertTrue(idleEvents(spy).isEmpty)
+        XCTAssertEqual(stops(), 1)
     }
 
-    func testSessionEndsWhileAwayAbandonsAndLaterResumeDoesNotTrim() {
-        let (c, tracker, spy, clock, resolver, dismissals) = make(threshold: 300)
-        tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0
-        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0
-        tracker.stop()                                        // user stops the manual timer mid-away
-        clock.advance(60); c.tick(idleSeconds: 360)           // next signal reconciles
-
-        let events = idleEvents(spy)
-        XCTAssertEqual(events.last?["resolvedAction"] as? String, "UNRESOLVED")
-        XCTAssertEqual(dismissals(), 1, "a showing prompt would be dismissed on abandon")
-        XCTAssertNil(resolver(), "no keep/discard prompt is presented for the abandoned window")
+    func testSignalsAreNoOpWhenNothingIsTracking() {
+        let (c, tracker, spy, clock, stops) = make(threshold: 300)
+        clock.advance(600); c.tick(idleSeconds: 600)
+        c.markAway()
+        XCTAssertFalse(tracker.isRunning)
+        XCTAssertTrue(spy.entries.isEmpty)
+        XCTAssertEqual(stops(), 0)
     }
 
-    func testPauseDuringAwayAbandonsNoTrim() {
-        let (c, tracker, spy, clock, resolver, dismissals) = make(threshold: 300)
-        tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0
-        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0
-        tracker.pause()                                       // user pauses the manual timer mid-away
-        clock.advance(60); c.tick(idleSeconds: 360)           // next signal reconciles
-
-        let events = idleEvents(spy)
-        XCTAssertEqual(events.last?["resolvedAction"] as? String, "UNRESOLVED")
-        XCTAssertEqual(dismissals(), 1, "a showing prompt would be dismissed on abandon")
-        XCTAssertNil(resolver(), "no keep/discard prompt is presented for the abandoned window")
+    // The auto layer owns its own idle handling and stops at the away-start; this coordinator must
+    // never reach across and close an AUTO span on manual terms.
+    func testAnAutoSessionIsIgnored() {
+        let (c, tracker, _, clock, _) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: nil, source: .auto)
+        clock.advance(300); c.tick(idleSeconds: 300)
+        XCTAssertTrue(tracker.isRunning, "an AUTO span is not this coordinator's to close")
     }
 
-    func testSignalWhileSwappedEntryAwaitingReconciles() {
-        let (c, tracker, spy, clock, resolver, dismissals) = make(threshold: 300)
-        tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0
-        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0 (entry A)
-        clock.advance(120); c.tick(idleSeconds: 5)            // resume at t0+420 → awaiting, prompt presented
-        XCTAssertNotNil(resolver(), "prompt is presented before the entry swap")
-        let staleResolver = resolver()
+    // Integrity re-check: the signal was routed while a manual session was live, but TimeTracker
+    // is the authority on what is running NOW. Stopping on a stale decision would close a span
+    // that belongs to a different session — the same mis-attribution class as the sign-out leak.
+    func testATimeoutAimedAtAnEndedSessionCannotCloseTheNextOne() {
+        let (c, tracker, spy, clock, _) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: nil)
+        clock.advance(300)
+        tracker.stop()                                  // the user pressed Stop themselves
+        tracker.start(projectId: "p2", taskId: nil)     // and started something else
+        let openedAt = clock.now
 
-        // Before resolving, the user stops A and starts a different entry B.
-        tracker.stop()
-        tracker.start(projectId: "p2", taskId: nil)           // entry B
-        let bEntriesBefore = spy.entries.filter { $0.kind == .timeEntry }.count
+        c.tick(idleSeconds: 300)
+        // The new span is untouched: the monitor was disarmed by the stop and re-arms on this
+        // tick, so nothing decides anything until the NEW session goes idle on its own.
+        XCTAssertTrue(tracker.isRunning)
+        XCTAssertEqual(timeEntries(spy).count, 1, "only the span the user stopped is closed")
 
-        // A fresh signal arrives while still .awaiting on entry A — must reconcile before any resolve.
-        clock.advance(5); c.tick(idleSeconds: 5)
-
-        XCTAssertTrue(tracker.isRunning, "entry B keeps running, untrimmed")
-        XCTAssertEqual(spy.entries.filter { $0.kind == .timeEntry }.count, bEntriesBefore,
-                       "no extra trim/close of entry B")
-        XCTAssertEqual(idleEvents(spy).last?["resolvedAction"] as? String, "UNRESOLVED",
-                       "entry A's abandoned away window is recorded UNRESOLVED")
-        XCTAssertEqual(dismissals(), 1, "the stale prompt for entry A is dismissed on reconcile")
-
-        // The stale resolver captured before the swap is now a harmless no-op.
-        staleResolver?(.keep)
-        XCTAssertEqual(idleEvents(spy).count, 1, "resolving the stale prompt after reconcile records nothing new")
+        clock.advance(300); c.tick(idleSeconds: 300)
+        XCTAssertFalse(tracker.isRunning)
+        XCTAssertEqual(timeEntries(spy).count, 2)
+        XCTAssertEqual(timeEntries(spy)[1]["startTime"] as? String,
+                       ISO8601DateFormatter().string(from: openedAt))
     }
 
-    func testDiscardAfterEntryChangedRecordsUnresolvedNoTrim() {
-        let (c, tracker, spy, clock, resolver, _) = make(threshold: 300)
-        tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0
-        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0 (entry A)
-        clock.advance(120); c.tick(idleSeconds: 5)            // resume → prompt (entry A still live)
-        // Before resolving, the user stops A and starts a different entry B.
-        tracker.stop()
-        tracker.start(projectId: "p2", taskId: nil)           // entry B
-        let bEntriesBefore = spy.entries.filter { $0.kind == .timeEntry }.count
-        resolver()?(.discard)
+    // After a timeout the person restarts when they are ready, and the next session is protected
+    // exactly like the first — the monitor re-arms rather than staying spent.
+    func testTheNextManualSessionIsProtectedToo() {
+        let (c, tracker, spy, clock, _) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: nil)
+        c.tick(idleSeconds: 0)
+        clock.advance(300); c.tick(idleSeconds: 300)
+        XCTAssertFalse(tracker.isRunning)
 
-        // B must not be trimmed; the away window is UNRESOLVED.
-        XCTAssertTrue(tracker.isRunning, "entry B keeps running, untrimmed")
-        XCTAssertEqual(spy.entries.filter { $0.kind == .timeEntry }.count, bEntriesBefore,
-                       "no extra trim/close of entry B")
-        XCTAssertEqual(idleEvents(spy).last?["resolvedAction"] as? String, "UNRESOLVED")
+        clock.advance(60)
+        tracker.start(projectId: "p1", taskId: nil)     // they come back and start again
+        c.tick(idleSeconds: 0)
+        clock.advance(300); c.tick(idleSeconds: 300)
+        XCTAssertFalse(tracker.isRunning, "the second session times out like the first")
+        XCTAssertEqual(timeEntries(spy).count, 2)
     }
 }

@@ -251,17 +251,6 @@ final class MenuViewModel: ObservableObject {
     }
     func pause() { displayStartOverride = nil; tracker.pause(); sync() }
 
-    /// Manual idle Discard has replaced the live entry (trim + fresh start). Shift the clock anchor
-    /// forward by the discarded idle gap so it keeps reading accumulated *worked* time and climbs,
-    /// rather than resetting to the fresh entry's 0. The selection (project/task) is preserved —
-    /// the fresh entry inherits it and the picker is untouched. Then re-sync the UI + status icon.
-    func continueClockAfterDiscard(idleSeconds: TimeInterval) {
-        if let anchor = startedAt {
-            displayStartOverride = anchor.addingTimeInterval(idleSeconds)
-        }
-        sync()
-    }
-
     /// Re-derive `phase`/`startedAt` (and therefore the menu-bar indicator) from `TimeTracker`'s
     /// CURRENT state, without starting, stopping or re-filing anything.
     ///
@@ -269,9 +258,9 @@ final class MenuViewModel: ObservableObject {
     /// straight to `TimeTracker` from `AutoTrackingCoordinator`, so nothing here ran: the
     /// always-visible indicator stayed idle for the whole login-to-first-idle AUTO span and would
     /// have stayed "tracking" after an auto-stop. This is the seam that lets that path refresh
-    /// the UI. The display anchor is dropped because an auto transition always opens or closes a
-    /// real span — there is no worked-time continuation to preserve (that is Discard's job, and
-    /// `continueClockAfterDiscard` owns it).
+    /// the UI. It also serves the manual inactivity timeout, which closes the live entry the same
+    /// way. The display anchor is dropped: an automatic transition always opens or closes a real
+    /// span, so there is no mid-span readout to preserve.
     func refreshFromTracker() {
         displayStartOverride = nil
         sync()
