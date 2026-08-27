@@ -199,11 +199,14 @@ services:
   #   docker compose -f docker-compose.prod.yml --profile ops run --rm trim-runaway
   #   docker compose -f docker-compose.prod.yml --profile ops run --rm trim-runaway --apply
   #
-  # Args after the service name are appended to `command`.
+  # The script's flags hang off ENTRYPOINT, not `command`. `docker compose run SERVICE <args>`
+  # REPLACES `command` rather than appending to it, so with a `command:` the flags became the
+  # executable — and the node base image's docker-entrypoint.sh dutifully ran `node --min-hours`.
+  # Against an `entrypoint:` the same args append, which is the behaviour this needs.
   trim-runaway:
     image: ${IMAGE_PREFIX:-timetrack}/worker:${TAG}
     profiles: ['ops']
-    command: ['node', 'dist/scripts/trim-runaway-entries.js']
+    entrypoint: ['node', 'dist/scripts/trim-runaway-entries.js']
     env_file: ['../.env.prod']
     depends_on:
       postgres: { condition: service_healthy }

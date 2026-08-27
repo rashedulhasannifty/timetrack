@@ -67,4 +67,5 @@ jobs:
             if [ "${MODE}" = "apply" ]; then ARGS="${ARGS} --apply"; fi
 
             echo "→ ${MODE} (entries over ${MIN_HOURS}h)"
+            echo "→ trim-runaway ${ARGS}"
             $COMPOSE --profile ops run --rm trim-runaway ${ARGS}
