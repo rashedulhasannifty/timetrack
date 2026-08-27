@@ -371,9 +371,10 @@ implementation traps; these are the product rules.
   becoming self-sustaining but does not raise it. Follow-up ticket: per-user throttler tracker on
   `apps/api`. Do not "optimize" this by dropping a gate call — the gate is the product requirement;
   the throttler is the thing that should change.
-- **`apps/api` robustness gap, unrelated to this client:** `src/infra/storage/minio.service.ts:59-64`
-  does HeadBucket → catch → CreateBucket in `onModuleInit`, and crashes the API on
-  `BucketAlreadyOwnedByYou`. One `catch` away from robust. Not fixed — out of scope.
+- ~~**`apps/api` robustness gap, unrelated to this client:** the storage init did HeadBucket →
+  catch → CreateBucket in `onModuleInit` and crashed the API on `BucketAlreadyOwnedByYou`.~~
+  **Fixed** — `ensureBucket` in `apps/api/src/infra/storage/minio.service.ts` now creates only on a
+  missing bucket and tolerates a concurrent creator.
 
 ## Working agreements
 
