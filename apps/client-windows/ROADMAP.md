@@ -450,7 +450,12 @@ cannot be tested without a display, a person, and a published release:
 
 - **Row 10 is blocked, not pending.** The Windows distribution repository does not exist, so the
   update feed has never resolved and the claim that the Mac path is unaffected is reasoning rather
-  than evidence.
+  than evidence. [`DISTRIBUTION.md`](./DISTRIBUTION.md) has the publishing runbook and
+  `scripts/verify-release-feeds.ps1` checks both feeds — run it before and after the first Windows
+  release; the macOS lines must be identical. The "before" half is already recorded (macOS
+  `v0.6.0-pilot`, both assets present, 2026-08-27). One thing to settle **before** creating the
+  repo: the macOS feed points at a personal account while the Windows constants name the
+  organisation, and an installed client pins whichever it shipped with.
 - **Rows 5 and 6 have been open since S2.**
 
 None of these is blocked on anything except a machine and a repository.
