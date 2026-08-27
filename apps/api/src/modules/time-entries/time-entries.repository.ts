@@ -143,22 +143,54 @@ export class TimeEntriesRepository {
     });
   }
 
+  /**
+   * Entries OVERLAPPING `[from, to]`, each clipped to that window.
+   *
+   * Overlap, not containment. Selecting on `startTime` alone gave a span crossing midnight to
+   * the day it started — whole, unclipped — and to no other day at all: a span running from
+   * 25 Aug 14:10 to 27 Aug 13:50 made 25 Aug report 50h tracked on a 24-hour day, while 26 Aug
+   * showed "no entries" and a full day untracked. `reports.repository.ts` has always used this
+   * same overlap-and-clip arithmetic, so the Overview and the day view disagreed about the same
+   * person on the same day.
+   *
+   * An OPEN entry keeps its null `endTime` rather than being clamped to the window: a running
+   * span is clamped against a live-evidence horizon, and the two callers have different
+   * evidence — the dashboard uses activity-sample recency, `reports` uses `heartbeatAt`. Closing
+   * it here would impose one of those answers on both.
+   */
   async list(query: ListTimeEntriesQuery & { userId: string }): Promise<TimeEntry[]> {
+    const from = new Date(query.from);
+    const to = new Date(query.to);
     const rows = await this.prisma.timeEntry.findMany({
       where: {
         userId: query.userId,
-        startTime: { gte: new Date(query.from), lte: new Date(query.to) },
+        // `to` is INCLUSIVE (the dashboard sends next-midnight-minus-1ms), hence `lte`. An
+        // entry ending exactly at `from` shares no time with the window, hence a strict `gt`.
+        startTime: { lte: to },
+        OR: [{ endTime: null }, { endTime: { gt: from } }],
         ...(query.projectId ? { projectId: query.projectId } : {}),
       },
       orderBy: { startTime: 'asc' },
       select: TIME_ENTRY_SELECT,
     });
-    // A zero-duration row is a discarded recovery span (spec §4.4) — never shown. Filtered
-    // in JS, not the `where`: a Prisma field-reference predicate (`NOT: { endTime: { equals:
-    // fields.startTime } }`) evaluates to UNKNOWN under SQL's three-valued logic when
-    // endTime IS NULL, which would silently drop every OPEN entry too. `list` is un-paginated
-    // (plain findMany), so filtering after the query changes no semantics.
-    return rows.filter((r) => r.endTime === null || r.endTime > r.startTime).map(serialize);
+    return (
+      rows
+        // A zero-duration row is a discarded recovery span (spec §4.4) — never shown. Filtered
+        // in JS, not the `where`: a Prisma field-reference predicate (`NOT: { endTime: { equals:
+        // fields.startTime } }`) evaluates to UNKNOWN under SQL's three-valued logic when
+        // endTime IS NULL, which would silently drop every OPEN entry too. `list` is un-paginated
+        // (plain findMany), so filtering after the query changes no semantics.
+        .filter((r) => r.endTime === null || r.endTime > r.startTime)
+        .map((r) => ({
+          ...r,
+          startTime: r.startTime < from ? from : r.startTime,
+          endTime: r.endTime !== null && r.endTime > to ? to : r.endTime,
+        }))
+        // Clipping can leave nothing behind — an entry starting exactly at `to` keeps only its
+        // final instant. That is the next day's entry, not this one's.
+        .filter((r) => r.endTime === null || r.endTime > r.startTime)
+        .map(serialize)
+    );
   }
 
   /** The running entry (endTime IS NULL) for a user, or null. Backs the overview (1.6). */
