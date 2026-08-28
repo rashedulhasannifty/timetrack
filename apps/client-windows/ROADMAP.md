@@ -436,9 +436,34 @@ mutation-verified, and the packaging pipeline has actually been run end to end. 
 cannot be tested without a display, a person, and a published release:
 
 - **Row 9 is the important one.** It is the only thing that demonstrates counts-not-content
-  _empirically_ rather than by reading the source: type a known string into Notepad while capturing
-  traffic, then grep every outbound body and every file under `%LOCALAPPDATA%\NiftyTimer-dev\` for it. Zero hits.
-  That result belongs in the PR description, which is where CLAUDE.md §1 expects it reviewed.
+  _empirically_ rather than by reading the source. `scripts/verify-counts-not-content.ps1` does the
+  search; a person still has to produce the evidence for it to search:
+
+  ```powershell
+  ./scripts/package-dev-app.ps1          # a dev build, so this cannot touch a real install
+  # sign in, acknowledge, start the clock, type the needle into Notepad, wait 60s for a sample
+  ./scripts/verify-counts-not-content.ps1 -Needle 'correcthorsebatterystaple'
+  ```
+
+  It reads every file as **bytes** (screenshots are JPEG and the token is a DPAPI blob - a text
+  read would skip exactly the files worth checking) and probes for the literal string in ASCII and
+  UTF-16, for `VK_<char>` names, and for JSON fields no payload should ever carry (`"keys"`,
+  `"scanCode"`, `"text"`).
+
+  The needle must be **alphanumeric**, and the script rejects anything else rather than searching
+  for it: the payloads are JSON, so a quote or backslash reaches disk escaped and a raw-byte search
+  would miss a leak that is plainly there.
+
+  **It refuses to report a reassuring zero.** A clean result means nothing if the search is broken
+  or there is nothing to search, so the script plants its own needle and aborts unless it finds it
+  (exit 3), and aborts on an empty container (exit 4). Exit 1 is a leak; 0 is clean. All four paths
+  were exercised against planted fixtures before it was committed.
+
+  Pass `-CaptureFile` with a traffic capture to cover outbound bodies too. Without it only local
+  state is searched - which is what every upload is built from, so it is the stronger half, but the
+  script says so rather than claiming full coverage. The result belongs in the PR description,
+  which is where CLAUDE.md section 1 expects it reviewed.
+
 - **`WindowsDisplayGrabber` has now been executed — on one unscaled display only.**
   `LiveDisplayGrabTests` grabs for real and checks the frame against `EnumDisplaySettings`, an
   oracle independent of the `EnumDisplayMonitors` path the grabber uses. Observed on a 1366×768
