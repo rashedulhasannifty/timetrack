@@ -368,9 +368,17 @@ implementation traps; these are the product rules.
   shared limit is reached at roughly **25 concurrently-tracking clients on one IP**, and a second
   platform makes that arrive sooner. The Windows `BackoffPolicy` has real ±25% jitter (the Swift one
   defaults to identity, so a whole office retries in lockstep on a 429), which stops the limit
-  becoming self-sustaining but does not raise it. Follow-up ticket: per-user throttler tracker on
-  `apps/api`. Do not "optimize" this by dropping a gate call — the gate is the product requirement;
-  the throttler is the thing that should change.
+  becoming self-sustaining but does not raise it. Do not "optimize" this by dropping a gate call —
+  the gate is the product requirement; the throttler is the thing that should change.
+
+  **Resolved server-side.** `apps/api` now runs two buckets rather than one: per-IP at 600 req/min
+  (outermost, so `@Public()` login is still protected before Argon2) and per-authenticated-user at
+  120 req/min beneath it. At ~4 req/min per tracking client that moves the shared ceiling from
+  ~25 concurrent trackers on one office address to ~150, while a single misbehaving client can no
+  longer consume everyone else's budget. The per-user bucket keys on the VERIFIED user, which is
+  why it runs after `JwtAuthGuard` — a `sub` read from an unverified bearer token is
+  attacker-chosen and would let anyone mint unlimited buckets.
+
 - ~~**`apps/api` robustness gap, unrelated to this client:** the storage init did HeadBucket →
   catch → CreateBucket in `onModuleInit` and crashed the API on `BucketAlreadyOwnedByYou`.~~
   **Fixed** — `ensureBucket` in `apps/api/src/infra/storage/minio.service.ts` now creates only on a
