@@ -15,7 +15,7 @@ end-to-end checks that need a real machine, listed at the bottom.
 | **S4** | Notifications · hotkey · updater · packaging · signing · dashboard | ✅ **done** |
 
 Merged to `main` (PR #167, `c4642f2`); released as 0.6.0.
-Current: **381 tests pass offline** (14 integration skipped — 13 need a live API, 1 needs a real
+Current: **394 tests pass offline** (14 integration skipped — 13 need a live API, 1 needs a real
 display). Release build clean, `TreatWarningsAsErrors` on. The root
 `pnpm lint && typecheck && test && build` is green too.
 
@@ -379,9 +379,10 @@ implementation traps; these are the product rules.
   why it runs after `JwtAuthGuard` — a `sub` read from an unverified bearer token is
   attacker-chosen and would let anyone mint unlimited buckets.
 
-- **`apps/api` robustness gap, unrelated to this client:** `src/infra/storage/minio.service.ts:59-64`
-  does HeadBucket → catch → CreateBucket in `onModuleInit`, and crashes the API on
-  `BucketAlreadyOwnedByYou`. One `catch` away from robust. Not fixed — out of scope.
+- ~~**`apps/api` robustness gap, unrelated to this client:** the storage init did HeadBucket →
+  catch → CreateBucket in `onModuleInit` and crashed the API on `BucketAlreadyOwnedByYou`.~~
+  **Fixed** — `ensureBucket` in `apps/api/src/infra/storage/minio.service.ts` now creates only on a
+  missing bucket and tolerates a concurrent creator.
 
 ## Working agreements
 
@@ -427,9 +428,10 @@ Against a local stack with a dev-packaged client. Status as of S4:
 | 11  | Nudges — idle, forgot-to-start and the 18:00 summary appear as real notifications  | ⬜ **needs a manual pass**  |
 | 12  | Hotkey — Ctrl+Alt+T starts and stops from another app, and loses gracefully        | ⬜ **needs a manual pass**  |
 | 13  | Update — a staged build verifies, swaps, relaunches, and rolls back on failure     | ⬜ **needs a manual pass**  |
+| 14  | Login item — auto-start on writes the Run value, off removes it, disable survives  | ⬜ **needs a manual pass**  |
 
 **These are the honest gaps, and they are the real remaining risk.** Every state machine, store,
-uploader, scheduler, parser and guard is unit-tested — 381 tests — the two structural guards are
+uploader, scheduler, parser and guard is unit-tested — 394 tests — the two structural guards are
 mutation-verified, and the packaging pipeline has actually been run end to end. But several things
 cannot be tested without a display, a person, and a published release:
 
@@ -455,6 +457,21 @@ cannot be tested without a display, a person, and a published release:
   `COVERAGE:` line stating exactly this, and samples the **bottom-right corner** rather than a
   whole-frame average, because that is where an over-read would land. Re-run it on a scaled
   multi-monitor desk.
+
+- **`RunKeyLoginItem` works, but has never run inside the app** (row 14, #169). `LoginItemSync` —
+  the decision — is unit-tested against a fake, and `LoginItemWiringTests` IL-scans
+  `ProceedToPolicyAsync` so the two cannot drift apart the way the updater's halves once did. The
+  registry code itself is not unit-tested (a test that writes to the real `Run` key would leave a
+  startup entry on whatever machine ran it, which is why macOS leaves `MainAppLoginItem` alone
+  too), but it was **exercised once by hand** against a throwaway value name: register → read back
+  the quoted path → re-apply as `Unchanged` → unregister → delete-when-absent, all passing, value
+  removed afterwards.
+
+  What that does **not** cover is the app actually doing it on a policy resolution. Verify by hand
+  against a build from `package-app.ps1 -Dev` — toggle auto-start on, reopen the app, check Task
+  Manager › Startup apps, then **disable it there** and confirm a later launch does not re-enable
+  it. The last step is the one that matters: it is the whole "don't fight the user" guarantee, and
+  it is the part Windows cannot enforce as strongly as macOS.
 
 - **Row 10 is blocked, not pending.** The Windows distribution repository does not exist, so the
   update feed has never resolved and the claim that the Mac path is unaffected is reasoning rather

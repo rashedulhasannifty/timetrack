@@ -243,8 +243,9 @@ Each of these cost the macOS client a real bug. They are enforced by tests; do n
 
 ## Two modes, one poller
 
-The team setting `autoStartOnLogin` selects the tracking **mode**. It is not a login item — Windows
-startup is the user's own OS setting, same as on macOS.
+The team setting `autoStartOnLogin` does two things: it selects the tracking **mode**, and it owns a
+login item. Both are needed — a tray app cannot start tracking on a machine that never opened it,
+which is exactly the bug #169 reported.
 
 - **Auto** — `AutoTrackingCoordinator` opens an AUTO span on launch, closes it when you go idle, and
   asks keep-or-discard when you come back.
@@ -259,6 +260,38 @@ enforced by refusing the signal at the edge, not by a check at the point of stop
 `SessionObserver` is the single system edge for both, fanned out when they coexist. It polls
 `GetLastInputInfo` every 15s and takes sleep and lock as immediate away signals rather than waiting
 out the threshold.
+
+### The login item
+
+A value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, applied on the `!ackRequired`
+policy branch and deliberately **outside `AckGate`** — it launches the app and captures nothing.
+Visible and removable in Task Manager › Startup apps (CLAUDE.md §1): no service, no scheduled task,
+nothing running as SYSTEM.
+
+Three things to know:
+
+- **It never rewrites a value that already exists.** That is how "don't fight the user" is reached
+  here. macOS gets a `requiresApproval` status from `SMAppService` and refuses to register over it;
+  Windows has no such read — Task Manager's enable/disable lives in an undocumented blob under
+  `Explorer\StartupApproved\Run`, and its absence is indistinguishable from never having
+  registered. But disabling there **leaves the Run value in place**, so "an existing value is left
+  alone" respects the choice on every later launch without parsing anything undocumented. The one
+  case genuinely weaker than macOS: deleting the value by hand in regedit is indistinguishable from
+  never registering, so the next launch recreates it.
+- **It reaches the employee at their _next_ login**, not the one in progress — registration only
+  runs while the app is open. The settings page says so.
+- **It survives sign-out, deliberately.** `SignOutAsync` tears down capture and clears the session
+  but leaves the Run value alone, so the app still opens at the next login and shows the sign-in
+  window — which is what someone who signed out temporarily wants. Removing it would strand them:
+  the item can only be recreated by a launch that resolves a policy, so they would have to find and
+  open the app by hand first. `HKCU` is per-Windows-account, so this does not leak an entry to a
+  different Windows user; two employees sharing one Windows login is out of scope for monitoring
+  software generally.
+- **The value name is variant-scoped** (`Nifty Timer` vs `Nifty Timer (dev)`), like the
+  `%LOCALAPPDATA%` container and the token file. With one shared name a dev build and a released
+  install would overwrite each other's entry and whichever ran last would decide which one starts.
+  The consequence is the same one the macOS README records for its two bundles: with both installed
+  and auto-start on, you get **two** startup entries. Check Task Manager after testing with both.
 
 **All of this is installed only on the online, acknowledged branch, through `AckGate`** — idle
 detection watches you continuously and in auto mode moves your clock, so it is a capture path under

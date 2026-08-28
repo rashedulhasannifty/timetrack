@@ -65,6 +65,20 @@ public static class AppInstall
     }
 
     /// <summary>
+    /// The value name under the current user's <c>Run</c> key.
+    ///
+    /// User-facing: this is the text Task Manager shows in its Startup apps list, so it reads as a
+    /// product name rather than an identifier. Variant-scoped for the same reason the container is
+    /// — with one shared name a dev build and a released install would overwrite each other's
+    /// entry, and whichever ran last would decide which one starts at login.
+    /// </summary>
+    public static string LoginItemName(string? appId)
+    {
+        var variant = Variant(appId);
+        return variant is null ? "Nifty Timer" : $"Nifty Timer ({variant})";
+    }
+
+    /// <summary>
     /// Whether this build is the released one. The self-updater is gated on it: a dev build
     /// swapping itself for the latest public release would destroy the very build under test.
     /// </summary>
