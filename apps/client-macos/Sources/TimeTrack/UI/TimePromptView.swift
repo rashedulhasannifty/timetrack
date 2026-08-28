@@ -92,6 +92,12 @@ struct TimePromptView: View {
                             .strokeBorder(TT.Palette.separator, lineWidth: 1)
                     }
                 }
+                // `.buttonStyle(.plain)` hit-tests DRAWN CONTENT, not the frame. The emphasized
+                // branch is filled, so its whole rectangle takes clicks — but the outlined branch
+                // draws only a 1pt border, leaving the interior empty. That made the non-default
+                // choice clickable on its text glyphs and its border alone: on the away prompt
+                // Keep, on the recovery prompt Discard. Give both branches the same hit area.
+                .contentShape(RoundedRectangle(cornerRadius: TT.Radius.sm))
         }
         .buttonStyle(.plain)
 
