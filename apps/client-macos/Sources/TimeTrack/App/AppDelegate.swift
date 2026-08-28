@@ -77,6 +77,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// on sign-out in `stopAutoTracking()`, alongside `hasAttemptedRecovery`, so the next user
     /// on this Mac gets their own single attempt.
     private var hasAttemptedRecentSelectionFallback = false
+    /// One-shot-per-session guard on `becomeReady()` — same shape and same reset point as
+    /// the two above. See `becomeReady()` for why a retry must not re-run it.
+    private var hasBecomeReady = false
     private var updateCoordinator: UpdateCoordinator?
     /// The one system-wide shortcut. Held so it stays registered for the process's lifetime.
     private var hotKey: GlobalHotKey?
@@ -365,6 +368,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         policyRetryTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
+            // Re-check the session at FIRE time, not schedule time. Sign-out cancels this task,
+            // but a `proceedToPolicy()` already in flight when sign-out lands still reaches its
+            // catch and schedules one more — which would then run against the next user's
+            // launch. `logout()` clears the mirrored last-user id, so this is nil exactly when
+            // nobody is signed in, while an OFFLINE launch (token present, unrefreshable) still
+            // resolves and retries as it should.
+            guard await self.session.userId() != nil else { self.cancelPolicyRetry(); return }
             await self.proceedToPolicy()
         }
     }
@@ -386,7 +396,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// read live from `livePolicy`, which the caller seeds and the gate keeps fresh; on the
     /// offline path it stays at its pending default (silent), which is moot anyway since a closed
     /// gate means no activity samples and therefore nothing to nudge about.
+    ///
+    /// Runs at most ONCE per signed-in session. `proceedToPolicy()` is now retried until capture
+    /// installs, and every retry passes back through here — but readiness is not the thing being
+    /// retried. Re-running it would re-issue `refreshProjects()` on each attempt, and that path
+    /// can rewrite `selectionStore` through `restoreSelection` (see `refreshProjects`), so a
+    /// retry loop could quietly reset the employee's chosen project underneath them. Reset on
+    /// sign-out in `stopAutoTracking()` so the next user gets their own.
     private func becomeReady() async {
+        let alreadyReady = await MainActor.run { hasBecomeReady }
+        guard !alreadyReady else { return }
         // Resolve the userId once (an `await`, since `AuthSession` is an actor) and stamp
         // `userIdBox` on the main thread BEFORE `markReady()` flips `isReady` — that flip is
         // the only thing that lets `TimeTracker.start()` run, so the box is always populated
@@ -398,6 +417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // `refreshProjects()` below so its post-refresh restore has a user id to resolve.
             menuViewModel.currentUserId = currentUserId
             menuViewModel.markReady()
+            hasBecomeReady = true
         }
         await MainActor.run { self.installNudgeInfra() }
         await MainActor.run { menuViewModel.projects = projectCache.load() } // instant, offline-safe
@@ -942,6 +962,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // gets their own single fresh-install fallback attempt (`refreshProjects()`) instead of
         // inheriting the outgoing user's "already tried" state.
         hasAttemptedRecentSelectionFallback = false
+        hasBecomeReady = false
         // Invalidate the interval timer so no NEW cycle is scheduled. A cycle already in flight is
         // NOT cancelled by this — `flushAndClearBuffer()` joins it via `finishInFlight()` before
         // clearing the buffer, so the reference must survive here (do not nil it).
