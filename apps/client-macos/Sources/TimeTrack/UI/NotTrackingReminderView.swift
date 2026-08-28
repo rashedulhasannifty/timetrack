@@ -66,6 +66,10 @@ struct NotTrackingReminderView: View {
                         .foregroundStyle(TT.Palette.textSecondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, TT.Space.x2)
+                        // Same reason as `TimePromptView.choiceButton`: this button draws no
+                        // background at all, so without a content shape only the text glyphs
+                        // would take the click.
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
