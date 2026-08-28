@@ -57,11 +57,10 @@ export class MinioService implements OnModuleInit {
 
   /** Create the screenshots bucket on boot if it does not yet exist. */
   async onModuleInit(): Promise<void> {
-    try {
-      await this.client.send(new HeadBucketCommand({ Bucket: this.env.S3_BUCKET }));
-    } catch {
-      await this.client.send(new CreateBucketCommand({ Bucket: this.env.S3_BUCKET }));
-    }
+    await ensureBucket({
+      head: () => this.client.send(new HeadBucketCommand({ Bucket: this.env.S3_BUCKET })),
+      create: () => this.client.send(new CreateBucketCommand({ Bucket: this.env.S3_BUCKET })),
+    });
   }
 
   /**
@@ -149,5 +148,69 @@ export class MinioService implements OnModuleInit {
       continuationToken = listed.IsTruncated === true ? listed.NextContinuationToken : undefined;
     } while (continuationToken);
     return deleted;
+  }
+}
+
+/** What reconciling the bucket on boot actually did. */
+export type EnsureBucketOutcome = 'present' | 'created' | 'raced';
+
+/**
+ * S3 and MinIO both report "someone already made this" rather than succeeding quietly.
+ * `BucketAlreadyOwnedByYou` is the one that matters here: it is what the LOSER of a race gets
+ * when two API instances create the same bucket, and it means the bucket exists and is ours —
+ * the desired end state, not a failure.
+ */
+const ALREADY_EXISTS = new Set(['BucketAlreadyOwnedByYou', 'BucketAlreadyExists']);
+
+function status(error: unknown): number | undefined {
+  return (error as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata?.httpStatusCode;
+}
+
+function name(error: unknown): string | undefined {
+  return (error as { name?: string } | null)?.name;
+}
+
+/**
+ * Bring the bucket into existence, tolerating a concurrent creator.
+ *
+ * The previous shape was `try { HeadBucket } catch { CreateBucket }`, which had two faults and
+ * crashed the API on boot for both:
+ *
+ * 1. **The race.** Two instances starting together — a rolling deploy, `docker compose up` with
+ *    a replica, an API restarted beside a worker — both see no bucket and both create it. The
+ *    loser gets `BucketAlreadyOwnedByYou`, which nothing caught, so `onModuleInit` rejected and
+ *    took the process down. The bucket was fine; the API just refused to start.
+ * 2. **The blanket catch.** A HeadBucket 403 from wrong credentials was answered by trying to
+ *    CREATE the bucket, so the operator saw a confusing creation failure instead of the
+ *    authentication error that actually happened.
+ *
+ * Anything that is not "missing" or "already there" still propagates and still fails the boot —
+ * deliberately. An API that cannot reach its object store cannot serve screenshots, and starting
+ * up to fail every upload is worse than not starting.
+ */
+export async function ensureBucket(bucket: {
+  head: () => Promise<unknown>;
+  create: () => Promise<unknown>;
+}): Promise<EnsureBucketOutcome> {
+  try {
+    await bucket.head();
+    return 'present';
+  } catch (error) {
+    // `NotFound` is the SDK's name for a 404 here. Anything else — 403, a connection refusal —
+    // is not answered by creating a bucket.
+    if (name(error) !== 'NotFound' && status(error) !== 404) {
+      throw error;
+    }
+  }
+
+  try {
+    await bucket.create();
+    return 'created';
+  } catch (error) {
+    if (ALREADY_EXISTS.has(name(error) ?? '') || status(error) === 409) {
+      return 'raced';
+    }
+
+    throw error;
   }
 }
