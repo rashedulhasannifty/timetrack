@@ -77,6 +77,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// on sign-out in `stopAutoTracking()`, alongside `hasAttemptedRecovery`, so the next user
     /// on this Mac gets their own single attempt.
     private var hasAttemptedRecentSelectionFallback = false
+    /// One-shot-per-session guard on `becomeReady()` — same shape and same reset point as
+    /// the two above. See `becomeReady()` for why a retry must not re-run it.
+    private var hasBecomeReady = false
     private var updateCoordinator: UpdateCoordinator?
     /// The one system-wide shortcut. Held so it stays registered for the process's lifetime.
     private var hotKey: GlobalHotKey?
@@ -87,6 +90,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Shorter than the project throttle: the totals are the thing the person opened the menu to
     /// look at, and they move minute by minute while the clock runs.
     private let totalsRefreshThrottle = RefreshThrottle(minInterval: 20)
+
+    /// The launch-time policy resolve is retried until a capture path installs — see
+    /// `PolicyResolutionRetry` for why one-shot was not enough.
+    private let policyRetry = PolicyResolutionRetry()
+    private var policyRetryTask: Task<Void, Never>?
+    private var wakeRetryObserver: NSObjectProtocol?
 
     private var notifier: LocalNotifying?
     private var dailyTotal: DailyTotalAccumulator?
@@ -256,6 +265,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hotKey?.register()
         startHeartbeat()
+        // Wake is the moment a Mac that failed its launch resolve most likely has network again.
+        wakeRetryObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.retryPolicyOnWake() }
+        }
         Task { await start() }
     }
 
@@ -331,14 +346,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 await MainActor.run { statusItem.showPolicyUnavailable() }
             }
+            // This branch is the login-item failure mode: the app starts before the network is
+            // up, the fetch throws, and — until now — that was the end of it for the whole
+            // session. In auto mode the employee was left with a signed-in, ready-looking client
+            // whose clock never started. Retry until capture installs.
+            await MainActor.run { schedulePolicyRetry() }
         }
+    }
+
+    /// Ask again for the policy after a failed resolution, on capped backoff, until a capture
+    /// path installs. `PolicyResolutionRetry` owns the schedule and the one-shot warning; this
+    /// owns the timer, exactly as `SyncEngine` does over `BackoffPolicy`.
+    @MainActor private func schedulePolicyRetry() {
+        guard case let .retry(delay, warnUser) = policyRetry.recordFailure() else { return }
+        if warnUser {
+            presentNotTrackingReminder(
+                title: "Time tracking",
+                message: "Tracking hasn't started — TimeTrack can't reach the server. Your time isn't being recorded.")
+        }
+        policyRetryTask?.cancel()
+        policyRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            // Re-check the session at FIRE time, not schedule time. Sign-out cancels this task,
+            // but a `proceedToPolicy()` already in flight when sign-out lands still reaches its
+            // catch and schedules one more — which would then run against the next user's
+            // launch. `logout()` clears the mirrored last-user id, so this is nil exactly when
+            // nobody is signed in, while an OFFLINE launch (token present, unrefreshable) still
+            // resolves and retries as it should.
+            guard await self.session.userId() != nil else { self.cancelPolicyRetry(); return }
+            await self.proceedToPolicy()
+        }
+    }
+
+    @MainActor private func cancelPolicyRetry() {
+        policyRetryTask?.cancel()
+        policyRetryTask = nil
+    }
+
+    /// A Mac that slept through the failure wakes with working network. Retry immediately
+    /// rather than sitting out the rest of a five-minute backoff the sleep already outlasted.
+    @MainActor private func retryPolicyOnWake() {
+        guard !policyRetry.isResolved, menuViewModel.isSignedIn else { return }
+        cancelPolicyRetry()
+        Task { await proceedToPolicy() }
     }
 
     /// Enable manual tracking and load projects (network → cache fallback). Nudge settings are
     /// read live from `livePolicy`, which the caller seeds and the gate keeps fresh; on the
     /// offline path it stays at its pending default (silent), which is moot anyway since a closed
     /// gate means no activity samples and therefore nothing to nudge about.
+    ///
+    /// Runs at most ONCE per signed-in session. `proceedToPolicy()` is now retried until capture
+    /// installs, and every retry passes back through here — but readiness is not the thing being
+    /// retried. Re-running it would re-issue `refreshProjects()` on each attempt, and that path
+    /// can rewrite `selectionStore` through `restoreSelection` (see `refreshProjects`), so a
+    /// retry loop could quietly reset the employee's chosen project underneath them. Reset on
+    /// sign-out in `stopAutoTracking()` so the next user gets their own.
     private func becomeReady() async {
+        let alreadyReady = await MainActor.run { hasBecomeReady }
+        guard !alreadyReady else { return }
         // Resolve the userId once (an `await`, since `AuthSession` is an actor) and stamp
         // `userIdBox` on the main thread BEFORE `markReady()` flips `isReady` — that flip is
         // the only thing that lets `TimeTracker.start()` run, so the box is always populated
@@ -350,6 +417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // `refreshProjects()` below so its post-refresh restore has a user id to resolve.
             menuViewModel.currentUserId = currentUserId
             menuViewModel.markReady()
+            hasBecomeReady = true
         }
         await MainActor.run { self.installNudgeInfra() }
         await MainActor.run { menuViewModel.projects = projectCache.load() } // instant, offline-safe
@@ -580,8 +648,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run { self?.installAutoTracking(thresholdMinutes: policy.settings.idleThresholdMinutes) }
             }
         } catch {
-            // Gate closed / policy unavailable → auto-tracking simply does not start. Manual
-            // tracking (already enabled) continues. Fail-safe; no fallback path.
+            // Gate closed / policy unavailable → auto-tracking does not start, and manual
+            // tracking (already enabled) continues. Fail-safe, as before — but no longer
+            // silent: schedule another attempt, because at login this is usually just a
+            // network that was not up yet, and the employee cannot see that it happened.
+            await MainActor.run { schedulePolicyRetry() }
         }
     }
 
@@ -596,7 +667,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run { self?.installManualNudges(thresholdMinutes: policy.settings.idleThresholdMinutes) }
             }
         } catch {
-            // Gate closed → poller simply does not start. Manual tracking continues. Fail-safe.
+            // Gate closed → poller does not start. Manual tracking continues. Fail-safe, and
+            // retried for the same reason as the auto path above.
+            await MainActor.run { schedulePolicyRetry() }
         }
     }
 
@@ -611,6 +684,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         manualNudgeMonitor = monitor
         monitor.start()
+        policyRetry.markResolved()  // the manual-mode capture path is live — stop retrying
+        cancelPolicyRetry()
 
         let manual = ManualIdleCoordinator(
             tracker: timeTracker,
@@ -819,6 +894,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.workspaceObserver = observer
         observer.start()
         coordinator.activate()      // manual coordinator self-arms on first manual signal
+        policyRetry.markResolved()  // capture is live — stop the launch retry loop
+        cancelPolicyRetry()
+
+        // Auto mode's own forgot-to-start reminder. `coordinator.activate()` opens an AUTO entry
+        // immediately, so a stopped clock while the employee is present means something went
+        // wrong downstream (a stop that never restarted). Same presence decision as manual mode,
+        // but shown as a WINDOW: this is a fault, not a hint, and the notifier is silently
+        // dropped on a build macOS never authorized. It reads the same content-free idle scalar
+        // as WorkspaceObserver and is installed here, inside the AckGate-guarded install.
+        if manualNudgeMonitor == nil, let notifier {
+            let reminder = ManualNudgeMonitor(
+                notifier: notifier,
+                idleThresholdSeconds: thresholdMinutes * 60,
+                forgotToStartSeconds: forgotToStartMinutes * 60,
+                isTracking: { [weak self] in self?.timeTracker.isRunning ?? false },
+                isPaused: { [weak self] in self?.timeTracker.isPaused ?? false },
+                presentForgotToStart: { [weak self] title, body in
+                    self?.presentNotTrackingReminder(title: title, message: body)
+                },
+                // IdleMonitor already owns the idle nudge in auto mode (`idle-nudge` above).
+                emitsManualIdleNudge: false,
+                // An unanswered away prompt is "present and not tracking" too — but it is
+                // already the thing asking them to act, so don't stack a second window on it.
+                isAwaitingResolution: { [weak self] in
+                    if case .awaiting = self?.autoCoordinator?.monitorState { return true }
+                    return false
+                }
+            )
+            manualNudgeMonitor = reminder
+            reminder.start()
+        }
+    }
+
+    /// The one place a "your time isn't being recorded" window is raised, from both triggers
+    /// (repeated policy-resolution failure, and auto mode's forgot-to-start). Suppressed unless
+    /// manual tracking is actually available — with no ack on file the Start button could not
+    /// legally do anything (CLAUDE.md §1), and the status item already says so.
+    @MainActor private func presentNotTrackingReminder(title: String, message: String) {
+        guard menuViewModel.isReady else { return }
+        NotTrackingReminderWindowController.present(
+            title: title, message: message, primaryLabel: "Start tracking",
+            onPrimary: { [weak self] in self?.menuViewModel.start() })
     }
 
     @MainActor private func stopAutoTracking() {
@@ -845,6 +962,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // gets their own single fresh-install fallback attempt (`refreshProjects()`) instead of
         // inheriting the outgoing user's "already tried" state.
         hasAttemptedRecentSelectionFallback = false
+        hasBecomeReady = false
         // Invalidate the interval timer so no NEW cycle is scheduled. A cycle already in flight is
         // NOT cancelled by this — `flushAndClearBuffer()` joins it via `finishInFlight()` before
         // clearing the buffer, so the reference must survive here (do not nil it).
@@ -857,6 +975,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         endOfDayScheduler = nil
         manualNudgeMonitor?.stop()
         manualNudgeMonitor = nil
+        // Same cross-user integrity guard: a reminder left on screen carries a Start button that
+        // would open an entry attributed to whoever signs in NEXT (the away-/recovery-prompt leak
+        // class). Cancel the retry loop and re-arm its one-shot warning for that next user too.
+        NotTrackingReminderWindowController.dismissIfShowing()
+        cancelPolicyRetry()
+        policyRetry.reset()
         dailyTotal?.reset()
         dailyTotal = nil
         // Slice 3.4 — same cross-user integrity guard: clear the distraction streak + today's tally

@@ -18,6 +18,18 @@ final class ManualNudgeMonitor {
     private let isTracking: () -> Bool
     private let isPaused: () -> Bool
     private let pollInterval: TimeInterval
+    /// Auto mode: present the forgot-to-start reminder as a VISIBLE window instead of posting a
+    /// notification. Auto-tracking failing to start is a fault, not a gentle hint, and the
+    /// notifier silently drops everything on a build macOS never authorized (see `LocalNotifier`).
+    /// `nil` (the default) keeps the manual-mode behaviour: a plain notification.
+    private let presentForgotToStart: ((_ title: String, _ body: String) -> Void)?
+    /// Auto mode passes `false`: `IdleMonitor` already owns the idle nudge there (`idle-nudge`),
+    /// and a second "still tracking?" for the same idle stretch would just compete with it.
+    private let emitsManualIdleNudge: Bool
+    /// True while an away keep/discard prompt is on screen awaiting the user. They are not
+    /// tracking and they are present, which is exactly the forgot-to-start shape — but the
+    /// prompt IS the thing asking them to act, so a second window on top of it is noise.
+    private let isAwaitingResolution: () -> Bool
 
     private var activeSince: Date?
     private var firedForgot = false
@@ -26,13 +38,19 @@ final class ManualNudgeMonitor {
 
     init(notifier: LocalNotifying, idleThresholdSeconds: Int, forgotToStartSeconds: Int,
          isTracking: @escaping () -> Bool, isPaused: @escaping () -> Bool,
-         pollInterval: TimeInterval = 15) {
+         pollInterval: TimeInterval = 15,
+         presentForgotToStart: ((_ title: String, _ body: String) -> Void)? = nil,
+         emitsManualIdleNudge: Bool = true,
+         isAwaitingResolution: @escaping () -> Bool = { false }) {
         self.notifier = notifier
         self.idleThresholdSeconds = idleThresholdSeconds
         self.forgotToStartSeconds = forgotToStartSeconds
         self.isTracking = isTracking
         self.isPaused = isPaused
         self.pollInterval = pollInterval
+        self.presentForgotToStart = presentForgotToStart
+        self.emitsManualIdleNudge = emitsManualIdleNudge
+        self.isAwaitingResolution = isAwaitingResolution
     }
 
     func start() {
@@ -63,7 +81,7 @@ final class ManualNudgeMonitor {
             activeSince = nil
             firedForgot = false
             if idleSeconds >= idleThresholdSeconds {
-                if !firedManualIdle {
+                if !firedManualIdle, emitsManualIdleNudge {
                     let minutes = max(1, Int((Double(idleSeconds) / 60.0).rounded()))
                     notifier.notify(id: "manual-idle", title: "Time tracking",
                                     body: "Idle for \(minutes) min — still tracking?")
@@ -75,7 +93,7 @@ final class ManualNudgeMonitor {
             return
         }
 
-        if isPaused() {
+        if isPaused() || isAwaitingResolution() {
             // Mid-pause manual session — no nudges.
             activeSince = nil
             firedForgot = false
@@ -93,8 +111,13 @@ final class ManualNudgeMonitor {
         if activeSince == nil { activeSince = now }
         if let since = activeSince, !firedForgot,
            now.timeIntervalSince(since) >= Double(forgotToStartSeconds) {
-            notifier.notify(id: "forgot-to-start", title: "Time tracking",
-                            body: "You've been active \(forgotToStartSeconds / 60) min without tracking — start?")
+            let title = "Time tracking"
+            let body = "You've been active \(forgotToStartSeconds / 60) min without tracking — start?"
+            if let presentForgotToStart {
+                presentForgotToStart(title, body)
+            } else {
+                notifier.notify(id: "forgot-to-start", title: title, body: body)
+            }
             firedForgot = true
         }
     }
