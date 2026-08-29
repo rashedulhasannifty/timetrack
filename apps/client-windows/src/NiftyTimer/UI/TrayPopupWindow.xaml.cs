@@ -295,8 +295,8 @@ public partial class TrayPopupWindow : Window
     /// SOFTWARE rendering — which degrades ClearType on the one surface in this client where text
     /// quality is the entire point. DWM rounds the real window with hardware rendering intact.
     ///
-    /// The Border's own CornerRadius has to be 0 alongside this: DWM rounds the WINDOW, so a
-    /// rounded Border inside a rounded window shows as a double edge.
+    /// The Border's own CornerRadius has to track whether DWM actually rounded the window: see the
+    /// HRESULT gate below.
     /// </summary>
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -305,9 +305,15 @@ public partial class TrayPopupWindow : Window
         var preference = DwmWindowCornerPreferenceRound;
         var handle = new WindowInteropHelper(this).Handle;
 
-        // Windows 10 has no such attribute and returns a failure HRESULT. Ignored on purpose:
-        // square corners there is the accepted degradation, not an error worth surfacing.
-        _ = DwmSetWindowAttribute(handle, DwmwaWindowCornerPreference, ref preference, sizeof(int));
+        // 8 is DWM's own DWMWCP_ROUND radius, not a design-system value — do not "tidy" it onto
+        // RadiusSm. Gated on the HRESULT: when DWM rounds the window, the Border must round with
+        // it or its square stroke is clipped short at each corner. When the call FAILS (Windows 10,
+        // which has no such attribute) the window stays square, so the Border must stay square too
+        // or its rounded corners would cut into a square window and show as nubs.
+        if (DwmSetWindowAttribute(handle, DwmwaWindowCornerPreference, ref preference, sizeof(int)) == 0)
+        {
+            ((Border)Content).CornerRadius = new CornerRadius(8);
+        }
     }
 
     private const int DwmwaWindowCornerPreference = 33;
