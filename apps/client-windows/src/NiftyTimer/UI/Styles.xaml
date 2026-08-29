@@ -245,13 +245,20 @@
          text and PR 2's picker list are both scrollable, so this is visible on real surfaces. -->
     <Style x:Key="ScrollThumb" TargetType="Thumb">
         <Setter Property="IsTabStop" Value="False" />
+        <!-- 3,0 insets left/right for a vertical bar; the ScrollBar template's own orientation
+             trigger flips this to 0,3 (and swaps which dimension gets the MinHeight/MinWidth floor
+             below) for a horizontal one — Style.Triggers here cannot reach that decision because
+             Orientation lives on the ScrollBar, not on this Thumb. -->
+        <Setter Property="Margin" Value="3,0" />
+        <!-- Without a floor, Track can shrink the thumb toward zero on long content (AckWindow's
+             policy text is exactly that case), leaving nothing to grab. -->
+        <Setter Property="MinHeight" Value="24" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Thumb">
                     <Border x:Name="Bar"
                             Background="{DynamicResource Neutral}"
-                            CornerRadius="3"
-                            Margin="3,0" />
+                            CornerRadius="3" />
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bar" Property="Background" Value="{DynamicResource TextSecondary}" />
@@ -294,13 +301,26 @@
                                 <RepeatButton Command="ScrollBar.PageUpCommand" Style="{StaticResource ScrollPageButton}" />
                             </Track.DecreaseRepeatButton>
                             <Track.Thumb>
-                                <Thumb Style="{StaticResource ScrollThumb}" />
+                                <Thumb x:Name="ScrollThumbElement" Style="{StaticResource ScrollThumb}" />
                             </Track.Thumb>
                             <Track.IncreaseRepeatButton>
                                 <RepeatButton Command="ScrollBar.PageDownCommand" Style="{StaticResource ScrollPageButton}" />
                             </Track.IncreaseRepeatButton>
                         </Track>
                     </Grid>
+                    <ControlTemplate.Triggers>
+                        <!-- True is correct for a vertical bar (drag increases downward, decrease
+                             button on top) and wrong for a horizontal one, where it inverts drag
+                             and puts the decrease button on the wrong side. Style.Triggers on the
+                             ScrollBar style cannot reach PART_Track — it's a template part, not a
+                             property of the styled control — so this has to live here instead. -->
+                        <Trigger Property="Orientation" Value="Horizontal">
+                            <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False" />
+                            <Setter TargetName="ScrollThumbElement" Property="Margin" Value="0,3" />
+                            <Setter TargetName="ScrollThumbElement" Property="MinWidth" Value="24" />
+                            <Setter TargetName="ScrollThumbElement" Property="MinHeight" Value="0" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
