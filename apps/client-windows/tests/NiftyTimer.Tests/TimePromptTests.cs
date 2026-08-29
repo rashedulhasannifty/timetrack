@@ -188,9 +188,10 @@ public static class Wpf
         {
             var application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
 
-            // The windows resolve brushes through the theme dictionary and styles through Tokens, so both
-            // have to be loaded exactly as App.xaml loads them at runtime — same order, theme first.
-            foreach (var source in new[] { "UI/Theme.Light.xaml", "UI/Tokens.xaml" })
+            // The windows resolve brushes through the theme dictionary and styles through Tokens and
+            // Styles, so all three have to be loaded exactly as App.xaml loads them at runtime — same
+            // order, theme first.
+            foreach (var source in new[] { "UI/Theme.Light.xaml", "UI/Tokens.xaml", "UI/Styles.xaml" })
             {
                 application.Resources.MergedDictionaries.Add(new ResourceDictionary
                 {

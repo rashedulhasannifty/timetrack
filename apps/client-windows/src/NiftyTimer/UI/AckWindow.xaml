@@ -23,10 +23,11 @@
                        Visibility="Collapsed"
                        Margin="0,0,0,8" />
             <StackPanel Orientation="Horizontal">
-                <Button x:Name="AcknowledgeButton" Content="I acknowledge" Padding="10,5" Click="OnAcknowledge" />
+                <Button x:Name="AcknowledgeButton" Content="I acknowledge" Style="{StaticResource ProminentButton}" Click="OnAcknowledge" />
                 <!-- No "decline and continue anyway". Without acknowledgement the client does not
-                     capture, and there is no admin override (PRD §4.1). -->
-                <Button Content="Not now" Padding="10,5" Margin="8,0,0,0" Click="OnNotNow" />
+                     capture, and there is no admin override (PRD §4.1). Stays on the default
+                     bordered style — visible and ordinary, never a link, never hidden. -->
+                <Button Content="Not now" Margin="8,0,0,0" Click="OnNotNow" />
             </StackPanel>
         </StackPanel>
 

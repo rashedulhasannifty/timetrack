@@ -11,6 +11,7 @@
                      old brush. Do not insert a dictionary ahead of this one. -->
                 <ResourceDictionary Source="UI/Theme.Light.xaml" />
                 <ResourceDictionary Source="UI/Tokens.xaml" />
+                <ResourceDictionary Source="UI/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

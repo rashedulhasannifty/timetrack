@@ -26,6 +26,6 @@
                    Visibility="Collapsed"
                    Margin="0,0,0,10" />
 
-        <Button x:Name="SignInButton" Content="Sign in" Padding="8,5" Click="OnSignIn" IsDefault="True" />
+        <Button x:Name="SignInButton" Content="Sign in" Style="{StaticResource ProminentButton}" Click="OnSignIn" IsDefault="True" />
     </StackPanel>
 </Window>
