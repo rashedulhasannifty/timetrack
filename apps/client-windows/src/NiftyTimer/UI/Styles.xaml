@@ -142,4 +142,102 @@
         </Setter>
     </Style>
 
+    <!-- Recessed field on the quiet ground, the way the dashboard and the Mac client both draw
+         inputs. The stock template's 3D border is the single most dated thing on these windows
+         after the buttons. -->
+    <Style x:Key="FieldChrome" TargetType="Control">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource Text}" />
+        <!-- CaretBrush is deliberately NOT here. A Setter's property is resolved against the
+             style's TargetType, and Control has no CaretBrush — putting it here throws
+             XamlParseException at load, not at compile. It is set on the two concrete styles
+             below instead (TextBox gets it from TextBoxBase, PasswordBox declares its own;
+             ComboBox has none, which is the other half of why it cannot live here). -->
+        <Setter Property="Background" Value="{DynamicResource Surface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Separator}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="9,6" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+    </Style>
+
+    <Style TargetType="TextBox" BasedOn="{StaticResource FieldChrome}">
+        <Setter Property="CaretBrush" Value="{DynamicResource Text}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="Chrome"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource RadiusSm}">
+                        <!-- The host must be named PART_ContentHost; TextBox finds its editor by
+                             that name and renders nothing without it. -->
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Margin="{TemplateBinding Padding}"
+                                      VerticalAlignment="Center"
+                                      Focusable="False"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Chrome" Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="PasswordBox" BasedOn="{StaticResource FieldChrome}">
+        <Setter Property="CaretBrush" Value="{DynamicResource Text}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="PasswordBox">
+                    <Border x:Name="Chrome"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource RadiusSm}">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Margin="{TemplateBinding Padding}"
+                                      VerticalAlignment="Center"
+                                      Focusable="False"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Chrome" Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- DELIBERATELY MINIMAL. PR 2 deletes this ComboBox and replaces the picker with a search
+         field over a list, so a full ToggleButton + Popup + ItemsPresenter template here would be
+         written to be thrown away. This restyles the field and the dropdown surface — which is
+         what reads as dated — and leaves the toggle glyph stock.
+         Do not invest further in it; move the effort to PR 2's picker. -->
+    <Style TargetType="ComboBox" BasedOn="{StaticResource FieldChrome}">
+        <Setter Property="Padding" Value="6,4" />
+    </Style>
+
+    <Style TargetType="ComboBoxItem">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource Text}" />
+        <Setter Property="Background" Value="{DynamicResource SurfaceRaised}" />
+        <Setter Property="Padding" Value="8,6" />
+    </Style>
+
 </ResourceDictionary>
