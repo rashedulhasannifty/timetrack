@@ -116,13 +116,24 @@ Rule: every brush and elevation reference moves to `{DynamicResource}`. `Style` 
 
 `MarkRemaining` / `MarkElapsed` are **theme-invariant on purpose**, matching the same note in `globals.css` and `TimeTrackTokens.swift`: the same two values are baked into the app artwork, which cannot follow a theme.
 
-`WarningBrush` (the current `#B45309`) maps to `Manual`. The existing `AccentBrush` green is dropped.
+The table maps **roles**, so the four brushes in today's `Tokens.xaml` retire onto it explicitly rather than by inference:
+
+| Today                | Becomes         |
+| -------------------- | --------------- |
+| `SurfaceBrush`       | `SurfaceRaised` |
+| `BorderBrushSubtle`  | `Separator`     |
+| `TextPrimaryBrush`   | `Text`          |
+| `TextSecondaryBrush` | `TextSecondary` |
+| `WarningBrush`       | `Manual`        |
+| `AccentBrush`        | dropped         |
+
+`Tint` backs the selected row in PR 2's project picker and the update-row chip. `Good` and `Neutral` are carried for role-parity with `globals.css` but have **no consumer in these four windows** — they exist so a later surface does not invent a fifth palette, and PR 1 should not manufacture a use for them.
 
 Radii `sm 6 / md 11 / lg 20`, 4px spacing base, and the `e1`/`e2` elevations port directly.
 
 ### Type
 
-Segoe UI Variable throughout, mapped to the dashboard's scale (micro 11 / caption 12 / label 13 / body 15 / h2 19 / h1 27 / display 52 px).
+Segoe UI Variable throughout. Only the part of the dashboard's scale these windows actually use is ported — micro 11 / caption 12 / label 13 / body 15 / h2 19. The dashboard's `h1` and 52px `display` have no counterpart here; the largest text in the client is the 34px elapsed timer, which gets its own `Elapsed` style rather than being forced onto a dashboard step.
 
 **Why not Schibsted Grotesk.** Shipping the dashboard's webfont into the client was considered and rejected on rendering grounds rather than licensing: WPF text rendering is not a browser's, and a webfont-designed grotesk renders measurably worse under ClearType at the 11–13px sizes that dominate these four windows. The type styles are tokenized so a later swap touches only `Tokens.xaml`.
 
@@ -144,13 +155,27 @@ Appearance only. No window's structure changes; all four inherit the new look be
   - `FocusVisualStyle` — replaces the default dotted rectangle with the dashboard's `2px accent, 2px offset`.
 - `App.xaml` — merge order, theme swap plumbing, `SystemEvents` subscribe/unsubscribe.
 - The `DynamicResource` sweep across all four windows.
-- `TrayPopupWindow`: drop `AllowsTransparency="True"`.
+- The tray popup corner change — **one atomic step**, see below.
 
-### Why `AllowsTransparency` goes
+### The corner change is one step, not three
 
-`TrayPopupWindow.xaml` sets it to get the rounded `Border`. It **forces software rendering for that window**, which degrades ClearType — on the one surface where text quality is the entire deliverable. Native Win11 rounded corners come from `DwmSetWindowAttribute` with `DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND` (attribute 33), applied to the HWND after `SourceInitialized`, with hardware rendering intact.
+`TrayPopupWindow.xaml` sets `AllowsTransparency="True"` to get its rounded card. That **forces software rendering for that window**, which degrades ClearType — on the one surface where text quality is the entire deliverable. So it goes. But the rounding is currently produced by three cooperating settings, and removing one of them alone ships something worse than today:
+
+1. `AllowsTransparency="True"` + `Background="Transparent"` on the `Window`
+2. `WindowStyle="None"`, which stays
+3. the inner `<Border CornerRadius="8">`
+
+Drop only (1) and the window becomes an opaque, still-chrome-less square with a rounded rectangle floating inside it and its corners painted in the window background. Keep (3) after adding DWM rounding and the window corner and the border corner produce a visible double-rounded seam, because `DWMWA_WINDOW_CORNER_PREFERENCE` rounds the **window**, not the `Border`.
+
+All three parts land together, in this order, as a single implementation item:
+
+1. Remove `AllowsTransparency="True"` and `Background="Transparent"`; give the `Window` an explicit `SurfaceRaised` background.
+2. Set the inner `Border`'s `CornerRadius` to `0` (it stays for padding and the outline).
+3. On `SourceInitialized`, call `DwmSetWindowAttribute` with `DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND` (attribute 33) on the HWND.
 
 Windows 10 does not support attribute 33; the call returns a failure HRESULT and must be ignored rather than thrown on. The client already targets Windows 10 builds (see the GDI-over-WGC note in `ROADMAP.md`), so square corners on Win10 is the accepted degradation.
+
+**Verify popup placement after this change.** `TrayIconController` positions the window against the notification area; that math is written against a transparent, borderless window and may shift once it is opaque. Check the popup still lands flush with the tray in both themes.
 
 ### Tray icons
 
@@ -212,6 +237,7 @@ New unit tests:
 
 - **Theme resolution** — registry value `0` → dark, `1` → light, missing → light. Pure function over an injected reader, following the client's existing closure-injection pattern.
 - **Theme dictionary completeness** — every key in `Theme.Light.xaml` exists in `Theme.Dark.xaml` and vice versa. Catches the half-added token, which otherwise surfaces as a `null` brush in one theme only.
+- **No `StaticResource` on a themed brush** — reads the four window `.xaml` files as text and asserts zero occurrences of `{StaticResource` followed by any role name from the token table. Crude, deliberately so: dictionary completeness passes whether or not the sweep was finished, so without this test the top-listed risk in this doc has no automated guard at all and rests on someone remembering to toggle the theme by hand. This one fails in CI instead.
 - **Picker filtering** (PR 2) — the new `MenuViewModel` projection: match on project and task name, empty query returns all, no match returns empty.
 
 `TreatWarningsAsErrors` is on, so `dotnet build NiftyTimer.sln -c Release` is also the lint gate.
@@ -240,11 +266,12 @@ If the app cannot be launched in the working environment, that is reported plain
 
 ## Risks
 
-| Risk                                                                 | Mitigation                                                                  |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Partial `DynamicResource` sweep — popup silently never re-themes     | Own implementation step; verified by toggling the theme with the popup open |
-| `SystemEvents` callback on a non-UI thread                           | Marshal to dispatcher; unsubscribe on shutdown                              |
-| `DWMWA_WINDOW_CORNER_PREFERENCE` unsupported on Windows 10           | Ignore the failure HRESULT; square corners is the accepted degradation      |
-| Hand-rolled `ControlTemplate`s lose keyboard/accessibility behaviour | Template stock controls rather than replacing them; keep `FocusVisualStyle` |
-| A visual PR quietly weakening the ack gate or the monitoring notice  | Called out as hard constraints in PR 3; `CaptureGateGuardTests` stays green |
-| Scope drift into the three non-goal windows                          | Recorded as non-goals with the reason each is excluded                      |
+| Risk                                                                       | Mitigation                                                                                                        |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Partial `DynamicResource` sweep — popup silently never re-themes           | The no-`StaticResource` text test fails it in CI; also verified by hand by toggling the theme with the popup open |
+| Half-done corner change ships a square window with a rounded box inside it | The three parts are one atomic implementation item, not three bullets                                             |
+| `SystemEvents` callback on a non-UI thread                                 | Marshal to dispatcher; unsubscribe on shutdown                                                                    |
+| `DWMWA_WINDOW_CORNER_PREFERENCE` unsupported on Windows 10                 | Ignore the failure HRESULT; square corners is the accepted degradation                                            |
+| Hand-rolled `ControlTemplate`s lose keyboard/accessibility behaviour       | Template stock controls rather than replacing them; keep `FocusVisualStyle`                                       |
+| A visual PR quietly weakening the ack gate or the monitoring notice        | Called out as hard constraints in PR 3; `CaptureGateGuardTests` stays green                                       |
+| Scope drift into the three non-goal windows                                | Recorded as non-goals with the reason each is excluded                                                            |
