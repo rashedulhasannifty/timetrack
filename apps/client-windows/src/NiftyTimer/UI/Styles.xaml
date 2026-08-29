@@ -262,6 +262,22 @@
         </Setter>
     </Style>
 
+    <!-- Invisible but HIT-TESTABLE. Transparent rather than Visibility="Collapsed" or a null
+         template: a collapsed or empty button has no hit area, and the hit area is the entire
+         point — this is what makes clicking the open track page up or down. The arrows are what
+         looked dated; the paging behaviour they sat next to is not. -->
+    <Style x:Key="ScrollPageButton" TargetType="RepeatButton">
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border Background="Transparent" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style TargetType="ScrollBar">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Width" Value="10" />
@@ -270,13 +286,19 @@
                 <ControlTemplate TargetType="ScrollBar">
                     <Grid Background="{TemplateBinding Background}">
                         <!-- Track must be named PART_Track; ScrollBar drives the thumb through it
-                             and the control is inert without it. No RepeatButtons: the stepper
-                             arrows are the dated part, and dragging plus the wheel cover the
-                             behaviour they provided. -->
+                             and the control is inert without it. The stepper arrows are gone —
+                             the RepeatButtons here are transparent hit areas that page the track,
+                             not visible arrow glyphs. -->
                         <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageUpCommand" Style="{StaticResource ScrollPageButton}" />
+                            </Track.DecreaseRepeatButton>
                             <Track.Thumb>
                                 <Thumb Style="{StaticResource ScrollThumb}" />
                             </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageDownCommand" Style="{StaticResource ScrollPageButton}" />
+                            </Track.IncreaseRepeatButton>
                         </Track>
                     </Grid>
                 </ControlTemplate>
