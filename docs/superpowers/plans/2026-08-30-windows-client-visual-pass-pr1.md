@@ -119,9 +119,19 @@ public class ThemeSweepTests
     [InlineData("AckWindow.xaml")]
     [InlineData("TimePromptWindow.xaml")]
     [InlineData("Tokens.xaml")]
+    // Added by Task 3, which creates this file. Until then the case is skipped by the
+    // File.Exists guard below rather than failing a task that has not run yet.
+    [InlineData("Styles.xaml")]
     public void NoThemedBrushIsBoundWithStaticResource(string file)
     {
-        var xaml = File.ReadAllText(Path.Combine(UiDirectory(), file));
+        var path = Path.Combine(UiDirectory(), file);
+        if (!File.Exists(path))
+        {
+            // Styles.xaml arrives in Task 3. Absent is not a failure; present-and-dirty is.
+            return;
+        }
+
+        var xaml = File.ReadAllText(path);
 
         foreach (var role in ThemedRoles)
         {
@@ -749,7 +759,11 @@ Append before `</ResourceDictionary>`:
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{DynamicResource Text}" />
-        <Setter Property="CaretBrush" Value="{DynamicResource Text}" />
+        <!-- CaretBrush is deliberately NOT here. A Setter's property is resolved against the
+             style's TargetType, and Control has no CaretBrush — putting it here throws
+             XamlParseException at load, not at compile. It is set on the two concrete styles
+             below instead (TextBox gets it from TextBoxBase, PasswordBox declares its own;
+             ComboBox has none, which is the other half of why it cannot live here). -->
         <Setter Property="Background" Value="{DynamicResource Surface}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Separator}" />
         <Setter Property="BorderThickness" Value="1" />
@@ -758,6 +772,7 @@ Append before `</ResourceDictionary>`:
     </Style>
 
     <Style TargetType="TextBox" BasedOn="{StaticResource FieldChrome}">
+        <Setter Property="CaretBrush" Value="{DynamicResource Text}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
@@ -789,6 +804,7 @@ Append before `</ResourceDictionary>`:
     </Style>
 
     <Style TargetType="PasswordBox" BasedOn="{StaticResource FieldChrome}">
+        <Setter Property="CaretBrush" Value="{DynamicResource Text}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="PasswordBox">
@@ -1365,7 +1381,8 @@ The tray icon sits on the taskbar, whose background follows the system theme. A 
 - Modify: `src/NiftyTimer/NiftyTimer.csproj`
 - Modify: `src/NiftyTimer/App/TrayIconController.cs`
 - Modify: `scripts/package-app.ps1`
-- Modify: whichever file constructs `TrayIconController` (find it in Step 4)
+- Modify: `src/NiftyTimer/App/AppDelegate.cs:170` (the `TrayIconController` construction site)
+- Modify: `tests/NiftyTimer.Tests/PackagingContractTests.cs:77-78` (asserts the old icon names)
 
 **Interfaces:**
 
