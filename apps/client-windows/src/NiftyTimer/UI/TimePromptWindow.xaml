@@ -6,7 +6,8 @@
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         ShowInTaskbar="True"
-        Topmost="True">
+        Topmost="True"
+        Background="{DynamicResource Surface}">
 
     <StackPanel Margin="24">
         <TextBlock x:Name="TitleLabel"
@@ -21,7 +22,7 @@
 
         <TextBlock x:Name="MessageLabel"
                    Style="{StaticResource BodyText}"
-                   Foreground="{StaticResource TextSecondaryBrush}"
+                   Foreground="{DynamicResource TextSecondary}"
                    TextWrapping="Wrap"
                    Margin="0,10,0,0" />
 

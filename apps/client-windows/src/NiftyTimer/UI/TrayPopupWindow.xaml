@@ -11,8 +11,8 @@
         AllowsTransparency="True"
         Background="Transparent">
 
-    <Border Background="{StaticResource SurfaceBrush}"
-            BorderBrush="{StaticResource BorderBrushSubtle}"
+    <Border Background="{DynamicResource SurfaceRaised}"
+            BorderBrush="{DynamicResource Separator}"
             BorderThickness="1"
             CornerRadius="8"
             Padding="14">
@@ -26,7 +26,7 @@
                  the client to be legible about what it is doing. -->
             <TextBlock x:Name="NoticeLabel"
                        Style="{StaticResource BodyText}"
-                       Foreground="{StaticResource WarningBrush}"
+                       Foreground="{DynamicResource Manual}"
                        TextWrapping="Wrap"
                        Visibility="Collapsed"
                        Margin="0,0,0,10" />
@@ -52,7 +52,7 @@
                         Click="OnPauseResume" />
             </StackPanel>
 
-            <Border BorderBrush="{StaticResource BorderBrushSubtle}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+            <Border BorderBrush="{DynamicResource Separator}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -88,7 +88,7 @@
                         ToolTip="Downloads and verifies the new build, then restarts. Your tracked time is unaffected." />
             </StackPanel>
 
-            <Border BorderBrush="{StaticResource BorderBrushSubtle}" BorderThickness="0,1,0,0"
+            <Border BorderBrush="{DynamicResource Separator}" BorderThickness="0,1,0,0"
                     Margin="0,10,0,0" Padding="0,8,0,0">
                 <StackPanel Orientation="Horizontal">
                     <Button Content="My data" Padding="6,3" Click="OnOpenMyData"

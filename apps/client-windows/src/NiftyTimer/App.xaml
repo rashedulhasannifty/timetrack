@@ -5,6 +5,11 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
+                <!-- INDEX 0 IS THE THEME and is swapped wholesale at runtime by ThemeWatcher
+                     (Task 6). Anything merged after it may reference its keys, but only through
+                     DynamicResource — a StaticResource binding would survive the swap holding the
+                     old brush. Do not insert a dictionary ahead of this one. -->
+                <ResourceDictionary Source="UI/Theme.Light.xaml" />
                 <ResourceDictionary Source="UI/Tokens.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>

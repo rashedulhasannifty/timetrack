@@ -6,7 +6,8 @@
         Height="460"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResize"
-        ShowInTaskbar="True">
+        ShowInTaskbar="True"
+        Background="{DynamicResource Surface}">
 
     <DockPanel Margin="20">
         <TextBlock DockPanel.Dock="Top" Text="Before Nifty Timer can monitor"
@@ -17,7 +18,7 @@
         <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
             <TextBlock x:Name="ErrorLabel"
                        Style="{StaticResource BodyText}"
-                       Foreground="{StaticResource WarningBrush}"
+                       Foreground="{DynamicResource Manual}"
                        TextWrapping="Wrap"
                        Visibility="Collapsed"
                        Margin="0,0,0,8" />
@@ -29,7 +30,7 @@
             </StackPanel>
         </StackPanel>
 
-        <Border BorderBrush="{StaticResource BorderBrushSubtle}" BorderThickness="1" Padding="12">
+        <Border BorderBrush="{DynamicResource Separator}" BorderThickness="1" Padding="12">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <TextBlock x:Name="PolicyText" Style="{StaticResource BodyText}" TextWrapping="Wrap" />
             </ScrollViewer>

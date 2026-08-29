@@ -6,7 +6,8 @@
         SizeToContent="Height"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
-        ShowInTaskbar="True">
+        ShowInTaskbar="True"
+        Background="{DynamicResource Surface}">
 
     <StackPanel Margin="20">
         <TextBlock Text="Sign in to Nifty Timer" Style="{StaticResource BodyText}" FontSize="16" />
@@ -20,7 +21,7 @@
 
         <TextBlock x:Name="ErrorLabel"
                    Style="{StaticResource BodyText}"
-                   Foreground="{StaticResource WarningBrush}"
+                   Foreground="{DynamicResource Manual}"
                    TextWrapping="Wrap"
                    Visibility="Collapsed"
                    Margin="0,0,0,10" />
