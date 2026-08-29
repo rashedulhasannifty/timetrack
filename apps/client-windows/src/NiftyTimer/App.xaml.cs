@@ -1,4 +1,5 @@
 using System.Windows;
+using NiftyTimer.UI;
 
 namespace NiftyTimer;
 
@@ -14,16 +15,23 @@ namespace NiftyTimer;
 public partial class NiftyTimerApp : Application
 {
     private App.AppDelegate? _delegate;
+    private ThemeWatcher? _theme;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Before the delegate starts, so the first window is drawn in the right theme rather than
+        // flashing light and correcting itself.
+        _theme = new ThemeWatcher();
+
         _delegate = new App.AppDelegate();
         _delegate.Start();
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _theme?.Dispose();
         _delegate?.Dispose();
         base.OnExit(e);
     }
