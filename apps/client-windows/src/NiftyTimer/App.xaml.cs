@@ -21,12 +21,24 @@ public partial class NiftyTimerApp : Application
     {
         base.OnStartup(e);
 
-        // Before the delegate starts, so the first window is drawn in the right theme rather than
-        // flashing light and correcting itself.
-        _theme = new ThemeWatcher();
+        // A local, not the field: the field is nullable and the compiler's flow analysis does not
+        // follow an assignment into a lambda, so capturing it would be CS8602 — and CS8602 is an
+        // error here, not a warning.
+        var appDelegate = new App.AppDelegate();
+        _delegate = appDelegate;
 
-        _delegate = new App.AppDelegate();
-        _delegate.Start();
+        // The watcher applies once on construction, so the delegate must exist first or that very
+        // first ApplyTheme lands on a null tray.
+        _theme = new ThemeWatcher(
+            ThemeResolver.FromRegistry,
+            theme =>
+            {
+                ThemeWatcher.ApplyToApplication(theme);
+                appDelegate.ApplyTheme(theme);
+            },
+            hook => new App.MessageWindowHost("NiftyTimer.ThemeHost", hook));
+
+        appDelegate.Start();
     }
 
     protected override void OnExit(ExitEventArgs e)

@@ -94,9 +94,17 @@ function New-TrayIcon {
     Write-Host "wrote $Path"
 }
 
-# Idle: a hollow slate ring — present and legible, clearly not recording.
-New-TrayIcon -Path (Join-Path $outDir 'tray-idle.ico') -R 148 -G 163 -B 184 -Hollow $true
+# Four icons, not two: the taskbar background follows the system theme, so each state needs a
+# variant that is legible against it. The mark is DARK on a light taskbar and LIGHT on a dark one,
+# which is why these are not simply the palette's light/dark values applied naively.
+#
+# Idle stays hollow and tracking stays filled — the two states must be distinguishable without
+# relying on colour, which is also what keeps them legible for colour-blind users.
 
-# Tracking: a filled green dot. The state change is what makes the indicator meaningful, so the
-# two must be distinguishable at a glance and without relying on colour alone (filled vs hollow).
-New-TrayIcon -Path (Join-Path $outDir 'tray-tracking.ico') -R 34 -G 197 -B 94
+# Light theme: light taskbar, so draw dark.
+New-TrayIcon -Path (Join-Path $outDir 'tray-idle-light.ico')     -R 0x73 -G 0x72 -B 0x6C -Hollow $true
+New-TrayIcon -Path (Join-Path $outDir 'tray-tracking-light.ico') -R 0x0F -G 0x76 -B 0x6E
+
+# Dark theme: dark taskbar, so draw light.
+New-TrayIcon -Path (Join-Path $outDir 'tray-idle-dark.ico')      -R 0x9D -G 0x9D -B 0x97 -Hollow $true
+New-TrayIcon -Path (Join-Path $outDir 'tray-tracking-dark.ico')  -R 0x43 -G 0xC0 -B 0xAF

@@ -74,8 +74,14 @@ public class PackagingContractTests
     {
         var script = Script("package-app.ps1");
 
-        Assert.Contains("tray-idle.ico", script, StringComparison.Ordinal);
-        Assert.Contains("tray-tracking.ico", script, StringComparison.Ordinal);
+        foreach (var icon in new[]
+                 {
+                     "tray-idle-light.ico", "tray-idle-dark.ico",
+                     "tray-tracking-light.ico", "tray-tracking-dark.ico",
+                 })
+        {
+            Assert.Contains(icon, script, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>

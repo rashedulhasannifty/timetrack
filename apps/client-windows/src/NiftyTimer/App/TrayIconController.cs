@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using NiftyTimer.UI;
 
 namespace NiftyTimer.App;
 
@@ -44,7 +45,7 @@ public sealed class TrayIconController : IDisposable
     private const uint LrDefaultSize = 0x0040;
 
     private readonly MessageWindow _source;
-    private readonly Dictionary<TrayState, IntPtr> _icons = [];
+    private readonly Dictionary<(TrayState State, AppTheme Theme), IntPtr> _icons = [];
     private readonly uint _id;
 
     /// <summary>
@@ -60,6 +61,7 @@ public sealed class TrayIconController : IDisposable
     private readonly uint _taskbarCreated;
 
     private TrayState _state = TrayState.Idle;
+    private AppTheme _theme = AppTheme.Light;
     private string _tooltip = "Nifty Timer";
     private bool _added;
     private bool _disposed;
@@ -74,8 +76,22 @@ public sealed class TrayIconController : IDisposable
         // broadcast, and broadcasts never reach a message-only window. See `MessageWindow`.
         _source = new MessageWindow("NiftyTimer.TrayIconHost", WndProc);
 
-        _icons[TrayState.Idle] = LoadIcon(Path.Combine(resourceDirectory, "tray-idle.ico"));
-        _icons[TrayState.Tracking] = LoadIcon(Path.Combine(resourceDirectory, "tray-tracking.ico"));
+        foreach (var (state, name) in new[]
+                 {
+                     (TrayState.Idle, "idle"),
+                     (TrayState.Tracking, "tracking"),
+                 })
+        {
+            foreach (var (theme, suffix) in new[]
+                     {
+                         (AppTheme.Light, "light"),
+                         (AppTheme.Dark, "dark"),
+                     })
+            {
+                _icons[(state, theme)] =
+                    LoadIcon(Path.Combine(resourceDirectory, $"tray-{name}-{suffix}.ico"));
+            }
+        }
 
         Add();
     }
@@ -97,6 +113,26 @@ public sealed class TrayIconController : IDisposable
             }
 
             _state = value;
+            Update();
+        }
+    }
+
+    /// <summary>
+    /// Which taskbar background the icon has to read against. Set from the app's theme watcher; a
+    /// dark mark on a dark taskbar is an indicator that is technically present and practically
+    /// invisible, which PRD §4.2 does not allow.
+    /// </summary>
+    public AppTheme Theme
+    {
+        get => _theme;
+        set
+        {
+            if (_theme == value)
+            {
+                return;
+            }
+
+            _theme = value;
             Update();
         }
     }
@@ -225,7 +261,7 @@ public sealed class TrayIconController : IDisposable
         uID = _id,
         uFlags = flags,
         uCallbackMessage = WmTrayCallback,
-        hIcon = _icons.GetValueOrDefault(_state),
+        hIcon = _icons.GetValueOrDefault((_state, _theme)),
         szTip = _tooltip,
 
         // The ByValTStr fields must never be null: marshalling a null fixed-length buffer throws,
