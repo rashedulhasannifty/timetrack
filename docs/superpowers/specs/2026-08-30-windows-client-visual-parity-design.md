@@ -86,9 +86,9 @@ Rule: every brush and elevation reference moves to `{DynamicResource}`. `Style` 
 ### Theme detection
 
 - Read `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme` at startup. Missing value → light.
-- Subscribe to `SystemEvents.UserPreferenceChanged` (`UserPreferenceCategory.General`).
-- **`SystemEvents` callbacks arrive on a dedicated non-UI thread.** Marshal to the dispatcher before touching `Application.Current.Resources`, or the swap throws off-thread.
-- Unsubscribe on shutdown — `SystemEvents` holds a static root and leaks the handler otherwise.
+- Subscribe to `WM_SETTINGCHANGE`, filtered to `lParam == "ImmersiveColorSet"` — the canonical theme-change broadcast — on a hidden `MessageWindow`: the same kind of window the tray icon already uses to catch `TaskbarCreated` and `WM_POWERBROADCAST`. It is **top-level rather than message-only** precisely so broadcasts like this one reach it; a message-only window would silently drop it, the same reason the tray icon's window is top-level.
+- **A window procedure runs on the UI thread**, which removes rather than mitigates the problem the spec originally reached for `SystemEvents.UserPreferenceChanged` to solve: `SystemEvents` delivers its callback on a dedicated non-UI thread and requires marshalling to the dispatcher before touching `Application.Current.Resources`. `MessageWindow`'s `WndProc` needs no such marshalling — it is already on the UI thread.
+- Unsubscribe on shutdown — disposing the message host removes the hook and tears down the window.
 
 ---
 
@@ -153,7 +153,7 @@ Appearance only. No window's structure changes; all four inherit the new look be
   - `ComboBox` — restyled here; **replaced** in PR 2.
   - `ScrollBar` / `ScrollViewer` — stock WPF scrollbars are instantly recognisable as undesigned.
   - `FocusVisualStyle` — replaces the default dotted rectangle with the dashboard's `2px accent, 2px offset`.
-- `App.xaml` — merge order, theme swap plumbing, `SystemEvents` subscribe/unsubscribe.
+- `App.xaml` — merge order, theme swap plumbing, `WM_SETTINGCHANGE` subscribe/unsubscribe via `MessageWindow`.
 - The `DynamicResource` sweep across all four windows.
 - The tray popup corner change — **one atomic step**, see below.
 
@@ -270,7 +270,7 @@ If the app cannot be launched in the working environment, that is reported plain
 | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Partial `DynamicResource` sweep — popup silently never re-themes           | The no-`StaticResource` text test fails it in CI; also verified by hand by toggling the theme with the popup open |
 | Half-done corner change ships a square window with a rounded box inside it | The three parts are one atomic implementation item, not three bullets                                             |
-| `SystemEvents` callback on a non-UI thread                                 | Marshal to dispatcher; unsubscribe on shutdown                                                                    |
+| `WM_SETTINGCHANGE` also fires for DPI, locale and accessibility changes    | Filtered to `lParam == "ImmersiveColorSet"`; unsubscribe on shutdown                                              |
 | `DWMWA_WINDOW_CORNER_PREFERENCE` unsupported on Windows 10                 | Ignore the failure HRESULT; square corners is the accepted degradation                                            |
 | Hand-rolled `ControlTemplate`s lose keyboard/accessibility behaviour       | Template stock controls rather than replacing them; keep `FocusVisualStyle`                                       |
 | A visual PR quietly weakening the ack gate or the monitoring notice        | Called out as hard constraints in PR 3; `CaptureGateGuardTests` stays green                                       |
