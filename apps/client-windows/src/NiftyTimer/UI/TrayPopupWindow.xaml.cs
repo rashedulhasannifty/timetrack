@@ -1,7 +1,9 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using NiftyTimer.App;
 
@@ -285,4 +287,36 @@ public partial class TrayPopupWindow : Window
             ? "An update has been waiting a while."
             : "A new version is available.";
     }
+
+    /// <summary>
+    /// Round the window through DWM instead of AllowsTransparency.
+    ///
+    /// AllowsTransparency is what produced the rounded card before, and it forces this window into
+    /// SOFTWARE rendering — which degrades ClearType on the one surface in this client where text
+    /// quality is the entire point. DWM rounds the real window with hardware rendering intact.
+    ///
+    /// The Border's own CornerRadius has to be 0 alongside this: DWM rounds the WINDOW, so a
+    /// rounded Border inside a rounded window shows as a double edge.
+    /// </summary>
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        var preference = DwmWindowCornerPreferenceRound;
+        var handle = new WindowInteropHelper(this).Handle;
+
+        // Windows 10 has no such attribute and returns a failure HRESULT. Ignored on purpose:
+        // square corners there is the accepted degradation, not an error worth surfacing.
+        _ = DwmSetWindowAttribute(handle, DwmwaWindowCornerPreference, ref preference, sizeof(int));
+    }
+
+    private const int DwmwaWindowCornerPreference = 33;
+    private const int DwmWindowCornerPreferenceRound = 2;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr hwnd,
+        int attribute,
+        ref int value,
+        int size);
 }
