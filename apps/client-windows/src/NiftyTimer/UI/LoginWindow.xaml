@@ -10,7 +10,7 @@
         Background="{DynamicResource Surface}">
 
     <StackPanel Margin="20">
-        <TextBlock Text="Sign in to Nifty Timer" Style="{StaticResource BodyText}" FontSize="16" />
+        <TextBlock Text="Sign in to Nifty Timer" Style="{StaticResource HeadingText}" />
         <TextBlock x:Name="ServerLabel" Style="{StaticResource CaptionText}" Margin="0,4,0,16" TextWrapping="Wrap" />
 
         <TextBlock Text="Email" Style="{StaticResource CaptionText}" />

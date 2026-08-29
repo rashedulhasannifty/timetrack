@@ -88,3 +88,20 @@ public class ThemeSweepTests
         return Path.Combine(directory!.FullName, "src", "NiftyTimer", "UI");
     }
 }
+
+/// <summary>
+/// The elapsed timer faked column alignment with Consolas — a code font, and a large part of why
+/// the client read as unfinished. The WPF equivalent of the dashboard's tabular-nums and the Mac
+/// client's .monospacedDigit() is NumeralAlignment=Tabular on the ordinary UI font.
+/// </summary>
+public class TypeTests
+{
+    [Fact]
+    public void TheElapsedStyleIsTabularRatherThanMonospaced()
+    {
+        var tokens = File.ReadAllText(Path.Combine(ThemeSweepTests.UiDirectory(), "Tokens.xaml"));
+
+        Assert.DoesNotContain("Consolas", tokens, StringComparison.Ordinal);
+        Assert.Contains("Typography.NumeralAlignment", tokens, StringComparison.Ordinal);
+    }
+}

@@ -11,7 +11,7 @@
 
     <DockPanel Margin="20">
         <TextBlock DockPanel.Dock="Top" Text="Before Nifty Timer can monitor"
-                   Style="{StaticResource BodyText}" FontSize="16" />
+                   Style="{StaticResource HeadingText}" />
         <TextBlock DockPanel.Dock="Top" x:Name="VersionLabel" Style="{StaticResource CaptionText}"
                    Margin="0,4,0,12" />
 

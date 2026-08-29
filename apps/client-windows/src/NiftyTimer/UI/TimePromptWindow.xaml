@@ -11,9 +11,7 @@
 
     <StackPanel Margin="24">
         <TextBlock x:Name="TitleLabel"
-                   Style="{StaticResource BodyText}"
-                   FontSize="17"
-                   FontWeight="SemiBold"
+                   Style="{StaticResource HeadingText}"
                    TextWrapping="Wrap" />
 
         <TextBlock x:Name="MinutesLabel"

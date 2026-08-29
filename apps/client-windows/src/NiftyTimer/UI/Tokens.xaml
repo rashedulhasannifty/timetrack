@@ -10,20 +10,59 @@
     <CornerRadius x:Key="RadiusMd">11</CornerRadius>
     <CornerRadius x:Key="RadiusLg">20</CornerRadius>
 
-    <Style x:Key="CaptionText" TargetType="TextBlock">
+    <!-- Segoe UI Variable, mapped to the dashboard's scale. Only the steps these four windows
+         actually use are here — the dashboard's h1 and 52px display have no counterpart in a
+         tray popup, and an unused step is a token waiting to drift.
+
+         Segoe UI Variable Text is the optical size Microsoft intends below ~18px; the fallback
+         chain keeps Windows 10, which does not ship it, on plain Segoe UI. -->
+    <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+
+    <Style x:Key="MicroText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
         <Setter Property="FontSize" Value="11" />
         <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
     </Style>
 
-    <Style x:Key="BodyText" TargetType="TextBlock">
+    <Style x:Key="CaptionText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+    </Style>
+
+    <Style x:Key="LabelText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{DynamicResource Text}" />
     </Style>
 
-    <Style x:Key="ElapsedText" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="26" />
-        <Setter Property="FontFamily" Value="Consolas, Segoe UI" />
+    <Style x:Key="BodyText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="15" />
         <Setter Property="Foreground" Value="{DynamicResource Text}" />
+    </Style>
+
+    <Style x:Key="HeadingText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="19" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource Text}" />
+    </Style>
+
+    <!-- Tabular so the seconds column does not shift the whole string every tick. Applies to
+         every duration, total and timestamp — not only this style. -->
+    <Style x:Key="ElapsedText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="34" />
+        <Setter Property="FontWeight" Value="Light" />
+        <Setter Property="Foreground" Value="{DynamicResource Text}" />
+        <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+    </Style>
+
+    <!-- The numeric role for anything smaller than the hero timer: today/week/month totals. -->
+    <Style x:Key="NumericText" TargetType="TextBlock" BasedOn="{StaticResource LabelText}">
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
     </Style>
 
 </ResourceDictionary>

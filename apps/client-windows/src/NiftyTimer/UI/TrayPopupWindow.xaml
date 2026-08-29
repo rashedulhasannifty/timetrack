@@ -61,15 +61,15 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0">
                         <TextBlock Text="Today" Style="{StaticResource CaptionText}" />
-                        <TextBlock x:Name="TodayLabel" Style="{StaticResource BodyText}" />
+                        <TextBlock x:Name="TodayLabel" Style="{StaticResource NumericText}" />
                     </StackPanel>
                     <StackPanel Grid.Column="1">
                         <TextBlock Text="Week" Style="{StaticResource CaptionText}" />
-                        <TextBlock x:Name="WeekLabel" Style="{StaticResource BodyText}" />
+                        <TextBlock x:Name="WeekLabel" Style="{StaticResource NumericText}" />
                     </StackPanel>
                     <StackPanel Grid.Column="2">
                         <TextBlock Text="Month" Style="{StaticResource CaptionText}" />
-                        <TextBlock x:Name="MonthLabel" Style="{StaticResource BodyText}" />
+                        <TextBlock x:Name="MonthLabel" Style="{StaticResource NumericText}" />
                     </StackPanel>
                 </Grid>
             </Border>
