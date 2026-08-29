@@ -39,15 +39,6 @@ public sealed class ThemeWatcher : IDisposable
         _apply(Current);
     }
 
-    /// <summary>The production wiring: real registry, real window, real dictionary swap.</summary>
-    public ThemeWatcher()
-        : this(
-            ThemeResolver.FromRegistry,
-            ApplyToApplication,
-            hook => new MessageWindowHost("NiftyTimer.ThemeHost", hook))
-    {
-    }
-
     public AppTheme Current { get; private set; }
 
     /// <summary>
