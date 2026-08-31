@@ -94,6 +94,78 @@ public class TrayPopupWindowPositionTests
 }
 
 /// <summary>
+/// The fix for the popup growing past its own anchor when the phase changes while it is open.
+/// <see cref="TrayPopupWindow.ShowNearTray"/> anchors the window's bottom edge 12px above the work
+/// area, but the window is <c>SizeToContent="Height"</c>: <see cref="TrayPopupWindow"/>'s private
+/// <c>RenderStatus</c> reveals <c>ElapsedLabel</c> (the hero timer) when tracking starts, growing
+/// the window downward. Without a handler re-anchoring on that size change, <c>Top</c> stays at the
+/// value <c>ShowNearTray</c> computed for the shorter, idle content, and the popup's new bottom
+/// edge overlaps the taskbar instead of clearing it.
+/// </summary>
+[Collection("wpf")]
+public class TrayPopupWindowReanchorTests
+{
+    [Fact]
+    public void StartingWhileOpenGrowsTheWindowAndReanchorsTopSoTheBottomEdgeStaysFixed()
+    {
+        var (topBefore, topAfter, heightBefore, heightAfter, work) = Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+            var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
+
+            try
+            {
+                viewModel.IsReady = true;
+
+                window.ShowNearTray();
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+
+                var topBeforeStart = window.Top;
+                var heightBeforeStart = window.ActualHeight;
+
+                // Reveals ElapsedLabel -- the hero timer plus its margin -- growing the window's
+                // SizeToContent height while it is already open and visible. This is the exact
+                // "opens idle, presses Start" sequence the fix addresses.
+                viewModel.Start();
+
+                // Flush the dispatcher so the layout pass Start's PropertyChanged triggers (and the
+                // SizeChanged handler it drives) has actually completed before asserting.
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+
+                return (
+                    topBeforeStart,
+                    window.Top,
+                    heightBeforeStart,
+                    window.ActualHeight,
+                    SystemParameters.WorkArea);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+        // The content actually grew -- otherwise this would not be exercising the bug at all.
+        Assert.True(
+            heightAfter > heightBefore,
+            $"Expected the window to grow: before={heightBefore}, after={heightAfter}");
+
+        // Without the fix, Top never moves and the bottom edge drifts past the anchor as the
+        // window grows. With the fix, Top re-anchors so the bottom edge stays 12px above the work
+        // area's bottom, same as ShowNearTray's own formula.
+        Assert.True(
+            Math.Abs(work.Bottom - heightAfter - 12 - topAfter) < 1.0,
+            $"Top={topAfter}, expected near {work.Bottom - heightAfter - 12}");
+
+        Assert.NotEqual(topBefore, topAfter);
+    }
+}
+
+/// <summary>
 /// Task 4's <c>RenderControls()</c> resolves <c>"PlayGlyph"</c>/<c>"PauseGlyph"</c>/<c>"StopGlyph"</c>
 /// and <c>"ProminentButton"</c>/<c>"BorderedButton"</c> by string key via <c>FindResource</c>. The
 /// idle branch already runs at construction (every other test in this file exercises it as a side

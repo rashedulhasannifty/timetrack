@@ -45,6 +45,7 @@ public partial class TrayPopupWindow : Window
 
         Deactivated += (_, _) => Hide();
         IsVisibleChanged += OnIsVisibleChanged;
+        SizeChanged += OnSizeChanged;
 
         Render();
     }
@@ -75,17 +76,55 @@ public partial class TrayPopupWindow : Window
     {
         Render();
 
-        var work = SystemParameters.WorkArea;
-        Left = work.Right - Width - 12;
-        Top = work.Bottom - ActualHeight - 12;
+        RepositionNearTray();
 
         Show();
         Activate();
 
         // SizeToContent means ActualHeight is only correct after the first layout pass.
-        Dispatcher.BeginInvoke(
-            DispatcherPriority.Loaded,
-            () => Top = SystemParameters.WorkArea.Bottom - ActualHeight - 12);
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, RepositionNearTray);
+    }
+
+    /// <summary>
+    /// Anchor the window's bottom-right corner 12px inside the tray's working area.
+    ///
+    /// The single source of this arithmetic: <see cref="ShowNearTray"/> calls it both immediately
+    /// (before the first layout pass, when <c>ActualHeight</c> is still stale) and again once
+    /// layout has settled, and <see cref="OnSizeChanged"/> calls it whenever the popup's content
+    /// changes height while it is already open — RenderStatus collapsing or revealing the hero
+    /// timer being the case that motivated this. Written once so the two callers cannot drift onto
+    /// different formulas.
+    ///
+    /// Clamped so a popup taller than the space above the taskbar (a short or DPI-scaled display,
+    /// or the 220px project list pushing past the anchor point) is pinned to the top of the work
+    /// area instead of being shoved off it — <c>work.Bottom - ActualHeight - 12</c> alone can go
+    /// negative in that case.
+    /// </summary>
+    private void RepositionNearTray()
+    {
+        var work = SystemParameters.WorkArea;
+        Left = work.Right - Width - 12;
+        Top = Math.Max(work.Top, work.Bottom - ActualHeight - 12);
+    }
+
+    /// <summary>
+    /// Re-anchor when the popup's own content changes its height while it is open — e.g. Start
+    /// revealing the hero timer (RenderStatus) or the notice banner appearing. The window is
+    /// SizeToContent="Height", so a content change moves Height but never Top on its own, and
+    /// without this the popup would grow downward past the anchor <see cref="ShowNearTray"/> set,
+    /// overlapping the taskbar instead of clearing it.
+    ///
+    /// Guarded on <see cref="Window.IsVisible"/>: recomputing position for a hidden window is
+    /// wasted work, and setting Top/Left before ShowNearTray's own initial placement would just be
+    /// overwritten anyway. Setting Top/Left here does not itself change Height, so this cannot
+    /// re-trigger SizeChanged and loop.
+    /// </summary>
+    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (IsVisible)
+        {
+            RepositionNearTray();
+        }
     }
 
     protected override void OnClosing(CancelEventArgs e)
