@@ -14,9 +14,9 @@ import { SpecPlate } from './MarketingChrome';
  * So: do not point these constants at the macOS repository, and do not "consolidate" the two.
  */
 export const DOWNLOAD_URL =
-  'https://github.com/Chishty-NiftyIT/niftytimer-windows/releases/latest/download/NiftyTimer-windows-pilot.zip';
+  'https://github.com/rashedulhasansojib/niftytimer-windows/releases/latest/download/NiftyTimer-windows-pilot.zip';
 
-export const RELEASES_URL = 'https://github.com/Chishty-NiftyIT/niftytimer-windows/releases';
+export const RELEASES_URL = 'https://github.com/rashedulhasansojib/niftytimer-windows/releases';
 
 export function WindowsDownloadPlate() {
   return (

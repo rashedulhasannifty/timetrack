@@ -281,7 +281,7 @@ Two existing guards start doing real work in S3 — **read them before writing c
 
 ### ⚠️ Distribution — the Mac-regression trap
 
-**Windows assets publish to a separate GitHub repository** (`Chishty-NiftyIT/niftytimer-windows`,
+**Windows assets publish to a separate GitHub repository** (`rashedulhasansojib/niftytimer-windows`,
 set in `AppConfig.UpdateRepo` and `WindowsDownloadPlate`). GitHub has one `releases/latest` per
 repo; the Mac client's `UpdateFeed` requires an asset named `NiftyTimer-pilot.zip` on it, and
 `MacDownloadPlate.DOWNLOAD_URL` resolves through it. A Windows release published to the same repo

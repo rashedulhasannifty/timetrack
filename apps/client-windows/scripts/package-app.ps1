@@ -19,7 +19,7 @@ param(
   [string]$ApiBaseUrl,
   [string]$DashboardUrl,
   [string]$AppId,
-  [string]$UpdateRepo = 'Chishty-NiftyIT/niftytimer-windows',
+  [string]$UpdateRepo = 'rashedulhasansojib/niftytimer-windows',
   [switch]$Dev,
   [string]$Configuration = 'Release'
 )

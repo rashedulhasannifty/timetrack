@@ -31,7 +31,7 @@
 [CmdletBinding()]
 param(
     [string] $MacRepo = 'rashedulhasansojib/timetrack-app',
-    [string] $WindowsRepo = 'Chishty-NiftyIT/niftytimer-windows'
+    [string] $WindowsRepo = 'rashedulhasansojib/niftytimer-windows'
 )
 
 $ErrorActionPreference = 'Stop'
