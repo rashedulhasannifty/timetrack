@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using NiftyTimer.App;
 using NiftyTimer.Projects;
@@ -89,5 +90,149 @@ public class TrayPopupWindowPositionTests
         Assert.Equal(340d, windowWidth, precision: 3);
         Assert.Equal(windowWidth, borderWidth, precision: 3);
         Assert.Equal(windowHeight, borderHeight, precision: 3);
+    }
+}
+
+/// <summary>
+/// Task 4's <c>RenderControls()</c> resolves <c>"PlayGlyph"</c>/<c>"PauseGlyph"</c>/<c>"StopGlyph"</c>
+/// and <c>"ProminentButton"</c>/<c>"BorderedButton"</c> by string key via <c>FindResource</c>. The
+/// idle branch already runs at construction (every other test in this file exercises it as a side
+/// effect), so a misspelled idle key was already caught. The tracking and paused branches were not:
+/// nothing else in the suite drives the tracker into either state, so <c>FindResource("PauseGlyph")</c>
+/// and <c>FindResource("StopGlyph")</c> were unresolved by any test — a typo there throws
+/// <see cref="ResourceReferenceKeyNotFoundException"/> at the exact moment a real user starts
+/// tracking, and no build or test would have caught it.
+///
+/// This drives one real <see cref="MenuViewModel"/>/<see cref="TrayPopupWindow"/> pair through all
+/// three phases and asserts the concrete style, glyph and label each button ends up with, plus the
+/// idle full-row span fixed in the same change — a test that only checked "did not throw" would not
+/// fail if a style or glyph key were swapped for the wrong one.
+/// </summary>
+[Collection("wpf")]
+public class TrayPopupWindowControlsTests
+{
+    private readonly record struct ButtonState(
+        Style Style,
+        Geometry Glyph,
+        string Label,
+        bool Enabled,
+        Visibility Visibility,
+        int ColumnSpan,
+        object? ToolTip);
+
+    private readonly record struct PairState(ButtonState Primary, ButtonState Secondary);
+
+    [Fact]
+    public void ThePrimarySecondaryPairMatchesEachPhaseAndIdleFillsTheRow()
+    {
+        var (idle, tracking, paused, prominent, bordered, playGlyph, pauseGlyph, stopGlyph) = Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+            var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
+
+            try
+            {
+                window.ShowNearTray();
+
+                // Same synchronisation as TrayPopupWindowPositionTests: waits out ShowNearTray's
+                // queued Loaded-priority Top correction so the window has been through a real
+                // layout pass before anything is asserted.
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+
+                var prominentStyle = (Style)window.FindResource("ProminentButton");
+                var borderedStyle = (Style)window.FindResource("BorderedButton");
+                var play = (Geometry)window.FindResource("PlayGlyph");
+                var pause = (Geometry)window.FindResource("PauseGlyph");
+                var stop = (Geometry)window.FindResource("StopGlyph");
+
+                PairState Capture() => new(
+                    new ButtonState(
+                        window.PrimaryButton.Style,
+                        window.PrimaryGlyph.Data,
+                        window.PrimaryLabel.Text,
+                        window.PrimaryButton.IsEnabled,
+                        window.PrimaryButton.Visibility,
+                        Grid.GetColumnSpan(window.PrimaryButton),
+                        window.PrimaryButton.ToolTip),
+                    new ButtonState(
+                        window.SecondaryButton.Style,
+                        window.SecondaryGlyph.Data,
+                        window.SecondaryLabel.Text,
+                        window.SecondaryButton.IsEnabled,
+                        window.SecondaryButton.Visibility,
+                        Grid.GetColumnSpan(window.SecondaryButton),
+                        window.SecondaryButton.ToolTip));
+
+                // Idle: not ready yet, matching a fresh sign-in. CanStart is false, so this also
+                // covers the disabled/ack-gate tooltip path.
+                var idleState = Capture();
+
+                viewModel.IsReady = true;
+                viewModel.Start();
+                var trackingState = Capture();
+
+                viewModel.Pause();
+                var pausedState = Capture();
+
+                return (
+                    idleState,
+                    trackingState,
+                    pausedState,
+                    prominentStyle,
+                    borderedStyle,
+                    play,
+                    pause,
+                    stop);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+        // Idle: only Start, spanning the full row (the item 1 fix — SecondaryButton is collapsed
+        // but its column would otherwise still be reserved, leaving Start at half width).
+        Assert.Same(prominent, idle.Primary.Style);
+        Assert.Same(playGlyph, idle.Primary.Glyph);
+        Assert.Equal("Start", idle.Primary.Label);
+        Assert.False(idle.Primary.Enabled);
+        Assert.Equal(3, idle.Primary.ColumnSpan);
+        Assert.Equal("Acknowledge the monitoring policy to begin", idle.Primary.ToolTip);
+        Assert.Equal(Visibility.Collapsed, idle.Secondary.Visibility);
+
+        // Tracking: bordered Pause primary, prominent Stop secondary, both enabled, no stale
+        // ack-gate tooltip on either.
+        Assert.Same(bordered, tracking.Primary.Style);
+        Assert.Same(pauseGlyph, tracking.Primary.Glyph);
+        Assert.Equal("Pause", tracking.Primary.Label);
+        Assert.True(tracking.Primary.Enabled);
+        Assert.Equal(1, tracking.Primary.ColumnSpan);
+        Assert.Null(tracking.Primary.ToolTip);
+
+        Assert.Same(prominent, tracking.Secondary.Style);
+        Assert.Same(stopGlyph, tracking.Secondary.Glyph);
+        Assert.Equal("Stop", tracking.Secondary.Label);
+        Assert.True(tracking.Secondary.Enabled);
+        Assert.Equal(Visibility.Visible, tracking.Secondary.Visibility);
+        Assert.Null(tracking.Secondary.ToolTip);
+
+        // Paused: prominent Resume primary, bordered Stop secondary — the inverse of tracking.
+        Assert.Same(prominent, paused.Primary.Style);
+        Assert.Same(playGlyph, paused.Primary.Glyph);
+        Assert.Equal("Resume", paused.Primary.Label);
+        Assert.True(paused.Primary.Enabled);
+        Assert.Equal(1, paused.Primary.ColumnSpan);
+        Assert.Null(paused.Primary.ToolTip);
+
+        Assert.Same(bordered, paused.Secondary.Style);
+        Assert.Same(stopGlyph, paused.Secondary.Glyph);
+        Assert.Equal("Stop", paused.Secondary.Label);
+        Assert.True(paused.Secondary.Enabled);
+        Assert.Equal(Visibility.Visible, paused.Secondary.Visibility);
+        Assert.Null(paused.Secondary.ToolTip);
     }
 }

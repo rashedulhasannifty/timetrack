@@ -266,6 +266,7 @@ public partial class TrayPopupWindow : Window
             Apply(PrimaryButton, PrimaryGlyph, PrimaryLabel, prominent, "PlayGlyph", "Resume", _viewModel.IsReady);
             Apply(SecondaryButton, SecondaryGlyph, SecondaryLabel, bordered, "StopGlyph", "Stop", _viewModel.CanStop);
             SecondaryButton.Visibility = Visibility.Visible;
+            Grid.SetColumnSpan(PrimaryButton, 1);
             PrimaryButton.ToolTip = null;
             SecondaryButton.ToolTip = null;
             return;
@@ -276,6 +277,7 @@ public partial class TrayPopupWindow : Window
             Apply(PrimaryButton, PrimaryGlyph, PrimaryLabel, bordered, "PauseGlyph", "Pause", true);
             Apply(SecondaryButton, SecondaryGlyph, SecondaryLabel, prominent, "StopGlyph", "Stop", _viewModel.CanStop);
             SecondaryButton.Visibility = Visibility.Visible;
+            Grid.SetColumnSpan(PrimaryButton, 1);
             PrimaryButton.ToolTip = null;
             SecondaryButton.ToolTip = null;
             return;
@@ -283,6 +285,15 @@ public partial class TrayPopupWindow : Window
 
         Apply(PrimaryButton, PrimaryGlyph, PrimaryLabel, prominent, "PlayGlyph", "Start", _viewModel.CanStart);
         SecondaryButton.Visibility = Visibility.Collapsed;
+
+        // Idle has nothing to stop or pause, so SecondaryButton is collapsed above — but a
+        // collapsed element still keeps its own grid column reserved, which would otherwise leave
+        // Start at half the row's width with dead space beside it. Spanning all three columns
+        // (Primary's own plus the gap and Secondary's) is what actually delivers the "fill the
+        // popup like macOS's maxWidth: .infinity" idle state the plan calls for. Reset back to 1
+        // in the tracking/paused branches above so a stale span from a previous idle render never
+        // makes Start overlap Stop once the second button reappears.
+        Grid.SetColumnSpan(PrimaryButton, 3);
 
         // The tooltip is the only place the ack gate explains itself on this surface. Without it a
         // disabled Start is indistinguishable from a broken one. Assigned in every branch (not just
