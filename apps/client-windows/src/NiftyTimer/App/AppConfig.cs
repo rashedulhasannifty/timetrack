@@ -38,7 +38,7 @@ public sealed record AppConfig
     /// fixed by shipping a Mac update, through the very path that had just broken.
     /// </summary>
     [JsonPropertyName("updateRepo")]
-    public string UpdateRepo { get; init; } = "Chishty-NiftyIT/niftytimer-windows";
+    public string UpdateRepo { get; init; } = "rashedulhasansojib/niftytimer-windows";
 
     /// <summary>
     /// The API base as a <see cref="Uri"/>, guaranteed to end in a slash.

@@ -28,10 +28,10 @@ the Windows constants at the macOS repo.
 
 ## The two repositories
 
-| Platform | Repository                           | Asset                          | Tag shape              |
-| -------- | ------------------------------------ | ------------------------------ | ---------------------- |
-| macOS    | `rashedulhasansojib/timetrack-app`   | `NiftyTimer-pilot.zip`         | `vX.Y.Z-pilot`         |
-| Windows  | `Chishty-NiftyIT/niftytimer-windows` | `NiftyTimer-windows-pilot.zip` | `vX.Y.Z-windows-pilot` |
+| Platform | Repository                              | Asset                          | Tag shape              |
+| -------- | --------------------------------------- | ------------------------------ | ---------------------- |
+| macOS    | `rashedulhasansojib/timetrack-app`      | `NiftyTimer-pilot.zip`         | `vX.Y.Z-pilot`         |
+| Windows  | `rashedulhasansojib/niftytimer-windows` | `NiftyTimer-windows-pilot.zip` | `vX.Y.Z-windows-pilot` |
 
 Both asset names are a **contract**, not a convention: `UpdateFeed` refuses a release whose asset
 name does not match, and the `/releases/latest/download/<name>` links 404 on a rename.
@@ -39,16 +39,21 @@ name does not match, and the `/releases/latest/download/<name>` links 404 on a r
 failure is otherwise invisible — publishing succeeds, the release looks right, and every installed
 client quietly stops seeing updates.
 
-> **Confirm before creating the repo.** The macOS repo is under a **personal account**
-> (`rashedulhasansojib`) while `AppConfig.UpdateRepo` and `WindowsDownloadPlate` are written against
-> an **organisation** (`Chishty-NiftyIT`). That asymmetry may be deliberate or may be a leftover. If
-> Windows should also live on the personal account, change the two constants **before** the first
-> release — an installed client pins whatever it shipped with, exactly like the Mac one.
+> **Resolved 2026-08-31.** This note used to flag an asymmetry: the macOS repo sat under a personal
+> account while `AppConfig.UpdateRepo` and `WindowsDownloadPlate` pointed at an organisation
+> (`Chishty-NiftyIT`). It was a leftover — `2026-08-25-windows-client-design.md` had specified the
+> personal account all along. Both constants now read `rashedulhasansojib/niftytimer-windows`, and
+> the change landed **before the first release**, which was the only free window: an installed
+> client pins whatever it shipped with, exactly like the Mac one.
 
 ## Status
 
-`Chishty-NiftyIT/niftytimer-windows` **does not exist yet**, so the Windows feed has never resolved
-and checklist row 10 is blocked rather than pending.
+`rashedulhasansojib/niftytimer-windows` was created **public** on 2026-08-31, matching the macOS
+channel. Public is load-bearing, not a preference: the dashboard's download link resolves
+`/releases/latest/download/<name>` directly and the update feed polls the API unauthenticated, so a
+private repo answers 404 for every employee without a GitHub account.
+
+No release has been published to it yet, so the Windows feed has still never resolved.
 
 Baseline recorded 2026-08-28, before any Windows release:
 
@@ -76,7 +81,7 @@ Those three lines are the "before" half of row 10. After the first Windows relea
 # 3. Publish to the WINDOWS repo. Note --repo: omitting it uses the current
 #    checkout's origin, which is this monorepo, not the distribution repo.
 gh release create v0.6.0-windows-pilot `
-  --repo Chishty-NiftyIT/niftytimer-windows `
+  --repo rashedulhasansojib/niftytimer-windows `
   --title "Nifty Timer for Windows 0.6.0 (pilot)" `
   dist/NiftyTimer-windows-pilot.zip dist/NiftyTimer-windows-pilot.zip.sha256
 
