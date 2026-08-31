@@ -235,11 +235,11 @@
         </Setter>
     </Style>
 
-    <!-- DELIBERATELY MINIMAL. PR 2 deletes this ComboBox and replaces the picker with a search
-         field over a list, so a full ToggleButton + Popup + ItemsPresenter template here would be
-         written to be thrown away. This restyles the field and the dropdown surface — which is
-         what reads as dated — and leaves the toggle glyph stock.
-         Do not invest further in it; move the effort to PR 2's picker. -->
+    <!-- UNUSED. PR 2 replaced the picker with a search field over a list (TrayPopupWindow's
+         SearchBox + ProjectList), so no window references ComboBox/ComboBoxItem any more. These
+         styles were deliberately left minimal — a full ToggleButton + Popup + ItemsPresenter
+         template was never worth writing for a control on its way out — and PR 2 did not delete
+         them; removing them is a separate change. -->
     <Style TargetType="ComboBox" BasedOn="{StaticResource FieldChrome}">
         <Setter Property="Padding" Value="6,4" />
     </Style>
