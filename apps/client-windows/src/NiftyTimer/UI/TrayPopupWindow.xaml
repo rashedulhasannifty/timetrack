@@ -35,7 +35,7 @@
                       IsEditable="True"
                       IsTextSearchEnabled="True"
                       StaysOpenOnEdit="True"
-                      DisplayMemberPath="Label"
+                      DisplayMemberPath="ProjectName"
                       SelectionChanged="OnProjectSelected"
                       Margin="0,2,0,10" />
 

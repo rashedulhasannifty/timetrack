@@ -9,9 +9,6 @@ using NiftyTimer.App;
 
 namespace NiftyTimer.UI;
 
-/// <summary>One row in the project/task picker.</summary>
-public sealed record PickerItem(string Label, string ProjectId, string? TaskId);
-
 /// <summary>
 /// The dropdown behind the tray icon. Closes when it loses focus, like a menu.
 ///
@@ -190,10 +187,10 @@ public partial class TrayPopupWindow : Window
         var items = new List<PickerItem>();
         foreach (var project in _viewModel.Projects)
         {
-            items.Add(new PickerItem(project.Name, project.Id, null));
+            items.Add(new PickerItem(project.Name, null, project.Id, null));
             foreach (var task in project.Tasks ?? [])
             {
-                items.Add(new PickerItem($"{project.Name} · {task.Name}", project.Id, task.Id));
+                items.Add(new PickerItem(project.Name, task.Name, project.Id, task.Id));
             }
         }
 
