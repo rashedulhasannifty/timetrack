@@ -53,19 +53,26 @@ channel. Public is load-bearing, not a preference: the dashboard's download link
 `/releases/latest/download/<name>` directly and the update feed polls the API unauthenticated, so a
 private repo answers 404 for every employee without a GitHub account.
 
-No release has been published to it yet, so the Windows feed has still never resolved.
+The first release, **`v0.1.0-windows-pilot`**, was published on 2026-08-31. Both feeds now resolve
+and `verify-release-feeds.ps1` exits `0` — row 10 is closed.
 
-Baseline recorded 2026-08-28, before any Windows release:
+The tag tracks the client's own `<Version>` (`0.1.0`), not the macOS client's. They version
+independently, and the macOS number is deliberately not mirrored: `UpdateStatus.Evaluate` treats
+`current >= latest` as up to date, so a tag ahead of the assembly version would make every fresh
+install immediately offer to update itself to the build it is already running.
+
+Baseline recorded 2026-08-31, immediately before publishing the first Windows release:
 
 ```
 macOS -- rashedulhasansojib/timetrack-app
-  tag       : v0.6.0-pilot
-  published : 2026-08-27T14:08:16Z
+  tag       : v0.6.1-pilot
+  published : 08/28/2026 12:21:46
   assets    : NiftyTimer-pilot.zip, NiftyTimer-pilot.zip.sha256
 ```
 
-Those three lines are the "before" half of row 10. After the first Windows release they must be
-**identical**.
+Those three lines are the "before" half of row 10, and re-running the script after publishing
+returned them **byte-identical** — the Windows release did not disturb the macOS feed. Any future
+Windows release repeats this check: capture the macOS lines first, compare them after.
 
 ## Publishing
 
@@ -80,9 +87,12 @@ Those three lines are the "before" half of row 10. After the first Windows relea
 
 # 3. Publish to the WINDOWS repo. Note --repo: omitting it uses the current
 #    checkout's origin, which is this monorepo, not the distribution repo.
-gh release create v0.6.0-windows-pilot `
+# The tag tracks the Windows client's own <Version> in NiftyTimer.csproj -- NOT the macOS
+#    version. Tagging ahead of the assembly version makes every fresh install offer to
+#    update itself to the build it is already running.
+gh release create v0.1.0-windows-pilot `
   --repo rashedulhasansojib/niftytimer-windows `
-  --title "Nifty Timer for Windows 0.6.0 (pilot)" `
+  --title "Nifty Timer for Windows 0.1.0 (pilot)" `
   dist/NiftyTimer-windows-pilot.zip dist/NiftyTimer-windows-pilot.zip.sha256
 
 # 4. Verify. The macOS lines must be byte-identical to step 1.
