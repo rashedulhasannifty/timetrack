@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           # Pinned to the major the client targets. A floating version would let a runner
           # image bump change the toolchain under us without a commit.
