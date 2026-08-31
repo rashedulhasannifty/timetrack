@@ -59,17 +59,12 @@ public class ThemeSweepTests
     [InlineData("AckWindow.xaml")]
     [InlineData("TimePromptWindow.xaml")]
     [InlineData("Tokens.xaml")]
-    // Added by Task 3, which creates this file. Until then the case is skipped by the
-    // File.Exists guard below rather than failing a task that has not run yet.
     [InlineData("Styles.xaml")]
+    [InlineData("BrandMark.xaml")]
     public void NoThemedBrushIsBoundWithStaticResource(string file)
     {
         var path = Path.Combine(UiDirectory(), file);
-        if (!File.Exists(path))
-        {
-            // Styles.xaml arrives in Task 3. Absent is not a failure; present-and-dirty is.
-            return;
-        }
+        Assert.True(File.Exists(path), $"{file} is missing from src/NiftyTimer/UI.");
 
         var xaml = File.ReadAllText(path);
 
