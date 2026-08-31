@@ -528,3 +528,135 @@ public class TrayPopupWindowPickerTests
         Assert.Equal(5, clearedCount);
     }
 }
+
+/// <summary>
+/// <see cref="TrayPopupWindow.RefreshTheme"/> exists because the status dot and label are the only
+/// two brushes assigned from C# anywhere in this window (<c>RenderStatus</c>) rather than bound
+/// with <c>{DynamicResource}</c> in XAML, so unlike everything else they do not re-resolve on their
+/// own when <see cref="ThemeWatcher.ApplyToApplication"/> swaps the merged dictionary.
+///
+/// <see cref="ThemeSweepTests"/> is a text scan over XAML and structurally cannot see that: it would
+/// stay green even if a later change moved the <c>StatusDot.Fill</c>/<c>StatusLabel.Foreground</c>
+/// assignment out of <c>Render()</c> into somewhere that never re-runs on a theme swap (the
+/// constructor, say), which would leave the status dot silently stuck on the outgoing theme's
+/// colour on a live swap. This drives a real window through both themes and asserts the brush by
+/// identity against <c>FindResource</c>, so it names the invariant rather than hard-coding a hex
+/// value, and it is the fence for that gap: with the assignment out of <c>Render()</c>/
+/// <c>RenderStatus()</c> this fails.
+///
+/// Both roles RenderStatus can pick are covered, since they are different branches of its
+/// <c>active ? Recording : TextSecondary</c> switch: the idle test below leaves the view model at
+/// its constructed defaults (not tracking, not paused), and the active test drives a real Start().
+/// </summary>
+[Collection("wpf")]
+public class TrayPopupWindowThemeRefreshTests
+{
+    [Fact]
+    public void RefreshThemeRepaintsTheIdleStatusBrushesToTheNewThemesTextSecondary()
+    {
+        var (darkDot, darkLabel, darkExpected, lightDot, lightLabel, lightExpected) = Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+            var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
+
+            try
+            {
+                // Idle by construction: IsReady defaults to false, so neither tracking nor paused --
+                // the TextSecondary branch of RenderStatus's role switch.
+                window.ShowNearTray();
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+
+                ThemeWatcher.ApplyToApplication(AppTheme.Dark);
+                window.RefreshTheme();
+                var darkExpectedBrush = (Brush)window.FindResource("TextSecondary");
+                var darkDotBrush = window.StatusDot.Fill;
+                var darkLabelBrush = window.StatusLabel.Foreground;
+
+                ThemeWatcher.ApplyToApplication(AppTheme.Light);
+                window.RefreshTheme();
+                var lightExpectedBrush = (Brush)window.FindResource("TextSecondary");
+                var lightDotBrush = window.StatusDot.Fill;
+                var lightLabelBrush = window.StatusLabel.Foreground;
+
+                return (
+                    darkDotBrush,
+                    darkLabelBrush,
+                    darkExpectedBrush,
+                    lightDotBrush,
+                    lightLabelBrush,
+                    lightExpectedBrush);
+            }
+            finally
+            {
+                // Leave the shared, process-wide Application resources back the way every other
+                // test in the "wpf" collection expects them.
+                ThemeWatcher.ApplyToApplication(AppTheme.Light);
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+        Assert.Same(darkExpected, darkDot);
+        Assert.Same(darkExpected, darkLabel);
+        Assert.Same(lightExpected, lightDot);
+        Assert.Same(lightExpected, lightLabel);
+    }
+
+    [Fact]
+    public void RefreshThemeRepaintsTheActiveStatusBrushesToTheNewThemesRecording()
+    {
+        var (darkDot, darkLabel, darkExpected, lightDot, lightLabel, lightExpected) = Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+            var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
+
+            try
+            {
+                // A real Start(), not a flag flip, so this exercises the same active branch of
+                // RenderStatus's role switch a person tracking time actually reaches.
+                viewModel.IsReady = true;
+                viewModel.Start();
+
+                window.ShowNearTray();
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+
+                ThemeWatcher.ApplyToApplication(AppTheme.Dark);
+                window.RefreshTheme();
+                var darkExpectedBrush = (Brush)window.FindResource("Recording");
+                var darkDotBrush = window.StatusDot.Fill;
+                var darkLabelBrush = window.StatusLabel.Foreground;
+
+                ThemeWatcher.ApplyToApplication(AppTheme.Light);
+                window.RefreshTheme();
+                var lightExpectedBrush = (Brush)window.FindResource("Recording");
+                var lightDotBrush = window.StatusDot.Fill;
+                var lightLabelBrush = window.StatusLabel.Foreground;
+
+                return (
+                    darkDotBrush,
+                    darkLabelBrush,
+                    darkExpectedBrush,
+                    lightDotBrush,
+                    lightLabelBrush,
+                    lightExpectedBrush);
+            }
+            finally
+            {
+                ThemeWatcher.ApplyToApplication(AppTheme.Light);
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+        Assert.Same(darkExpected, darkDot);
+        Assert.Same(darkExpected, darkLabel);
+        Assert.Same(lightExpected, lightDot);
+        Assert.Same(lightExpected, lightLabel);
+    }
+}
