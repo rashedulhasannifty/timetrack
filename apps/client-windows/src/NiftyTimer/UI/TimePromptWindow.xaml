@@ -6,13 +6,12 @@
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         ShowInTaskbar="True"
-        Topmost="True">
+        Topmost="True"
+        Background="{DynamicResource Surface}">
 
     <StackPanel Margin="24">
         <TextBlock x:Name="TitleLabel"
-                   Style="{StaticResource BodyText}"
-                   FontSize="17"
-                   FontWeight="SemiBold"
+                   Style="{StaticResource HeadingText}"
                    TextWrapping="Wrap" />
 
         <TextBlock x:Name="MinutesLabel"
@@ -21,7 +20,7 @@
 
         <TextBlock x:Name="MessageLabel"
                    Style="{StaticResource BodyText}"
-                   Foreground="{StaticResource TextSecondaryBrush}"
+                   Foreground="{DynamicResource TextSecondary}"
                    TextWrapping="Wrap"
                    Margin="0,10,0,0" />
 

@@ -1,0 +1,31 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Values are the dashboard's :root block in apps/dashboard/src/app/globals.css, role for
+         role. Keep the two in step: a colour that exists here and not there is drift. -->
+    <SolidColorBrush x:Key="Surface"       Color="#FFF6F6F4" />
+    <SolidColorBrush x:Key="SurfaceRaised" Color="#FFFFFFFF" />
+    <SolidColorBrush x:Key="Separator"     Color="#FFEAE9E5" />
+    <SolidColorBrush x:Key="Text"          Color="#FF191917" />
+    <SolidColorBrush x:Key="TextSecondary" Color="#FF73726C" />
+    <SolidColorBrush x:Key="Neutral"       Color="#FFA4A39D" />
+    <SolidColorBrush x:Key="Accent"        Color="#FF0F766E" />
+    <SolidColorBrush x:Key="AccentHover"   Color="#FF0D5F59" />
+    <SolidColorBrush x:Key="Tint"          Color="#FFEDF3F2" />
+    <SolidColorBrush x:Key="Destructive"   Color="#FFBB2020" />
+    <SolidColorBrush x:Key="Recording"     Color="#FF0F766E" />
+    <SolidColorBrush x:Key="Good"          Color="#FF15803D" />
+    <SolidColorBrush x:Key="Manual"        Color="#FFB45309" />
+
+    <!-- Text drawn ON an accent fill. Cannot be a fixed colour: the light accent is dark and the
+         dark accent is light, so this flips with the theme while the accent does. Light value is
+         the dashboard's tt hero text token. -->
+    <SolidColorBrush x:Key="OnAccent"      Color="#FFF2F7F6" />
+
+    <!-- The product mark's two arcs. IDENTICAL in both themes on purpose: the same two values are
+         baked into the app artwork and the dashboard's icon.svg, and a file cannot follow a theme.
+         Mirrors the note in globals.css and TimeTrackTokens.swift. -->
+    <SolidColorBrush x:Key="MarkRemaining" Color="#FF3F7A72" />
+    <SolidColorBrush x:Key="MarkElapsed"   Color="#FF7FD6C9" />
+
+</ResourceDictionary>

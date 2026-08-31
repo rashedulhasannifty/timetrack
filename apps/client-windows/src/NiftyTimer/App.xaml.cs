@@ -1,4 +1,5 @@
 using System.Windows;
+using NiftyTimer.UI;
 
 namespace NiftyTimer;
 
@@ -14,16 +15,35 @@ namespace NiftyTimer;
 public partial class NiftyTimerApp : Application
 {
     private App.AppDelegate? _delegate;
+    private ThemeWatcher? _theme;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        _delegate = new App.AppDelegate();
-        _delegate.Start();
+
+        // A local, not the field: the field is nullable and the compiler's flow analysis does not
+        // follow an assignment into a lambda, so capturing it would be CS8602 — and CS8602 is an
+        // error here, not a warning.
+        var appDelegate = new App.AppDelegate();
+        _delegate = appDelegate;
+
+        // The watcher applies once on construction, so the delegate must exist first or that very
+        // first ApplyTheme lands on a null tray.
+        _theme = new ThemeWatcher(
+            ThemeResolver.FromRegistry,
+            theme =>
+            {
+                ThemeWatcher.ApplyToApplication(theme);
+                appDelegate.ApplyTheme(theme);
+            },
+            hook => new App.MessageWindowHost("NiftyTimer.ThemeHost", hook));
+
+        appDelegate.Start();
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _theme?.Dispose();
         _delegate?.Dispose();
         base.OnExit(e);
     }

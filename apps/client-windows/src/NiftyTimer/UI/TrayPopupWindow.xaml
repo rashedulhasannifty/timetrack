@@ -8,13 +8,12 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         Topmost="True"
-        AllowsTransparency="True"
-        Background="Transparent">
+        Background="{DynamicResource SurfaceRaised}">
 
-    <Border Background="{StaticResource SurfaceBrush}"
-            BorderBrush="{StaticResource BorderBrushSubtle}"
+    <Border Background="{DynamicResource SurfaceRaised}"
+            BorderBrush="{DynamicResource Separator}"
             BorderThickness="1"
-            CornerRadius="8"
+            CornerRadius="0"
             Padding="14">
         <StackPanel>
 
@@ -26,7 +25,7 @@
                  the client to be legible about what it is doing. -->
             <TextBlock x:Name="NoticeLabel"
                        Style="{StaticResource BodyText}"
-                       Foreground="{StaticResource WarningBrush}"
+                       Foreground="{DynamicResource Manual}"
                        TextWrapping="Wrap"
                        Visibility="Collapsed"
                        Margin="0,0,0,10" />
@@ -47,12 +46,12 @@
                      Margin="0,2,0,12" />
 
             <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                <Button x:Name="StartStopButton" Content="Start" Width="92" Padding="6,4" Click="OnStartStop" />
-                <Button x:Name="PauseResumeButton" Content="Pause" Width="92" Padding="6,4" Margin="8,0,0,0"
+                <Button x:Name="StartStopButton" Content="Start" Width="92" Style="{StaticResource ProminentButton}" Click="OnStartStop" />
+                <Button x:Name="PauseResumeButton" Content="Pause" Width="92" Margin="8,0,0,0"
                         Click="OnPauseResume" />
             </StackPanel>
 
-            <Border BorderBrush="{StaticResource BorderBrushSubtle}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+            <Border BorderBrush="{DynamicResource Separator}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -61,15 +60,15 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0">
                         <TextBlock Text="Today" Style="{StaticResource CaptionText}" />
-                        <TextBlock x:Name="TodayLabel" Style="{StaticResource BodyText}" />
+                        <TextBlock x:Name="TodayLabel" Style="{StaticResource NumericText}" />
                     </StackPanel>
                     <StackPanel Grid.Column="1">
                         <TextBlock Text="Week" Style="{StaticResource CaptionText}" />
-                        <TextBlock x:Name="WeekLabel" Style="{StaticResource BodyText}" />
+                        <TextBlock x:Name="WeekLabel" Style="{StaticResource NumericText}" />
                     </StackPanel>
                     <StackPanel Grid.Column="2">
                         <TextBlock Text="Month" Style="{StaticResource CaptionText}" />
-                        <TextBlock x:Name="MonthLabel" Style="{StaticResource BodyText}" />
+                        <TextBlock x:Name="MonthLabel" Style="{StaticResource NumericText}" />
                     </StackPanel>
                 </Grid>
             </Border>
@@ -83,18 +82,18 @@
                         Margin="0,10,0,0">
                 <TextBlock x:Name="UpdateLabel" Style="{StaticResource CaptionText}"
                            VerticalAlignment="Center" />
-                <Button x:Name="UpdateButton" Content="Update now" Padding="6,3" Margin="8,0,0,0"
+                <Button x:Name="UpdateButton" Content="Update now" Style="{StaticResource LinkButton}" Padding="6,3" Margin="8,0,0,0"
                         Click="OnUpdate"
                         ToolTip="Downloads and verifies the new build, then restarts. Your tracked time is unaffected." />
             </StackPanel>
 
-            <Border BorderBrush="{StaticResource BorderBrushSubtle}" BorderThickness="0,1,0,0"
+            <Border BorderBrush="{DynamicResource Separator}" BorderThickness="0,1,0,0"
                     Margin="0,10,0,0" Padding="0,8,0,0">
                 <StackPanel Orientation="Horizontal">
-                    <Button Content="My data" Padding="6,3" Click="OnOpenMyData"
+                    <Button Content="My data" Style="{StaticResource LinkButton}" Click="OnOpenMyData"
                             ToolTip="Opens everything recorded about you in the dashboard" />
-                    <Button Content="Sign out" Padding="6,3" Margin="8,0,0,0" Click="OnSignOut" />
-                    <Button Content="Quit" Padding="6,3" Margin="8,0,0,0" Click="OnQuit" />
+                    <Button Content="Sign out" Style="{StaticResource LinkButton}" Margin="12,0,0,0" Click="OnSignOut" />
+                    <Button Content="Quit" Style="{StaticResource LinkButton}" Margin="12,0,0,0" Click="OnQuit" />
                     <TextBlock x:Name="BuildLabel" Style="{StaticResource CaptionText}"
                                VerticalAlignment="Center" Margin="10,0,0,0" />
                 </StackPanel>

@@ -188,12 +188,16 @@ public static class Wpf
         {
             var application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
 
-            // The prompt's XAML resolves styles through StaticResource, so the token dictionary has
-            // to be loaded exactly as App.xaml loads it at runtime.
-            application.Resources.MergedDictionaries.Add(new ResourceDictionary
+            // The windows resolve brushes through the theme dictionary and styles through Tokens and
+            // Styles, so all three have to be loaded exactly as App.xaml loads them at runtime — same
+            // order, theme first.
+            foreach (var source in new[] { "UI/Theme.Light.xaml", "UI/Tokens.xaml", "UI/Styles.xaml" })
             {
-                Source = new Uri("pack://application:,,,/NiftyTimer;component/UI/Tokens.xaml", UriKind.Absolute),
-            });
+                application.Resources.MergedDictionaries.Add(new ResourceDictionary
+                {
+                    Source = new Uri($"pack://application:,,,/NiftyTimer;component/{source}", UriKind.Absolute),
+                });
+            }
 
             ready.SetResult(System.Windows.Threading.Dispatcher.CurrentDispatcher);
             System.Windows.Threading.Dispatcher.Run();

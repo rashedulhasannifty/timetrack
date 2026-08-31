@@ -41,10 +41,16 @@
     <!-- Copied by explicit name, not a glob: the tray icon is the always-visible indicator
          (PRD §4.2), so a renamed or missing file must fail the build rather than produce an app
          that silently starts without one. TrayIconController throws if either is unreadable. -->
-    <Content Include="Resources\tray-idle.ico">
+    <Content Include="Resources\tray-idle-light.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Resources\tray-tracking.ico">
+    <Content Include="Resources\tray-idle-dark.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\tray-tracking-light.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\tray-tracking-dark.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <None Update="appsettings.json">

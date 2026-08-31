@@ -1,7 +1,9 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using NiftyTimer.App;
 
@@ -285,4 +287,42 @@ public partial class TrayPopupWindow : Window
             ? "An update has been waiting a while."
             : "A new version is available.";
     }
+
+    /// <summary>
+    /// Round the window through DWM instead of AllowsTransparency.
+    ///
+    /// AllowsTransparency is what produced the rounded card before, and it forces this window into
+    /// SOFTWARE rendering — which degrades ClearType on the one surface in this client where text
+    /// quality is the entire point. DWM rounds the real window with hardware rendering intact.
+    ///
+    /// The Border's own CornerRadius has to track whether DWM actually rounded the window: see the
+    /// HRESULT gate below.
+    /// </summary>
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        var preference = DwmWindowCornerPreferenceRound;
+        var handle = new WindowInteropHelper(this).Handle;
+
+        // 8 is DWM's own DWMWCP_ROUND radius, not a design-system value — do not "tidy" it onto
+        // RadiusSm. Gated on the HRESULT: when DWM rounds the window, the Border must round with
+        // it or its square stroke is clipped short at each corner. When the call FAILS (Windows 10,
+        // which has no such attribute) the window stays square, so the Border must stay square too
+        // or its rounded corners would cut into a square window and show as nubs.
+        if (DwmSetWindowAttribute(handle, DwmwaWindowCornerPreference, ref preference, sizeof(int)) == 0)
+        {
+            ((Border)Content).CornerRadius = new CornerRadius(8);
+        }
+    }
+
+    private const int DwmwaWindowCornerPreference = 33;
+    private const int DwmWindowCornerPreferenceRound = 2;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr hwnd,
+        int attribute,
+        ref int value,
+        int size);
 }

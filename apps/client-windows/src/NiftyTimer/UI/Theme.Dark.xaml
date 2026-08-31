@@ -1,0 +1,26 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- The dashboard's .dark block. Every key in Theme.Light.xaml must appear here — ThemeDictionaryTests
+         fails the build otherwise. -->
+    <SolidColorBrush x:Key="Surface"       Color="#FF111113" />
+    <SolidColorBrush x:Key="SurfaceRaised" Color="#FF1A1A1D" />
+    <SolidColorBrush x:Key="Separator"     Color="#FF28282C" />
+    <SolidColorBrush x:Key="Text"          Color="#FFF1F1EF" />
+    <SolidColorBrush x:Key="TextSecondary" Color="#FF9D9D97" />
+    <SolidColorBrush x:Key="Neutral"       Color="#FF676762" />
+    <SolidColorBrush x:Key="Accent"        Color="#FF43C0AF" />
+    <SolidColorBrush x:Key="AccentHover"   Color="#FF6BD3C4" />
+    <SolidColorBrush x:Key="Tint"          Color="#FF1D2725" />
+    <SolidColorBrush x:Key="Destructive"   Color="#FFF47272" />
+    <SolidColorBrush x:Key="Recording"     Color="#FF43C0AF" />
+    <SolidColorBrush x:Key="Good"          Color="#FF4ADE80" />
+    <SolidColorBrush x:Key="Manual"        Color="#FFFBBF24" />
+
+    <!-- Dark accent is light, so text on it is the dark ground rather than the light one. -->
+    <SolidColorBrush x:Key="OnAccent"      Color="#FF111113" />
+
+    <SolidColorBrush x:Key="MarkRemaining" Color="#FF3F7A72" />
+    <SolidColorBrush x:Key="MarkElapsed"   Color="#FF7FD6C9" />
+
+</ResourceDictionary>

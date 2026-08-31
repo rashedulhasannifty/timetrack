@@ -167,7 +167,10 @@ public sealed class AppDelegate : IDisposable
         _viewModel = new MenuViewModel(_tracker, _selectionStore);
 
         // ── The indicator comes first, and is never conditional. ─────────────────────────────
-        _tray = new TrayIconController(Path.Combine(AppContext.BaseDirectory, "Resources"));
+        _tray = new TrayIconController(Path.Combine(AppContext.BaseDirectory, "Resources"))
+        {
+            Theme = ThemeResolver.FromRegistry(),
+        };
         _popup = new TrayPopupWindow(_viewModel, _config.DashboardUri, BuildStamp.Describe(_config.AppId));
 
         // The notifier rides the tray icon that already exists, so there is nothing extra to
@@ -195,6 +198,19 @@ public sealed class AppDelegate : IDisposable
 
         _ = BootstrapAsync();
     }
+
+    /// <summary>
+    /// Follow the shell's appearance on the tray icon. Separate from the resource-dictionary swap
+    /// because the icon is a file on a taskbar, not a brush in a window — the two happen to change
+    /// together but are different mechanisms.
+    /// </summary>
+    public void ApplyTheme(AppTheme theme) => OnUi(() =>
+    {
+        if (_tray is not null)
+        {
+            _tray.Theme = theme;
+        }
+    });
 
     public void Dispose()
     {
