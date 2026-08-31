@@ -236,3 +236,223 @@ public class TrayPopupWindowControlsTests
         Assert.Null(paused.Secondary.ToolTip);
     }
 }
+
+/// <summary>
+/// Task 5 picker rewrite. <see cref="TrayPopupWindow.RenderPicker"/> reassigns
+/// <c>ProjectList.ItemsSource</c> from <see cref="MenuViewModel.FilteredChoices"/>, which
+/// allocates a fresh <c>List&lt;PickerItem&gt;</c> on every read, and <see cref="MenuViewModel.Tick"/>
+/// drives <c>Render()</c> once a second while the popup is visible, regardless of tracking state
+/// (it raises <c>ElapsedLabel</c> unconditionally). An unconditional reassignment there would hand
+/// the ListBox a brand-new collection every second: reassigning <c>ItemsSource</c> regenerates the
+/// item containers and resets the scroll offset to the top, so anyone scrolled into a long project
+/// list would be snapped back to row one once a second while the popup just sits open. The guard,
+/// a <c>SequenceEqual</c> against the previous source (<c>PickerItem</c> is a record, so this
+/// compares by value), exists to prevent exactly that, and is the fix this class covers.
+/// </summary>
+[Collection("wpf")]
+public class TrayPopupWindowPickerTests
+{
+    private static (MenuViewModel ViewModel, TrayPopupWindow Window) Build(TimeTracker tracker)
+    {
+        var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+        var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
+
+        viewModel.IsReady = true;
+        viewModel.Projects =
+        [
+            new Project("p1", "team", "Acme Website", false, [new ProjectTask("t1", "p1", "Redesign")]),
+            new Project("p2", "team", "Internal Tools", false, []),
+            new Project("p3", "team", "Zephyr Migration", false, [new ProjectTask("t3", "p3", "Planning")]),
+        ];
+
+        window.ShowNearTray();
+        window.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+        return (viewModel, window);
+    }
+
+    /// <summary>
+    /// The fix itself: a Render() pass that leaves the filtered projection unchanged must not hand
+    /// the ListBox a new ItemsSource. Without the guard in RenderPicker this fails, because
+    /// FilteredChoices allocates a fresh list on every read even when its contents are identical.
+    /// </summary>
+    [Fact]
+    public void TickDoesNotReassignItemsSourceWhenTheFilteredProjectionIsUnchanged()
+    {
+        var (before, after) = Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
+            var (viewModel, window) = Build(tracker);
+
+            try
+            {
+                var beforeSource = window.ProjectList.ItemsSource;
+
+                // Tick() raises PropertyChanged(ElapsedLabel) unconditionally while the popup is
+                // visible, which drives Render() then RenderPicker() with no change to Projects or
+                // Query -- the exact per-second path that reset the ListBox scroll position before
+                // the guard existed.
+                viewModel.Tick();
+                viewModel.Tick();
+
+                var afterSource = window.ProjectList.ItemsSource;
+                return (beforeSource, afterSource);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+        Assert.Same(before, after);
+    }
+
+    /// <summary>
+    /// When the guard above blocks reassignment, ProjectList.ItemsSource still holds the OLD
+    /// FilteredChoices list, but RenderPicker resolves SelectedItem from a FRESH read of
+    /// SelectedChoice against Choices -- an instance allocated on this Render pass, not
+    /// necessarily the same object already sitting in Items. The checkmark itself is driven off
+    /// the ListBoxItem container's own IsSelected (the ControlTemplate.Trigger in
+    /// TrayPopupWindow.xaml), not off object identity, so the real assertion worth making is that
+    /// the container the guard left untouched actually reports selected -- proving the value-based
+    /// resolution in RenderPicker reaches the visible checkmark, not just the SelectedItem field.
+    /// </summary>
+    [Fact]
+    public void SelectedItemResolvesByValueWhenItemsSourceReassignmentIsGuarded()
+    {
+        var (sourceUnchanged, selectedProjectId, containerIsSelected) = Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
+            var (viewModel, window) = Build(tracker);
+
+            try
+            {
+                viewModel.Start();
+
+                var beforeSource = window.ProjectList.ItemsSource;
+                var target = (PickerItem)window.ProjectList.Items[2]!; // "Internal Tools", p2
+                Assert.Equal("Internal Tools", target.ProjectName);
+
+                // A real WPF selection change, the same path a click drives, through the actual
+                // ListBox, with the query untouched since the last render, so RenderPicker's guard
+                // is active for the Render() this selection triggers (via SelectProject then
+                // RaiseTrackingState then PropertyChanged).
+                window.ProjectList.SelectedItem = target;
+                window.UpdateLayout();
+
+                var afterSource = window.ProjectList.ItemsSource;
+                var selected = (PickerItem)window.ProjectList.SelectedItem!;
+                var container = (ListBoxItem?)window.ProjectList.ItemContainerGenerator.ContainerFromIndex(2);
+
+                return (
+                    ReferenceEquals(beforeSource, afterSource),
+                    selected.ProjectId,
+                    container?.IsSelected ?? false);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+        // The guard actually held for this selection -- otherwise this test would not be
+        // exercising the case it claims to.
+        Assert.True(sourceUnchanged, "Precondition failed: ItemsSource was reassigned, so the guard was not active for this selection.");
+
+        Assert.Equal("p2", selectedProjectId);
+        Assert.True(containerIsSelected, "The Internal Tools row's container never reported IsSelected -- the checkmark would not have shown.");
+    }
+
+    /// <summary>
+    /// A user selection must reach <see cref="MenuViewModel.SelectProject"/> exactly once: not
+    /// zero (the picker would silently ignore clicks), and not twice (SelectProject closes and
+    /// reopens a running entry, so a second call would re-attribute a running span a second time
+    /// for one click). RenderPicker's own SelectedItem assignment runs inside Render's
+    /// <c>_suppressCallbacks = true</c> block specifically to prevent that second call; this proves
+    /// it holds through the real handler, not just by inspection.
+    /// </summary>
+    [Fact]
+    public void SelectingARowCallsSelectProjectExactlyOnce()
+    {
+        var (callCount, finalProjectId) = Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
+            var (viewModel, window) = Build(tracker);
+
+            try
+            {
+                viewModel.Start();
+
+                // TrackingStarted fires once per SelectProject call that finds the tracker already
+                // tracking (SelectProject closes and reopens the span). Subscribed only after the
+                // initial Start() above, so it counts exclusively what the selection itself causes.
+                var count = 0;
+                viewModel.TrackingStarted += () => count++;
+
+                var target = (PickerItem)window.ProjectList.Items[2]!; // "Internal Tools", p2
+                window.ProjectList.SelectedItem = target;
+
+                var state = Assert.IsType<TrackerState.Tracking>(tracker.State);
+                return (count, state.Selection.ProjectId);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+        Assert.Equal(1, callCount);
+        Assert.Equal("p2", finalProjectId);
+    }
+
+    /// <summary>
+    /// End to end through the real window: typing into SearchBox reaches
+    /// MenuViewModel.Query via OnSearchChanged, and the rendered ListBox narrows and restores
+    /// through RenderPicker -- the whole path a person driving the popup actually exercises, not
+    /// just Filter() exercised on the view model in isolation.
+    /// </summary>
+    [Fact]
+    public void TypingInTheSearchBoxNarrowsTheRenderedListThroughTheRealHandler()
+    {
+        var (fullCount, narrowedCount, clearedCount) = Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
+            var (_, window) = Build(tracker);
+
+            try
+            {
+                // 3 projects, 2 of which carry one task each: 5 rows in all.
+                var full = window.ProjectList.Items.Count;
+
+                // "zephyr" matches ProjectName on both of p3's rows (the project row and its own
+                // task row both carry the project name).
+                window.SearchBox.Text = "zephyr";
+                var narrowed = window.ProjectList.Items.Count;
+
+                window.SearchBox.Text = string.Empty;
+                var cleared = window.ProjectList.Items.Count;
+
+                return (full, narrowed, cleared);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+        Assert.Equal(5, fullCount);
+        Assert.Equal(2, narrowedCount);
+        Assert.Equal(5, clearedCount);
+    }
+}
