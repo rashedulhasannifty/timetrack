@@ -93,11 +93,35 @@
                      TextChanged="OnNoteChanged"
                      Margin="0,2,0,12" />
 
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                <Button x:Name="StartStopButton" Content="Start" Width="92" Style="{StaticResource ProminentButton}" Click="OnStartStop" />
-                <Button x:Name="PauseResumeButton" Content="Pause" Width="92" Margin="8,0,0,0"
-                        Click="OnPauseResume" />
-            </StackPanel>
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Button x:Name="PrimaryButton" Grid.Column="0" Click="OnPrimary">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Path x:Name="PrimaryGlyph"
+                              Width="10" Height="10"
+                              Stretch="Uniform"
+                              VerticalAlignment="Center"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                        <TextBlock x:Name="PrimaryLabel" Margin="7,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="SecondaryButton" Grid.Column="2" Click="OnSecondary">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Path x:Name="SecondaryGlyph"
+                              Width="10" Height="10"
+                              Stretch="Uniform"
+                              VerticalAlignment="Center"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                        <TextBlock x:Name="SecondaryLabel" Margin="7,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </Grid>
 
             <TextBlock x:Name="PendingLabel"
                        Style="{StaticResource CaptionText}"

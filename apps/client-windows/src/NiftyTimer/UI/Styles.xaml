@@ -26,6 +26,14 @@
         </Setter>
     </Style>
 
+    <!-- Transport glyphs, drawn rather than taken from an icon font. Windows 10 ships Segoe MDL2
+         Assets and Windows 11 ships Segoe Fluent Icons under different names, and a glyph missing
+         from the installed font renders as a box on the one control the person needs most. Same
+         reasoning as BrandMark. Each is authored in a 10x10 box. -->
+    <Geometry x:Key="PlayGlyph">M 1,0 L 9,5 L 1,10 Z</Geometry>
+    <Geometry x:Key="PauseGlyph">M 1,0 H 4 V 10 H 1 Z M 6,0 H 9 V 10 H 6 Z</Geometry>
+    <Geometry x:Key="StopGlyph">M 1,1 H 9 V 9 H 1 Z</Geometry>
+
     <!-- The default. Matches the macOS client's .bordered: outlined, quiet, safe to repeat. -->
     <Style x:Key="BorderedButton" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />

@@ -131,11 +131,7 @@ public partial class TrayPopupWindow : Window
 
             SyncUpdateRow();
 
-            StartStopButton.Content = _viewModel.IsTracking ? "Stop" : "Start";
-            StartStopButton.IsEnabled = _viewModel.IsTracking ? _viewModel.CanStop : _viewModel.CanStart;
-
-            PauseResumeButton.Content = _viewModel.IsPaused ? "Resume" : "Pause";
-            PauseResumeButton.IsEnabled = _viewModel.IsPaused ? _viewModel.IsReady : _viewModel.IsTracking;
+            RenderControls();
 
             RenderPicker();
 
@@ -253,11 +249,75 @@ public partial class TrayPopupWindow : Window
         }
     }
 
-    private void OnStartStop(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Which two buttons the phase calls for, and which of them is the prominent one.
+    ///
+    /// Idle offers only Start — there is nothing to stop or pause, and a disabled second button is
+    /// noise. Tracking makes Stop prominent and Pause secondary; paused inverts that, because the
+    /// obvious next action is to carry on.
+    /// </summary>
+    private void RenderControls()
     {
+        var prominent = (Style)FindResource("ProminentButton");
+        var bordered = (Style)FindResource("BorderedButton");
+
+        if (_viewModel.IsPaused)
+        {
+            Apply(PrimaryButton, PrimaryGlyph, PrimaryLabel, prominent, "PlayGlyph", "Resume", _viewModel.IsReady);
+            Apply(SecondaryButton, SecondaryGlyph, SecondaryLabel, bordered, "StopGlyph", "Stop", _viewModel.CanStop);
+            SecondaryButton.Visibility = Visibility.Visible;
+            PrimaryButton.ToolTip = null;
+            SecondaryButton.ToolTip = null;
+            return;
+        }
+
         if (_viewModel.IsTracking)
         {
-            _viewModel.Stop();
+            Apply(PrimaryButton, PrimaryGlyph, PrimaryLabel, bordered, "PauseGlyph", "Pause", true);
+            Apply(SecondaryButton, SecondaryGlyph, SecondaryLabel, prominent, "StopGlyph", "Stop", _viewModel.CanStop);
+            SecondaryButton.Visibility = Visibility.Visible;
+            PrimaryButton.ToolTip = null;
+            SecondaryButton.ToolTip = null;
+            return;
+        }
+
+        Apply(PrimaryButton, PrimaryGlyph, PrimaryLabel, prominent, "PlayGlyph", "Start", _viewModel.CanStart);
+        SecondaryButton.Visibility = Visibility.Collapsed;
+
+        // The tooltip is the only place the ack gate explains itself on this surface. Without it a
+        // disabled Start is indistinguishable from a broken one. Assigned in every branch (not just
+        // here) so a stale "acknowledge the policy" tooltip can never persist onto the Pause/Resume
+        // button after the phase moves on — that would misstate why a control is disabled on
+        // monitoring software, where the ack gate is a real policy boundary.
+        PrimaryButton.ToolTip = _viewModel.IsReady
+            ? "Start tracking"
+            : "Acknowledge the monitoring policy to begin";
+    }
+
+    private void Apply(
+        Button button,
+        System.Windows.Shapes.Path glyph,
+        TextBlock label,
+        Style style,
+        string glyphKey,
+        string text,
+        bool enabled)
+    {
+        button.Style = style;
+        button.IsEnabled = enabled;
+        glyph.Data = (Geometry)FindResource(glyphKey);
+        label.Text = text;
+    }
+
+    private void OnPrimary(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel.IsPaused)
+        {
+            _viewModel.Resume();
+        }
+        else if (_viewModel.IsTracking)
+        {
+            _viewModel.Pause();
         }
         else
         {
@@ -265,17 +325,7 @@ public partial class TrayPopupWindow : Window
         }
     }
 
-    private void OnPauseResume(object sender, RoutedEventArgs e)
-    {
-        if (_viewModel.IsPaused)
-        {
-            _viewModel.Resume();
-        }
-        else
-        {
-            _viewModel.Pause();
-        }
-    }
+    private void OnSecondary(object sender, RoutedEventArgs e) => _viewModel.Stop();
 
     /// <summary>
     /// PRD §4.3 symmetric transparency — the employee reaches everything recorded about them
