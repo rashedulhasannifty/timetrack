@@ -34,6 +34,10 @@
     <Geometry x:Key="PauseGlyph">M 1,0 H 4 V 10 H 1 Z M 6,0 H 9 V 10 H 6 Z</Geometry>
     <Geometry x:Key="StopGlyph">M 1,1 H 9 V 9 H 1 Z</Geometry>
 
+    <!-- The project picker's checkmark: bound to ListBoxItem.IsSelected via a RelativeSource, not
+         to the row's own data, so it needs no boolean property on PickerItem. -->
+    <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
     <!-- The default. Matches the macOS client's .bordered: outlined, quiet, safe to repeat. -->
     <Style x:Key="BorderedButton" TargetType="Button">
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />

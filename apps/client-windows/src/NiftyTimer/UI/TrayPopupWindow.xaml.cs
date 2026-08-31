@@ -213,27 +213,54 @@ public partial class TrayPopupWindow : Window
             : null;
     }
 
+    /// <summary>
+    /// Refill the list from the view model's filtered projection.
+    ///
+    /// Reassigning ItemsSource on every Render is cheap at this size and keeps the window's single
+    /// imperative-push model intact (PR 2 is structural parity, not an MVVM migration). The
+    /// selection is restored by VALUE rather than by reference, because the projection rebuilds its
+    /// records on every read and the old instance is never the new one.
+    ///
+    /// The reassignment is guarded, though: <c>Render()</c> also runs once a second off the
+    /// popup's own tick (<see cref="MenuViewModel.Tick"/> raises <c>ElapsedLabel</c>, which this
+    /// window is subscribed to regardless of tracking state while the popup is visible), and
+    /// <see cref="MenuViewModel.FilteredChoices"/> allocates a fresh list on every read. An
+    /// unconditional reassignment would hand the ListBox a new collection every second, which
+    /// regenerates its containers and resets the scroll offset to the top — so anyone scrolled
+    /// into a long project list would get snapped back to row one while the popup just sits
+    /// there. <c>PickerItem</c> is a record, so <c>SequenceEqual</c> compares the rows by value
+    /// and only replaces the source when the projection actually changed.
+    /// </summary>
     private void RenderPicker()
     {
-        var items = new List<PickerItem>();
-        foreach (var project in _viewModel.Projects)
+        var choices = _viewModel.FilteredChoices;
+        if (ProjectList.ItemsSource is not IReadOnlyList<PickerItem> current || !current.SequenceEqual(choices))
         {
-            items.Add(new PickerItem(project.Name, null, project.Id, null));
-            foreach (var task in project.Tasks ?? [])
-            {
-                items.Add(new PickerItem(project.Name, task.Name, project.Id, task.Id));
-            }
+            ProjectList.ItemsSource = choices;
         }
 
-        ProjectPicker.ItemsSource = items;
-        ProjectPicker.SelectedItem = _viewModel.Selection is { } selection
-            ? items.FirstOrDefault(i => i.ProjectId == selection.ProjectId && i.TaskId == selection.TaskId)
-            : null;
+        var selected = _viewModel.SelectedChoice;
+        ProjectList.SelectedItem = selected is null
+            ? null
+            : choices.FirstOrDefault(c => c.ProjectId == selected.ProjectId && c.TaskId == selected.TaskId);
+
+        if (SearchBox.Text != _viewModel.Query)
+        {
+            SearchBox.Text = _viewModel.Query;
+        }
+    }
+
+    private void OnSearchChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_suppressCallbacks)
+        {
+            _viewModel.Query = SearchBox.Text;
+        }
     }
 
     private void OnProjectSelected(object sender, SelectionChangedEventArgs e)
     {
-        if (_suppressCallbacks || ProjectPicker.SelectedItem is not PickerItem item)
+        if (_suppressCallbacks || ProjectList.SelectedItem is not PickerItem item)
         {
             return;
         }

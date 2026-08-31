@@ -78,14 +78,94 @@
                        Visibility="Collapsed"
                        Margin="0,0,0,10" />
 
-            <TextBlock Text="Project" Style="{StaticResource CaptionText}" />
-            <ComboBox x:Name="ProjectPicker"
-                      IsEditable="True"
-                      IsTextSearchEnabled="True"
-                      StaysOpenOnEdit="True"
-                      DisplayMemberPath="ProjectName"
-                      SelectionChanged="OnProjectSelected"
-                      Margin="0,2,0,10" />
+            <TextBlock Text="SWITCH PROJECT" Style="{StaticResource MicroText}" Margin="0,0,0,4" />
+
+            <TextBox x:Name="SearchBox"
+                     TextChanged="OnSearchChanged"
+                     Margin="0,0,0,6" />
+
+            <!-- A DEFINITE height, not MaxHeight. The window is SizeToContent="Height", so a list
+                 that sizes to its content makes the whole popup jump every time a keystroke
+                 narrows the results — and grow without bound on a long project list. 220px is
+                 about six rows; past that it scrolls. -->
+            <ListBox x:Name="ProjectList"
+                     Height="220"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     SelectionChanged="OnProjectSelected"
+                     Margin="0,0,0,12">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="8,7" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border x:Name="Chrome"
+                                            Background="Transparent"
+                                            CornerRadius="{StaticResource RadiusSm}"
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Chrome" Property="Background"
+                                                    Value="{DynamicResource Surface}" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Chrome" Property="Background"
+                                                    Value="{DynamicResource Tint}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="{Binding ProjectName}" Style="{StaticResource LabelText}" />
+                                <!-- Collapsed for a project row, where TaskName is null, so the row
+                                     stays single-line instead of reserving an empty second line. -->
+                                <TextBlock Text="{Binding TaskName}"
+                                           Margin="0,1,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding TaskName}" Value="{x:Null}">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </StackPanel>
+
+                            <Path Grid.Column="1"
+                                  Width="11" Height="9"
+                                  Stretch="Uniform"
+                                  VerticalAlignment="Center"
+                                  Data="M 0,5 L 4,9 L 11,1"
+                                  Stroke="{DynamicResource Accent}"
+                                  StrokeThickness="1.8"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  Visibility="{Binding IsSelected,
+                                      RelativeSource={RelativeSource AncestorType=ListBoxItem},
+                                      Converter={StaticResource BoolToVisibility}}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
 
             <TextBlock Text="Note" Style="{StaticResource CaptionText}" />
             <TextBox x:Name="NoteBox"
