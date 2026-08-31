@@ -77,8 +77,8 @@ public class TrayPopupWindowPositionTests
         // active DPI scale — that snapping happens on Left/Top regardless of AllowsTransparency,
         // so up to one device pixel of slack is expected and is not itself a regression.
         Assert.True(
-            Math.Abs(work.Right - 320 - 12 - left) < 1.0,
-            $"Left={left}, expected near {work.Right - 320 - 12}");
+            Math.Abs(work.Right - 340 - 12 - left) < 1.0,
+            $"Left={left}, expected near {work.Right - 340 - 12}");
         Assert.True(
             Math.Abs(work.Bottom - windowHeight - 12 - top) < 1.0,
             $"Top={top}, expected near {work.Bottom - windowHeight - 12}");
@@ -86,7 +86,7 @@ public class TrayPopupWindowPositionTests
         // The content Border still fills the window's own layout bounds exactly, i.e. WPF added
         // no margin/frame of its own between the window edge and the card that ShowNearTray's
         // formula assumes are the same rectangle.
-        Assert.Equal(320d, windowWidth, precision: 3);
+        Assert.Equal(340d, windowWidth, precision: 3);
         Assert.Equal(windowWidth, borderWidth, precision: 3);
         Assert.Equal(windowHeight, borderHeight, precision: 3);
     }

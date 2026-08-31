@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using NiftyTimer.App;
 
@@ -104,6 +105,10 @@ public partial class TrayPopupWindow : Window
     {
         if (IsVisible)
         {
+            // Belt-and-braces alongside RefreshTheme: ShowNearTray already renders before Show(),
+            // so this is redundant on that path, but it keeps the status brushes correct for any
+            // future caller that flips Visibility directly instead of going through ShowNearTray.
+            Render();
             _tick.Start();
         }
         else
@@ -119,8 +124,7 @@ public partial class TrayPopupWindow : Window
         _suppressCallbacks = true;
         try
         {
-            ElapsedLabel.Text = _viewModel.ElapsedLabel;
-            StatusLabel.Text = StatusText();
+            RenderStatus();
 
             NoticeLabel.Text = NoticeText() ?? string.Empty;
             NoticeLabel.Visibility = NoticeText() is null ? Visibility.Collapsed : Visibility.Visible;
@@ -155,20 +159,51 @@ public partial class TrayPopupWindow : Window
         }
     }
 
-    private string StatusText()
+    /// <summary>
+    /// The status line and the hero timer.
+    ///
+    /// The timer is hidden when there is nothing running: a large 00:00:00 reads as a clock that
+    /// has stopped rather than one that was never started, which is the wrong thing to say to
+    /// someone who has not begun their day.
+    ///
+    /// The selection is deliberately NOT repeated here — the picker below carries it with a
+    /// checkmark, and this line was only doing that job when the picker could not.
+    /// </summary>
+    private void RenderStatus()
     {
-        if (!_viewModel.IsReady)
-        {
-            return "Not ready";
-        }
+        var tracking = _viewModel.IsTracking;
+        var paused = _viewModel.IsPaused;
 
-        if (_viewModel.IsTracking)
+        StatusLabel.Text = (tracking, paused, _viewModel.IsReady) switch
         {
-            return $"Tracking · {_viewModel.SelectionLabel}";
-        }
+            (true, _, _) => "Recording",
+            (_, true, _) => "Paused",
+            (_, _, false) => "Not ready",
+            _ => "Idle · Not tracking",
+        };
 
-        return _viewModel.IsPaused ? $"Paused · {_viewModel.SelectionLabel}" : "Stopped";
+        var active = tracking || paused;
+
+        // Recording rather than Accent: it is the role that means "the clock is running", and it
+        // is what a later status colour change would want to move.
+        StatusDot.Fill = active
+            ? (Brush)FindResource("Recording")
+            : (Brush)FindResource("TextSecondary");
+
+        StatusLabel.Foreground = active
+            ? (Brush)FindResource("Recording")
+            : (Brush)FindResource("TextSecondary");
+
+        ElapsedLabel.Text = _viewModel.ElapsedLabel;
+        ElapsedLabel.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    /// <summary>
+    /// Repaint after a theme swap. The status brushes are assigned in code rather than bound, so
+    /// unlike everything else in this window they do not re-resolve on their own when the merged
+    /// dictionary changes.
+    /// </summary>
+    public void RefreshTheme() => Render();
 
     private string? NoticeText()
     {
