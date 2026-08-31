@@ -210,6 +210,8 @@ public sealed class AppDelegate : IDisposable
         {
             _tray.Theme = theme;
         }
+
+        _popup?.RefreshTheme();
     });
 
     public void Dispose()

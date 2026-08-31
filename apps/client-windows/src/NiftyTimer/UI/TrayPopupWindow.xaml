@@ -1,8 +1,9 @@
 <Window x:Class="NiftyTimer.UI.TrayPopupWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:NiftyTimer.UI"
         Title="Nifty Timer"
-        Width="320"
+        Width="340"
         SizeToContent="Height"
         WindowStyle="None"
         ResizeMode="NoResize"
@@ -17,9 +18,58 @@
             Padding="14">
         <StackPanel>
 
-            <TextBlock Text="Nifty Timer" Style="{StaticResource CaptionText}" />
-            <TextBlock x:Name="ElapsedLabel" Style="{StaticResource ElapsedText}" Margin="0,2,0,0" />
-            <TextBlock x:Name="StatusLabel" Style="{StaticResource CaptionText}" Margin="0,0,0,10" />
+            <!-- Status: a dot plus the phase, mirroring the macOS dropdown. The dot is the fastest
+                 read in the window; PRD 4.2 wants the recording state disclosed, not inferred. -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                <ui:BrandMark Width="18" Height="18" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <Ellipse x:Name="StatusDot"
+                         Width="7"
+                         Height="7"
+                         VerticalAlignment="Center"
+                         Fill="{DynamicResource TextSecondary}" />
+                <TextBlock x:Name="StatusLabel"
+                           Style="{StaticResource LabelText}"
+                           Margin="6,0,0,0"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+
+            <!-- The hero timer. Collapsed when idle: a stopped 00:00:00 is a large, prominent
+                 number that says nothing. -->
+            <TextBlock x:Name="ElapsedLabel"
+                       Style="{StaticResource ElapsedText}"
+                       Visibility="Collapsed"
+                       Margin="0,2,0,0" />
+
+            <Grid Margin="0,10,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="TODAY" Style="{StaticResource MicroText}" />
+                    <TextBlock x:Name="TodayLabel" Style="{StaticResource NumericText}" FontSize="15" />
+                </StackPanel>
+
+                <Rectangle Grid.Column="1" Width="1" Height="22"
+                           Fill="{DynamicResource Separator}" VerticalAlignment="Center" />
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="THIS WEEK" Style="{StaticResource MicroText}" />
+                    <TextBlock x:Name="WeekLabel" Style="{StaticResource NumericText}" FontSize="15" />
+                </StackPanel>
+
+                <Rectangle Grid.Column="3" Width="1" Height="22"
+                           Fill="{DynamicResource Separator}" VerticalAlignment="Center" />
+
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="THIS MONTH" Style="{StaticResource MicroText}" />
+                    <TextBlock x:Name="MonthLabel" Style="{StaticResource NumericText}" FontSize="15" />
+                </StackPanel>
+            </Grid>
 
             <!-- The monitoring notice is never optional and never dismissible: PRD §4.2 requires
                  the client to be legible about what it is doing. -->
@@ -30,14 +80,94 @@
                        Visibility="Collapsed"
                        Margin="0,0,0,10" />
 
-            <TextBlock Text="Project" Style="{StaticResource CaptionText}" />
-            <ComboBox x:Name="ProjectPicker"
-                      IsEditable="True"
-                      IsTextSearchEnabled="True"
-                      StaysOpenOnEdit="True"
-                      DisplayMemberPath="Label"
-                      SelectionChanged="OnProjectSelected"
-                      Margin="0,2,0,10" />
+            <TextBlock Text="SWITCH PROJECT" Style="{StaticResource MicroText}" Margin="0,0,0,4" />
+
+            <TextBox x:Name="SearchBox"
+                     TextChanged="OnSearchChanged"
+                     Margin="0,0,0,6" />
+
+            <!-- A DEFINITE height, not MaxHeight. The window is SizeToContent="Height", so a list
+                 that sizes to its content makes the whole popup jump every time a keystroke
+                 narrows the results — and grow without bound on a long project list. 220px is
+                 about six rows; past that it scrolls. -->
+            <ListBox x:Name="ProjectList"
+                     Height="220"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     SelectionChanged="OnProjectSelected"
+                     Margin="0,0,0,12">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="8,7" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border x:Name="Chrome"
+                                            Background="Transparent"
+                                            CornerRadius="{StaticResource RadiusSm}"
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Chrome" Property="Background"
+                                                    Value="{DynamicResource Surface}" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Chrome" Property="Background"
+                                                    Value="{DynamicResource Tint}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="{Binding ProjectName}" Style="{StaticResource LabelText}" />
+                                <!-- Collapsed for a project row, where TaskName is null, so the row
+                                     stays single-line instead of reserving an empty second line. -->
+                                <TextBlock Text="{Binding TaskName}"
+                                           Margin="0,1,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding TaskName}" Value="{x:Null}">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </StackPanel>
+
+                            <Path Grid.Column="1"
+                                  Width="11" Height="9"
+                                  Stretch="Uniform"
+                                  VerticalAlignment="Center"
+                                  Data="M 0,5 L 4,9 L 11,1"
+                                  Stroke="{DynamicResource Accent}"
+                                  StrokeThickness="1.8"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  Visibility="{Binding IsSelected,
+                                      RelativeSource={RelativeSource AncestorType=ListBoxItem},
+                                      Converter={StaticResource BoolToVisibility}}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
 
             <TextBlock Text="Note" Style="{StaticResource CaptionText}" />
             <TextBox x:Name="NoteBox"
@@ -45,33 +175,35 @@
                      TextChanged="OnNoteChanged"
                      Margin="0,2,0,12" />
 
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                <Button x:Name="StartStopButton" Content="Start" Width="92" Style="{StaticResource ProminentButton}" Click="OnStartStop" />
-                <Button x:Name="PauseResumeButton" Content="Pause" Width="92" Margin="8,0,0,0"
-                        Click="OnPauseResume" />
-            </StackPanel>
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-            <Border BorderBrush="{DynamicResource Separator}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0">
-                        <TextBlock Text="Today" Style="{StaticResource CaptionText}" />
-                        <TextBlock x:Name="TodayLabel" Style="{StaticResource NumericText}" />
+                <Button x:Name="PrimaryButton" Grid.Column="0" Click="OnPrimary">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Path x:Name="PrimaryGlyph"
+                              Width="10" Height="10"
+                              Stretch="Uniform"
+                              VerticalAlignment="Center"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                        <TextBlock x:Name="PrimaryLabel" Margin="7,0,0,0" VerticalAlignment="Center" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1">
-                        <TextBlock Text="Week" Style="{StaticResource CaptionText}" />
-                        <TextBlock x:Name="WeekLabel" Style="{StaticResource NumericText}" />
+                </Button>
+
+                <Button x:Name="SecondaryButton" Grid.Column="2" Click="OnSecondary">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Path x:Name="SecondaryGlyph"
+                              Width="10" Height="10"
+                              Stretch="Uniform"
+                              VerticalAlignment="Center"
+                              Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                        <TextBlock x:Name="SecondaryLabel" Margin="7,0,0,0" VerticalAlignment="Center" />
                     </StackPanel>
-                    <StackPanel Grid.Column="2">
-                        <TextBlock Text="Month" Style="{StaticResource CaptionText}" />
-                        <TextBlock x:Name="MonthLabel" Style="{StaticResource NumericText}" />
-                    </StackPanel>
-                </Grid>
-            </Border>
+                </Button>
+            </Grid>
 
             <TextBlock x:Name="PendingLabel"
                        Style="{StaticResource CaptionText}"
@@ -89,14 +221,37 @@
 
             <Border BorderBrush="{DynamicResource Separator}" BorderThickness="0,1,0,0"
                     Margin="0,10,0,0" Padding="0,8,0,0">
-                <StackPanel Orientation="Horizontal">
-                    <Button Content="My data" Style="{StaticResource LinkButton}" Click="OnOpenMyData"
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0" Content="My data" Style="{StaticResource LinkButton}"
+                            Click="OnOpenMyData"
                             ToolTip="Opens everything recorded about you in the dashboard" />
-                    <Button Content="Sign out" Style="{StaticResource LinkButton}" Margin="12,0,0,0" Click="OnSignOut" />
-                    <Button Content="Quit" Style="{StaticResource LinkButton}" Margin="12,0,0,0" Click="OnQuit" />
-                    <TextBlock x:Name="BuildLabel" Style="{StaticResource CaptionText}"
-                               VerticalAlignment="Center" Margin="10,0,0,0" />
-                </StackPanel>
+                    <Button Grid.Column="1" Content="Sign out" Style="{StaticResource LinkButton}"
+                            Margin="12,0,0,0" Click="OnSignOut" />
+                    <Button Grid.Column="2" Content="Quit" Style="{StaticResource LinkButton}"
+                            Margin="12,0,0,0" Click="OnQuit" />
+
+                    <!-- Selectable so it can be pasted into a support message rather than
+                         transcribed by hand. Not a tab stop: it is reference information, not an
+                         action, and the natural tab order would otherwise land here right after
+                         Quit, a needless stop in the keyboard cycle. Still reachable and
+                         selectable by click. -->
+                    <TextBox Grid.Column="3"
+                             x:Name="BuildLabel"
+                             Style="{StaticResource MicroFieldText}"
+                             IsReadOnly="True"
+                             IsTabStop="False"
+                             BorderThickness="0"
+                             Background="Transparent"
+                             HorizontalAlignment="Right"
+                             VerticalAlignment="Center" />
+                </Grid>
             </Border>
 
         </StackPanel>

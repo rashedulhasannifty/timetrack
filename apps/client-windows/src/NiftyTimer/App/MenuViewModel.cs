@@ -33,6 +33,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     private string? _notice;
     private string _note = string.Empty;
     private DateTimeOffset? _displayStart;
+    private string _query = string.Empty;
 
     public MenuViewModel(
         TimeTracker tracker,
@@ -69,13 +70,13 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public IReadOnlyList<Project> Projects
     {
         get => _projects;
-        set => Set(ref _projects, value);
+        set => Set(ref _projects, value, [nameof(Choices), nameof(FilteredChoices), nameof(SelectedChoice)]);
     }
 
     public StoredSelection? Selection
     {
         get => _selection;
-        private set => Set(ref _selection, value, [nameof(SelectionLabel)]);
+        private set => Set(ref _selection, value, [nameof(SelectionLabel), nameof(SelectedChoice)]);
     }
 
     public SelfTotals? Totals
@@ -200,6 +201,70 @@ public sealed class MenuViewModel : INotifyPropertyChanged
 
             return task is null ? project.Name : $"{project.Name} · {task.Name}";
         }
+    }
+
+    /// <summary>
+    /// What the search box holds. macOS gets this from SwiftUI's <c>query</c>; the Windows popup
+    /// used to get text search for free from the stock ComboBox, which PR 2 replaces.
+    /// </summary>
+    public string Query
+    {
+        get => _query;
+        set => Set(ref _query, value, [nameof(FilteredChoices)]);
+    }
+
+    /// <summary>Every project, each followed by its own tasks. Flat, because the list renders flat.</summary>
+    public IReadOnlyList<PickerItem> Choices => BuildChoices(_projects);
+
+    /// <summary>What the list actually shows, narrowed by <see cref="Query"/>.</summary>
+    public IReadOnlyList<PickerItem> FilteredChoices => Filter(Choices, _query);
+
+    /// <summary>
+    /// The row that carries the checkmark. Resolved against the FULL list rather than the filtered
+    /// one: a selection the current query happens to hide is still the selection.
+    /// </summary>
+    public PickerItem? SelectedChoice =>
+        _selection is null
+            ? null
+            : Choices.FirstOrDefault(c => c.ProjectId == _selection.ProjectId && c.TaskId == _selection.TaskId);
+
+    /// <summary>
+    /// Flatten projects into rows. A project always contributes its own row — selecting a project
+    /// without a task is a valid selection, and a project with no tasks would otherwise vanish.
+    /// </summary>
+    internal static IReadOnlyList<PickerItem> BuildChoices(IReadOnlyList<Project> projects)
+    {
+        var items = new List<PickerItem>();
+        foreach (var project in projects)
+        {
+            items.Add(new PickerItem(project.Name, null, project.Id, null));
+            foreach (var task in project.Tasks ?? [])
+            {
+                items.Add(new PickerItem(project.Name, task.Name, project.Id, task.Id));
+            }
+        }
+
+        return items;
+    }
+
+    /// <summary>
+    /// Narrow by substring on either name. OrdinalIgnoreCase rather than the current culture: the
+    /// result must not depend on the machine's locale, or the same query returns different rows on
+    /// two employees' laptops.
+    /// </summary>
+    internal static IReadOnlyList<PickerItem> Filter(IReadOnlyList<PickerItem> choices, string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return choices;
+        }
+
+        var trimmed = query.Trim();
+        return choices
+            .Where(c =>
+                c.ProjectName.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ||
+                (c.TaskName?.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ?? false))
+            .ToList();
     }
 
     public void Start()
@@ -361,6 +426,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         LiveSyncBlocked = false;
         Notice = null;
         Note = string.Empty;
+        Query = string.Empty;
         _displayStart = null;
         RaiseTrackingState();
     }
