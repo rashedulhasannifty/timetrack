@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "@timetrack/contracts": "workspace:*",
-    "next": "^16.3.2",
+    "next": "^16.3.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "^3.10.1",
-    "zod": "^4.4.3"
+    "zod": "^4.5.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
