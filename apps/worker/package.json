@@ -21,9 +21,9 @@
     "@timetrack/logger": "workspace:*",
     "bullmq": "^6.2.0",
     "nestjs-pino": "^4.4.0",
-    "nodemailer": "^9.0.5",
+    "nodemailer": "^9.1.1",
     "reflect-metadata": "^0.2.2",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.4"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.10",
