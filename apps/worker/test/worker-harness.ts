@@ -18,7 +18,8 @@ export async function startWorkerEnv(): Promise<WorkerTestEnv> {
     stdio: 'inherit',
   });
 
-  const minio = await new MinioContainer('minio/minio:latest').start();
+  // Docker Hub's minio/minio is gone; MinIO's official image lives on quay.io.
+  const minio = await new MinioContainer('quay.io/minio/minio:latest').start();
   process.env.S3_ENDPOINT = minio.getConnectionUrl();
   process.env.S3_REGION = 'us-east-1';
   process.env.S3_ACCESS_KEY = minio.getUsername();

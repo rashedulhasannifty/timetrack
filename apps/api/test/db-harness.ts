@@ -68,7 +68,10 @@ export async function startTestDb(opts: StartTestDbOptions = {}): Promise<TestDb
   const redisUrl = redis?.getConnectionUrl();
   if (redisUrl) process.env.REDIS_URL = redisUrl;
 
-  const minio = opts.minio ? await new MinioContainer('minio/minio:latest').start() : undefined;
+  // Docker Hub's minio/minio is gone; MinIO's official image lives on quay.io.
+  const minio = opts.minio
+    ? await new MinioContainer('quay.io/minio/minio:latest').start()
+    : undefined;
   let s3Url: string | undefined;
   if (minio) {
     s3Url = minio.getConnectionUrl();
