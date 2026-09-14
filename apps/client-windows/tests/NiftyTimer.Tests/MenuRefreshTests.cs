@@ -186,6 +186,13 @@ public class MenuRefreshWiringTests
     public void TheTrayHandlerRunsTheMenuOpenRefresh() =>
         Assert.True(References("OnTrayActivated", nameof(AppDelegate), "MenuDidOpen"));
 
+    [Fact]
+    public void StoppingTheClockRefetchesTotals()
+    {
+        Assert.True(References("WireEvents", nameof(AppDelegate), "OnTrackingStopped"));
+        Assert.True(References("OnTrackingStopped", nameof(AppDelegate), "RefreshTotalsAsync"));
+    }
+
     /// <summary>The next person's first menu open must not be throttled by the previous one's.</summary>
     [Fact]
     public void SignOutResetsTheThrottles() =>

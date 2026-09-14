@@ -338,6 +338,7 @@ public sealed class AppDelegate : IDisposable
 
         _viewModel.PropertyChanged += (_, _) => UpdateTray();
         _viewModel.TrackingStarted += UpdateTray;
+        _viewModel.TrackingStopped += OnTrackingStopped;
     }
 
     /// <summary>Left click and right click both open the one menu, so both get the same refresh.</summary>
@@ -369,6 +370,19 @@ public sealed class AppDelegate : IDisposable
         // Throttled to once every thirty minutes inside the coordinator, so opening the menu
         // repeatedly cannot spend the unauthenticated GitHub rate limit.
         _ = _updates.CheckOnMenuOpenAsync(_shutdown.Token);
+    }
+
+    /// <summary>
+    /// The clock stopped, so the live increment on the totals ended with it. The server still
+    /// counts that entry, so re-reading now returns the full figure instead of letting the menu
+    /// show time going backwards.
+    /// </summary>
+    private void OnTrackingStopped()
+    {
+        if (_viewModel.IsReady)
+        {
+            _ = RefreshTotalsAsync();
+        }
     }
 
     private void StartTimers()
