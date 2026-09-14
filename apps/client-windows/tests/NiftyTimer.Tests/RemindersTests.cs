@@ -176,4 +176,8 @@ public class ReminderWiringTests
             nameof(RecentSelectionClient),
             nameof(RecentSelectionClient.MostRecentSelectionAsync)));
     }
+
+    [Fact]
+    public void TheTrayTooltipUsesTheWarningLadder() =>
+        Assert.True(References("UpdateTray", nameof(TrayTooltip), nameof(TrayTooltip.For)));
 }

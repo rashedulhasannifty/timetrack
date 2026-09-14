@@ -943,14 +943,11 @@ public sealed class AppDelegate : IDisposable
     {
         _tray.State = _viewModel.IsTracking ? TrayState.Tracking : TrayState.Idle;
 
-        var status = _viewModel.IsTracking
-            ? $"Nifty Timer — tracking {_viewModel.ElapsedLabel}"
-            : "Nifty Timer — not tracking";
-
-        // The update marker rides the tooltip rather than changing the icon. The icon carries one
-        // meaning — whether the clock is running — and overloading it with a second would make the
-        // always-visible indicator ambiguous about the thing it exists to show.
-        _tray.Tooltip = _viewModel.UpdateOverdue ? status + " (update available)" : status;
+        _tray.Tooltip = TrayTooltip.For(
+            _viewModel.IsTracking,
+            _viewModel.ElapsedLabel,
+            _viewModel.LiveSyncBlocked,
+            _viewModel.UpdateOverdue);
     }
 
     /// <summary>
