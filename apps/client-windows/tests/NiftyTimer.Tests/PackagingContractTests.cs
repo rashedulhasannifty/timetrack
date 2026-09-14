@@ -78,6 +78,9 @@ public class PackagingContractTests
                  {
                      "tray-idle-light.ico", "tray-idle-dark.ico",
                      "tray-tracking-light.ico", "tray-tracking-dark.ico",
+                     "tray-capturing-light.ico", "tray-capturing-dark.ico",
+                     "tray-idle-warning-light.ico", "tray-idle-warning-dark.ico",
+                     "tray-tracking-warning-light.ico", "tray-tracking-warning-dark.ico",
                  })
         {
             Assert.Contains(icon, script, StringComparison.Ordinal);
