@@ -93,7 +93,7 @@ export async function recolorProjectAction(
   const id = typeof rawId === 'string' ? rawId : '';
   const parsed = UpdateProjectSchema.safeParse({ color: formData.get('color') });
   if (!id || !parsed.success || parsed.data.color === undefined) {
-    return { ok: false, message: 'Pick a palette color.' };
+    return { ok: false, message: 'Pick a color.' };
   }
 
   try {

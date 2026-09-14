@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-// Single source of the project palette (dashboard imports this). `as const` → z.enum infers the union.
+// The preset swatches (dashboard imports this) and the fallback color for a project with none.
+// Presets, not a whitelist: any #rrggbb is a valid project color (see ProjectColorSchema).
 export const PROJECT_PALETTE = [
   '#007aff',
   '#5e5ce6',
@@ -12,8 +13,14 @@ export const PROJECT_PALETTE = [
   '#ffcc00',
 ] as const;
 
-// WRITE constraint (create/recolor). Reads stay permissive strings (DB column is TEXT).
-export const ProjectColorSchema = z.enum(PROJECT_PALETTE);
+// WRITE constraint (create/recolor): any 6-digit hex, stored lowercase so one color never
+// round-trips as two spellings. It used to be the palette enum; the dashboard now offers a custom
+// picker. Only the dashboard renders project colors — the native clients never read them — so
+// widening this breaks no shipped client. Reads stay permissive strings (DB column is TEXT).
+export const ProjectColorSchema = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/, 'Expected a #rrggbb color')
+  .toLowerCase();
 export type ProjectColor = z.infer<typeof ProjectColorSchema>;
 
 export const TaskSchema = z.object({
