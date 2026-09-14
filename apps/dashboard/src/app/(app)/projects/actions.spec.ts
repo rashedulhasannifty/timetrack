@@ -77,6 +77,21 @@ describe('createProjectAction', () => {
   });
 });
 
+describe('createProjectAction — custom color', () => {
+  it('accepts an off-palette color and sends it lowercased', async () => {
+    const res = await createProjectAction(
+      INITIAL,
+      form({ teamId: BPO, name: 'Payroll', color: '#1A2B3C' }),
+    );
+    expect(res).toEqual({ ok: true });
+    expect(createProject).toHaveBeenCalledWith('tok', {
+      teamId: BPO,
+      name: 'Payroll',
+      color: '#1a2b3c',
+    });
+  });
+});
+
 describe('moveProjectAction', () => {
   const PROJECT = '018f9c1e-0000-7000-8000-0000000000aa';
 
