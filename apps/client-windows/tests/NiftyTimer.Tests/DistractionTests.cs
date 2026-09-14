@@ -236,3 +236,52 @@ public class DistractionNotifierPacingTests
         Assert.Equal(2, shown.Count);
     }
 }
+
+public class ActivitySamplerCategoryTests
+{
+    private static ActivitySampler Build(Func<bool> isTracking, List<Category> seen)
+    {
+        var livePolicy = new LivePolicy();
+        var gate = new AckGate(
+            new FakePolicyProvider(FakePolicyProvider.Policy(ackRequired: false, new PolicySettings())),
+            policy => livePolicy.Update(policy.Settings));
+
+        return new ActivitySampler(
+            gate,
+            new FakeInputCounter(),
+            new FakeAppSampler(),
+            livePolicy,
+            new ActivityBufferSpy(),
+            isTracking,
+            TimeSpan.FromSeconds(60),
+            subBuckets: 12,
+            sleep: (_, _) => Task.CompletedTask,
+            onCategorized: seen.Add);
+    }
+
+    /// <summary>
+    /// The distraction nudge is fed from here. Only the category crosses — the callback's type
+    /// cannot carry an app name or a title.
+    /// </summary>
+    [Fact]
+    public async Task EachMeasuredSampleReportsItsCategory()
+    {
+        var seen = new List<Category>();
+        var sampler = Build(() => true, seen);
+
+        Assert.True(await sampler.CaptureTickAsync());
+
+        Assert.Equal(Category.Neutral, Assert.Single(seen)); // no rules configured → neutral
+    }
+
+    [Fact]
+    public async Task ASkippedTickReportsNothing()
+    {
+        var seen = new List<Category>();
+        var sampler = Build(() => false, seen);
+
+        Assert.False(await sampler.CaptureTickAsync());
+
+        Assert.Empty(seen);
+    }
+}
