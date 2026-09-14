@@ -1,22 +1,24 @@
 # Nifty Timer for Windows — build plan and progress
 
-Working status for the Windows client. All four slices are code-complete; what is left is the
-end-to-end checks that need a real machine, listed at the bottom.
+Working status for the Windows client. S1–S4 are code-complete. S5, parity with the macOS client,
+is in progress. Beyond S5, what is left is the end-to-end checks that need a real machine, listed at
+the bottom.
 
 - **Design doc (the "why"):** [`docs/superpowers/specs/2026-08-25-windows-client-design.md`](../../docs/superpowers/specs/2026-08-25-windows-client-design.md)
 - **Client guide (the "how", day to day):** [`README.md`](./README.md)
 - **This file (the "where we are"):** what is done, what is left, and what must not be broken.
 
-| Slice  | Contents                                                           | State       |
-| ------ | ------------------------------------------------------------------ | ----------- |
-| **S1** | Auth · AckGate · tray indicator · manual timer · buffer + sync     | ✅ **done** |
-| **S2** | Idle detection · away keep/discard · crash recovery                | ✅ **done** |
-| **S3** | Screenshots · activity sampling · categorizer                      | ✅ **done** |
-| **S4** | Notifications · hotkey · updater · packaging · signing · dashboard | ✅ **done** |
+| Slice  | Contents                                                           | State              |
+| ------ | ------------------------------------------------------------------ | ------------------ |
+| **S1** | Auth · AckGate · tray indicator · manual timer · buffer + sync     | ✅ **done**        |
+| **S2** | Idle detection · away keep/discard · crash recovery                | ✅ **done**        |
+| **S3** | Screenshots · activity sampling · categorizer                      | ✅ **done**        |
+| **S4** | Notifications · hotkey · updater · packaging · signing · dashboard | ✅ **done**        |
+| **S5** | Parity with the macOS client (see S5 below)                        | 🚧 **in progress** |
 
-Merged to `main` (PR #167, `c4642f2`); released as 0.6.0.
-Current: **394 tests pass offline** (14 integration skipped — 13 need a live API, 1 needs a real
-display). Release build clean, `TreatWarningsAsErrors` on. The root
+S1–S4 merged to `main` (PR #167, `c4642f2`); released as 0.6.0. S5 is in review as PRs #204–#207.
+Current, on the S5 branch: **525 tests pass in CI** (14 integration tests skipped: 13 need a live
+API, 1 needs a real display). Release build clean, `TreatWarningsAsErrors` on. The root
 `pnpm lint && typecheck && test && build` is green too.
 
 ---
@@ -312,20 +314,20 @@ The goal is one-to-one behaviour with the Mac client. On 2026-09-14 every Swift 
 compared with its Windows counterpart. This table is the resulting gap list, in the order the gaps
 are being closed, one PR per group.
 
-| #               | Gap                                                                                                                                                        | State                                                                                              |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| 1               | Retry the launch policy fetch: 30s doubling to 300s, one warning after 3 failures, and retry on wake                                                       | ✅ PR 1. Since PR 4 the warning is the not-tracking window                                         |
-| 3               | Auto-mode idle nudge ("Idle for N min — still working?")                                                                                                   | ✅ PR 1                                                                                            |
-| 10              | The hotkey resumes a paused session instead of stopping it                                                                                                 | ✅ PR 1                                                                                            |
-| 11              | Sign-out keeps the saved project for that user                                                                                                             | ✅ PR 1                                                                                            |
-| 2               | Distraction nudge (`DistractionMonitor` plus a fallback card)                                                                                              | ✅ PR 2 for the monitor, sampler feed and notifier pacing. The fallback card moves to PR 5 (UI)    |
-| 18              | Distraction line in the end-of-day summary                                                                                                                 | ⬜ Deferred. Needs a local-day tally, which is why `DailyTotalAccumulator` was deleted             |
-| 8, 9            | Totals that tick live; projects, totals and pending count refresh when the menu opens                                                                      | ✅ PR 3. Totals also re-fetch when the clock stops, and a result landing after sign-out is dropped |
-| 4               | Auto-mode forgot-to-start reminder window with a "Start tracking" button                                                                                   | ✅ PR 4. The same window now carries the launch-retry warning                                      |
-| 12              | Tray warning tooltip, ranked by precedence                                                                                                                 | ✅ PR 4. Windows has two of the Mac's four states: a blocked live entry and an overdue update      |
-| 16              | Fresh-install project fallback from the last two weeks of entries                                                                                          | ✅ PR 4                                                                                            |
-| 5, 7, 13–15, 17 | Capture flash, signed-out popup, update row, substring project search, acknowledgement checkbox and cards, show-password toggle, distraction fallback card | ⬜ PR 5 (UI)                                                                                       |
-| 6               | Browser-site categorization                                                                                                                                | ❌ Not planned. See "Known gaps"                                                                   |
+| #               | Gap                                                                                                                                                                                                      | State                                                                                                                                                                                     |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1               | Retry the launch policy fetch: 30s doubling to 300s, one warning after 3 failures, and retry on wake                                                                                                     | ✅ PR 1. Since PR 4 the warning is the not-tracking window                                                                                                                                |
+| 3               | Auto-mode idle nudge ("Idle for N min — still working?")                                                                                                                                                 | ✅ PR 1                                                                                                                                                                                   |
+| 10              | The hotkey resumes a paused session instead of stopping it                                                                                                                                               | ✅ PR 1                                                                                                                                                                                   |
+| 11              | Sign-out keeps the saved project for that user                                                                                                                                                           | ✅ PR 1                                                                                                                                                                                   |
+| 2               | Distraction nudge (`DistractionMonitor` plus a fallback card)                                                                                                                                            | ✅ PR 2 for the monitor, sampler feed and notifier pacing. The fallback card moves to PR 5 (UI)                                                                                           |
+| 18              | Distraction line in the end-of-day summary                                                                                                                                                               | ⬜ Deferred. Needs a local-day tally, which is why `DailyTotalAccumulator` was deleted                                                                                                    |
+| 8, 9            | Totals that tick live; projects, totals and pending count refresh when the menu opens                                                                                                                    | ✅ PR 3. Totals also re-fetch when the clock stops, and a result landing after sign-out is dropped                                                                                        |
+| 4               | Auto-mode forgot-to-start reminder window with a "Start tracking" button                                                                                                                                 | ✅ PR 4. The same window now carries the launch-retry warning                                                                                                                             |
+| 12              | Tray warning tooltip, ranked by precedence                                                                                                                                                               | ✅ PR 4 for the tooltip ladder. Windows has two of the Mac's four states: a blocked live entry and an overdue update. The always-visible ⚠ (macOS shows it in the menu bar) moves to PR 5 |
+| 16              | Fresh-install project fallback from the last two weeks of entries                                                                                                                                        | ✅ PR 4                                                                                                                                                                                   |
+| 5, 7, 13–15, 17 | Capture flash, signed-out popup, update row, substring project search, acknowledgement checkbox and cards, show-password toggle, distraction fallback card, and a tray ⚠ marker visible without hovering | ⬜ PR 5 (UI)                                                                                                                                                                              |
+| 6               | Browser-site categorization                                                                                                                                                                              | ❌ Not planned. See "Known gaps"                                                                                                                                                          |
 
 **Decisions taken in PR 1, with reasons. Do not reverse them without a replacement:**
 
@@ -466,22 +468,26 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 Against a local stack with a dev-packaged client. Status as of S4:
 
-| #   | Check                                                                              | Status                      |
-| --- | ---------------------------------------------------------------------------------- | --------------------------- |
-| 1   | Gate closed — un-acknowledged user produces no capture at all                      | ⬜ **needs a manual pass**  |
-| 2   | Gate opens — ack succeeds, `AuditLog` row written, capture begins next tick        | ⬜ **needs a manual pass**  |
-| 3   | Offline asymmetry — manual works, capture structurally absent, buffer drains       | ✅ verified live            |
-| 4   | Round-trip — live entry ticks, samples and screenshots arrive grouped              | ⬜ **needs a manual pass**  |
-| 5   | Idle — lock past threshold, away marked immediately, prompt defaults to discard    | ⬜ **needs a manual pass**  |
-| 6   | Crash recovery — kill mid-span, relaunch, Keep closes at `lastAlive`               | ⬜ **needs a manual pass**  |
-| 7   | 409 path — start on Mac then Windows, clear message, buffer not wedged             | ✅ verified live            |
-| 8   | Sign-out — buffers flush then clear; second user uploads nothing of the first's    | unit-tested, not in-app     |
-| 9   | Counts-not-content — type a known string, grep every request body and local file   | ⬜ **needs a manual pass**  |
-| 10  | Mac not regressed — update feed and download URL still resolve after a Win release | ⬜ **blocked: no repo yet** |
-| 11  | Nudges — idle, forgot-to-start and the 18:00 summary appear as real notifications  | ⬜ **needs a manual pass**  |
-| 12  | Hotkey — Ctrl+Alt+T starts and stops from another app, and loses gracefully        | ⬜ **needs a manual pass**  |
-| 13  | Update — a staged build verifies, swaps, relaunches, and rolls back on failure     | ⬜ **needs a manual pass**  |
-| 14  | Login item — auto-start on writes the Run value, off removes it, disable survives  | ⬜ **needs a manual pass**  |
+| #   | Check                                                                                                                            | Status                          |
+| --- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| 1   | Gate closed — un-acknowledged user produces no capture at all                                                                    | ⬜ **needs a manual pass**      |
+| 2   | Gate opens — ack succeeds, `AuditLog` row written, capture begins next tick                                                      | ⬜ **needs a manual pass**      |
+| 3   | Offline asymmetry — manual works, capture structurally absent, buffer drains                                                     | ✅ verified live                |
+| 4   | Round-trip — live entry ticks, samples and screenshots arrive grouped                                                            | ⬜ **needs a manual pass**      |
+| 5   | Idle — lock past threshold, away marked immediately, prompt defaults to discard                                                  | ⬜ **needs a manual pass**      |
+| 6   | Crash recovery — kill mid-span, relaunch, Keep closes at `lastAlive`                                                             | ⬜ **needs a manual pass**      |
+| 7   | 409 path — start on Mac then Windows, clear message, buffer not wedged                                                           | ✅ verified live                |
+| 8   | Sign-out — buffers flush then clear; second user uploads nothing of the first's                                                  | unit-tested, not in-app         |
+| 9   | Counts-not-content — type a known string, grep every request body and local file                                                 | ⬜ **needs a manual pass**      |
+| 10  | Mac not regressed — update feed and download URL still resolve after a Win release                                               | ⬜ **blocked: no repo yet**     |
+| 11  | Nudges — idle, forgot-to-start and the 18:00 summary appear as real notifications                                                | ⬜ **needs a manual pass**      |
+| 12  | Hotkey — Ctrl+Alt+T starts and stops from another app, and loses gracefully                                                      | ⬜ **needs a manual pass**      |
+| 13  | Update — a staged build verifies, swaps, relaunches, and rolls back on failure                                                   | ⬜ **needs a manual pass**      |
+| 14  | Login item — auto-start on writes the Run value, off removes it, disable survives                                                | ⬜ **needs a manual pass**      |
+| 15  | Not-tracking reminder — appears after repeated launch failures, and in auto mode with a stopped clock; Start tracking starts one | ⬜ **needs a manual pass** (S5) |
+| 16  | Distraction nudge — a real unproductive streak with team alerts on nudges at the threshold and repeats on cadence                | ⬜ **needs a manual pass** (S5) |
+| 17  | Live totals — Today / This week / This month tick in the popup while tracking, and re-fetch on stop                              | ⬜ **needs a manual pass** (S5) |
+| 18  | Launch retry — offline at login, then network back: capture installs without a relaunch; wake retries at once                    | ⬜ **needs a manual pass** (S5) |
 
 **These are the honest gaps, and they are the real remaining risk.** Every state machine, store,
 uploader, scheduler, parser and guard is unit-tested — 394 tests — the two structural guards are
