@@ -121,6 +121,12 @@ public sealed class AppDelegate : IDisposable
     // every attempt would reload the project picker under the person each time.
     private bool _hasBecomeReady;
 
+    // Menu-open refreshes, rate-limited so clicking the tray icon repeatedly cannot hammer the API.
+    // Totals are shorter: they are what the person opened the menu to look at, and they move
+    // minute by minute while the clock runs.
+    private readonly RefreshThrottle _projectRefreshThrottle = new(TimeSpan.FromSeconds(60));
+    private readonly RefreshThrottle _totalsRefreshThrottle = new(TimeSpan.FromSeconds(20));
+
     private DispatcherTimer? _heartbeat;
     private DispatcherTimer? _refresh;
     private bool _disposed;
@@ -279,15 +285,8 @@ public sealed class AppDelegate : IDisposable
 
     private void WireEvents()
     {
-        _tray.Activated += () =>
-        {
-            _popup.ShowNearTray();
-
-            // Throttled to once every thirty minutes inside the coordinator, so opening the menu
-            // repeatedly cannot spend the unauthenticated GitHub rate limit.
-            _ = _updates.CheckOnMenuOpenAsync(_shutdown.Token);
-        };
-        _tray.ContextMenuRequested += () => _popup.ShowNearTray();
+        _tray.Activated += OnTrayActivated;
+        _tray.ContextMenuRequested += OnTrayActivated;
 
         // An out-of-date build keeps tracking. The strongest thing this may do is put a marker on
         // the tray and a line in the menu — never stop the clock, never block a start.
@@ -339,6 +338,51 @@ public sealed class AppDelegate : IDisposable
 
         _viewModel.PropertyChanged += (_, _) => UpdateTray();
         _viewModel.TrackingStarted += UpdateTray;
+        _viewModel.TrackingStopped += OnTrackingStopped;
+    }
+
+    /// <summary>Left click and right click both open the one menu, so both get the same refresh.</summary>
+    private void OnTrayActivated()
+    {
+        _popup.ShowNearTray();
+        MenuDidOpen();
+    }
+
+    /// <summary>
+    /// Everything worth re-checking because a person is looking at the menu right now: a project
+    /// added in the dashboard appears without a relaunch, the totals are current, and the pending
+    /// count is true. The background timers are the floor, not the whole story.
+    /// </summary>
+    private void MenuDidOpen()
+    {
+        RefreshPendingCount();
+
+        if (_viewModel.IsReady && _projectRefreshThrottle.ShouldRefresh())
+        {
+            _ = RefreshProjectsAsync();
+        }
+
+        if (_viewModel.IsReady && _totalsRefreshThrottle.ShouldRefresh())
+        {
+            _ = RefreshTotalsAsync();
+        }
+
+        // Throttled to once every thirty minutes inside the coordinator, so opening the menu
+        // repeatedly cannot spend the unauthenticated GitHub rate limit.
+        _ = _updates.CheckOnMenuOpenAsync(_shutdown.Token);
+    }
+
+    /// <summary>
+    /// The clock stopped, so the live increment on the totals ended with it. The server still
+    /// counts that entry, so re-reading now returns the full figure instead of letting the menu
+    /// show time going backwards.
+    /// </summary>
+    private void OnTrackingStopped()
+    {
+        if (_viewModel.IsReady)
+        {
+            _ = RefreshTotalsAsync();
+        }
     }
 
     private void StartTimers()
@@ -804,9 +848,19 @@ public sealed class AppDelegate : IDisposable
 
     private async Task RefreshTotalsAsync()
     {
+        var requestedFor = _session.UserId;
         try
         {
-            _viewModel.Totals = await _totalsClient.FetchAsync(_shutdown.Token).ConfigureAwait(true);
+            var totals = await _totalsClient.FetchAsync(_shutdown.Token).ConfigureAwait(true);
+
+            // Sign-out can land while the fetch is in flight. Dropping the result then keeps one
+            // person's tracked time out of the next person's dropdown.
+            if (_session.UserId is not { } userId || userId != requestedFor)
+            {
+                return;
+            }
+
+            _viewModel.Totals = totals;
         }
         catch (Exception e) when (e is ResourceUnavailableException or NotAuthenticatedException
                                       or AuthException or OperationCanceledException)
@@ -919,6 +973,8 @@ public sealed class AppDelegate : IDisposable
         // machine would silently lose a nudge because the previous one saw it.
         _notifier.Reset();
         _endOfDay.Reset();
+        _projectRefreshThrottle.Reset();
+        _totalsRefreshThrottle.Reset();
 
         _viewModel.Reset();
         UpdateTray();

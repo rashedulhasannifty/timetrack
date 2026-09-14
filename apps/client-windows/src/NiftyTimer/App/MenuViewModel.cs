@@ -33,6 +33,8 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     private string? _notice;
     private string _note = string.Empty;
     private DateTimeOffset? _displayStart;
+    private DateTimeOffset? _totalsFetchedAt;
+    private bool _wasTracking;
 
     public MenuViewModel(
         TimeTracker tracker,
@@ -48,6 +50,13 @@ public sealed class MenuViewModel : INotifyPropertyChanged
 
     /// <summary>Raised when the user asks to start tracking and the view model allowed it.</summary>
     public event Action? TrackingStarted;
+
+    /// <summary>
+    /// The clock went from running to not running — stopped, paused, rolled back, or auto-stopped.
+    /// The live increment on the totals ends at that moment, so the figures would drop back to the
+    /// last fetch; this is the cue to fetch fresh ones rather than show time going backwards.
+    /// </summary>
+    public event Action? TrackingStopped;
 
     /// <summary>
     /// True once the session is usable for manual tracking: signed in, and the monitoring policy
@@ -78,10 +87,23 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         private set => Set(ref _selection, value, [nameof(SelectionLabel)]);
     }
 
+    /// <summary>
+    /// The server's figures, as of the moment they were assigned. That moment is what makes them
+    /// live rather than a snapshot — see <see cref="LiveTotal"/>.
+    /// </summary>
     public SelfTotals? Totals
     {
         get => _totals;
-        set => Set(ref _totals, value, [nameof(TodayLabel), nameof(WeekLabel), nameof(MonthLabel)]);
+        set
+        {
+            // Stamped on every arrival, even an identical one: the base was true at THIS instant,
+            // and the live increment counts from here.
+            _totalsFetchedAt = value is null ? null : _clock();
+            if (!Set(ref _totals, value, [nameof(TodayLabel), nameof(WeekLabel), nameof(MonthLabel)]))
+            {
+                Raise(nameof(TodayLabel), nameof(WeekLabel), nameof(MonthLabel));
+            }
+        }
     }
 
     /// <summary>How many records are still waiting to reach the server.</summary>
@@ -173,11 +195,45 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     /// </summary>
     public TimeTracker.Selection SelectionForAuto => new(_selection?.ProjectId, _selection?.TaskId);
 
-    public string TodayLabel => _totals is null ? "—" : WorkTotalFormat.Short(_totals.TodaySeconds);
+    public string TodayLabel => _totals is null ? "—" : WorkTotalFormat.Short(Live(_totals.TodaySeconds));
 
-    public string WeekLabel => _totals is null ? "—" : WorkTotalFormat.Short(_totals.WeekSeconds);
+    public string WeekLabel => _totals is null ? "—" : WorkTotalFormat.Short(Live(_totals.WeekSeconds));
 
-    public string MonthLabel => _totals is null ? "—" : WorkTotalFormat.Short(_totals.MonthSeconds);
+    public string MonthLabel => _totals is null ? "—" : WorkTotalFormat.Short(Live(_totals.MonthSeconds));
+
+    /// <summary>
+    /// A total as it stands right now: the server's figure plus the tracked time accrued since it
+    /// was fetched. The same increment applies to all three — a minute worked now is a minute of
+    /// today, of this week and of this month.
+    ///
+    /// Anchored on <c>max(fetchedAt, runningSince)</c>, which is the whole trick:
+    /// <list type="bullet">
+    ///   <item>the fetched figure ALREADY counts the running session up to the fetch, so counting
+    ///   from the session start would count most of it twice;</item>
+    ///   <item>a session that began AFTER the fetch has only run since its start, so counting from
+    ///   the fetch would add time that was never tracked.</item>
+    /// </list>
+    /// Only while the clock actually runs — paused or stopped accrues nothing.
+    /// </summary>
+    public static int LiveTotal(int baseSeconds, DateTimeOffset? runningSince, DateTimeOffset? fetchedAt, DateTimeOffset now)
+    {
+        if (runningSince is not { } start || fetchedAt is not { } fetched)
+        {
+            return baseSeconds;
+        }
+
+        var since = fetched > start ? fetched : start;
+        return baseSeconds + Math.Max(0, (int)(now - since).TotalSeconds);
+    }
+
+    // The entry's REAL start, not the display anchor: the server counts the entry itself, so the
+    // anchor a discarded idle window leaves behind would double-count the discarded minutes.
+    private int Live(int baseSeconds) =>
+        LiveTotal(
+            baseSeconds,
+            _tracker.State is TrackerState.Tracking t ? t.StartedAt : null,
+            _totalsFetchedAt,
+            _clock());
 
     public string SelectionLabel
     {
@@ -373,18 +429,34 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Called once a second while the popup is open, to advance the live elapsed clock.</summary>
-    public void Tick() => Raise(nameof(ElapsedLabel), nameof(Elapsed));
+    public void Tick() =>
+        Raise(nameof(ElapsedLabel), nameof(Elapsed), nameof(TodayLabel), nameof(WeekLabel), nameof(MonthLabel));
 
     private string? NoteOrNull() => string.IsNullOrWhiteSpace(_note) ? null : _note;
 
-    private void RaiseTrackingState() =>
+    private void RaiseTrackingState()
+    {
         Raise(
             nameof(IsTracking),
             nameof(IsPaused),
             nameof(CanStart),
             nameof(CanStop),
             nameof(ElapsedLabel),
-            nameof(Elapsed));
+            nameof(Elapsed),
+            nameof(TodayLabel),
+            nameof(WeekLabel),
+            nameof(MonthLabel));
+
+        // Every path that changes the tracker's state ends here, the auto layer included (through
+        // RefreshFromTracker), so this is the one place a stop can be observed.
+        var tracking = IsTracking;
+        if (_wasTracking && !tracking)
+        {
+            TrackingStopped?.Invoke();
+        }
+
+        _wasTracking = tracking;
+    }
 
     private bool Set<T>(
         ref T field,
