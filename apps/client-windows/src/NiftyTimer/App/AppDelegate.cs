@@ -89,6 +89,7 @@ public sealed class AppDelegate : IDisposable
     private readonly TimePrompt _awayPrompt = new();
     private readonly TimePrompt _recoveryPrompt = new();
     private readonly NotTrackingReminder _notTrackingReminder = new();
+    private readonly DistractionNudge _distractionNudge = new();
 
     private SessionObserver? _sessionObserver;
     private AutoTrackingCoordinator? _autoCoordinator;
@@ -578,9 +579,12 @@ public sealed class AppDelegate : IDisposable
         _ = counter.StartAsync(_shutdown.Token);
 
         // Reads the team policy on every tick, so an admin's change reaches a running client on
-        // its next sample rather than its next launch.
+        // its next sample rather than its next launch. The distraction nudge alone falls back to
+        // an in-app card when Windows notifications are switched off, as on the Mac, so it is
+        // never silently dropped. Ticks arrive on the UI thread (OnActivityCategorized hops), so
+        // the card is presented there.
         _distractionMonitor = new DistractionMonitor(
-            _notifier,
+            new FallbackDistractionNotifier(_notifier, SystemNotifications.AreEnabled, _distractionNudge.Present),
             () => DistractionSettings.From(_livePolicy.Current));
 
         _activitySampler = new ActivitySampler(
@@ -1196,6 +1200,9 @@ public sealed class AppDelegate : IDisposable
         // person signing out; the next person starts from zero.
         _distractionMonitor?.Stop();
         _distractionMonitor = null;
+
+        // A card still on screen belongs to the person signing out.
+        _distractionNudge.DismissIfShowing();
 
         // Last, so nothing is still counting input while a cycle drains. Disposing this
         // unregisters Raw Input: leaving it registered would keep the process subscribed to every
