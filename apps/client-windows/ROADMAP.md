@@ -378,7 +378,8 @@ are being closed, one PR per group.
 - **The consent card says "app", not the Mac's "app & website".** This client does not categorize
   sites, and consent must not claim more than is captured.
 - **A copy that cannot replace itself offers the download page**, as the Mac does, rather than an
-  update button that can only fail.
+  update button that can only fail. That page is `releases/latest` of `UpdateRepo`, which does not
+  exist yet (see S4), so until it does the link 404s. Tests pin only the URL's shape.
 
 ---
 
@@ -489,31 +490,31 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 Against a local stack with a dev-packaged client. Status as of S4:
 
-| #   | Check                                                                                                                            | Status                          |
-| --- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| 1   | Gate closed — un-acknowledged user produces no capture at all                                                                    | ⬜ **needs a manual pass**      |
-| 2   | Gate opens — ack succeeds, `AuditLog` row written, capture begins next tick                                                      | ⬜ **needs a manual pass**      |
-| 3   | Offline asymmetry — manual works, capture structurally absent, buffer drains                                                     | ✅ verified live                |
-| 4   | Round-trip — live entry ticks, samples and screenshots arrive grouped                                                            | ⬜ **needs a manual pass**      |
-| 5   | Idle — lock past threshold, away marked immediately, prompt defaults to discard                                                  | ⬜ **needs a manual pass**      |
-| 6   | Crash recovery — kill mid-span, relaunch, Keep closes at `lastAlive`                                                             | ⬜ **needs a manual pass**      |
-| 7   | 409 path — start on Mac then Windows, clear message, buffer not wedged                                                           | ✅ verified live                |
-| 8   | Sign-out — buffers flush then clear; second user uploads nothing of the first's                                                  | unit-tested, not in-app         |
-| 9   | Counts-not-content — type a known string, grep every request body and local file                                                 | ⬜ **needs a manual pass**      |
-| 10  | Mac not regressed — update feed and download URL still resolve after a Win release                                               | ⬜ **blocked: no repo yet**     |
-| 11  | Nudges — idle, forgot-to-start and the 18:00 summary appear as real notifications                                                | ⬜ **needs a manual pass**      |
-| 12  | Hotkey — Ctrl+Alt+T starts and stops from another app, and loses gracefully                                                      | ⬜ **needs a manual pass**      |
-| 13  | Update — a staged build verifies, swaps, relaunches, and rolls back on failure                                                   | ⬜ **needs a manual pass**      |
-| 14  | Login item — auto-start on writes the Run value, off removes it, disable survives                                                | ⬜ **needs a manual pass**      |
-| 15  | Not-tracking reminder — appears after repeated launch failures, and in auto mode with a stopped clock; Start tracking starts one | ⬜ **needs a manual pass** (S5) |
-| 16  | Distraction nudge — a real unproductive streak with team alerts on nudges at the threshold and repeats on cadence                | ⬜ **needs a manual pass** (S5) |
-| 17  | Live totals — Today / This week / This month tick in the popup while tracking, and re-fetch on stop                              | ⬜ **needs a manual pass** (S5) |
-| 18  | Launch retry — offline at login, then network back: capture installs without a relaunch; wake retries at once                    | ⬜ **needs a manual pass** (S5) |
-| 19  | Signed-out popup — after sign-out the tray shows Not signed in and Sign in; a sign-in window closed with X reopens from it       | ⬜ **needs a manual pass** (S5) |
-| 20  | Project search — part of a task name finds it; picking a row switches the running entry                                          | ⬜ **needs a manual pass** (S5) |
-| 21  | Consent window — Start stays disabled until the box is ticked; the RECORDED card matches the team's settings                     | ⬜ **needs a manual pass** (S5) |
-| 22  | Distraction card — with Windows notifications off, an unproductive streak shows the card without taking focus                    | ⬜ **needs a manual pass** (S5) |
-| 23  | Show password — the eye reveals and hides the password without losing the text or the caret                                      | ⬜ **needs a manual pass** (S5) |
+| #   | Check                                                                                                                                                              | Status                          |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| 1   | Gate closed — un-acknowledged user produces no capture at all                                                                                                      | ⬜ **needs a manual pass**      |
+| 2   | Gate opens — ack succeeds, `AuditLog` row written, capture begins next tick                                                                                        | ⬜ **needs a manual pass**      |
+| 3   | Offline asymmetry — manual works, capture structurally absent, buffer drains                                                                                       | ✅ verified live                |
+| 4   | Round-trip — live entry ticks, samples and screenshots arrive grouped                                                                                              | ⬜ **needs a manual pass**      |
+| 5   | Idle — lock past threshold, away marked immediately, prompt defaults to discard                                                                                    | ⬜ **needs a manual pass**      |
+| 6   | Crash recovery — kill mid-span, relaunch, Keep closes at `lastAlive`                                                                                               | ⬜ **needs a manual pass**      |
+| 7   | 409 path — start on Mac then Windows, clear message, buffer not wedged                                                                                             | ✅ verified live                |
+| 8   | Sign-out — buffers flush then clear; second user uploads nothing of the first's                                                                                    | unit-tested, not in-app         |
+| 9   | Counts-not-content — type a known string, grep every request body and local file                                                                                   | ⬜ **needs a manual pass**      |
+| 10  | Mac not regressed — update feed and download URL still resolve after a Win release                                                                                 | ⬜ **blocked: no repo yet**     |
+| 11  | Nudges — idle, forgot-to-start and the 18:00 summary appear as real notifications                                                                                  | ⬜ **needs a manual pass**      |
+| 12  | Hotkey — Ctrl+Alt+T starts and stops from another app, and loses gracefully                                                                                        | ⬜ **needs a manual pass**      |
+| 13  | Update — a staged build verifies, swaps, relaunches, and rolls back on failure                                                                                     | ⬜ **needs a manual pass**      |
+| 14  | Login item — auto-start on writes the Run value, off removes it, disable survives                                                                                  | ⬜ **needs a manual pass**      |
+| 15  | Not-tracking reminder — appears after repeated launch failures, and in auto mode with a stopped clock; Start tracking starts one                                   | ⬜ **needs a manual pass** (S5) |
+| 16  | Distraction nudge — a real unproductive streak with team alerts on nudges at the threshold and repeats on cadence                                                  | ⬜ **needs a manual pass** (S5) |
+| 17  | Live totals — Today / This week / This month tick in the popup while tracking, and re-fetch on stop                                                                | ⬜ **needs a manual pass** (S5) |
+| 18  | Launch retry — offline at login, then network back: capture installs without a relaunch; wake retries at once                                                      | ⬜ **needs a manual pass** (S5) |
+| 19  | Signed-out popup — after sign-out the tray shows Not signed in and Sign in; a sign-in window closed with X reopens from it                                         | ⬜ **needs a manual pass** (S5) |
+| 20  | Project search — part of a task name finds it; picking a row switches the running entry                                                                            | ⬜ **needs a manual pass** (S5) |
+| 21  | Consent window — Start stays disabled until the box is ticked; the RECORDED card matches the team's settings                                                       | ⬜ **needs a manual pass** (S5) |
+| 22  | Distraction card — with notifications turned off in Windows Settings, an unproductive streak shows the card without taking focus (CI never runs the registry read) | ⬜ **needs a manual pass** (S5) |
+| 23  | Show password — the eye reveals and hides the password without losing the text or the caret                                                                        | ⬜ **needs a manual pass** (S5) |
 
 **These are the honest gaps, and they are the real remaining risk.** Every state machine, store,
 uploader, scheduler, parser and guard is unit-tested — 394 tests — the two structural guards are
