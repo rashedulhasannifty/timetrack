@@ -215,3 +215,24 @@ public class DistractionMonitorTests
         Assert.False(DistractionSettings.Off.Enabled);
     }
 }
+
+public class DistractionNotifierPacingTests
+{
+    /// <summary>
+    /// The monitor paces its own repeats from the team policy, down to one minute. The notifier's
+    /// five-minute backstop would otherwise swallow every repeat an admin set below five.
+    /// </summary>
+    [Fact]
+    public void TheDistractionNudgeIsNotSwallowedByTheRepeatWindow()
+    {
+        var now = DateTimeOffset.Parse("2026-08-25T09:00:00Z", null);
+        var shown = new List<(string, string)>();
+        var notifier = new LocalNotifier((t, b) => shown.Add((t, b)), () => now);
+
+        notifier.Notify(DistractionMonitor.NotificationId, "Time tracking", "~10 min");
+        now = now.AddMinutes(1);
+        notifier.Notify(DistractionMonitor.NotificationId, "Time tracking", "~11 min");
+
+        Assert.Equal(2, shown.Count);
+    }
+}
