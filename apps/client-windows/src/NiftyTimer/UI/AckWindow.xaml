@@ -1,40 +1,159 @@
 <Window x:Class="NiftyTimer.UI.AckWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Monitoring policy"
+        Title="Welcome to Nifty Timer"
         Width="520"
-        Height="460"
+        SizeToContent="Height"
+        MaxHeight="760"
         WindowStartupLocation="CenterScreen"
-        ResizeMode="CanResize"
+        ResizeMode="NoResize"
         ShowInTaskbar="True"
         Background="{DynamicResource Surface}">
 
-    <DockPanel Margin="20">
-        <TextBlock DockPanel.Dock="Top" Text="Before Nifty Timer can monitor"
-                   Style="{StaticResource HeadingText}" />
-        <TextBlock DockPanel.Dock="Top" x:Name="VersionLabel" Style="{StaticResource CaptionText}"
-                   Margin="0,4,0,12" />
+    <!-- Laid out after the macOS client's consent screen: what IS recorded (from the live policy)
+         beside what NEVER is, the transparency guarantee, and a checkbox that has to be ticked
+         before Start does anything. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24">
+            <TextBlock Text="Here's what Nifty Timer records"
+                       Style="{StaticResource HeadingText}"
+                       TextWrapping="Wrap" />
+            <TextBlock Text="Before anything is tracked, here's exactly what's captured — and what never is."
+                       Style="{StaticResource BodyText}"
+                       Foreground="{DynamicResource TextSecondary}"
+                       TextWrapping="Wrap"
+                       Margin="0,4,0,16" />
 
-        <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0"
+                        Background="{DynamicResource SurfaceRaised}"
+                        BorderBrush="{DynamicResource Separator}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource RadiusMd}"
+                        Padding="12">
+                    <StackPanel>
+                        <TextBlock Text="RECORDED" Style="{StaticResource CaptionText}" Margin="0,0,0,8" />
+                        <ItemsControl x:Name="RecordedList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="18" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="✓" Foreground="{DynamicResource Accent}" FontWeight="Bold" />
+                                        <TextBlock Grid.Column="1" Text="{Binding}"
+                                                   Style="{StaticResource LabelText}" TextWrapping="Wrap" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2"
+                        Background="{DynamicResource SurfaceRaised}"
+                        BorderBrush="{DynamicResource Separator}"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource RadiusMd}"
+                        Padding="12">
+                    <StackPanel>
+                        <TextBlock Text="NEVER RECORDED" Style="{StaticResource CaptionText}" Margin="0,0,0,8" />
+                        <ItemsControl x:Name="NeverRecordedList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}"
+                                               Style="{StaticResource LabelText}"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,6" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Border Background="{DynamicResource Tint}"
+                    CornerRadius="{StaticResource RadiusMd}"
+                    Padding="12"
+                    Margin="0,12,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <!-- Segoe's Shield glyph (EA18), in both the Fluent and MDL2 fonts. -->
+                    <TextBlock Text="&#xEA18;"
+                               FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                               FontSize="14"
+                               Foreground="{DynamicResource Accent}"
+                               Margin="0,1,8,0" />
+                    <TextBlock Grid.Column="1"
+                               Text="You can see everything recorded about you and redact any screenshot. The tray indicator is always visible and can't be switched off."
+                               Style="{StaticResource CaptionText}"
+                               Foreground="{DynamicResource Text}"
+                               TextWrapping="Wrap" />
+                </Grid>
+            </Border>
+
+            <Border x:Name="FullPolicy"
+                    Visibility="Collapsed"
+                    Background="{DynamicResource SurfaceRaised}"
+                    BorderBrush="{DynamicResource Separator}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusMd}"
+                    Margin="0,12,0,0">
+                <ScrollViewer MaxHeight="140" VerticalScrollBarVisibility="Auto" Padding="12">
+                    <TextBlock x:Name="PolicyText" Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
+                </ScrollViewer>
+            </Border>
+
+            <CheckBox x:Name="HasReadBox"
+                      Content="I've read what Nifty Timer records."
+                      Margin="0,16,0,0"
+                      Checked="OnHasReadChanged"
+                      Unchecked="OnHasReadChanged" />
+
             <TextBlock x:Name="ErrorLabel"
                        Style="{StaticResource BodyText}"
                        Foreground="{DynamicResource Manual}"
                        TextWrapping="Wrap"
                        Visibility="Collapsed"
-                       Margin="0,0,0,8" />
-            <StackPanel Orientation="Horizontal">
-                <Button x:Name="AcknowledgeButton" Content="I acknowledge" Style="{StaticResource ProminentButton}" Click="OnAcknowledge" />
-                <!-- No "decline and continue anyway". Without acknowledgement the client does not
-                     capture, and there is no admin override (PRD §4.1). Stays on the default
-                     bordered style — visible and ordinary, never a link, never hidden. -->
-                <Button Content="Not now" Margin="8,0,0,0" Click="OnNotNow" />
-            </StackPanel>
-        </StackPanel>
+                       Margin="0,8,0,0" />
 
-        <Border BorderBrush="{DynamicResource Separator}" BorderThickness="1" Padding="12">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <TextBlock x:Name="PolicyText" Style="{StaticResource BodyText}" TextWrapping="Wrap" />
-            </ScrollViewer>
-        </Border>
-    </DockPanel>
+            <DockPanel LastChildFill="False" Margin="0,16,0,0">
+                <Button x:Name="FullPolicyButton"
+                        DockPanel.Dock="Left"
+                        Content="Read the full policy"
+                        Style="{StaticResource LinkButton}"
+                        VerticalAlignment="Center"
+                        Click="OnToggleFullPolicy" />
+                <Button x:Name="AcknowledgeButton"
+                        DockPanel.Dock="Right"
+                        Content="Start Nifty Timer"
+                        Style="{StaticResource ProminentButton}"
+                        IsEnabled="False"
+                        Click="OnAcknowledge" />
+                <!-- No "decline and continue anyway". Without acknowledgement the client does not
+                     capture, and there is no admin override (PRD §4.1). "Not now" stays on the
+                     default bordered style — visible and ordinary, never a link, never hidden. -->
+                <Button DockPanel.Dock="Right"
+                        Content="Not now"
+                        Margin="0,0,8,0"
+                        Click="OnNotNow" />
+            </DockPanel>
+
+            <TextBlock x:Name="FooterLabel"
+                       Style="{StaticResource CaptionText}"
+                       TextWrapping="Wrap"
+                       Margin="0,12,0,0" />
+        </StackPanel>
+    </ScrollViewer>
 </Window>
