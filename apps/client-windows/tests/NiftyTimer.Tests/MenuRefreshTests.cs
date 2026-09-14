@@ -130,3 +130,37 @@ public class LiveTotalsTests
         }
     }
 }
+
+public class RefreshThrottleTests
+{
+    private static readonly DateTimeOffset T0 = new(2026, 8, 25, 9, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void TheFirstRequestAlwaysRefreshes() =>
+        Assert.True(new RefreshThrottle(TimeSpan.FromSeconds(60), () => T0).ShouldRefresh());
+
+    [Fact]
+    public void RepeatsInsideTheWindowAreSkipped()
+    {
+        var now = T0;
+        var throttle = new RefreshThrottle(TimeSpan.FromSeconds(60), () => now);
+        throttle.ShouldRefresh();
+
+        now = T0.AddSeconds(59);
+        Assert.False(throttle.ShouldRefresh());
+
+        now = T0.AddSeconds(60);
+        Assert.True(throttle.ShouldRefresh());
+    }
+
+    [Fact]
+    public void ResetLetsTheNextPersonRefreshAtOnce()
+    {
+        var throttle = new RefreshThrottle(TimeSpan.FromSeconds(60), () => T0);
+        throttle.ShouldRefresh();
+
+        throttle.Reset();
+
+        Assert.True(throttle.ShouldRefresh());
+    }
+}
