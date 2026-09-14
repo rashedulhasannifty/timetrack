@@ -8,8 +8,10 @@ const INITIAL: ProjectActionState = { ok: false };
 
 /**
  * ADMIN-only "move to team" control on the project page. Modeled on the admin users TeamSelect:
- * submits on change after a confirm that names both teams, and on a cancel or an API error the
- * select goes back to the team that is actually committed. Hidden with fewer than two teams.
+ * submits on change after a confirm that names both teams, and on a cancel the select goes back
+ * to the team that is actually committed. An API rejection is shown next to the control; the DB
+ * is unchanged, but (as with TeamSelect) the select keeps the attempted team until the page
+ * reloads. Hidden with fewer than two teams.
  */
 export function ProjectTeamMove({
   id,
