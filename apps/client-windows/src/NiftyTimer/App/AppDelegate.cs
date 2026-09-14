@@ -848,9 +848,19 @@ public sealed class AppDelegate : IDisposable
 
     private async Task RefreshTotalsAsync()
     {
+        var requestedFor = _session.UserId;
         try
         {
-            _viewModel.Totals = await _totalsClient.FetchAsync(_shutdown.Token).ConfigureAwait(true);
+            var totals = await _totalsClient.FetchAsync(_shutdown.Token).ConfigureAwait(true);
+
+            // Sign-out can land while the fetch is in flight. Dropping the result then keeps one
+            // person's tracked time out of the next person's dropdown.
+            if (_session.UserId is not { } userId || userId != requestedFor)
+            {
+                return;
+            }
+
+            _viewModel.Totals = totals;
         }
         catch (Exception e) when (e is ResourceUnavailableException or NotAuthenticatedException
                                       or AuthException or OperationCanceledException)

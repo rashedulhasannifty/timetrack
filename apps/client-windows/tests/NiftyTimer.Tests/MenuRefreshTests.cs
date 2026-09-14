@@ -197,4 +197,12 @@ public class MenuRefreshWiringTests
     [Fact]
     public void SignOutResetsTheThrottles() =>
         Assert.True(References("SignOutAsync", nameof(RefreshThrottle), nameof(RefreshThrottle.Reset)));
+
+    /// <summary>
+    /// A fetch in flight when sign-out lands must not put one person's tracked time in the next
+    /// person's dropdown, so the result is checked against the session it was requested for.
+    /// </summary>
+    [Fact]
+    public void ALateTotalsResultIsCheckedAgainstTheSession() =>
+        Assert.True(References("RefreshTotalsAsync", "AuthSession", "get_UserId"));
 }
