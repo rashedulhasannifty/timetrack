@@ -17,8 +17,11 @@ namespace NiftyTimer.Tracking;
 /// action). This type holds no reference to <see cref="TimeTracker"/> or any monitor, only two
 /// predicates, so it structurally cannot produce a stop or a spurious IdleEvent.
 ///
-/// <b>Not yet wired.</b> Its notifier is the S4 toast implementation; <see cref="App.AppDelegate"/>
-/// does not construct this until then, so nothing polls on its behalf today.
+/// Auto mode installs a second instance as its own forgot-to-start reminder, as the macOS client
+/// does: <c>presentForgotToStart</c> raises a window instead of a balloon (a stopped clock in auto
+/// mode is a fault, not a hint), <c>emitsManualIdleNudge</c> is off because the auto coordinator
+/// already owns the idle nudge, and <c>isAwaitingResolution</c> stands it down while an away prompt
+/// is already asking the person to act.
 /// </summary>
 public sealed class ManualNudgeMonitor
 {
@@ -27,6 +30,9 @@ public sealed class ManualNudgeMonitor
     private readonly int _forgotToStartSeconds;
     private readonly Func<bool> _isTracking;
     private readonly Func<bool> _isPaused;
+    private readonly Action<string, string>? _presentForgotToStart;
+    private readonly bool _emitsManualIdleNudge;
+    private readonly Func<bool> _isAwaitingResolution;
 
     private DateTimeOffset? _activeSince;
     private bool _firedForgot;
@@ -37,13 +43,19 @@ public sealed class ManualNudgeMonitor
         int idleThresholdSeconds,
         int forgotToStartSeconds,
         Func<bool> isTracking,
-        Func<bool> isPaused)
+        Func<bool> isPaused,
+        Action<string, string>? presentForgotToStart = null,
+        bool emitsManualIdleNudge = true,
+        Func<bool>? isAwaitingResolution = null)
     {
         _notifier = notifier;
         _idleThresholdSeconds = idleThresholdSeconds;
         _forgotToStartSeconds = forgotToStartSeconds;
         _isTracking = isTracking;
         _isPaused = isPaused;
+        _presentForgotToStart = presentForgotToStart;
+        _emitsManualIdleNudge = emitsManualIdleNudge;
+        _isAwaitingResolution = isAwaitingResolution ?? (static () => false);
     }
 
     public void Reset()
@@ -68,7 +80,7 @@ public sealed class ManualNudgeMonitor
                 return;
             }
 
-            if (!_firedManualIdle)
+            if (!_firedManualIdle && _emitsManualIdleNudge)
             {
                 var minutes = AwayMinutes.Of(idleSeconds);
                 _notifier.Notify(
@@ -81,9 +93,10 @@ public sealed class ManualNudgeMonitor
             return;
         }
 
-        if (_isPaused())
+        if (_isPaused() || _isAwaitingResolution())
         {
-            // Mid-pause manual session — no nudges of either kind.
+            // Mid-pause manual session, or an away prompt already asking them to act — no nudges
+            // of either kind.
             Reset();
             return;
         }
@@ -102,12 +115,20 @@ public sealed class ManualNudgeMonitor
 
         if (!_firedForgot && now - _activeSince.Value >= TimeSpan.FromSeconds(_forgotToStartSeconds))
         {
-            _notifier.Notify(
-                "forgot-to-start",
-                "Time tracking",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"You've been active {_forgotToStartSeconds / 60} min without tracking — start?"));
+            const string title = "Time tracking";
+            var body = string.Create(
+                CultureInfo.InvariantCulture,
+                $"You've been active {_forgotToStartSeconds / 60} min without tracking — start?");
+
+            if (_presentForgotToStart is { } present)
+            {
+                present(title, body);
+            }
+            else
+            {
+                _notifier.Notify("forgot-to-start", title, body);
+            }
+
             _firedForgot = true;
         }
     }
