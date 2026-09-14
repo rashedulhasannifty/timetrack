@@ -104,6 +104,18 @@ public sealed class AppDelegate : IDisposable
     // where it may be installed.
     private ManualNudgeMonitor? _nudgeMonitor;
 
+    // The launch-time policy resolve is retried until idle detection installs — see
+    // PolicyResolutionRetry for why one attempt was not enough. The retry owns the schedule and its
+    // single warning; this owns the timer, as SyncEngine does over BackoffPolicy.
+    private readonly PolicyResolutionRetry _policyRetry = new();
+    private DispatcherTimer? _policyRetryTimer;
+    private WakeWatcher? _wakeWatcher;
+
+    // One-shot per signed-in session, reset on sign-out. The retry passes back through
+    // ProceedToPolicyAsync, and readiness is not the thing being retried: re-running BecomeReady on
+    // every attempt would reload the project picker under the person each time.
+    private bool _hasBecomeReady;
+
     private DispatcherTimer? _heartbeat;
     private DispatcherTimer? _refresh;
     private bool _disposed;
@@ -196,6 +208,10 @@ public sealed class AppDelegate : IDisposable
         _activitySync.Start();
         StartTimers();
 
+        // A machine that slept through a failed launch resolve most likely wakes with network, so
+        // the pending retry runs then rather than sitting out the rest of its backoff.
+        _wakeWatcher = new WakeWatcher(RetryPolicyOnWake);
+
         _ = BootstrapAsync();
     }
 
@@ -223,6 +239,8 @@ public sealed class AppDelegate : IDisposable
 
         _heartbeat?.Stop();
         _refresh?.Stop();
+        CancelPolicyRetry();
+        _wakeWatcher?.Dispose();
 
         // Quit must settle the same things sign-out does. Without this, quitting with an away
         // window pending loses its UNRESOLVED idle event — the two exit paths would disagree about
@@ -369,6 +387,10 @@ public sealed class AppDelegate : IDisposable
 
             case BootstrapOutcome.Offline:
                 ProceedOffline();
+
+                // The refresh token is still ours; the API just could not be reached. Scheduled
+                // here, never inside ProceedOffline — see SchedulePolicyRetry.
+                SchedulePolicyRetry();
                 break;
 
             case BootstrapOutcome.Unauthenticated:
@@ -394,6 +416,12 @@ public sealed class AppDelegate : IDisposable
             // resume if this user acknowledged previously; capture may not, because it is not
             // installed on this path at all.
             ProceedOffline();
+
+            // This is the login-item failure mode: the app starts before the network is up, the
+            // fetch throws, and — until the retry existed — that was the end of it for the whole
+            // session. In auto mode the person was left with a ready-looking client whose clock
+            // never started.
+            SchedulePolicyRetry();
             return;
         }
 
@@ -534,8 +562,14 @@ public sealed class AppDelegate : IDisposable
         catch (Exception e) when (e is AckGateException or NotAuthenticatedException
                                       or AuthException or OperationCanceledException)
         {
-            // Gate closed or policy unreadable → idle detection simply does not start. Manual
-            // tracking, already enabled, continues. Fail-safe; there is no fallback path.
+            // Gate closed or policy unreadable → idle detection does not start. Manual tracking,
+            // already enabled, continues. Fail-safe — but not final: at login this is usually a
+            // network that was not up yet, and the person cannot see that it happened, so ask
+            // again. A cancellation is the app shutting down, which is not worth retrying.
+            if (e is not OperationCanceledException)
+            {
+                SchedulePolicyRetry();
+            }
         }
     }
 
@@ -596,6 +630,11 @@ public sealed class AppDelegate : IDisposable
         // Auto mode opens its first span immediately; the manual coordinator self-arms on the first
         // manual signal, so it needs no activation.
         _autoCoordinator?.Activate();
+
+        // Idle detection is the capture path the launch retry exists to reach — in auto mode it is
+        // what starts the clock — so installing it, not merely fetching the policy, ends the loop.
+        _policyRetry.MarkResolved();
+        CancelPolicyRetry();
     }
 
     /// <summary>
@@ -660,6 +699,12 @@ public sealed class AppDelegate : IDisposable
 
     private void BecomeReady()
     {
+        if (_hasBecomeReady)
+        {
+            return;
+        }
+
+        _hasBecomeReady = true;
         _viewModel.IsReady = true;
         _viewModel.Notice = null;
 
@@ -793,6 +838,12 @@ public sealed class AppDelegate : IDisposable
         // reach the buffer before the final drain below — otherwise Clear() discards them, or worse
         // they drain later under the next person's token.
         TearDownIdleDetection();
+
+        // The launch retry belongs to the person leaving: cancel it, and re-arm its schedule and
+        // its single warning for whoever signs in next. Readiness is theirs to earn again too.
+        CancelPolicyRetry();
+        _policyRetry.Reset();
+        _hasBecomeReady = false;
 
         // Capture comes down and SETTLES before anything drains. Stopping a scheduler does not
         // abort a cycle that is already inside a grab or a measurement window, and such a cycle
@@ -984,6 +1035,103 @@ public sealed class AppDelegate : IDisposable
         // forever. Reset the one-shot so the next user gets their own recovery attempt.
         _recoveryPrompt.DismissIfShowing();
         _hasAttemptedRecovery = false;
+    }
+
+    /// <summary>
+    /// Ask again for the policy after a failed resolution, on capped backoff, until idle detection
+    /// installs. <see cref="PolicyResolutionRetry"/> owns the schedule and the one-shot warning;
+    /// this owns the timer.
+    ///
+    /// Called by the CALLERS of <see cref="ProceedOffline"/>, never from inside it. The retry
+    /// re-enters <see cref="ProceedToPolicyAsync"/>, which re-fetches the policy before installing
+    /// anything — so it is the online branch running again, not the offline branch gaining a path
+    /// to the installers. Scheduling it from <c>ProceedOffline</c> would blur exactly the line
+    /// <c>OfflineCaptureUnreachableTests</c> guards.
+    /// </summary>
+    private void SchedulePolicyRetry() => OnUi(() =>
+    {
+        if (_policyRetry.RecordFailure() is not PolicyRetryOutcome.Retry retry)
+        {
+            return;
+        }
+
+        if (retry.WarnUser)
+        {
+            WarnNotTracking("Tracking hasn't started — Nifty Timer can't reach the server. Your time isn't being recorded.");
+        }
+
+        CancelPolicyRetry();
+
+        // Re-checked at FIRE time, not schedule time. Sign-out cancels this timer, but a resolve
+        // already in flight when sign-out lands still reaches its catch and schedules one more —
+        // which must not then run against the next person's launch.
+        var scheduledFor = _session.UserId;
+        var timer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+        {
+            Interval = retry.After,
+        };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (!ReferenceEquals(_policyRetryTimer, timer))
+            {
+                return;
+            }
+
+            _policyRetryTimer = null;
+            if (_session.UserId is not { } userId || userId != scheduledFor)
+            {
+                return;
+            }
+
+            _ = ProceedToPolicyAsync();
+        };
+
+        _policyRetryTimer = timer;
+        timer.Start();
+    });
+
+    private void CancelPolicyRetry()
+    {
+        _policyRetryTimer?.Stop();
+        _policyRetryTimer = null;
+    }
+
+    /// <summary>
+    /// The machine woke. If a resolve is waiting out its backoff, run it now.
+    ///
+    /// Only while a retry is PENDING, which is narrower than "not yet resolved": an unanswered
+    /// acknowledgement window is also unresolved, and re-entering the policy branch then would open
+    /// a second one on top of it. Resume arrives twice per wake (see <see cref="WakeWatcher"/>);
+    /// the first call cancels the timer, so the second finds nothing pending.
+    /// </summary>
+    private void RetryPolicyOnWake()
+    {
+        if (_policyRetryTimer is null)
+        {
+            return;
+        }
+
+        CancelPolicyRetry();
+        _ = ProceedToPolicyAsync();
+    }
+
+    /// <summary>
+    /// Tell the person their time is not being recorded. Suppressed unless manual tracking is
+    /// actually available — without an acknowledgement on file they could do nothing about it, and
+    /// the popup already says the server is unreachable.
+    ///
+    /// A tray balloon for now; the macOS client raises a window with a "Start tracking" button,
+    /// which lands here with the auto-mode forgot-to-start reminder that shares it.
+    /// </summary>
+    private void WarnNotTracking(string message)
+    {
+        if (!_viewModel.IsReady)
+        {
+            return;
+        }
+
+        _notifier.Notify("not-tracking", "Time tracking", message);
     }
 
     private static void OnUi(Action action)
