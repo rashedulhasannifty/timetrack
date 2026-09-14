@@ -164,3 +164,30 @@ public class RefreshThrottleTests
         Assert.True(throttle.ShouldRefresh());
     }
 }
+
+/// <summary>Wiring asserted on the IL, as in <see cref="LaunchResolutionWiringTests"/>.</summary>
+public class MenuRefreshWiringTests
+{
+    private static bool References(string method, string typeName, string target) =>
+        LaunchResolutionWiringTests.References(LaunchResolutionWiringTests.Body(method), typeName, target);
+
+    [Theory]
+    [InlineData("RefreshProjectsAsync")]
+    [InlineData("RefreshTotalsAsync")]
+    [InlineData("RefreshPendingCount")]
+    public void OpeningTheMenuRefreshes(string refresh) =>
+        Assert.True(References("MenuDidOpen", nameof(AppDelegate), refresh), $"MenuDidOpen no longer calls {refresh}.");
+
+    [Fact]
+    public void BothTrayGesturesOpenTheMenu() =>
+        Assert.True(References("WireEvents", nameof(AppDelegate), "OnTrayActivated"));
+
+    [Fact]
+    public void TheTrayHandlerRunsTheMenuOpenRefresh() =>
+        Assert.True(References("OnTrayActivated", nameof(AppDelegate), "MenuDidOpen"));
+
+    /// <summary>The next person's first menu open must not be throttled by the previous one's.</summary>
+    [Fact]
+    public void SignOutResetsTheThrottles() =>
+        Assert.True(References("SignOutAsync", nameof(RefreshThrottle), nameof(RefreshThrottle.Reset)));
+}
