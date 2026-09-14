@@ -60,7 +60,7 @@ public sealed class TrayIconController : IDisposable
     private static readonly TimeSpan CaptureFlash = TimeSpan.FromSeconds(1.5);
 
     private readonly MessageWindow _source;
-    private readonly Dictionary<(TrayGlyph Glyph, AppTheme Theme), IntPtr> _icons = [];
+    private readonly Dictionary<(TrayGlyph Glyph, bool Warning, AppTheme Theme), IntPtr> _icons = [];
     private readonly uint _id;
 
     /// <summary>
@@ -79,6 +79,7 @@ public sealed class TrayIconController : IDisposable
     private AppTheme _theme = AppTheme.Light;
     private string _tooltip = "Nifty Timer";
     private bool _capturing;
+    private bool _warning;
     private DispatcherTimer? _captureRevert;
     private bool _added;
     private bool _disposed;
@@ -93,11 +94,12 @@ public sealed class TrayIconController : IDisposable
         // broadcast, and broadcasts never reach a message-only window. See `MessageWindow`.
         _source = new MessageWindow("NiftyTimer.TrayIconHost", WndProc);
 
-        foreach (var glyph in new[] { TrayGlyph.Idle, TrayGlyph.Tracking, TrayGlyph.Capturing })
+        foreach (var (glyph, warning) in Marks())
         {
             foreach (var theme in new[] { AppTheme.Light, AppTheme.Dark })
             {
-                _icons[(glyph, theme)] = LoadIcon(Path.Combine(resourceDirectory, FileName(glyph, theme)));
+                _icons[(glyph, warning, theme)] =
+                    LoadIcon(Path.Combine(resourceDirectory, FileName(glyph, warning, theme)));
             }
         }
 
@@ -162,6 +164,27 @@ public sealed class TrayIconController : IDisposable
             }
 
             _tooltip = trimmed;
+            Update();
+        }
+    }
+
+    /// <summary>
+    /// Something needs the person's attention: the running entry is not reaching the server, or an
+    /// update is overdue. Puts the amber badge on the icon so it shows WITHOUT hovering, as macOS
+    /// prepends a warning marker to its menu-bar item; the tooltip says which. Advisory only — the
+    /// badge sits beside the tracking mark and never hides or replaces it (CLAUDE.md §1).
+    /// </summary>
+    public bool Warning
+    {
+        get => _warning;
+        set
+        {
+            if (_warning == value)
+            {
+                return;
+            }
+
+            _warning = value;
             Update();
         }
     }
@@ -239,8 +262,25 @@ public sealed class TrayIconController : IDisposable
         : state == TrayState.Tracking ? TrayGlyph.Tracking
         : TrayGlyph.Idle;
 
-    /// <summary>The icon file for a glyph on a taskbar theme, as the generator names it.</summary>
-    internal static string FileName(TrayGlyph glyph, AppTheme theme)
+    /// <summary>
+    /// The glyph, and whether it carries the badge. The flash shows nothing else: it lasts a second
+    /// and a half, and the warning is back the moment it ends.
+    /// </summary>
+    internal static (TrayGlyph Glyph, bool Warning) IconFor(TrayState state, bool capturing, bool warning) =>
+        (GlyphFor(state, capturing), warning && !capturing);
+
+    /// <summary>Every icon the controller loads: each glyph, plus idle and tracking badged.</summary>
+    internal static IReadOnlyList<(TrayGlyph Glyph, bool Warning)> Marks() =>
+    [
+        (TrayGlyph.Idle, false),
+        (TrayGlyph.Tracking, false),
+        (TrayGlyph.Capturing, false),
+        (TrayGlyph.Idle, true),
+        (TrayGlyph.Tracking, true),
+    ];
+
+    /// <summary>The icon file for a mark on a taskbar theme, as the generator names it.</summary>
+    internal static string FileName(TrayGlyph glyph, bool warning, AppTheme theme)
     {
         var name = glyph switch
         {
@@ -248,8 +288,9 @@ public sealed class TrayIconController : IDisposable
             TrayGlyph.Capturing => "capturing",
             _ => "idle",
         };
+        var badge = warning ? "-warning" : string.Empty;
         var suffix = theme == AppTheme.Dark ? "dark" : "light";
-        return $"tray-{name}-{suffix}.ico";
+        return $"tray-{name}{badge}-{suffix}.ico";
     }
 
     public void Dispose()
@@ -316,6 +357,12 @@ public sealed class TrayIconController : IDisposable
         Shell_NotifyIcon(NimModify, ref data);
     }
 
+    private (TrayGlyph Glyph, bool Warning, AppTheme Theme) IconKey()
+    {
+        var (glyph, warning) = IconFor(_state, _capturing, _warning);
+        return (glyph, warning, _theme);
+    }
+
     private NotifyIconData NewData(int flags) => new()
     {
         cbSize = Marshal.SizeOf<NotifyIconData>(),
@@ -323,7 +370,7 @@ public sealed class TrayIconController : IDisposable
         uID = _id,
         uFlags = flags,
         uCallbackMessage = WmTrayCallback,
-        hIcon = _icons.GetValueOrDefault((GlyphFor(_state, _capturing), _theme)),
+        hIcon = _icons.GetValueOrDefault(IconKey()),
         szTip = _tooltip,
 
         // The ByValTStr fields must never be null: marshalling a null fixed-length buffer throws,

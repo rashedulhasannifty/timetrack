@@ -970,6 +970,10 @@ public sealed class AppDelegate : IDisposable
     {
         _tray.State = _viewModel.IsTracking ? TrayState.Tracking : TrayState.Idle;
 
+        // The same two conditions the tooltip explains, shown as a badge so they are visible
+        // without hovering — the Mac's always-visible menu-bar marker.
+        _tray.Warning = _viewModel.LiveSyncBlocked || _viewModel.UpdateOverdue;
+
         _tray.Tooltip = TrayTooltip.For(
             _viewModel.IsTracking,
             _viewModel.ElapsedLabel,
