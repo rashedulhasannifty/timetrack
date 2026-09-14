@@ -57,6 +57,7 @@ public sealed class AppDelegate : IDisposable
     private PolicyClient _policyClient = null!;
     private AckClient _ackClient = null!;
     private ProjectClient _projectClient = null!;
+    private RecentSelectionClient _recentSelectionClient = null!;
     private ProjectCache _projectCache = null!;
     private SelfTotalsClient _totalsClient = null!;
     private SelectionStore _selectionStore = null!;
@@ -87,6 +88,7 @@ public sealed class AppDelegate : IDisposable
 
     private readonly TimePrompt _awayPrompt = new();
     private readonly TimePrompt _recoveryPrompt = new();
+    private readonly NotTrackingReminder _notTrackingReminder = new();
 
     private SessionObserver? _sessionObserver;
     private AutoTrackingCoordinator? _autoCoordinator;
@@ -121,6 +123,10 @@ public sealed class AppDelegate : IDisposable
     // every attempt would reload the project picker under the person each time.
     private bool _hasBecomeReady;
 
+    // One fresh-install fallback per signed-in session — the store gate alone never closes for a
+    // person with no recent history, and would re-ask on every project refresh.
+    private bool _hasAttemptedRecentSelectionFallback;
+
     // Menu-open refreshes, rate-limited so clicking the tray icon repeatedly cannot hammer the API.
     // Totals are shorter: they are what the person opened the menu to look at, and they move
     // minute by minute while the clock runs.
@@ -152,6 +158,7 @@ public sealed class AppDelegate : IDisposable
         _policyClient = new PolicyClient(_http, _config.ApiBaseUri, _session);
         _ackClient = new AckClient(_http, _config.ApiBaseUri, _session);
         _projectClient = new ProjectClient(json);
+        _recentSelectionClient = new RecentSelectionClient(json);
         _totalsClient = new SelfTotalsClient(json);
 
         _ackMarker = new AckMarker(_settings);
@@ -686,7 +693,23 @@ public sealed class AppDelegate : IDisposable
                 onIdleThresholdCrossed: NotifyIdleThresholdCrossed,
                 onTrackingStateChanged: () => _viewModel.RefreshFromTracker());
             _autoCoordinator = auto;
-            receiver = new FanOutSignalReceiver(auto, manual);
+
+            // Auto mode's own forgot-to-start reminder. Activate() opens an AUTO entry at once, so
+            // a stopped clock while the person is present means something went wrong downstream —
+            // a fault, not a hint, so it is a window rather than a balloon. The auto coordinator
+            // already owns the idle nudge here, and an unanswered away prompt is itself the thing
+            // asking them to act.
+            var reminder = new ManualNudgeMonitor(
+                _notifier,
+                thresholdSeconds,
+                ForgotToStartSeconds,
+                isTracking: () => _tracker.State is TrackerState.Tracking,
+                isPaused: () => _tracker.State is TrackerState.Paused,
+                presentForgotToStart: PresentNotTrackingReminder,
+                emitsManualIdleNudge: false,
+                isAwaitingResolution: () => auto.MonitorState is IdleState.Awaiting);
+            _nudgeMonitor = reminder;
+            receiver = new FanOutSignalReceiver(auto, manual, new NudgeSignalAdapter(reminder, thresholdSeconds));
         }
 
         _sessionObserver = new SessionObserver(receiver);
@@ -833,6 +856,9 @@ public sealed class AppDelegate : IDisposable
         {
             var projects = await _projectClient.ListAsync(_shutdown.Token).ConfigureAwait(true);
             _projectCache.Save(projects);
+
+            // Before the restore below, so a recovered selection goes through the one normal path.
+            await TryRecentSelectionFallbackAsync().ConfigureAwait(true);
             _viewModel.Projects = projects;
             if (_session.UserId is { } userId)
             {
@@ -843,6 +869,39 @@ public sealed class AppDelegate : IDisposable
                                       or AuthException or OperationCanceledException)
         {
             // Keep whatever the cache gave us; an empty picker is worse than a stale one.
+        }
+    }
+
+    /// <summary>
+    /// Fresh-install fallback: nothing stored for this person (new laptop, reinstall), so ask the
+    /// server what they were last tracking against. Never overrides a local selection, runs at
+    /// most once per signed-in session, and a transient failure un-marks the attempt so a 429 or
+    /// a 503 does not burn it. The result is written to the store, so the restore that follows
+    /// resolves it against the project list like any other stored selection.
+    /// </summary>
+    private async Task TryRecentSelectionFallbackAsync()
+    {
+        if (_hasAttemptedRecentSelectionFallback
+            || _session.UserId is not { } userId
+            || _selectionStore.Load(userId) is not null)
+        {
+            return;
+        }
+
+        _hasAttemptedRecentSelectionFallback = true;
+        var outcome = await _recentSelectionClient.MostRecentSelectionAsync(_shutdown.Token).ConfigureAwait(true);
+
+        switch (outcome)
+        {
+            // Re-checked after the await: a sign-out and a different sign-in inside that round
+            // trip must not save one person's history under another's key.
+            case RecentSelectionOutcome.Found found when _session.UserId == userId:
+                _selectionStore.Save(found.Selection, userId);
+                break;
+
+            case RecentSelectionOutcome.TransientFailure:
+                _hasAttemptedRecentSelectionFallback = false;
+                break;
         }
     }
 
@@ -884,14 +943,11 @@ public sealed class AppDelegate : IDisposable
     {
         _tray.State = _viewModel.IsTracking ? TrayState.Tracking : TrayState.Idle;
 
-        var status = _viewModel.IsTracking
-            ? $"Nifty Timer — tracking {_viewModel.ElapsedLabel}"
-            : "Nifty Timer — not tracking";
-
-        // The update marker rides the tooltip rather than changing the icon. The icon carries one
-        // meaning — whether the clock is running — and overloading it with a second would make the
-        // always-visible indicator ambiguous about the thing it exists to show.
-        _tray.Tooltip = _viewModel.UpdateOverdue ? status + " (update available)" : status;
+        _tray.Tooltip = TrayTooltip.For(
+            _viewModel.IsTracking,
+            _viewModel.ElapsedLabel,
+            _viewModel.LiveSyncBlocked,
+            _viewModel.UpdateOverdue);
     }
 
     /// <summary>
@@ -919,6 +975,7 @@ public sealed class AppDelegate : IDisposable
         CancelPolicyRetry();
         _policyRetry.Reset();
         _hasBecomeReady = false;
+        _hasAttemptedRecentSelectionFallback = false;
 
         // Capture comes down and SETTLES before anything drains. Stopping a scheduler does not
         // abort a cycle that is already inside a grab or a measurement window, and such a cycle
@@ -1119,6 +1176,9 @@ public sealed class AppDelegate : IDisposable
         // forever. Reset the one-shot so the next user gets their own recovery attempt.
         _recoveryPrompt.DismissIfShowing();
         _hasAttemptedRecovery = false;
+
+        // Same class: the reminder's Start button would open an entry for whoever signs in next.
+        _notTrackingReminder.DismissIfShowing();
     }
 
     /// <summary>
@@ -1141,7 +1201,9 @@ public sealed class AppDelegate : IDisposable
 
         if (retry.WarnUser)
         {
-            WarnNotTracking("Tracking hasn't started — Nifty Timer can't reach the server. Your time isn't being recorded.");
+            PresentNotTrackingReminder(
+                "Time tracking",
+                "Tracking hasn't started — Nifty Timer can't reach the server. Your time isn't being recorded.");
         }
 
         CancelPolicyRetry();
@@ -1201,23 +1263,21 @@ public sealed class AppDelegate : IDisposable
     }
 
     /// <summary>
-    /// Tell the person their time is not being recorded. Suppressed unless manual tracking is
-    /// actually available — without an acknowledgement on file they could do nothing about it, and
-    /// the popup already says the server is unreachable.
-    ///
-    /// A tray balloon for now; the macOS client raises a window with a "Start tracking" button,
-    /// which lands here with the auto-mode forgot-to-start reminder that shares it.
+    /// The one place a "your time isn't being recorded" window is raised, from both triggers: a
+    /// launch resolve that keeps failing, and auto mode's forgot-to-start. A WINDOW, as on the Mac,
+    /// because a balloon is silently dropped when notifications are off, and this is the reminder
+    /// that must not be lost. Suppressed unless manual tracking is actually available — without an
+    /// acknowledgement on file its Start button could do nothing (CLAUDE.md §1), and the popup
+    /// already says the server is unreachable.
     /// </summary>
-    private void WarnNotTracking(string message)
+    private void PresentNotTrackingReminder(string title, string message)
     {
         if (!_viewModel.IsReady)
         {
             return;
         }
 
-        // The once-per-schedule rule lives in PolicyResolutionRetry, not in the notifier's
-        // five-minute repeat window — a second caller of this id must not rely on that window.
-        _notifier.Notify("not-tracking", "Time tracking", message);
+        _notTrackingReminder.Present(title, message, onStart: () => _viewModel.Start());
     }
 
     /// <summary>
