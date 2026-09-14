@@ -1,0 +1,217 @@
+using NiftyTimer.Activity;
+using NiftyTimer.App;
+using NiftyTimer.Notifications;
+using NiftyTimer.Policy;
+using NiftyTimer.Tests.Support;
+using NiftyTimer.Tracking;
+using Xunit;
+
+namespace NiftyTimer.Tests;
+
+/// <summary>Ported case for case from the macOS client's <c>DistractionMonitorTests</c>.</summary>
+public class DistractionMonitorTests
+{
+    private static DistractionMonitor Monitor(NotifierSpy spy, int threshold, int repeat = 0, bool enabled = true)
+    {
+        var settings = new DistractionSettings(enabled, threshold, repeat);
+        return new DistractionMonitor(spy, () => settings);
+    }
+
+    private static void Run(DistractionMonitor monitor, Category category, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            monitor.Tick(category);
+        }
+    }
+
+    [Fact]
+    public void FiresExactlyOnceAtTheThreshold()
+    {
+        var spy = new NotifierSpy();
+        var monitor = Monitor(spy, threshold: 10);
+
+        Run(monitor, Category.Unproductive, 9);
+        Assert.Empty(spy.Sent);
+
+        monitor.Tick(Category.Unproductive);
+        Assert.Equal(DistractionMonitor.NotificationId, Assert.Single(spy.Sent).Id);
+    }
+
+    [Theory]
+    [InlineData(Category.Productive)]
+    [InlineData(Category.Neutral)]
+    public void AnyOtherSampleBreaksTheStreak(Category breaker)
+    {
+        var spy = new NotifierSpy();
+        var monitor = Monitor(spy, threshold: 10);
+
+        Run(monitor, Category.Unproductive, 9);
+        monitor.Tick(breaker);
+        Run(monitor, Category.Unproductive, 9);
+
+        Assert.Empty(spy.Sent); // never ten in a row
+    }
+
+    [Fact]
+    public void FiresOncePerStreakWithoutRepeats()
+    {
+        var spy = new NotifierSpy();
+        var monitor = Monitor(spy, threshold: 10);
+
+        Run(monitor, Category.Unproductive, 15);
+
+        Assert.Single(spy.Sent);
+    }
+
+    [Fact]
+    public void ReArmsAfterTheStreakBreaks()
+    {
+        var spy = new NotifierSpy();
+        var monitor = Monitor(spy, threshold: 10);
+
+        Run(monitor, Category.Unproductive, 10);
+        monitor.Tick(Category.Productive);
+        Run(monitor, Category.Unproductive, 10);
+
+        Assert.Equal(2, spy.Sent.Count);
+    }
+
+    /// <summary>Threshold 10, repeat 5, twenty unbroken samples → nudges at 10, 15 and 20.</summary>
+    [Fact]
+    public void RepeatsWhileTheStreakContinues()
+    {
+        var spy = new NotifierSpy();
+        var monitor = Monitor(spy, threshold: 10, repeat: 5);
+
+        Run(monitor, Category.Unproductive, 20);
+
+        Assert.Equal(3, spy.Sent.Count);
+    }
+
+    [Fact]
+    public void TheRepeatCadenceRestartsAfterABreak()
+    {
+        var spy = new NotifierSpy();
+        var monitor = Monitor(spy, threshold: 10, repeat: 5);
+
+        Run(monitor, Category.Unproductive, 15); // 10, 15
+        monitor.Tick(Category.Neutral);
+        Run(monitor, Category.Unproductive, 10); // 10 again, not 5 after the last
+
+        Assert.Equal(3, spy.Sent.Count);
+    }
+
+    [Fact]
+    public void RepeatZeroKeepsOneNudgePerStreak()
+    {
+        var spy = new NotifierSpy();
+        var monitor = Monitor(spy, threshold: 10, repeat: 0);
+
+        Run(monitor, Category.Unproductive, 40);
+
+        Assert.Single(spy.Sent);
+    }
+
+    /// <summary>The team's master switch is off — no nudge, ever.</summary>
+    [Fact]
+    public void NeverFiresWhileAlertsAreDisabled()
+    {
+        var spy = new NotifierSpy();
+        var monitor = Monitor(spy, threshold: 10, repeat: 5, enabled: false);
+
+        Run(monitor, Category.Unproductive, 40);
+
+        Assert.Empty(spy.Sent);
+    }
+
+    /// <summary>Re-enabling starts a fresh streak rather than resuming the old one.</summary>
+    [Fact]
+    public void DisablingMidStreakDropsTheStreak()
+    {
+        var spy = new NotifierSpy();
+        var settings = new DistractionSettings(true, 10, 0);
+        var monitor = new DistractionMonitor(spy, () => settings);
+
+        Run(monitor, Category.Unproductive, 9);
+        settings = new DistractionSettings(false, 10, 0);
+        monitor.Tick(Category.Unproductive); // would have been the tenth
+        settings = new DistractionSettings(true, 10, 0);
+        Run(monitor, Category.Unproductive, 9);
+
+        Assert.Empty(spy.Sent);
+    }
+
+    /// <summary>An admin lowering the threshold applies without a relaunch.</summary>
+    [Fact]
+    public void AThresholdChangeAppliesOnTheNextSample()
+    {
+        var spy = new NotifierSpy();
+        var settings = new DistractionSettings(true, 10, 0);
+        var monitor = new DistractionMonitor(spy, () => settings);
+
+        Run(monitor, Category.Unproductive, 5);
+        Assert.Empty(spy.Sent);
+
+        settings = new DistractionSettings(true, 6, 0);
+        monitor.Tick(Category.Unproductive); // the sixth sample, under the new threshold of six
+
+        Assert.Single(spy.Sent);
+    }
+
+    [Fact]
+    public void TheBodyReportsTheStreakLengthNotTheThreshold()
+    {
+        var spy = new NotifierSpy();
+        var monitor = Monitor(spy, threshold: 10, repeat: 5);
+
+        Run(monitor, Category.Unproductive, 15);
+
+        Assert.Equal(2, spy.Sent.Count);
+        Assert.Contains("10 min", spy.Sent[0].Body, StringComparison.Ordinal);
+        Assert.Contains("15 min", spy.Sent[1].Body, StringComparison.Ordinal); // not 10 again
+    }
+
+    /// <summary>A zero threshold would nudge on every sample; a negative repeat means nothing.</summary>
+    [Fact]
+    public void SettingsAreClampedToSaneValues()
+    {
+        var spy = new NotifierSpy();
+        var clamped = new DistractionSettings(true, 0, -3);
+
+        Assert.Equal(1, clamped.ThresholdMinutes);
+        Assert.Equal(0, clamped.RepeatMinutes);
+
+        var monitor = new DistractionMonitor(spy, () => clamped);
+        monitor.Tick(Category.Unproductive);
+
+        Assert.Single(spy.Sent);
+    }
+
+    [Fact]
+    public void StopResetsTheStreak()
+    {
+        var spy = new NotifierSpy();
+        var monitor = Monitor(spy, threshold: 10);
+
+        Run(monitor, Category.Unproductive, 9);
+        monitor.Stop();
+        Run(monitor, Category.Unproductive, 9);
+
+        Assert.Empty(spy.Sent); // rebuilt from zero, still short of ten
+    }
+
+    [Fact]
+    public void SettingsComeFromTheTeamPolicy()
+    {
+        var settings = DistractionSettings.From(new PolicySettings
+        {
+            DistractionAlertsEnabled = true,
+            DistractionThresholdMinutes = 7,
+            DistractionRepeatMinutes = 3,
+        });
+
+        Assert.Equal(new DistractionSettings(true, 7, 3), settings);
+        Assert.False(DistractionSettings.Off.Enabled);
+    }
+}
