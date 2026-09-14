@@ -1078,7 +1078,7 @@ public sealed class AppDelegate : IDisposable
         // already in flight when sign-out lands still reaches its catch and schedules one more —
         // which must not then run against the next person's launch.
         var scheduledFor = _session.UserId;
-        var timer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+        var timer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = retry.After,
         };
@@ -1143,6 +1143,8 @@ public sealed class AppDelegate : IDisposable
             return;
         }
 
+        // The once-per-schedule rule lives in PolicyResolutionRetry, not in the notifier's
+        // five-minute repeat window — a second caller of this id must not rely on that window.
         _notifier.Notify("not-tracking", "Time tracking", message);
     }
 
