@@ -57,6 +57,7 @@ public sealed class AppDelegate : IDisposable
     private PolicyClient _policyClient = null!;
     private AckClient _ackClient = null!;
     private ProjectClient _projectClient = null!;
+    private RecentSelectionClient _recentSelectionClient = null!;
     private ProjectCache _projectCache = null!;
     private SelfTotalsClient _totalsClient = null!;
     private SelectionStore _selectionStore = null!;
@@ -122,6 +123,10 @@ public sealed class AppDelegate : IDisposable
     // every attempt would reload the project picker under the person each time.
     private bool _hasBecomeReady;
 
+    // One fresh-install fallback per signed-in session — the store gate alone never closes for a
+    // person with no recent history, and would re-ask on every project refresh.
+    private bool _hasAttemptedRecentSelectionFallback;
+
     // Menu-open refreshes, rate-limited so clicking the tray icon repeatedly cannot hammer the API.
     // Totals are shorter: they are what the person opened the menu to look at, and they move
     // minute by minute while the clock runs.
@@ -153,6 +158,7 @@ public sealed class AppDelegate : IDisposable
         _policyClient = new PolicyClient(_http, _config.ApiBaseUri, _session);
         _ackClient = new AckClient(_http, _config.ApiBaseUri, _session);
         _projectClient = new ProjectClient(json);
+        _recentSelectionClient = new RecentSelectionClient(json);
         _totalsClient = new SelfTotalsClient(json);
 
         _ackMarker = new AckMarker(_settings);
@@ -850,6 +856,9 @@ public sealed class AppDelegate : IDisposable
         {
             var projects = await _projectClient.ListAsync(_shutdown.Token).ConfigureAwait(true);
             _projectCache.Save(projects);
+
+            // Before the restore below, so a recovered selection goes through the one normal path.
+            await TryRecentSelectionFallbackAsync().ConfigureAwait(true);
             _viewModel.Projects = projects;
             if (_session.UserId is { } userId)
             {
@@ -860,6 +869,39 @@ public sealed class AppDelegate : IDisposable
                                       or AuthException or OperationCanceledException)
         {
             // Keep whatever the cache gave us; an empty picker is worse than a stale one.
+        }
+    }
+
+    /// <summary>
+    /// Fresh-install fallback: nothing stored for this person (new laptop, reinstall), so ask the
+    /// server what they were last tracking against. Never overrides a local selection, runs at
+    /// most once per signed-in session, and a transient failure un-marks the attempt so a 429 or
+    /// a 503 does not burn it. The result is written to the store, so the restore that follows
+    /// resolves it against the project list like any other stored selection.
+    /// </summary>
+    private async Task TryRecentSelectionFallbackAsync()
+    {
+        if (_hasAttemptedRecentSelectionFallback
+            || _session.UserId is not { } userId
+            || _selectionStore.Load(userId) is not null)
+        {
+            return;
+        }
+
+        _hasAttemptedRecentSelectionFallback = true;
+        var outcome = await _recentSelectionClient.MostRecentSelectionAsync(_shutdown.Token).ConfigureAwait(true);
+
+        switch (outcome)
+        {
+            // Re-checked after the await: a sign-out and a different sign-in inside that round
+            // trip must not save one person's history under another's key.
+            case RecentSelectionOutcome.Found found when _session.UserId == userId:
+                _selectionStore.Save(found.Selection, userId);
+                break;
+
+            case RecentSelectionOutcome.TransientFailure:
+                _hasAttemptedRecentSelectionFallback = false;
+                break;
         }
     }
 
@@ -936,6 +978,7 @@ public sealed class AppDelegate : IDisposable
         CancelPolicyRetry();
         _policyRetry.Reset();
         _hasBecomeReady = false;
+        _hasAttemptedRecentSelectionFallback = false;
 
         // Capture comes down and SETTLES before anything drains. Stopping a scheduler does not
         // abort a cycle that is already inside a grab or a measurement window, and such a cycle

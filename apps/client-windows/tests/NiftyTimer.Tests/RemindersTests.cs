@@ -166,4 +166,14 @@ public class ReminderWiringTests
     [Fact]
     public void SignOutDismissesTheReminder() =>
         Assert.True(References("TearDownIdleDetection", nameof(NotTrackingReminder), nameof(NotTrackingReminder.DismissIfShowing)));
+
+    [Fact]
+    public void AProjectRefreshTriesTheFreshInstallFallback()
+    {
+        Assert.True(References("RefreshProjectsAsync", nameof(AppDelegate), "TryRecentSelectionFallbackAsync"));
+        Assert.True(References(
+            "TryRecentSelectionFallbackAsync",
+            nameof(RecentSelectionClient),
+            nameof(RecentSelectionClient.MostRecentSelectionAsync)));
+    }
 }
