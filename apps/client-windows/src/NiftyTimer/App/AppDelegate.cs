@@ -612,7 +612,7 @@ public sealed class AppDelegate : IDisposable
             _imageBuffer,
             settings.ScreenshotIntervalMinutes,
             isTracking: () => _tracker.State is TrackerState.Tracking,
-            onCaptured: () => OnUi(RefreshPendingCount));
+            onCaptured: OnScreenshotCaptured);
         _screenshotScheduler.Start();
     }
 
@@ -1350,6 +1350,18 @@ public sealed class AppDelegate : IDisposable
     /// </summary>
     private void OnActivityCategorized(Category category) =>
         OnUi(() => _distractionMonitor?.Tick(category));
+
+    /// <summary>
+    /// A screenshot was just taken. The tray flashes its lens, as the Mac flashes its camera: the
+    /// capture moment is surfaced, never silent (PRD §6.2). Arrives off the UI thread.
+    /// </summary>
+    private void OnScreenshotCaptured() => OnUi(ShowScreenshotTaken);
+
+    private void ShowScreenshotTaken()
+    {
+        _tray.FlashCapturing();
+        RefreshPendingCount();
+    }
 
     /// <summary>Auto mode's idle nudge. Advisory only — the away prompt is what changes the record.</summary>
     private void NotifyIdleThresholdCrossed(int seconds) =>
