@@ -186,6 +186,17 @@ public class LaunchResolutionWiringTests
             References(Body("ProceedOffline"), nameof(AppDelegate), "SchedulePolicyRetry"),
             "AppDelegate.ProceedOffline must not schedule the policy retry — its callers do.");
 
+    /// <summary>
+    /// BecomeReady runs once per session, so after an offline launch it ran from the cache. The
+    /// online branch must still fetch the project list when a later resolve succeeds, or the picker
+    /// keeps the cached list until relaunch.
+    /// </summary>
+    [Fact]
+    public void TheOnlineBranchFetchesProjects() =>
+        Assert.True(
+            References(Body("ProceedToPolicyAsync"), nameof(AppDelegate), "RefreshProjectsAsync"),
+            "AppDelegate.ProceedToPolicyAsync no longer fetches projects after an offline start.");
+
     /// <summary>Sign-out re-arms the schedule and its single warning for the next person.</summary>
     [Fact]
     public void SignOutResetsTheRetry() =>

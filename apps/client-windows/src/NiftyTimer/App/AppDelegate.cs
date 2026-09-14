@@ -439,6 +439,14 @@ public sealed class AppDelegate : IDisposable
             _ackMarker.Record(userId, policy.PolicyVersion);
         }
 
+        // After an offline launch BecomeReady has already run, from the cache, and runs once per
+        // session. A resolve that succeeds later is the first moment the server's project list is
+        // reachable, so fetch it here rather than keep the cached list until the next launch.
+        if (_hasBecomeReady)
+        {
+            _ = RefreshProjectsAsync();
+        }
+
         BecomeReady();
 
         // Deliberately OUTSIDE the AckGate: this launches the app at the next login and captures
