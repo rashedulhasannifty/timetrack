@@ -217,14 +217,21 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// What the global hotkey does: start if we can, stop if we are running, and otherwise do
-    /// nothing at all. Silence is the right answer for the third case — the hotkey fires from
-    /// whatever application has focus, so a person who pressed it before signing in should not be
-    /// interrupted by an error they did not ask for.
+    /// What the global hotkey does: resume if paused, stop if running, start if we can, and
+    /// otherwise do nothing at all. Silence is the right answer for the last case — the hotkey
+    /// fires from whatever application has focus, so a person who pressed it before signing in
+    /// should not be interrupted by an error they did not ask for.
+    ///
+    /// Paused resumes rather than stops, matching the macOS client: a pause is a break the person
+    /// means to come back from, and the one-key way back should not end the session instead.
     /// </summary>
     public void ToggleTracking()
     {
-        if (CanStop)
+        if (IsPaused)
+        {
+            Resume();
+        }
+        else if (IsTracking)
         {
             Stop();
         }

@@ -370,6 +370,59 @@ public class MenuViewModelTests
         Assert.True(vm.CanStop);
     }
 
+    [Fact]
+    public void TheHotkeyStartsWhenReady()
+    {
+        var vm = NewViewModel(out _);
+        vm.IsReady = true;
+
+        vm.ToggleTracking();
+
+        Assert.True(vm.IsTracking);
+    }
+
+    [Fact]
+    public void TheHotkeyStopsARunningClock()
+    {
+        var vm = NewViewModel(out _);
+        vm.IsReady = true;
+        vm.Start();
+
+        vm.ToggleTracking();
+
+        Assert.False(vm.IsTracking);
+        Assert.False(vm.IsPaused);
+    }
+
+    /// <summary>
+    /// A pause is a break the person means to come back from, so the hotkey resumes it — as on the
+    /// Mac. Treating paused as stoppable ended the session instead.
+    /// </summary>
+    [Fact]
+    public void TheHotkeyResumesAPausedSession()
+    {
+        var vm = NewViewModel(out _);
+        vm.IsReady = true;
+        vm.Start();
+        vm.Pause();
+
+        vm.ToggleTracking();
+
+        Assert.True(vm.IsTracking);
+        Assert.False(vm.IsPaused);
+    }
+
+    [Fact]
+    public void TheHotkeyDoesNothingBeforeReady()
+    {
+        var vm = NewViewModel(out var buffer);
+
+        vm.ToggleTracking();
+
+        Assert.False(vm.IsTracking);
+        Assert.Empty(buffer.Entries);
+    }
+
     /// <summary>
     /// The 409 rollback, from the user's side: the clock stops, they are told why, and the vague
     /// "not reaching the server" warning is cleared rather than shown alongside it.
