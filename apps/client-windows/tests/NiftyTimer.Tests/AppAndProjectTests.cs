@@ -625,6 +625,33 @@ public class MenuViewModelTests
 
         Assert.Equal(string.Empty, vm.Query);
     }
+
+    /// <summary>Sign-out puts the popup back on its signed-out panel.</summary>
+    [Fact]
+    public void ResetSignsOut()
+    {
+        var vm = NewViewModel(out _);
+        vm.IsSignedIn = true;
+
+        vm.Reset();
+
+        Assert.False(vm.IsSignedIn);
+    }
+
+    /// <summary>
+    /// Signed in and not ready is a real state — offline and never acknowledged — and it must not
+    /// read as signed out.
+    /// </summary>
+    [Fact]
+    public void SignedInAndReadinessAreIndependent()
+    {
+        var vm = NewViewModel(out _);
+
+        vm.IsSignedIn = true;
+
+        Assert.True(vm.IsSignedIn);
+        Assert.False(vm.IsReady);
+    }
 }
 
 public class WorkTotalFormatTests

@@ -15,7 +15,25 @@
             BorderThickness="1"
             CornerRadius="0"
             Padding="14">
-        <StackPanel>
+        <Grid>
+
+        <!-- Signed out: no My data, no Sign out — both belong to a session. Mirrors the macOS
+             dropdown's signed-out view. -->
+        <StackPanel x:Name="SignedOutPanel" Visibility="Collapsed">
+            <StackPanel Orientation="Horizontal">
+                <Ellipse Width="7" Height="7" Fill="{DynamicResource TextSecondary}" VerticalAlignment="Center" />
+                <TextBlock Text="Not signed in" Style="{StaticResource LabelText}"
+                           Foreground="{DynamicResource TextSecondary}" Margin="6,0,0,0" />
+            </StackPanel>
+            <TextBlock Text="Sign in to start tracking your time." Style="{StaticResource CaptionText}"
+                       TextWrapping="Wrap" Margin="0,8,0,12" />
+            <Button x:Name="SignInButton" Content="Sign in" Style="{StaticResource ProminentButton}"
+                    HorizontalAlignment="Stretch" Click="OnSignIn" />
+            <Button Content="Quit" Style="{StaticResource LinkButton}" HorizontalAlignment="Right"
+                    Margin="0,12,0,0" Click="OnQuit" />
+        </StackPanel>
+
+        <StackPanel x:Name="SignedInPanel">
 
             <TextBlock Text="Nifty Timer" Style="{StaticResource CaptionText}" />
             <TextBlock x:Name="ElapsedLabel" Style="{StaticResource ElapsedText}" Margin="0,2,0,0" />
@@ -144,5 +162,7 @@
             </Border>
 
         </StackPanel>
+
+        </Grid>
     </Border>
 </Window>

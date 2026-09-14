@@ -171,3 +171,91 @@ public class TrayPopupPickerTests
         Assert.Equal(Visibility.Collapsed, after);
     }
 }
+
+/// <summary>
+/// The popup when nobody is signed in: a Sign in button and Quit, and none of the session's
+/// controls. Mirrors the macOS dropdown's signed-out view.
+/// </summary>
+[Collection("wpf")]
+public class TrayPopupSignedOutTests
+{
+    private static T WithPopup<T>(bool signedIn, Func<TrayPopupWindow, T> body) =>
+        Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 9, 14, 9, 0, 0, TimeSpan.Zero));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+            var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
+            viewModel.IsSignedIn = signedIn;
+
+            try
+            {
+                return body(window);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+    private static (Visibility SignedOut, Visibility SignedIn) Panels(TrayPopupWindow window) => (
+        ((FrameworkElement)window.FindName("SignedOutPanel")).Visibility,
+        ((FrameworkElement)window.FindName("SignedInPanel")).Visibility);
+
+    [Fact]
+    public void SignedOutShowsOnlyTheSignInPanel()
+    {
+        var (signedOut, signedIn) = WithPopup(signedIn: false, Panels);
+
+        Assert.Equal(Visibility.Visible, signedOut);
+        Assert.Equal(Visibility.Collapsed, signedIn);
+    }
+
+    [Fact]
+    public void SignedInShowsOnlyTheSessionPanel()
+    {
+        var (signedOut, signedIn) = WithPopup(signedIn: true, Panels);
+
+        Assert.Equal(Visibility.Collapsed, signedOut);
+        Assert.Equal(Visibility.Visible, signedIn);
+    }
+
+    [Fact]
+    public void TheSignInButtonAsksForTheSignInWindow()
+    {
+        var asked = WithPopup(signedIn: false, window =>
+        {
+            var count = 0;
+            window.SignInRequested += () => count++;
+            ((Button)window.FindName("SignInButton")).RaiseEvent(
+                new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            return count;
+        });
+
+        Assert.Equal(1, asked);
+    }
+}
+
+/// <summary>The AppDelegate half of the signed-out panel, pinned with the shared IL scanner.</summary>
+public class SignInWiringTests
+{
+    /// <summary>
+    /// Both launch branches that find a stored session — online and offline — must mark it signed
+    /// in, or a signed-in person opens the popup to "Not signed in".
+    /// </summary>
+    [Fact]
+    public void TheLaunchMarksAStoredSessionSignedIn() =>
+        Assert.True(
+            LaunchResolutionWiringTests.References(
+                LaunchResolutionWiringTests.Body("BootstrapAsync"), nameof(MenuViewModel), "set_IsSignedIn"),
+            "AppDelegate.BootstrapAsync no longer marks a stored session as signed in.");
+
+    [Fact]
+    public void ThePopupsSignInButtonOpensTheSignInWindow() =>
+        Assert.True(
+            LaunchResolutionWiringTests.References(
+                LaunchResolutionWiringTests.Body("WireEvents"), nameof(AppDelegate), "ShowLogin"),
+            "AppDelegate.WireEvents no longer hands ShowLogin to the popup's Sign in button.");
+}

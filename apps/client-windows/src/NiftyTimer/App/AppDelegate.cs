@@ -305,6 +305,7 @@ public sealed class AppDelegate : IDisposable
         });
 
         _popup.SignOutRequested += () => _ = SignOutAsync();
+        _popup.SignInRequested += ShowLogin;
         _popup.UpdateRequested += () => _ = ApplyUpdateAsync();
         _popup.QuitRequested += () =>
         {
@@ -438,10 +439,13 @@ public sealed class AppDelegate : IDisposable
         switch (outcome)
         {
             case BootstrapOutcome.Authenticated:
+                _viewModel.IsSignedIn = true;
                 await ProceedToPolicyAsync().ConfigureAwait(true);
                 break;
 
             case BootstrapOutcome.Offline:
+                // Signed in, just unreachable: the popup must not claim otherwise.
+                _viewModel.IsSignedIn = true;
                 ProceedOffline();
 
                 // The refresh token is still ours; the API just could not be reached. Scheduled
@@ -824,7 +828,22 @@ public sealed class AppDelegate : IDisposable
     private LoginWindow CreateLoginWindow()
     {
         var window = new LoginWindow(_session, _config.ApiBaseUri);
-        window.SignedIn += () => _ = ProceedToPolicyAsync();
+        window.SignedIn += () =>
+        {
+            _viewModel.IsSignedIn = true;
+            _ = ProceedToPolicyAsync();
+        };
+
+        // A sign-in succeeds by HIDING the window, which is then reused. Closing it with the title
+        // bar's X really closes it, and a closed WPF window throws if shown again — so forget it,
+        // and the popup's Sign in button builds a fresh one.
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_login, window))
+            {
+                _login = null;
+            }
+        };
         return window;
     }
 

@@ -25,6 +25,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     private readonly Func<DateTimeOffset> _clock;
 
     private bool _isReady;
+    private bool _isSignedIn;
     private string? _userId;
     private IReadOnlyList<Project> _projects = [];
     private StoredSelection? _selection;
@@ -71,6 +72,20 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     {
         get => _isReady;
         set => Set(ref _isReady, value, [nameof(CanStart), nameof(CanStop)]);
+    }
+
+    /// <summary>
+    /// Someone is signed in on this machine, whether or not they can track yet. Drives the popup's
+    /// signed-out panel, as on macOS.
+    ///
+    /// Kept apart from <see cref="IsReady"/> on purpose: a signed-in person who is offline and has
+    /// never acknowledged is not ready, and offering them "Not signed in" and a Sign in button
+    /// would be telling them something false.
+    /// </summary>
+    public bool IsSignedIn
+    {
+        get => _isSignedIn;
+        set => Set(ref _isSignedIn, value);
     }
 
     public string? UserId
@@ -470,6 +485,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public void Reset()
     {
         IsReady = false;
+        IsSignedIn = false;
         UserId = null;
         Projects = [];
         Selection = null;

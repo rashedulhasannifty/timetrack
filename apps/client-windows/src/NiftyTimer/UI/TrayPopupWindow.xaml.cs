@@ -54,6 +54,9 @@ public partial class TrayPopupWindow : Window
     /// <summary>The user asked to quit the app.</summary>
     public event Action? QuitRequested;
 
+    /// <summary>Nobody is signed in and the person asked to.</summary>
+    public event Action? SignInRequested;
+
     /// <summary>
     /// The person asked to apply a pending update. Advisory throughout: an update is never
     /// applied without this, and declining it costs nothing but staying on the old build.
@@ -128,6 +131,9 @@ public partial class TrayPopupWindow : Window
         _suppressCallbacks = true;
         try
         {
+            SignedOutPanel.Visibility = _viewModel.IsSignedIn ? Visibility.Collapsed : Visibility.Visible;
+            SignedInPanel.Visibility = _viewModel.IsSignedIn ? Visibility.Visible : Visibility.Collapsed;
+
             ElapsedLabel.Text = _viewModel.ElapsedLabel;
             StatusLabel.Text = StatusText();
 
@@ -289,6 +295,12 @@ public partial class TrayPopupWindow : Window
     {
         Hide();
         QuitRequested?.Invoke();
+    }
+
+    private void OnSignIn(object sender, RoutedEventArgs e)
+    {
+        Hide();
+        SignInRequested?.Invoke();
     }
 
     private void OnUpdate(object sender, RoutedEventArgs e)
