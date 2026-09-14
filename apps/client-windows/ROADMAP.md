@@ -306,6 +306,44 @@ stays open.
 
 ---
 
+## 🚧 S5 — parity with the macOS client (in progress)
+
+The goal is one-to-one behaviour with the Mac client. On 2026-09-14 every Swift source file was
+compared with its Windows counterpart. This table is the resulting gap list, in the order the gaps
+are being closed, one PR per group.
+
+| #           | Gap                                                                                                                                                                                   | State                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| 1           | Retry the launch policy fetch: 30s doubling to 300s, one warning after 3 failures, and retry on wake                                                                                  | ✅ PR 1. The warning is a tray balloon until #4's window exists                        |
+| 3           | Auto-mode idle nudge ("Idle for N min — still working?")                                                                                                                              | ✅ PR 1                                                                                |
+| 10          | The hotkey resumes a paused session instead of stopping it                                                                                                                            | ✅ PR 1                                                                                |
+| 11          | Sign-out keeps the saved project for that user                                                                                                                                        | ✅ PR 1                                                                                |
+| 2           | Distraction nudge (`DistractionMonitor` plus a fallback card)                                                                                                                         | ⬜ PR 2                                                                                |
+| 18          | Distraction line in the end-of-day summary                                                                                                                                            | ⬜ Deferred. Needs a local-day tally, which is why `DailyTotalAccumulator` was deleted |
+| 8, 9        | Totals that tick live; projects, totals and pending count refresh when the menu opens                                                                                                 | ⬜ PR 3                                                                                |
+| 4           | Auto-mode forgot-to-start reminder window with a "Start tracking" button                                                                                                              | ⬜ PR 4                                                                                |
+| 5, 7, 12–17 | Capture flash, signed-out popup, tray warning tooltip, update row, substring project search, acknowledgement checkbox and cards, fresh-install project fallback, show-password toggle | ⬜ PR 4 (UI)                                                                           |
+| 6           | Browser-site categorization                                                                                                                                                           | ❌ Not planned. See "Known gaps"                                                       |
+
+**Decisions taken in PR 1, with reasons. Do not reverse them without a replacement:**
+
+- **The retry is scheduled by `ProceedOffline`'s callers, never inside it.** The retry re-enters the
+  online branch, which re-fetches the policy before anything is installed. Scheduling it from
+  `ProceedOffline` would give the offline branch a path to the installers, which is exactly what
+  `OfflineCaptureUnreachableTests` forbids. `LaunchResolutionWiringTests` pins this.
+- **The retry timer checks the signed-in user when it fires.** A retry scheduled for one person
+  never runs against the next person's launch.
+- **A wake retries only while a retry is pending.** An unanswered acknowledgement window is also
+  "unresolved", and re-entering the policy branch then would open a second one on top of it.
+- **`BecomeReady` runs once per signed-in session.** Every retry passes back through
+  `ProceedToPolicyAsync`, and re-running `BecomeReady` each time would reload the project picker
+  while the person is using it.
+- **Wake comes from `WM_POWERBROADCAST` on a separate `MessageWindow` (`WakeWatcher`).** It does
+  not use `SessionObserver`, which is gated behind the acknowledgement and so is the very thing
+  being retried. It does not use `SystemEvents`, which raises its callbacks on another thread.
+
+---
+
 ## Invariants — a build that breaks one of these does not ship
 
 From CLAUDE.md §1 and PRD §3/§4. The [README's "Things that will bite you"](./README.md) covers the
