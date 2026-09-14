@@ -117,3 +117,37 @@ public class RecentSelectionTests
     public void NoHistoryMeansNothingToRestore() =>
         Assert.Null(RecentSelectionClient.NewestSelection([]));
 }
+
+public class TrayTooltipTests
+{
+    [Fact]
+    public void SaysWhetherTheClockIsRunning()
+    {
+        Assert.Equal("Nifty Timer — tracking 0:12:00", TrayTooltip.For(true, "0:12:00", false, false));
+        Assert.Equal("Nifty Timer — not tracking", TrayTooltip.For(false, "0:00:00", false, false));
+    }
+
+    [Fact]
+    public void AnOverdueUpdateIsMarked()
+    {
+        var tooltip = TrayTooltip.For(false, "0:00:00", liveSyncBlocked: false, updateOverdue: true);
+
+        Assert.StartsWith("⚠", tooltip, StringComparison.Ordinal);
+        Assert.Contains("update", tooltip, StringComparison.Ordinal);
+    }
+
+    /// <summary>Time not reaching the server outranks an advisory update.</summary>
+    [Fact]
+    public void ABlockedLiveEntryOutranksTheUpdate()
+    {
+        var tooltip = TrayTooltip.For(true, "0:12:00", liveSyncBlocked: true, updateOverdue: true);
+
+        Assert.Contains("server", tooltip, StringComparison.Ordinal);
+        Assert.DoesNotContain("update", tooltip, StringComparison.Ordinal);
+    }
+
+    /// <summary>Shell_NotifyIcon keeps 127 characters; the warning must survive intact.</summary>
+    [Fact]
+    public void TheLongestTooltipFitsTheShellLimit() =>
+        Assert.True(TrayTooltip.For(true, "123:59:59", liveSyncBlocked: true, updateOverdue: true).Length <= 127);
+}
