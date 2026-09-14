@@ -124,7 +124,9 @@ export default async function ProjectsPage({
               {view.rows.length} {view.rows.length === 1 ? 'project' : 'projects'} ·{' '}
               {formatDuration(view.totalSeconds)} this period
             </span>
-            <div className="flex flex-wrap items-center gap-2.5">
+            {/* items-end, not items-center: the range picker carries labels above its inputs, so
+                centering put the button level with the label-plus-input block, not the inputs. */}
+            <div className="flex flex-wrap items-end gap-2.5">
               <ReportRangePicker from={from} to={to} basePath="/projects" />
               <Link href={toggleHref} className={buttonClasses('secondary', 'sm')}>
                 {includeArchived ? 'Hide archived' : 'Show archived'}
