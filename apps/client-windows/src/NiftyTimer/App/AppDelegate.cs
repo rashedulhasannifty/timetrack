@@ -883,10 +883,12 @@ public sealed class AppDelegate : IDisposable
         _projectCache.Clear();
         _liveSpanStore.Clear();
 
+        // The saved project selection is deliberately KEPT, as on the Mac. It is namespaced by
+        // userId, so the next person on this machine cannot read it, and the same person signing
+        // back in gets their project back rather than re-picking it.
         if (userId is not null)
         {
             _ackMarker.Clear(userId);
-            _selectionStore.Clear(userId);
         }
 
         _session.Logout();

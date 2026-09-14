@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Interop;
 using NiftyTimer.App;
 using NiftyTimer.Policy;
+using NiftyTimer.Projects;
 using NiftyTimer.Sync;
 using Xunit;
 
@@ -191,6 +192,17 @@ public class LaunchResolutionWiringTests
         Assert.True(
             References(Body("SignOutAsync"), nameof(PolicyResolutionRetry), nameof(PolicyResolutionRetry.Reset)),
             "AppDelegate.SignOutAsync no longer resets the launch retry.");
+
+    /// <summary>
+    /// The saved project selection is namespaced by user, so it outlives a sign-out on purpose: the
+    /// same person signing back in gets their project back, as on the Mac. Clearing it on sign-out
+    /// was the Windows-only regression.
+    /// </summary>
+    [Fact]
+    public void SignOutKeepsTheSavedSelection() =>
+        Assert.False(
+            References(Body("SignOutAsync"), nameof(SelectionStore), nameof(SelectionStore.Clear)),
+            "AppDelegate.SignOutAsync clears the saved project selection again.");
 
     /// <summary>
     /// The IL walk must be able to resolve SOMETHING, or every negative assertion above passes for
