@@ -336,7 +336,7 @@ public class TrayPopupUpdateRowTests
     }
 }
 
-public class UpdateWiringTests
+public class UpdateLinkWiringTests
 {
     [Fact]
     public void TheReleasesPageIsTheRepositorysLatestRelease() =>
