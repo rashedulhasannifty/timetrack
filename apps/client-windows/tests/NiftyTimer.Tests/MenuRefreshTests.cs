@@ -1,0 +1,132 @@
+using NiftyTimer.App;
+using NiftyTimer.Projects;
+using NiftyTimer.Reports;
+using NiftyTimer.Tests.Support;
+using NiftyTimer.Tracking;
+using Xunit;
+
+namespace NiftyTimer.Tests;
+
+/// <summary>
+/// The dropdown's Today / This week / This month figures, live while the clock runs. Ported from
+/// the macOS client's <c>MenuViewModel.liveTotal</c>.
+/// </summary>
+public class LiveTotalsTests
+{
+    private static readonly DateTimeOffset T0 = new(2026, 8, 25, 9, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void AStoppedClockAddsNothing() =>
+        Assert.Equal(3600, MenuViewModel.LiveTotal(3600, runningSince: null, fetchedAt: T0, now: T0.AddMinutes(30)));
+
+    /// <summary>The fetched figure already counts the session up to the fetch; count only the rest.</summary>
+    [Fact]
+    public void ASessionRunningAtTheFetchCountsOnlyTheTimeSince() =>
+        Assert.Equal(3600 + 1200, MenuViewModel.LiveTotal(3600, T0, T0.AddMinutes(10), T0.AddMinutes(30)));
+
+    /// <summary>A session that began after the fetch counts from its own start, not the fetch.</summary>
+    [Fact]
+    public void ASessionStartedAfterTheFetchCountsFromItsStart() =>
+        Assert.Equal(3600 + 600, MenuViewModel.LiveTotal(3600, T0.AddMinutes(20), T0, T0.AddMinutes(30)));
+
+    [Fact]
+    public void NoFetchYetMeansNoIncrement() =>
+        Assert.Equal(3600, MenuViewModel.LiveTotal(3600, T0, fetchedAt: null, now: T0.AddMinutes(30)));
+
+    [Fact]
+    public void AClockThatWentBackwardsNeverSubtracts() =>
+        Assert.Equal(3600, MenuViewModel.LiveTotal(3600, T0, T0.AddMinutes(10), T0.AddMinutes(5)));
+
+    [Fact]
+    public void TheLabelsMoveWhileTheClockRuns()
+    {
+        var rig = Rig.Build();
+        rig.ViewModel.Start();
+        rig.Now = T0.AddMinutes(10);
+        rig.ViewModel.Totals = Totals(3600);
+
+        rig.Now = T0.AddMinutes(40);
+
+        Assert.Equal("1h 30m", rig.ViewModel.TodayLabel);
+        Assert.Equal("1h 30m", rig.ViewModel.WeekLabel);
+        Assert.Equal("1h 30m", rig.ViewModel.MonthLabel);
+    }
+
+    /// <summary>
+    /// Stopping ends the increment, so the figures drop back to the last fetch until fresh ones
+    /// arrive — which is why stopping asks for them.
+    /// </summary>
+    [Fact]
+    public void StoppingEndsTheIncrementAndAsksForFreshTotals()
+    {
+        var rig = Rig.Build();
+        rig.ViewModel.Start();
+        rig.ViewModel.Totals = Totals(3600);
+        rig.Now = T0.AddMinutes(30);
+
+        rig.ViewModel.Stop();
+
+        Assert.Equal(1, rig.StoppedCount);
+        Assert.Equal("1h 0m", rig.ViewModel.TodayLabel);
+    }
+
+    [Fact]
+    public void PausingAlsoAsksForFreshTotals()
+    {
+        var rig = Rig.Build();
+        rig.ViewModel.Start();
+
+        rig.ViewModel.Pause();
+
+        Assert.Equal(1, rig.StoppedCount);
+    }
+
+    /// <summary>A project switch closes and reopens the span, but the clock never stops.</summary>
+    [Fact]
+    public void StartingAndSwitchingProjectsDoNotAskForTotals()
+    {
+        var rig = Rig.Build();
+        rig.ViewModel.Projects = [new Project("p1", "team", "One", false, null), new Project("p2", "team", "Two", false, null)];
+
+        rig.ViewModel.Start();
+        rig.ViewModel.SelectProject("p2", null);
+
+        Assert.Equal(0, rig.StoppedCount);
+    }
+
+    [Fact]
+    public void TheOneSecondTickRedrawsTheTotals()
+    {
+        var rig = Rig.Build();
+        var raised = new List<string?>();
+        rig.ViewModel.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        rig.ViewModel.Tick();
+
+        Assert.Contains(nameof(MenuViewModel.TodayLabel), raised);
+    }
+
+    private static SelfTotals Totals(int seconds) =>
+        new("2026-08-25", "2026-08-24", "2026-08-01", seconds, seconds, seconds);
+
+    private sealed class Rig
+    {
+        public DateTimeOffset Now = T0;
+
+        public MenuViewModel ViewModel { get; private set; } = null!;
+
+        public int StoppedCount { get; private set; }
+
+        public static Rig Build()
+        {
+            var rig = new Rig();
+            var tracker = new TimeTracker(new BufferSpy(), () => rig.Now);
+            rig.ViewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()), () => rig.Now)
+            {
+                IsReady = true,
+            };
+            rig.ViewModel.TrackingStopped += () => rig.StoppedCount++;
+            return rig;
+        }
+    }
+}
