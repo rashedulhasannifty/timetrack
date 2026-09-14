@@ -61,12 +61,16 @@ describe('ProjectDetailSchema', () => {
 });
 
 describe('ProjectColor + color fields', () => {
-  it('ProjectColorSchema accepts a palette value and rejects a non-palette hex', () => {
+  it('ProjectColorSchema accepts any #rrggbb, lowercased, and rejects anything else', () => {
     expect(ProjectColorSchema.parse(PROJECT_PALETTE[0])).toBe(PROJECT_PALETTE[0]);
-    expect(() => ProjectColorSchema.parse('#123456')).toThrow();
+    expect(ProjectColorSchema.parse('#123456')).toBe('#123456');
+    expect(ProjectColorSchema.parse('#A1B2C3')).toBe('#a1b2c3');
+    for (const bad of ['#12345', '#1234567', '123456', 'red', '#12345g', '']) {
+      expect(() => ProjectColorSchema.parse(bad)).toThrow();
+    }
   });
 
-  it('CreateProjectSchema requires a palette color', () => {
+  it('CreateProjectSchema requires a color', () => {
     const base = { teamId: '018f9c1e-0000-7000-8000-000000000001', name: 'Website' };
     expect(() => CreateProjectSchema.parse(base)).toThrow(); // missing color
     expect(CreateProjectSchema.parse({ ...base, color: PROJECT_PALETTE[1] }).color).toBe(
