@@ -6,6 +6,9 @@ using NiftyTimer.Tracking;
 
 namespace NiftyTimer.App;
 
+/// <summary>One row in the project picker: a project on its own, or one of its tasks.</summary>
+public sealed record PickerChoice(string ProjectId, string? TaskId, string ProjectName, string? TaskName);
+
 /// <summary>
 /// What the tray dropdown shows and what it can do. UI-thread-only.
 ///
@@ -32,6 +35,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     private bool _updateOverdue;
     private string? _notice;
     private string _note = string.Empty;
+    private string _query = string.Empty;
     private DateTimeOffset? _displayStart;
     private DateTimeOffset? _totalsFetchedAt;
     private bool _wasTracking;
@@ -78,7 +82,57 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public IReadOnlyList<Project> Projects
     {
         get => _projects;
-        set => Set(ref _projects, value);
+        set => Set(ref _projects, value, [nameof(Choices), nameof(FilteredChoices)]);
+    }
+
+    /// <summary>
+    /// What the person has typed into the picker's search field. Kept here rather than in the
+    /// popup so it survives the popup hiding and showing, as the macOS dropdown's does, and so the
+    /// filter is testable without a window.
+    /// </summary>
+    public string Query
+    {
+        get => _query;
+        set => Set(ref _query, value ?? string.Empty, [nameof(FilteredChoices)]);
+    }
+
+    /// <summary>Every row the picker can offer: each project, then each of its tasks.</summary>
+    public IReadOnlyList<PickerChoice> Choices => ChoicesFor(_projects);
+
+    /// <summary>The rows matching <see cref="Query"/>. See <see cref="Filter"/>.</summary>
+    public IReadOnlyList<PickerChoice> FilteredChoices => Filter(Choices, _query);
+
+    /// <summary>
+    /// A row matches when the query appears ANYWHERE in its project or task name, ignoring case —
+    /// the macOS client's rule. The combo box this replaced only matched a prefix of the whole
+    /// label, so "design" could not find "Website · Design review" at all.
+    /// </summary>
+    public static IReadOnlyList<PickerChoice> Filter(IReadOnlyList<PickerChoice> choices, string query)
+    {
+        if (string.IsNullOrEmpty(query))
+        {
+            return choices;
+        }
+
+        return choices
+            .Where(c => c.ProjectName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                        || (c.TaskName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false))
+            .ToList();
+    }
+
+    private static List<PickerChoice> ChoicesFor(IReadOnlyList<Project> projects)
+    {
+        var choices = new List<PickerChoice>();
+        foreach (var project in projects)
+        {
+            choices.Add(new PickerChoice(project.Id, null, project.Name, null));
+            foreach (var task in project.Tasks ?? [])
+            {
+                choices.Add(new PickerChoice(project.Id, task.Id, project.Name, task.Name));
+            }
+        }
+
+        return choices;
     }
 
     public StoredSelection? Selection
@@ -424,6 +478,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         LiveSyncBlocked = false;
         Notice = null;
         Note = string.Empty;
+        Query = string.Empty;
         _displayStart = null;
         RaiseTrackingState();
     }

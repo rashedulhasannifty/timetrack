@@ -30,14 +30,58 @@
                        Visibility="Collapsed"
                        Margin="0,0,0,10" />
 
-            <TextBlock Text="Project" Style="{StaticResource CaptionText}" />
-            <ComboBox x:Name="ProjectPicker"
-                      IsEditable="True"
-                      IsTextSearchEnabled="True"
-                      StaysOpenOnEdit="True"
-                      DisplayMemberPath="Label"
-                      SelectionChanged="OnProjectSelected"
-                      Margin="0,2,0,10" />
+            <TextBlock Text="Switch project" Style="{StaticResource CaptionText}" />
+            <Grid Margin="0,2,0,6">
+                <TextBox x:Name="SearchBox"
+                         TextChanged="OnQueryChanged"
+                         AutomationProperties.Name="Search projects and tasks" />
+                <!-- WPF's TextBox has no placeholder. Hit-test-invisible so a click lands in the
+                     field underneath. -->
+                <TextBlock x:Name="SearchHint"
+                           Text="Search projects and tasks"
+                           Style="{StaticResource CaptionText}"
+                           IsHitTestVisible="False"
+                           VerticalAlignment="Center"
+                           Margin="10,0,0,0" />
+            </Grid>
+            <!-- MaxHeight rather than a fixed height: a short list lets the popup shrink, and a long
+                 one scrolls instead of pushing the footer off the screen. -->
+            <ListBox x:Name="ProjectList"
+                     MaxHeight="220"
+                     SelectionChanged="OnProjectSelected"
+                     AutomationProperties.Name="Projects and tasks"
+                     Margin="0,0,0,10">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{Binding ProjectName}" Style="{StaticResource LabelText}" />
+                                <TextBlock x:Name="TaskLine"
+                                           Text="{Binding TaskName}"
+                                           Style="{StaticResource CaptionText}" />
+                            </StackPanel>
+                            <TextBlock x:Name="Check"
+                                       Grid.Column="1"
+                                       Text="✓"
+                                       Foreground="{DynamicResource Accent}"
+                                       VerticalAlignment="Center"
+                                       Visibility="Collapsed" />
+                        </Grid>
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding TaskName}" Value="{x:Null}">
+                                <Setter TargetName="TaskLine" Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
 
             <TextBlock Text="Note" Style="{StaticResource CaptionText}" />
             <TextBox x:Name="NoteBox"

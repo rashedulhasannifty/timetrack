@@ -91,3 +91,83 @@ public class TrayPopupWindowPositionTests
         Assert.Equal(windowHeight, borderHeight, precision: 3);
     }
 }
+
+/// <summary>
+/// The picker as the person uses it: typing into the real search field filters the real list,
+/// and picking a row reaches the view model. Driven headlessly on the shared WPF thread; the
+/// window is constructed but never shown.
+/// </summary>
+[Collection("wpf")]
+public class TrayPopupPickerTests
+{
+    private static readonly Project Website = new(
+        "p1", "team", "Website", false, [new ProjectTask("t1", "p1", "Design review")]);
+
+    private static readonly Project Billing = new("p2", "team", "Billing", false, null);
+
+    private static T WithPopup<T>(Func<MenuViewModel, TrayPopupWindow, T> body) =>
+        Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 9, 14, 9, 0, 0, TimeSpan.Zero));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()))
+            {
+                Projects = [Website, Billing],
+            };
+            var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
+
+            try
+            {
+                return body(viewModel, window);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+    [Fact]
+    public void TypingInTheSearchFieldFiltersTheListBySubstring()
+    {
+        var (query, shown) = WithPopup((vm, window) =>
+        {
+            ((TextBox)window.FindName("SearchBox")).Text = "design";
+            var list = (ListBox)window.FindName("ProjectList");
+            return (vm.Query, list.Items.Cast<PickerChoice>().ToList());
+        });
+
+        Assert.Equal("design", query);
+        Assert.Equal("t1", Assert.Single(shown).TaskId);
+    }
+
+    [Fact]
+    public void PickingARowSelectsItsProjectAndTask()
+    {
+        var selection = WithPopup((vm, window) =>
+        {
+            var list = (ListBox)window.FindName("ProjectList");
+            list.SelectedItem = list.Items.Cast<PickerChoice>().Single(c => c.TaskId == "t1");
+            return vm.Selection;
+        });
+
+        Assert.Equal(new StoredSelection("p1", "t1"), selection);
+    }
+
+    /// <summary>The hint is the field's only label, so it must go the moment anything is typed.</summary>
+    [Fact]
+    public void ThePlaceholderHidesOnceSomethingIsTyped()
+    {
+        var (before, after) = WithPopup((_, window) =>
+        {
+            var hint = (TextBlock)window.FindName("SearchHint");
+            var first = hint.Visibility;
+            ((TextBox)window.FindName("SearchBox")).Text = "b";
+            return (first, hint.Visibility);
+        });
+
+        Assert.Equal(Visibility.Visible, before);
+        Assert.Equal(Visibility.Collapsed, after);
+    }
+}
