@@ -51,7 +51,9 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    # quay.io, not Docker Hub: MinIO's Docker Hub repos are gone, and a pull of them fails the
+    # whole `compose pull` — which is what stalled every deploy from 2026-09-13.
+    image: quay.io/minio/minio:latest
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -69,7 +71,7 @@ services:
   # One-shot: create the screenshots bucket before any app boots. Idempotent — safe on every
   # `up`. Without this the first screenshot upload fails with NoSuchBucket on a fresh volume.
   createbuckets:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     depends_on:
       minio: { condition: service_healthy }
     entrypoint:
