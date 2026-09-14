@@ -20,6 +20,7 @@ describe('ProjectDetailSchema', () => {
       from: '2026-07-13T00:00:00.000Z',
       to: '2026-07-19T23:59:59.999Z',
       projectId: '018f9c1e-0000-7000-8000-000000000001',
+      teamId: '018f9c1e-0000-7000-8000-0000000000c1',
       name: 'Website',
       color: '#007aff',
       archived: false,

@@ -14,13 +14,14 @@ import { ProjectRecolor } from '../../../../components/projects/ProjectRecolor';
 import { ProjectArchiveToggle } from '../../../../components/projects/ProjectArchiveToggle';
 import { NewTaskForm } from '../../../../components/projects/NewTaskForm';
 import { TaskArchiveToggle } from '../../../../components/projects/TaskArchiveToggle';
+import { ProjectTeamMove } from '../../../../components/projects/ProjectTeamMove';
 import { getSession } from '../../../../lib/session';
 import { api, ApiError } from '../../../../lib/api-client';
 import { defaultReportRange } from '../../../../lib/reports-view';
 import { toTrendBars, toMemberBars, toTaskBars } from '../../../../lib/project-detail-view';
 import { projectColor } from '../../../../lib/project-color';
 import { formatDuration } from '../../../../lib/format';
-import type { ProjectDetail, Task, ProjectTopApps } from '@timetrack/contracts';
+import type { ProjectDetail, Task, ProjectTopApps, TeamListItem } from '@timetrack/contracts';
 
 // Next 16 — params and searchParams are async. Detail hours come from /projects/:id/detail
 // (MANAGER/ADMIN, own-team); 404 → not-found, 403 → not-permitted, mirroring the reports pages.
@@ -87,6 +88,12 @@ export default async function ProjectDetailPage({
   }
   const topAppsMax = topApps ? Math.max(1, ...topApps.apps.map((a) => a.trackedSeconds)) : 0;
 
+  // ADMIN-only "move to team" options. Degradeable: a team-list hiccup hides the control.
+  const teams: TeamListItem[] =
+    detail && session.role === 'ADMIN'
+      ? await api.listTeams(session.accessToken).catch((): TeamListItem[] => [])
+      : [];
+
   return (
     <>
       <SetPageTitle
@@ -138,6 +145,12 @@ export default async function ProjectDetailPage({
           <div className="border-separator mb-6 flex flex-wrap items-center gap-4 border-b pb-4">
             <ProjectRecolor id={detail.projectId} color={detail.color} />
             <ProjectArchiveToggle id={detail.projectId} archived={detail.archived} />
+            <ProjectTeamMove
+              id={detail.projectId}
+              projectName={detail.name}
+              teamId={detail.teamId}
+              teams={teams}
+            />
           </div>
 
           <div className="mb-6">

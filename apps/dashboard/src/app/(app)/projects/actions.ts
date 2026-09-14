@@ -106,6 +106,35 @@ export async function recolorProjectAction(
   }
 }
 
+/**
+ * Move a project to another team. ADMIN only — the API 403s a MANAGER moving a project across
+ * teams, so a MANAGER is refused here rather than after a round trip. Hours already tracked stay
+ * with the team whose people tracked them; the move changes who can pick and administer it.
+ */
+export async function moveProjectAction(
+  _prev: ProjectActionState,
+  formData: FormData,
+): Promise<ProjectActionState> {
+  const session = await getSession();
+  if (!session || session.role !== 'ADMIN') return { ok: false, message: 'Not authorized.' };
+
+  const rawId = formData.get('id');
+  const id = typeof rawId === 'string' ? rawId : '';
+  const parsed = UpdateProjectSchema.safeParse({ teamId: formData.get('teamId') });
+  if (!id || !parsed.success || parsed.data.teamId === undefined) {
+    return { ok: false, message: 'Pick a team.' };
+  }
+
+  try {
+    await api.moveProject(session.accessToken, id, parsed.data.teamId);
+    revalidatePath('/projects');
+    revalidatePath(`/projects/${id}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof ApiError ? e.message : 'Move failed.' };
+  }
+}
+
 export async function createTaskAction(
   _prev: ProjectActionState,
   formData: FormData,

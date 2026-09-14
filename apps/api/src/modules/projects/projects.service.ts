@@ -124,6 +124,7 @@ export class ProjectsService {
       from: query.from,
       to: query.to,
       projectId: id,
+      teamId: project.teamId,
       name: project.name,
       color: project.color,
       archived: project.archived,
