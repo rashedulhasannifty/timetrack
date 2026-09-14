@@ -84,3 +84,36 @@ public class AutoModeReminderTests
         Assert.Equal("manual-idle", Assert.Single(spy.Sent).Id);
     }
 }
+
+public class RecentSelectionTests
+{
+    [Fact]
+    public void PicksTheNewestEntryThatNamesAProject()
+    {
+        var selection = RecentSelectionClient.NewestSelection(
+        [
+            new RecentEntryRow("2026-08-20T09:00:00.000Z", "p-old", "t-old"),
+            new RecentEntryRow("2026-08-24T09:00:00.000Z", "p-new", "t-new"),
+            new RecentEntryRow("2026-08-22T09:00:00.000Z", "p-mid", null),
+        ]);
+
+        Assert.Equal(new StoredSelection("p-new", "t-new"), selection);
+    }
+
+    /// <summary>Time tracked against no project says nothing about which project to restore.</summary>
+    [Fact]
+    public void SkipsEntriesWithoutAProject()
+    {
+        var selection = RecentSelectionClient.NewestSelection(
+        [
+            new RecentEntryRow("2026-08-24T09:00:00.000Z", null, null),
+            new RecentEntryRow("2026-08-20T09:00:00.000Z", "p1", null),
+        ]);
+
+        Assert.Equal(new StoredSelection("p1", null), selection);
+    }
+
+    [Fact]
+    public void NoHistoryMeansNothingToRestore() =>
+        Assert.Null(RecentSelectionClient.NewestSelection([]));
+}
