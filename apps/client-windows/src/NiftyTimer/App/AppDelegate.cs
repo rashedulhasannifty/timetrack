@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Threading;
@@ -619,6 +620,7 @@ public sealed class AppDelegate : IDisposable
                 thresholdSeconds,
                 currentSelection: () => _viewModel.SelectionForAuto,
                 presentAwayPrompt: (minutes, resolve) => _awayPrompt.PresentAway(minutes, resolve),
+                onIdleThresholdCrossed: NotifyIdleThresholdCrossed,
                 onTrackingStateChanged: () => _viewModel.RefreshFromTracker());
             _autoCoordinator = auto;
             receiver = new FanOutSignalReceiver(auto, manual);
@@ -1135,6 +1137,13 @@ public sealed class AppDelegate : IDisposable
 
         _notifier.Notify("not-tracking", "Time tracking", message);
     }
+
+    /// <summary>Auto mode's idle nudge. Advisory only — the away prompt is what changes the record.</summary>
+    private void NotifyIdleThresholdCrossed(int seconds) =>
+        _notifier.Notify("idle-nudge", "Time tracking", IdleNudgeBody(seconds));
+
+    internal static string IdleNudgeBody(int seconds) =>
+        string.Create(CultureInfo.InvariantCulture, $"Idle for {AwayMinutes.Of(seconds)} min — still working?");
 
     private static void OnUi(Action action)
     {

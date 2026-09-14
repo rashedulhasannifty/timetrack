@@ -205,6 +205,22 @@ public class LaunchResolutionWiringTests
             "AppDelegate.SignOutAsync clears the saved project selection again.");
 
     /// <summary>
+    /// Auto mode's "Idle for N min — still working?" nudge. The coordinator has always raised the
+    /// callback; the only construction of it never passed one, so it never fired.
+    /// </summary>
+    [Fact]
+    public void AutoModeWiresTheIdleNudge() =>
+        Assert.True(
+            References(Body("InstallIdleDetection"), nameof(AppDelegate), "NotifyIdleThresholdCrossed"),
+            "AppDelegate.InstallIdleDetection no longer hands the idle-nudge callback to the auto coordinator.");
+
+    [Theory]
+    [InlineData(300, "Idle for 5 min — still working?")]
+    [InlineData(20, "Idle for 1 min — still working?")]
+    public void TheIdleNudgeSaysHowLong(int seconds, string expected) =>
+        Assert.Equal(expected, AppDelegate.IdleNudgeBody(seconds));
+
+    /// <summary>
     /// The IL walk must be able to resolve SOMETHING, or every negative assertion above passes for
     /// the wrong reason on any change that breaks token resolution.
     /// </summary>
