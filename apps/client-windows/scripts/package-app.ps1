@@ -74,7 +74,12 @@ $settings | ConvertTo-Json -Depth 4 | Set-Content -Path $settingsPath -Encoding 
 
 # By explicit name, not a glob. The tray icon is the always-visible indicator (PRD 4.2), so a
 # renamed or missing file must fail the PACKAGE rather than ship an app that starts without one.
-foreach ($icon in @('tray-idle-light.ico', 'tray-idle-dark.ico', 'tray-tracking-light.ico', 'tray-tracking-dark.ico')) {
+foreach ($icon in @(
+    'tray-idle-light.ico', 'tray-idle-dark.ico',
+    'tray-tracking-light.ico', 'tray-tracking-dark.ico',
+    'tray-capturing-light.ico', 'tray-capturing-dark.ico',
+    'tray-idle-warning-light.ico', 'tray-idle-warning-dark.ico',
+    'tray-tracking-warning-light.ico', 'tray-tracking-warning-dark.ico')) {
   $source = Join-Path $root "src/NiftyTimer/Resources/$icon"
   $destination = Join-Path $outputDirectory "Resources/$icon"
   if (-not (Test-Path $source)) { throw "Tray icon '$icon' is missing. The indicator is not optional." }

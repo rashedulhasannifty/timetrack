@@ -34,6 +34,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The tray icons are committed binaries drawn by scripts/generate-tray-icons.ps1. Re-running
+      # the generator and failing on any difference keeps the two from drifting: a hand-edited
+      # icon, or a script change nobody re-ran, fails the PR instead of shipping.
+      - name: Tray icons match their generator
+        run: |
+          ./scripts/generate-tray-icons.ps1
+          $changes = git status --porcelain -- src/NiftyTimer/Resources
+          if ($changes) {
+            Write-Error "The tray icons differ from generate-tray-icons.ps1's output:`n$changes"
+            exit 1
+          }
+        shell: pwsh
+
       - uses: actions/setup-dotnet@v4
         with:
           # Pinned to the major the client targets. A floating version would let a runner

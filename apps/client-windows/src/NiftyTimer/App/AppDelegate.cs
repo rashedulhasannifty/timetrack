@@ -612,7 +612,7 @@ public sealed class AppDelegate : IDisposable
             _imageBuffer,
             settings.ScreenshotIntervalMinutes,
             isTracking: () => _tracker.State is TrackerState.Tracking,
-            onCaptured: () => OnUi(RefreshPendingCount));
+            onCaptured: OnScreenshotCaptured);
         _screenshotScheduler.Start();
     }
 
@@ -969,6 +969,10 @@ public sealed class AppDelegate : IDisposable
     private void UpdateTray()
     {
         _tray.State = _viewModel.IsTracking ? TrayState.Tracking : TrayState.Idle;
+
+        // The same two conditions the tooltip explains, shown as a badge so they are visible
+        // without hovering — the Mac's always-visible menu-bar marker.
+        _tray.Warning = _viewModel.LiveSyncBlocked || _viewModel.UpdateOverdue;
 
         _tray.Tooltip = TrayTooltip.For(
             _viewModel.IsTracking,
@@ -1350,6 +1354,18 @@ public sealed class AppDelegate : IDisposable
     /// </summary>
     private void OnActivityCategorized(Category category) =>
         OnUi(() => _distractionMonitor?.Tick(category));
+
+    /// <summary>
+    /// A screenshot was just taken. The tray flashes its lens, as the Mac flashes its camera: the
+    /// capture moment is surfaced, never silent (PRD §6.2). Arrives off the UI thread.
+    /// </summary>
+    private void OnScreenshotCaptured() => OnUi(ShowScreenshotTaken);
+
+    private void ShowScreenshotTaken()
+    {
+        _tray.FlashCapturing();
+        RefreshPendingCount();
+    }
 
     /// <summary>Auto mode's idle nudge. Advisory only — the away prompt is what changes the record.</summary>
     private void NotifyIdleThresholdCrossed(int seconds) =>
