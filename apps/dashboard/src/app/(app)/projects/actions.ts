@@ -22,6 +22,12 @@ function canManage(role: string): boolean {
   return role === 'MANAGER' || role === 'ADMIN';
 }
 
+/**
+ * Create a project in the team the index is showing. The team comes from the form (the ADMIN
+ * team picker) and falls back to the caller's own team when absent — it used to ALWAYS be the
+ * caller's own team, so an admin creating "in BPO" silently created in their home team. The API
+ * re-checks that a MANAGER can only create in their own team.
+ */
 export async function createProjectAction(
   _prev: ProjectActionState,
   formData: FormData,
@@ -29,9 +35,13 @@ export async function createProjectAction(
   const session = await getSession();
   if (!session || !canManage(session.role)) return { ok: false, message: 'Not authorized.' };
 
-  const team = await api.getCurrentTeam(session.accessToken);
+  const rawTeam = formData.get('teamId');
+  const teamId =
+    typeof rawTeam === 'string' && rawTeam.length > 0
+      ? rawTeam
+      : (await api.getCurrentTeam(session.accessToken)).id;
   const parsed = CreateProjectSchema.safeParse({
-    teamId: team.id,
+    teamId,
     name: formData.get('name'),
     color: formData.get('color'),
   });
