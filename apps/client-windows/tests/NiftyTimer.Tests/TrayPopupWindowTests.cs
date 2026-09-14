@@ -259,3 +259,96 @@ public class SignInWiringTests
                 LaunchResolutionWiringTests.Body("WireEvents"), nameof(AppDelegate), "ShowLogin"),
             "AppDelegate.WireEvents no longer hands ShowLogin to the popup's Sign in button.");
 }
+
+/// <summary>The update row: the version by name, and what the link will do.</summary>
+[Collection("wpf")]
+public class TrayPopupUpdateRowTests
+{
+    private static T WithPopup<T>(Action<MenuViewModel> arrange, Func<TrayPopupWindow, T> body) =>
+        Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 9, 14, 9, 0, 0, TimeSpan.Zero));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()))
+            {
+                IsSignedIn = true,
+            };
+            var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
+            arrange(viewModel);
+
+            try
+            {
+                return body(window);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+    [Fact]
+    public void AnAvailableUpdateIsOfferedByVersion()
+    {
+        var (row, content) = WithPopup(
+            vm =>
+            {
+                vm.UpdateVersion = "1.4.0";
+                vm.UpdateAvailable = true;
+            },
+            window => (
+                ((FrameworkElement)window.FindName("UpdateRow")).Visibility,
+                ((Button)window.FindName("UpdateButton")).Content));
+
+        Assert.Equal(Visibility.Visible, row);
+        Assert.Equal("Update to 1.4.0", content);
+    }
+
+    [Fact]
+    public void WhileInstallingTheLinkGivesWayToAStatusLine()
+    {
+        var (button, label, text) = WithPopup(
+            vm =>
+            {
+                vm.UpdateVersion = "1.4.0";
+                vm.UpdateAvailable = true;
+                vm.IsInstallingUpdate = true;
+            },
+            window => (
+                ((Button)window.FindName("UpdateButton")).Visibility,
+                ((TextBlock)window.FindName("UpdateProgressLabel")).Visibility,
+                ((TextBlock)window.FindName("UpdateProgressLabel")).Text));
+
+        Assert.Equal(Visibility.Collapsed, button);
+        Assert.Equal(Visibility.Visible, label);
+        Assert.Equal("Updating to 1.4.0…", text);
+    }
+
+    [Fact]
+    public void NoUpdateNoRow()
+    {
+        var row = WithPopup(
+            _ => { },
+            window => ((FrameworkElement)window.FindName("UpdateRow")).Visibility);
+
+        Assert.Equal(Visibility.Collapsed, row);
+    }
+}
+
+public class UpdateWiringTests
+{
+    [Fact]
+    public void TheReleasesPageIsTheRepositorysLatestRelease() =>
+        Assert.Equal(
+            new Uri("https://github.com/owner/repo/releases/latest"),
+            AppDelegate.ReleasesPage("owner/repo"));
+
+    /// <summary>The link routes through the install-or-download decision, not straight to install.</summary>
+    [Fact]
+    public void ThePopupsUpdateLinkDecidesBetweenInstallAndDownload() =>
+        Assert.True(
+            LaunchResolutionWiringTests.References(
+                LaunchResolutionWiringTests.Body("WireEvents"), nameof(AppDelegate), "OnUpdateRequested"),
+            "AppDelegate.WireEvents no longer routes the update link through OnUpdateRequested.");
+}

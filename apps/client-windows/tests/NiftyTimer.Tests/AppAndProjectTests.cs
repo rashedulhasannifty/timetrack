@@ -652,6 +652,26 @@ public class MenuViewModelTests
         Assert.True(vm.IsSignedIn);
         Assert.False(vm.IsReady);
     }
+
+    [Theory]
+    [InlineData("1.4.0", true, false, "Update to 1.4.0")]
+    [InlineData("1.4.0", false, false, "Download 1.4.0")]
+    [InlineData("1.4.0", true, true, "Updating to 1.4.0…")]
+    [InlineData(null, true, false, "Update now")]
+    public void TheUpdateRowNamesTheVersionAndWhatTheLinkWillDo(
+        string? version, bool canInstallInPlace, bool installing, string expected) =>
+        Assert.Equal(expected, MenuViewModel.UpdateRowLabel(version, canInstallInPlace, installing));
+
+    [Fact]
+    public void TheUpdateLabelFollowsTheInstallState()
+    {
+        var vm = NewViewModel(out _);
+        vm.UpdateVersion = "1.4.0";
+
+        vm.IsInstallingUpdate = true;
+
+        Assert.Equal("Updating to 1.4.0…", vm.UpdateLabel);
+    }
 }
 
 public class WorkTotalFormatTests

@@ -301,12 +301,16 @@ public sealed class AppDelegate : IDisposable
         {
             _viewModel.UpdateAvailable = status.ManifestOrNull is not null;
             _viewModel.UpdateOverdue = status.IsOverdue;
+            _viewModel.UpdateVersion = status.ManifestOrNull?.Version.ToString();
+
+            // Probed only when there is something to install: the check writes a file.
+            _viewModel.UpdateCanInstallInPlace = status.ManifestOrNull is null || _updateInstaller.CanInstall();
             UpdateTray();
         });
 
         _popup.SignOutRequested += () => _ = SignOutAsync();
         _popup.SignInRequested += ShowLogin;
-        _popup.UpdateRequested += () => _ = ApplyUpdateAsync();
+        _popup.UpdateRequested += OnUpdateRequested;
         _popup.QuitRequested += () =>
         {
             // The popup cancels its own Closing so that dismissing it never ends the process —
@@ -1074,6 +1078,38 @@ public sealed class AppDelegate : IDisposable
     /// app under them mid-task, which for a time tracker means restarting the thing that is
     /// recording their day.
     /// </summary>
+    /// <summary>
+    /// The update link. A copy that can replace itself installs in place; one that cannot — a
+    /// machine-wide or IT-deployed install — opens the download page instead, as the macOS client
+    /// does, rather than offering a button that can only fail.
+    /// </summary>
+    private void OnUpdateRequested()
+    {
+        if (_viewModel.UpdateCanInstallInPlace)
+        {
+            _ = ApplyUpdateAsync();
+            return;
+        }
+
+        try
+        {
+            // Qualified rather than imported: System.Diagnostics would bring its Activity type
+            // into a file that already imports the NiftyTimer.Activity namespace.
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(ReleasesPage(_config.UpdateRepo).ToString())
+                {
+                    UseShellExecute = true,
+                });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // No browser registered. Say so rather than fail silently.
+            _viewModel.Notice = "Couldn't open the download page.";
+        }
+    }
+
+    internal static Uri ReleasesPage(string repo) => new($"https://github.com/{repo}/releases/latest");
+
     private async Task ApplyUpdateAsync()
     {
         if (_updateInProgress || _updates.Status.ManifestOrNull is not { } manifest)
@@ -1082,6 +1118,7 @@ public sealed class AppDelegate : IDisposable
         }
 
         _updateInProgress = true;
+        _viewModel.IsInstallingUpdate = true;
         try
         {
             if (!_updateInstaller.CanInstall())
@@ -1092,7 +1129,7 @@ public sealed class AppDelegate : IDisposable
                 return;
             }
 
-            _viewModel.Notice = "Downloading update…";
+            // No "Downloading…" notice: the update row now says "Updating to X…" itself.
             var staged = await _updateInstaller.StageAsync(manifest, _shutdown.Token).ConfigureAwait(true);
 
             // Close the running span first. The swap script waits for this process to exit, so a
@@ -1125,6 +1162,7 @@ public sealed class AppDelegate : IDisposable
         finally
         {
             _updateInProgress = false;
+            _viewModel.IsInstallingUpdate = false;
         }
     }
 

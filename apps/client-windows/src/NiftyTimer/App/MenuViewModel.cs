@@ -34,6 +34,9 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     private bool _liveSyncBlocked;
     private bool _updateAvailable;
     private bool _updateOverdue;
+    private string? _updateVersion;
+    private bool _updateCanInstallInPlace = true;
+    private bool _isInstallingUpdate;
     private string? _notice;
     private string _note = string.Empty;
     private string _query = string.Empty;
@@ -208,6 +211,48 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     {
         get => _updateOverdue;
         set => Set(ref _updateOverdue, value);
+    }
+
+    /// <summary>The newer build's version, named in the update row as on macOS.</summary>
+    public string? UpdateVersion
+    {
+        get => _updateVersion;
+        set => Set(ref _updateVersion, value, [nameof(UpdateLabel)]);
+    }
+
+    /// <summary>
+    /// This copy can replace itself. False for a machine-wide or IT-deployed install, where the row
+    /// offers the download page instead of a button that can only fail.
+    /// </summary>
+    public bool UpdateCanInstallInPlace
+    {
+        get => _updateCanInstallInPlace;
+        set => Set(ref _updateCanInstallInPlace, value, [nameof(UpdateLabel)]);
+    }
+
+    /// <summary>An update is downloading and verifying; the row says so instead of offering it.</summary>
+    public bool IsInstallingUpdate
+    {
+        get => _isInstallingUpdate;
+        set => Set(ref _isInstallingUpdate, value, [nameof(UpdateLabel)]);
+    }
+
+    public string UpdateLabel => UpdateRowLabel(_updateVersion, _updateCanInstallInPlace, _isInstallingUpdate);
+
+    /// <summary>The macOS update row's wording: install, download, or in progress.</summary>
+    public static string UpdateRowLabel(string? version, bool canInstallInPlace, bool installing)
+    {
+        if (version is null)
+        {
+            return installing ? "Updating…" : canInstallInPlace ? "Update now" : "Download the update";
+        }
+
+        if (installing)
+        {
+            return $"Updating to {version}…";
+        }
+
+        return canInstallInPlace ? $"Update to {version}" : $"Download {version}";
     }
 
     /// <summary>A one-line message for the user; null when there is nothing to say.</summary>

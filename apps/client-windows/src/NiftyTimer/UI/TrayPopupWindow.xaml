@@ -140,13 +140,14 @@
                        Visibility="Collapsed"
                        Margin="0,10,0,0" />
 
-            <StackPanel x:Name="UpdateRow" Orientation="Horizontal" Visibility="Collapsed"
-                        Margin="0,10,0,0">
-                <TextBlock x:Name="UpdateLabel" Style="{StaticResource CaptionText}"
-                           VerticalAlignment="Center" />
-                <Button x:Name="UpdateButton" Content="Update now" Style="{StaticResource LinkButton}" Padding="6,3" Margin="8,0,0,0"
-                        Click="OnUpdate"
-                        ToolTip="Downloads and verifies the new build, then restarts. Your tracked time is unaffected." />
+            <!-- Present only when there is genuinely something newer. Names the version, as on
+                 macOS, and the link turns destructive once the update is overdue. While installing,
+                 the link gives way to a plain line saying so. -->
+            <StackPanel x:Name="UpdateRow" Visibility="Collapsed" Margin="0,10,0,0">
+                <Button x:Name="UpdateButton" Style="{StaticResource LinkButton}"
+                        HorizontalAlignment="Left" Click="OnUpdate" />
+                <TextBlock x:Name="UpdateProgressLabel" Style="{StaticResource CaptionText}"
+                           Visibility="Collapsed" />
             </StackPanel>
 
             <Border BorderBrush="{DynamicResource Separator}" BorderThickness="0,1,0,0"
