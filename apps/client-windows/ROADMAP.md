@@ -16,9 +16,9 @@ the bottom.
 | **S4** | Notifications · hotkey · updater · packaging · signing · dashboard | ✅ **done**        |
 | **S5** | Parity with the macOS client (see S5 below)                        | 🚧 **in progress** |
 
-S1–S4 merged to `main` (PR #167, `c4642f2`); released as 0.6.0. S5 PRs 1–4 (#204–#207)
-are merged to `main` at `03e9617`, where **525 tests pass in CI** (14 integration tests skipped: 13
-need a live API, 1 needs a real display). S5 PR 5, the UI items, is in review. Release build
+S1–S4 merged to `main` (PR #167, `c4642f2`); released as 0.6.0. S5 PRs 1–5 (#204–#208) are
+merged to `main` at `6d1a8f0`, where **578 tests pass in CI** (14 integration tests skipped: 13
+need a live API, 1 needs a real display). S5 PR 6, the tray markers, is in review. Release build
 clean, `TreatWarningsAsErrors` on. The root `pnpm lint && typecheck && test && build` is green too.
 
 ---
@@ -314,21 +314,21 @@ The goal is one-to-one behaviour with the Mac client. On 2026-09-14 every Swift 
 compared with its Windows counterpart. This table is the resulting gap list, in the order the gaps
 are being closed, one PR per group.
 
-| #             | Gap                                                                                                                                                            | State                                                                                                                                                                                     |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1             | Retry the launch policy fetch: 30s doubling to 300s, one warning after 3 failures, and retry on wake                                                           | ✅ PR 1. Since PR 4 the warning is the not-tracking window                                                                                                                                |
-| 3             | Auto-mode idle nudge ("Idle for N min — still working?")                                                                                                       | ✅ PR 1                                                                                                                                                                                   |
-| 10            | The hotkey resumes a paused session instead of stopping it                                                                                                     | ✅ PR 1                                                                                                                                                                                   |
-| 11            | Sign-out keeps the saved project for that user                                                                                                                 | ✅ PR 1                                                                                                                                                                                   |
-| 2             | Distraction nudge (`DistractionMonitor` plus a fallback card)                                                                                                  | ✅ PR 2 for the monitor, sampler feed and notifier pacing. ✅ PR 5 for the fallback card                                                                                                  |
-| 18            | Distraction line in the end-of-day summary                                                                                                                     | ⬜ Deferred. Needs a local-day tally, which is why `DailyTotalAccumulator` was deleted                                                                                                    |
-| 8, 9          | Totals that tick live; projects, totals and pending count refresh when the menu opens                                                                          | ✅ PR 3. Totals also re-fetch when the clock stops, and a result landing after sign-out is dropped                                                                                        |
-| 4             | Auto-mode forgot-to-start reminder window with a "Start tracking" button                                                                                       | ✅ PR 4. The same window now carries the launch-retry warning                                                                                                                             |
-| 12            | Tray warning tooltip, ranked by precedence                                                                                                                     | ✅ PR 4 for the tooltip ladder. Windows has two of the Mac's four states: a blocked live entry and an overdue update. The always-visible ⚠ (macOS shows it in the menu bar) moves to PR 6 |
-| 16            | Fresh-install project fallback from the last two weeks of entries                                                                                              | ✅ PR 4                                                                                                                                                                                   |
-| 7, 13–15 (UI) | Signed-out popup, update row naming the version, substring project search, acknowledgement checkbox and cards, show-password toggle, distraction fallback card | 🚧 PR 5, in review                                                                                                                                                                        |
-| 5, 17 (UI)    | Capture flash, and a tray ⚠ marker visible without hovering                                                                                                    | ⬜ PR 6. Both need new tray icon bitmaps — see the PR 5 decisions                                                                                                                         |
-| 6             | Browser-site categorization                                                                                                                                    | ❌ Not planned. See "Known gaps"                                                                                                                                                          |
+| #             | Gap                                                                                                                                                            | State                                                                                                                                                                                                       |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1             | Retry the launch policy fetch: 30s doubling to 300s, one warning after 3 failures, and retry on wake                                                           | ✅ PR 1. Since PR 4 the warning is the not-tracking window                                                                                                                                                  |
+| 3             | Auto-mode idle nudge ("Idle for N min — still working?")                                                                                                       | ✅ PR 1                                                                                                                                                                                                     |
+| 10            | The hotkey resumes a paused session instead of stopping it                                                                                                     | ✅ PR 1                                                                                                                                                                                                     |
+| 11            | Sign-out keeps the saved project for that user                                                                                                                 | ✅ PR 1                                                                                                                                                                                                     |
+| 2             | Distraction nudge (`DistractionMonitor` plus a fallback card)                                                                                                  | ✅ PR 2 for the monitor, sampler feed and notifier pacing. ✅ PR 5 for the fallback card                                                                                                                    |
+| 18            | Distraction line in the end-of-day summary                                                                                                                     | ⬜ Deferred. Needs a local-day tally, which is why `DailyTotalAccumulator` was deleted                                                                                                                      |
+| 8, 9          | Totals that tick live; projects, totals and pending count refresh when the menu opens                                                                          | ✅ PR 3. Totals also re-fetch when the clock stops, and a result landing after sign-out is dropped                                                                                                          |
+| 4             | Auto-mode forgot-to-start reminder window with a "Start tracking" button                                                                                       | ✅ PR 4. The same window now carries the launch-retry warning                                                                                                                                               |
+| 12            | Tray warning tooltip, ranked by precedence                                                                                                                     | ✅ PR 4 for the tooltip ladder. Windows has two of the Mac's four states: a blocked live entry and an overdue update. The always-visible ⚠ (macOS shows it in the menu bar) is the tray's amber badge, PR 6 |
+| 16            | Fresh-install project fallback from the last two weeks of entries                                                                                              | ✅ PR 4                                                                                                                                                                                                     |
+| 7, 13–15 (UI) | Signed-out popup, update row naming the version, substring project search, acknowledgement checkbox and cards, show-password toggle, distraction fallback card | ✅ PR 5 (#208)                                                                                                                                                                                              |
+| 5, 17 (UI)    | Capture flash, and a tray ⚠ marker visible without hovering                                                                                                    | 🚧 PR 6, in review. A lens icon flashed for 1.5s after each screenshot, and an amber badge on the idle and tracking marks. See the PR 6 decisions                                                           |
+| 6             | Browser-site categorization                                                                                                                                    | ❌ Not planned. See "Known gaps"                                                                                                                                                                            |
 
 **Decisions taken in PR 1, with reasons. Do not reverse them without a replacement:**
 
@@ -380,6 +380,22 @@ are being closed, one PR per group.
 - **A copy that cannot replace itself offers the download page**, as the Mac does, rather than an
   update button that can only fail. That page is `releases/latest` of `UpdateRepo`, which does not
   exist yet (see S4), so until it does the link 404s. Tests pin only the URL's shape.
+
+**Decisions taken in PR 6:**
+
+- **The new states differ by shape, not only colour.** Capturing is a lens — the tracking disc
+  with a clear ring around a centre dot, in the tracking colour. The warning is an amber dot (the
+  palette's Manual role) in the corner, cut off from the mark by a one-pixel gap so it reads as a
+  separate thing at 16px. The four original icons are byte-for-byte unchanged.
+- **The flash shows no badge.** It lasts a second and a half, and the warning is back the moment
+  it ends, so there is no badged lens to draw.
+- **The generator is the source of truth, and CI proves it.** A new step re-runs
+  `generate-tray-icons.ps1` on the Windows runner and fails if its output differs from the
+  committed icons. The icons in this PR were written by a Python mirror of the script, because
+  `pwsh` was not on the authoring machine; the mirror reproduces the four originals exactly, and
+  the CI step is what shows the script agrees.
+- **The warning is the tooltip's two conditions**: a blocked live entry or an overdue update.
+  Screen Recording and Automation, the Mac's other two, have no Windows counterpart.
 
 ---
 
@@ -515,6 +531,8 @@ Against a local stack with a dev-packaged client. Status as of S4:
 | 21  | Consent window — Start stays disabled until the box is ticked; the RECORDED card matches the team's settings                                                       | ⬜ **needs a manual pass** (S5) |
 | 22  | Distraction card — with notifications turned off in Windows Settings, an unproductive streak shows the card without taking focus (CI never runs the registry read) | ⬜ **needs a manual pass** (S5) |
 | 23  | Show password — the eye reveals and hides the password without losing the text or the caret                                                                        | ⬜ **needs a manual pass** (S5) |
+| 24  | Capture flash — with screenshots on, the tray shows the lens for about a second and a half after each capture, on both taskbar themes                              | ⬜ **needs a manual pass** (S5) |
+| 25  | Warning badge — an overdue update or a blocked live entry puts the amber badge on the icon without hovering, and it clears with the condition                      | ⬜ **needs a manual pass** (S5) |
 
 **These are the honest gaps, and they are the real remaining risk.** Every state machine, store,
 uploader, scheduler, parser and guard is unit-tested — 394 tests — the two structural guards are
