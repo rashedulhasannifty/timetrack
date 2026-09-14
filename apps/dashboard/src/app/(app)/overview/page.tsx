@@ -170,7 +170,8 @@ export default async function OverviewPage({
       ) : (
         <WidgetVisibilityProvider>
           <div className="flex flex-col gap-[30px]">
-            <div className="flex items-center justify-between gap-3">
+            {/* items-end: align the button with the picker's inputs, not its labelled block. */}
+            <div className="flex items-end justify-between gap-3">
               <WidgetsDrawer groups={GROUPS} />
               <ReportRangePicker from={from} to={to} basePath="/overview" />
             </div>
