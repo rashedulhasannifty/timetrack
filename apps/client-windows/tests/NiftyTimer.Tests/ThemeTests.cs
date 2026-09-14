@@ -58,6 +58,7 @@ public class ThemeSweepTests
     [InlineData("LoginWindow.xaml")]
     [InlineData("AckWindow.xaml")]
     [InlineData("TimePromptWindow.xaml")]
+    [InlineData("RevealablePasswordField.xaml")]
     [InlineData("Tokens.xaml")]
     // Added by Task 3, which creates this file. Until then the case is skipped by the
     // File.Exists guard below rather than failing a task that has not run yet.
