@@ -100,6 +100,10 @@ public sealed class AppDelegate : IDisposable
     private ActivitySampler? _activitySampler;
     private ScreenshotScheduler? _screenshotScheduler;
 
+    // Fed only by the activity sampler, so it lives and dies with it. It sees a Category and
+    // nothing else.
+    private DistractionMonitor? _distractionMonitor;
+
     // Manual-mode only, and gated with the rest of the observation: it reads the same continuous
     // idle scalar. It never stops a clock, but it does watch the person, which is what decides
     // where it may be installed.
@@ -514,6 +518,12 @@ public sealed class AppDelegate : IDisposable
         _eventCounter = counter;
         _ = counter.StartAsync(_shutdown.Token);
 
+        // Reads the team policy on every tick, so an admin's change reaches a running client on
+        // its next sample rather than its next launch.
+        _distractionMonitor = new DistractionMonitor(
+            _notifier,
+            () => DistractionSettings.From(_livePolicy.Current));
+
         _activitySampler = new ActivitySampler(
             _ackGate,
             counter,
@@ -521,7 +531,8 @@ public sealed class AppDelegate : IDisposable
             _livePolicy,
             _activityStore,
             isTracking: () => _tracker.State is TrackerState.Tracking,
-            onSampled: () => OnUi(RefreshPendingCount));
+            onSampled: () => OnUi(RefreshPendingCount),
+            onCategorized: OnActivityCategorized);
         _activitySampler.Start();
     }
 
@@ -1011,6 +1022,11 @@ public sealed class AppDelegate : IDisposable
             _activitySampler = null;
         }
 
+        // After the sampler has settled, so no last sample lands on it. The streak belongs to the
+        // person signing out; the next person starts from zero.
+        _distractionMonitor?.Stop();
+        _distractionMonitor = null;
+
         // Last, so nothing is still counting input while a cycle drains. Disposing this
         // unregisters Raw Input: leaving it registered would keep the process subscribed to every
         // keystroke on the machine after the person has signed out.
@@ -1147,6 +1163,13 @@ public sealed class AppDelegate : IDisposable
         // five-minute repeat window — a second caller of this id must not rely on that window.
         _notifier.Notify("not-tracking", "Time tracking", message);
     }
+
+    /// <summary>
+    /// The sampler's category feed, on the thread pool. Hopped to the UI thread, where the monitor
+    /// lives; a tick that lands after sign-out finds no monitor and does nothing.
+    /// </summary>
+    private void OnActivityCategorized(Category category) =>
+        OnUi(() => _distractionMonitor?.Tick(category));
 
     /// <summary>Auto mode's idle nudge. Advisory only — the away prompt is what changes the record.</summary>
     private void NotifyIdleThresholdCrossed(int seconds) =>

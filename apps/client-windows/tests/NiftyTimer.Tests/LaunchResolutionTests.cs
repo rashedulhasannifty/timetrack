@@ -243,8 +243,11 @@ public class LaunchResolutionWiringTests
         Assert.True(References(Body("ProceedOffline"), nameof(AppDelegate), "BecomeReady"));
     }
 
-    /// <summary>The IL of a method, or of its state machine's MoveNext when it is async.</summary>
-    private static MethodBase Body(string name)
+    /// <summary>
+    /// The IL of a method, or of its state machine's MoveNext when it is async. Internal so the
+    /// other AppDelegate wiring guards share one scanner rather than growing copies that drift.
+    /// </summary>
+    internal static MethodBase Body(string name)
     {
         var method = typeof(AppDelegate).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException(
@@ -259,7 +262,7 @@ public class LaunchResolutionWiringTests
     /// Whether <paramref name="method"/> calls or loads (<c>ldftn</c> — a method group handed over
     /// as a callback) <paramref name="typeName"/>.<paramref name="methodName"/>.
     /// </summary>
-    private static bool References(MethodBase method, string typeName, string methodName)
+    internal static bool References(MethodBase method, string typeName, string methodName)
     {
         var il = method.GetMethodBody()?.GetILAsByteArray() ?? Array.Empty<byte>();
         Assert.NotEmpty(il);

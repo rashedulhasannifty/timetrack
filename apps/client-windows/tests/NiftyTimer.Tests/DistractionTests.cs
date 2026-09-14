@@ -285,3 +285,29 @@ public class ActivitySamplerCategoryTests
         Assert.Empty(seen);
     }
 }
+
+/// <summary>Wiring asserted on the IL, as in <see cref="LaunchResolutionWiringTests"/>.</summary>
+public class DistractionWiringTests
+{
+    [Fact]
+    public void ActivitySamplingInstallsTheMonitor() =>
+        Assert.True(
+            LaunchResolutionWiringTests.References(
+                LaunchResolutionWiringTests.Body("InstallActivitySampling"), nameof(DistractionMonitor), ".ctor"),
+            "AppDelegate.InstallActivitySampling no longer creates the distraction monitor.");
+
+    [Fact]
+    public void TheSamplerFeedsTheMonitor() =>
+        Assert.True(
+            LaunchResolutionWiringTests.References(
+                LaunchResolutionWiringTests.Body("InstallActivitySampling"), nameof(AppDelegate), "OnActivityCategorized"),
+            "AppDelegate.InstallActivitySampling no longer hands the category callback to the sampler.");
+
+    /// <summary>One person's streak must never nudge the next person on the same machine.</summary>
+    [Fact]
+    public void SignOutClearsTheStreak() =>
+        Assert.True(
+            LaunchResolutionWiringTests.References(
+                LaunchResolutionWiringTests.Body("TearDownCaptureAsync"), nameof(DistractionMonitor), nameof(DistractionMonitor.Stop)),
+            "AppDelegate.TearDownCaptureAsync no longer clears the distraction streak.");
+}
