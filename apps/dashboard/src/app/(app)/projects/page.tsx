@@ -111,7 +111,14 @@ export default async function ProjectsPage({
             to={to}
             includeArchived={includeArchived}
           />
-          <NewProjectForm />
+          <NewProjectForm
+            teamId={selectedTeamId ?? ownTeam ?? ''}
+            teamName={
+              teams.length >= 2
+                ? (teams.find((t) => t.id === (selectedTeamId ?? ownTeam))?.name ?? null)
+                : null
+            }
+          />
           <div className="flex flex-wrap items-center justify-between gap-4">
             <span className="tt-numeric text-text-secondary text-label">
               {view.rows.length} {view.rows.length === 1 ? 'project' : 'projects'} ·{' '}

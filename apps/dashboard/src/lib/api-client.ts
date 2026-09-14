@@ -301,6 +301,9 @@ export const api = {
     send('PATCH', `/projects/${id}`, { archived }, ProjectSchema, token),
   recolorProject: (token: string, id: string, color: ProjectColor): Promise<Project> =>
     send('PATCH', `/projects/${id}`, { color }, ProjectSchema, token),
+  /** ADMIN-only. Moves the project (and its tasks) to another team; the API audits it. */
+  moveProject: (token: string, id: string, teamId: string): Promise<Project> =>
+    send('PATCH', `/projects/${id}`, { teamId }, ProjectSchema, token),
   createTask: (token: string, dto: CreateTask): Promise<Task> =>
     send('POST', '/projects/tasks', dto, TaskSchema, token),
   listProjectTasks: (token: string, id: string): Promise<Task[]> =>

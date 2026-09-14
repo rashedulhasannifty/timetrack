@@ -97,6 +97,8 @@ export const ProjectDetailSchema = z.object({
   from: z.iso.datetime(),
   to: z.iso.datetime(),
   projectId: z.uuid(),
+  /** The team that owns the project now — what the admin "move to team" control starts from. */
+  teamId: z.uuid(),
   name: z.string(),
   color: z.string().nullable(),
   archived: z.boolean(),
