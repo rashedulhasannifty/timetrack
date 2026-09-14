@@ -312,18 +312,18 @@ The goal is one-to-one behaviour with the Mac client. On 2026-09-14 every Swift 
 compared with its Windows counterpart. This table is the resulting gap list, in the order the gaps
 are being closed, one PR per group.
 
-| #           | Gap                                                                                                                                                                                   | State                                                                                  |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| 1           | Retry the launch policy fetch: 30s doubling to 300s, one warning after 3 failures, and retry on wake                                                                                  | ✅ PR 1. The warning is a tray balloon until #4's window exists                        |
-| 3           | Auto-mode idle nudge ("Idle for N min — still working?")                                                                                                                              | ✅ PR 1                                                                                |
-| 10          | The hotkey resumes a paused session instead of stopping it                                                                                                                            | ✅ PR 1                                                                                |
-| 11          | Sign-out keeps the saved project for that user                                                                                                                                        | ✅ PR 1                                                                                |
-| 2           | Distraction nudge (`DistractionMonitor` plus a fallback card)                                                                                                                         | ⬜ PR 2                                                                                |
-| 18          | Distraction line in the end-of-day summary                                                                                                                                            | ⬜ Deferred. Needs a local-day tally, which is why `DailyTotalAccumulator` was deleted |
-| 8, 9        | Totals that tick live; projects, totals and pending count refresh when the menu opens                                                                                                 | ⬜ PR 3                                                                                |
-| 4           | Auto-mode forgot-to-start reminder window with a "Start tracking" button                                                                                                              | ⬜ PR 4                                                                                |
-| 5, 7, 12–17 | Capture flash, signed-out popup, tray warning tooltip, update row, substring project search, acknowledgement checkbox and cards, fresh-install project fallback, show-password toggle | ⬜ PR 4 (UI)                                                                           |
-| 6           | Browser-site categorization                                                                                                                                                           | ❌ Not planned. See "Known gaps"                                                       |
+| #           | Gap                                                                                                                                                                                   | State                                                                                           |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 1           | Retry the launch policy fetch: 30s doubling to 300s, one warning after 3 failures, and retry on wake                                                                                  | ✅ PR 1. The warning is a tray balloon until #4's window exists                                 |
+| 3           | Auto-mode idle nudge ("Idle for N min — still working?")                                                                                                                              | ✅ PR 1                                                                                         |
+| 10          | The hotkey resumes a paused session instead of stopping it                                                                                                                            | ✅ PR 1                                                                                         |
+| 11          | Sign-out keeps the saved project for that user                                                                                                                                        | ✅ PR 1                                                                                         |
+| 2           | Distraction nudge (`DistractionMonitor` plus a fallback card)                                                                                                                         | ✅ PR 2 for the monitor, sampler feed and notifier pacing. The fallback card moves to PR 4 (UI) |
+| 18          | Distraction line in the end-of-day summary                                                                                                                                            | ⬜ Deferred. Needs a local-day tally, which is why `DailyTotalAccumulator` was deleted          |
+| 8, 9        | Totals that tick live; projects, totals and pending count refresh when the menu opens                                                                                                 | ⬜ PR 3                                                                                         |
+| 4           | Auto-mode forgot-to-start reminder window with a "Start tracking" button                                                                                                              | ⬜ PR 4                                                                                         |
+| 5, 7, 12–17 | Capture flash, signed-out popup, tray warning tooltip, update row, substring project search, acknowledgement checkbox and cards, fresh-install project fallback, show-password toggle | ⬜ PR 4 (UI)                                                                                    |
+| 6           | Browser-site categorization                                                                                                                                                           | ❌ Not planned. See "Known gaps"                                                                |
 
 **Decisions taken in PR 1, with reasons. Do not reverse them without a replacement:**
 
@@ -341,6 +341,19 @@ are being closed, one PR per group.
 - **Wake comes from `WM_POWERBROADCAST` on a separate `MessageWindow` (`WakeWatcher`).** It does
   not use `SessionObserver`, which is gated behind the acknowledgement and so is the very thing
   being retried. It does not use `SystemEvents`, which raises its callbacks on another thread.
+
+**Decisions taken in PR 2:**
+
+- **`DistractionMonitor` lives in `Tracking/`, not `Activity/`.** It touches no hardware and sees
+  only a `Category`. Putting it in a capture namespace would make `CaptureGateGuardTests` demand an
+  `AckGate` it has no use for. It is still gated in practice, because only the gated
+  `ActivitySampler` feeds it.
+- **`LocalNotifier` exempts the distraction id from its five-minute repeat window.** The monitor
+  paces its own repeats from team policy, down to one minute, and the backstop would silently
+  swallow every repeat set below five. Other ids keep the window.
+- **The fallback card is deferred to PR 4.** macOS shows it only when notifications are not
+  authorized. Windows has no equivalent authorization state to check, and a WPF window cannot be
+  exercised in CI.
 
 ---
 

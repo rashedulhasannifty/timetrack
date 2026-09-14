@@ -167,8 +167,8 @@ public sealed class TrayIconController : IDisposable
     /// screen capture — plus an Application User Model ID registered by a Start Menu shortcut,
     /// which the unsigned pilot has no installer to create. The cost of this choice is no action
     /// buttons and a body the shell truncates past 255 characters; every nudge this client sends
-    /// is informational, and the one that wants interaction (the distraction nudge) already falls
-    /// back to a real in-app window.
+    /// is informational. The macOS client also shows the distraction nudge in an in-app window when
+    /// notifications are off; that fallback is not ported yet (ROADMAP S5).
     ///
     /// Best-effort by design. A user who has turned notifications off, or a shell that simply
     /// declines, is a silent no-op — never an error, and never a change to what is tracked.
