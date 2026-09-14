@@ -543,6 +543,135 @@ public class MenuViewModelTests
         vm.PendingCount = 3;
         Assert.Equal("3 records pending", vm.PendingLabel);
     }
+
+    private static readonly Project Website = new(
+        "p1", "team", "Website", false, [new ProjectTask("t1", "p1", "Design review")]);
+
+    private static readonly Project Billing = new("p2", "team", "Billing", false, null);
+
+    [Fact]
+    public void ChoicesListEachProjectFollowedByItsTasks()
+    {
+        var vm = NewViewModel(out _);
+        vm.Projects = [Website, Billing];
+
+        Assert.Equal(
+            [
+                new PickerChoice("p1", null, "Website", null),
+                new PickerChoice("p1", "t1", "Website", "Design review"),
+                new PickerChoice("p2", null, "Billing", null),
+            ],
+            vm.Choices);
+    }
+
+    /// <summary>
+    /// The macOS rule: the query may appear anywhere in the project OR the task name, in any case.
+    /// The combo box this replaced matched only a prefix of the combined label, so this exact query
+    /// found nothing.
+    /// </summary>
+    [Fact]
+    public void TheQueryMatchesAnywhereInAProjectOrTaskNameIgnoringCase()
+    {
+        var vm = NewViewModel(out _);
+        vm.Projects = [Website, Billing];
+
+        vm.Query = "REVIEW";
+
+        var match = Assert.Single(vm.FilteredChoices);
+        Assert.Equal("t1", match.TaskId);
+    }
+
+    [Fact]
+    public void AProjectNameMatchKeepsItsTaskRowsToo()
+    {
+        var vm = NewViewModel(out _);
+        vm.Projects = [Website, Billing];
+
+        vm.Query = "site";
+
+        Assert.Equal(["p1", "p1"], vm.FilteredChoices.Select(c => c.ProjectId));
+    }
+
+    [Fact]
+    public void AnEmptyQueryOffersEveryChoice()
+    {
+        var vm = NewViewModel(out _);
+        vm.Projects = [Website, Billing];
+
+        vm.Query = string.Empty;
+
+        Assert.Equal(3, vm.FilteredChoices.Count);
+    }
+
+    [Fact]
+    public void ANonMatchingQueryOffersNothing()
+    {
+        var vm = NewViewModel(out _);
+        vm.Projects = [Website, Billing];
+
+        vm.Query = "payroll";
+
+        Assert.Empty(vm.FilteredChoices);
+    }
+
+    /// <summary>A search typed by the person leaving must not greet the next one.</summary>
+    [Fact]
+    public void ResetClearsTheQuery()
+    {
+        var vm = NewViewModel(out _);
+        vm.Query = "billing";
+
+        vm.Reset();
+
+        Assert.Equal(string.Empty, vm.Query);
+    }
+
+    /// <summary>Sign-out puts the popup back on its signed-out panel.</summary>
+    [Fact]
+    public void ResetSignsOut()
+    {
+        var vm = NewViewModel(out _);
+        vm.IsSignedIn = true;
+
+        vm.Reset();
+
+        Assert.False(vm.IsSignedIn);
+    }
+
+    /// <summary>
+    /// Signed in and not ready is a real state — offline and never acknowledged — and it must not
+    /// read as signed out.
+    /// </summary>
+    [Fact]
+    public void SignedInAndReadinessAreIndependent()
+    {
+        var vm = NewViewModel(out _);
+
+        vm.IsSignedIn = true;
+
+        Assert.True(vm.IsSignedIn);
+        Assert.False(vm.IsReady);
+    }
+
+    [Theory]
+    [InlineData("1.4.0", true, false, "Update to 1.4.0")]
+    [InlineData("1.4.0", false, false, "Download 1.4.0")]
+    [InlineData("1.4.0", true, true, "Updating to 1.4.0…")]
+    [InlineData(null, true, false, "Update now")]
+    public void TheUpdateRowNamesTheVersionAndWhatTheLinkWillDo(
+        string? version, bool canInstallInPlace, bool installing, string expected) =>
+        Assert.Equal(expected, MenuViewModel.UpdateRowLabel(version, canInstallInPlace, installing));
+
+    [Fact]
+    public void TheUpdateLabelFollowsTheInstallState()
+    {
+        var vm = NewViewModel(out _);
+        vm.UpdateVersion = "1.4.0";
+
+        vm.IsInstallingUpdate = true;
+
+        Assert.Equal("Updating to 1.4.0…", vm.UpdateLabel);
+    }
 }
 
 public class WorkTotalFormatTests

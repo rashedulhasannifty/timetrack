@@ -152,8 +152,7 @@
         <!-- CaretBrush is deliberately NOT here. A Setter's property is resolved against the
              style's TargetType, and Control has no CaretBrush — putting it here throws
              XamlParseException at load, not at compile. It is set on the two concrete styles
-             below instead (TextBox gets it from TextBoxBase, PasswordBox declares its own;
-             ComboBox has none, which is the other half of why it cannot live here). -->
+             below instead (TextBox gets it from TextBoxBase, PasswordBox declares its own). -->
         <Setter Property="Background" Value="{DynamicResource Surface}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Separator}" />
         <Setter Property="BorderThickness" Value="1" />
@@ -223,21 +222,43 @@
         </Setter>
     </Style>
 
-    <!-- DELIBERATELY MINIMAL. PR 2 deletes this ComboBox and replaces the picker with a search
-         field over a list, so a full ToggleButton + Popup + ItemsPresenter template here would be
-         written to be thrown away. This restyles the field and the dropdown surface — which is
-         what reads as dated — and leaves the toggle glyph stock.
-         Do not invest further in it; move the effort to PR 2's picker. -->
-    <Style TargetType="ComboBox" BasedOn="{StaticResource FieldChrome}">
-        <Setter Property="Padding" Value="6,4" />
+    <!-- The project picker: a plain list under a search field, the way the macOS dropdown draws
+         it. No border of its own — it sits on the popup's surface — and the stock blue selection
+         bar is replaced by the tint, with a check mark in the row marking the current choice. -->
+    <Style TargetType="ListBox">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
     </Style>
 
-    <Style TargetType="ComboBoxItem">
+    <Style TargetType="ListBoxItem">
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
-        <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{DynamicResource Text}" />
-        <Setter Property="Background" Value="{DynamicResource SurfaceRaised}" />
         <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource AccentFocusVisual}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="Row"
+                            Background="Transparent"
+                            CornerRadius="{StaticResource RadiusSm}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource Tint}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource Tint}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- Thin, no stepper arrows, thumb only. Stock WPF scrollbars are the most recognisable
@@ -330,6 +351,58 @@
                 <Setter Property="Height" Value="10" />
             </Trigger>
         </Style.Triggers>
+    </Style>
+
+    <!-- The acknowledgement window's "I've read what Nifty Timer records." A recessed box that
+         fills with the accent when ticked, like the dashboard's checkbox — the stock one is the
+         same Aero-era grey the buttons were. -->
+    <Style TargetType="CheckBox">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource Text}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource AccentFocusVisual}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <StackPanel Orientation="Horizontal" Background="Transparent">
+                        <Border x:Name="Box"
+                                Width="16" Height="16"
+                                CornerRadius="4"
+                                BorderThickness="1"
+                                BorderBrush="{DynamicResource Separator}"
+                                Background="{DynamicResource Surface}"
+                                VerticalAlignment="Center"
+                                SnapsToDevicePixels="True">
+                            <Path x:Name="Check"
+                                  Data="M 3,7 L 6,10 L 11,4"
+                                  Stroke="{DynamicResource OnAccent}"
+                                  StrokeThickness="2"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  StrokeLineJoin="Round"
+                                  Visibility="Collapsed" />
+                        </Border>
+                        <ContentPresenter Margin="8,0,0,0"
+                                          VerticalAlignment="Center"
+                                          RecognizesAccessKey="True" />
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Box" Property="Background" Value="{DynamicResource Accent}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                            <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Box" Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
 </ResourceDictionary>

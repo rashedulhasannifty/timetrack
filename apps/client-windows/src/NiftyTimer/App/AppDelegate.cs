@@ -89,6 +89,7 @@ public sealed class AppDelegate : IDisposable
     private readonly TimePrompt _awayPrompt = new();
     private readonly TimePrompt _recoveryPrompt = new();
     private readonly NotTrackingReminder _notTrackingReminder = new();
+    private readonly DistractionNudge _distractionNudge = new();
 
     private SessionObserver? _sessionObserver;
     private AutoTrackingCoordinator? _autoCoordinator;
@@ -301,11 +302,16 @@ public sealed class AppDelegate : IDisposable
         {
             _viewModel.UpdateAvailable = status.ManifestOrNull is not null;
             _viewModel.UpdateOverdue = status.IsOverdue;
+            _viewModel.UpdateVersion = status.ManifestOrNull?.Version.ToString();
+
+            // Probed only when there is something to install: the check writes a file.
+            _viewModel.UpdateCanInstallInPlace = status.ManifestOrNull is null || _updateInstaller.CanInstall();
             UpdateTray();
         });
 
         _popup.SignOutRequested += () => _ = SignOutAsync();
-        _popup.UpdateRequested += () => _ = ApplyUpdateAsync();
+        _popup.SignInRequested += ShowLogin;
+        _popup.UpdateRequested += OnUpdateRequested;
         _popup.QuitRequested += () =>
         {
             // The popup cancels its own Closing so that dismissing it never ends the process —
@@ -438,10 +444,13 @@ public sealed class AppDelegate : IDisposable
         switch (outcome)
         {
             case BootstrapOutcome.Authenticated:
+                _viewModel.IsSignedIn = true;
                 await ProceedToPolicyAsync().ConfigureAwait(true);
                 break;
 
             case BootstrapOutcome.Offline:
+                // Signed in, just unreachable: the popup must not claim otherwise.
+                _viewModel.IsSignedIn = true;
                 ProceedOffline();
 
                 // The refresh token is still ours; the API just could not be reached. Scheduled
@@ -570,9 +579,12 @@ public sealed class AppDelegate : IDisposable
         _ = counter.StartAsync(_shutdown.Token);
 
         // Reads the team policy on every tick, so an admin's change reaches a running client on
-        // its next sample rather than its next launch.
+        // its next sample rather than its next launch. The distraction nudge alone falls back to
+        // an in-app card when Windows notifications are switched off, as on the Mac, so it is
+        // never silently dropped. Ticks arrive on the UI thread (OnActivityCategorized hops), so
+        // the card is presented there.
         _distractionMonitor = new DistractionMonitor(
-            _notifier,
+            new FallbackDistractionNotifier(_notifier, SystemNotifications.AreEnabled, _distractionNudge.Present),
             () => DistractionSettings.From(_livePolicy.Current));
 
         _activitySampler = new ActivitySampler(
@@ -824,7 +836,22 @@ public sealed class AppDelegate : IDisposable
     private LoginWindow CreateLoginWindow()
     {
         var window = new LoginWindow(_session, _config.ApiBaseUri);
-        window.SignedIn += () => _ = ProceedToPolicyAsync();
+        window.SignedIn += () =>
+        {
+            _viewModel.IsSignedIn = true;
+            _ = ProceedToPolicyAsync();
+        };
+
+        // A sign-in succeeds by HIDING the window, which is then reused. Closing it with the title
+        // bar's X really closes it, and a closed WPF window throws if shown again — so forget it,
+        // and the popup's Sign in button builds a fresh one.
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_login, window))
+            {
+                _login = null;
+            }
+        };
         return window;
     }
 
@@ -1055,6 +1082,38 @@ public sealed class AppDelegate : IDisposable
     /// app under them mid-task, which for a time tracker means restarting the thing that is
     /// recording their day.
     /// </summary>
+    /// <summary>
+    /// The update link. A copy that can replace itself installs in place; one that cannot — a
+    /// machine-wide or IT-deployed install — opens the download page instead, as the macOS client
+    /// does, rather than offering a button that can only fail.
+    /// </summary>
+    private void OnUpdateRequested()
+    {
+        if (_viewModel.UpdateCanInstallInPlace)
+        {
+            _ = ApplyUpdateAsync();
+            return;
+        }
+
+        try
+        {
+            // Qualified rather than imported: System.Diagnostics would bring its Activity type
+            // into a file that already imports the NiftyTimer.Activity namespace.
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(ReleasesPage(_config.UpdateRepo).ToString())
+                {
+                    UseShellExecute = true,
+                });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // No browser registered. Say so rather than fail silently.
+            _viewModel.Notice = "Couldn't open the download page.";
+        }
+    }
+
+    internal static Uri ReleasesPage(string repo) => new($"https://github.com/{repo}/releases/latest");
+
     private async Task ApplyUpdateAsync()
     {
         if (_updateInProgress || _updates.Status.ManifestOrNull is not { } manifest)
@@ -1063,6 +1122,7 @@ public sealed class AppDelegate : IDisposable
         }
 
         _updateInProgress = true;
+        _viewModel.IsInstallingUpdate = true;
         try
         {
             if (!_updateInstaller.CanInstall())
@@ -1073,7 +1133,7 @@ public sealed class AppDelegate : IDisposable
                 return;
             }
 
-            _viewModel.Notice = "Downloading update…";
+            // No "Downloading…" notice: the update row now says "Updating to X…" itself.
             var staged = await _updateInstaller.StageAsync(manifest, _shutdown.Token).ConfigureAwait(true);
 
             // Close the running span first. The swap script waits for this process to exit, so a
@@ -1106,6 +1166,7 @@ public sealed class AppDelegate : IDisposable
         finally
         {
             _updateInProgress = false;
+            _viewModel.IsInstallingUpdate = false;
         }
     }
 
@@ -1139,6 +1200,9 @@ public sealed class AppDelegate : IDisposable
         // person signing out; the next person starts from zero.
         _distractionMonitor?.Stop();
         _distractionMonitor = null;
+
+        // A card still on screen belongs to the person signing out.
+        _distractionNudge.DismissIfShowing();
 
         // Last, so nothing is still counting input while a cycle drains. Disposing this
         // unregisters Raw Input: leaving it registered would keep the process subscribed to every

@@ -9,9 +9,6 @@ using NiftyTimer.App;
 
 namespace NiftyTimer.UI;
 
-/// <summary>One row in the project/task picker.</summary>
-public sealed record PickerItem(string Label, string ProjectId, string? TaskId);
-
 /// <summary>
 /// The dropdown behind the tray icon. Closes when it loses focus, like a menu.
 ///
@@ -56,6 +53,9 @@ public partial class TrayPopupWindow : Window
 
     /// <summary>The user asked to quit the app.</summary>
     public event Action? QuitRequested;
+
+    /// <summary>Nobody is signed in and the person asked to.</summary>
+    public event Action? SignInRequested;
 
     /// <summary>
     /// The person asked to apply a pending update. Advisory throughout: an update is never
@@ -115,13 +115,25 @@ public partial class TrayPopupWindow : Window
         }
     }
 
-    private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e) => Render();
+    /// <summary>
+    /// The picker is rebuilt only when what it shows changed. Everything else re-renders on every
+    /// notification, and the clock raises one a second while the popup is open — rebuilding the
+    /// list that often would snap it back to the top under the person scrolling it.
+    /// </summary>
+    private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e) =>
+        Render(picker: e.PropertyName is null or ""
+            or nameof(MenuViewModel.Projects)
+            or nameof(MenuViewModel.Selection)
+            or nameof(MenuViewModel.FilteredChoices));
 
-    private void Render()
+    private void Render(bool picker = true)
     {
         _suppressCallbacks = true;
         try
         {
+            SignedOutPanel.Visibility = _viewModel.IsSignedIn ? Visibility.Collapsed : Visibility.Visible;
+            SignedInPanel.Visibility = _viewModel.IsSignedIn ? Visibility.Visible : Visibility.Collapsed;
+
             ElapsedLabel.Text = _viewModel.ElapsedLabel;
             StatusLabel.Text = StatusText();
 
@@ -136,7 +148,10 @@ public partial class TrayPopupWindow : Window
             PauseResumeButton.Content = _viewModel.IsPaused ? "Resume" : "Pause";
             PauseResumeButton.IsEnabled = _viewModel.IsPaused ? _viewModel.IsReady : _viewModel.IsTracking;
 
-            RenderPicker();
+            if (picker)
+            {
+                RenderPicker();
+            }
 
             if (NoteBox.Text != _viewModel.Note)
             {
@@ -187,30 +202,42 @@ public partial class TrayPopupWindow : Window
 
     private void RenderPicker()
     {
-        var items = new List<PickerItem>();
-        foreach (var project in _viewModel.Projects)
+        if (SearchBox.Text != _viewModel.Query)
         {
-            items.Add(new PickerItem(project.Name, project.Id, null));
-            foreach (var task in project.Tasks ?? [])
-            {
-                items.Add(new PickerItem($"{project.Name} · {task.Name}", project.Id, task.Id));
-            }
+            SearchBox.Text = _viewModel.Query;
         }
 
-        ProjectPicker.ItemsSource = items;
-        ProjectPicker.SelectedItem = _viewModel.Selection is { } selection
-            ? items.FirstOrDefault(i => i.ProjectId == selection.ProjectId && i.TaskId == selection.TaskId)
+        SearchHint.Visibility = _viewModel.Query.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        // Rows are records, so an unchanged list compares equal and keeps its scroll position.
+        var choices = _viewModel.FilteredChoices;
+        if (ProjectList.ItemsSource is not IReadOnlyList<PickerChoice> shown || !shown.SequenceEqual(choices))
+        {
+            ProjectList.ItemsSource = choices;
+        }
+
+        // A selection the filter hides shows no row as selected; it is still the selection.
+        ProjectList.SelectedItem = _viewModel.Selection is { } selection
+            ? choices.FirstOrDefault(c => c.ProjectId == selection.ProjectId && c.TaskId == selection.TaskId)
             : null;
+    }
+
+    private void OnQueryChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_suppressCallbacks)
+        {
+            _viewModel.Query = SearchBox.Text;
+        }
     }
 
     private void OnProjectSelected(object sender, SelectionChangedEventArgs e)
     {
-        if (_suppressCallbacks || ProjectPicker.SelectedItem is not PickerItem item)
+        if (_suppressCallbacks || ProjectList.SelectedItem is not PickerChoice choice)
         {
             return;
         }
 
-        _viewModel.SelectProject(item.ProjectId, item.TaskId);
+        _viewModel.SelectProject(choice.ProjectId, choice.TaskId);
     }
 
     private void OnNoteChanged(object sender, TextChangedEventArgs e)
@@ -270,6 +297,12 @@ public partial class TrayPopupWindow : Window
         QuitRequested?.Invoke();
     }
 
+    private void OnSignIn(object sender, RoutedEventArgs e)
+    {
+        Hide();
+        SignInRequested?.Invoke();
+    }
+
     private void OnUpdate(object sender, RoutedEventArgs e)
     {
         Hide();
@@ -283,9 +316,19 @@ public partial class TrayPopupWindow : Window
     private void SyncUpdateRow()
     {
         UpdateRow.Visibility = _viewModel.UpdateAvailable ? Visibility.Visible : Visibility.Collapsed;
-        UpdateLabel.Text = _viewModel.UpdateOverdue
-            ? "An update has been waiting a while."
-            : "A new version is available.";
+
+        var installing = _viewModel.IsInstallingUpdate;
+        UpdateButton.Visibility = installing ? Visibility.Collapsed : Visibility.Visible;
+        UpdateProgressLabel.Visibility = installing ? Visibility.Visible : Visibility.Collapsed;
+        UpdateButton.Content = _viewModel.UpdateLabel;
+        UpdateProgressLabel.Text = _viewModel.UpdateLabel;
+
+        // A resource reference, not a brush: the popup lives for the whole session and has to
+        // follow a theme switch like everything else in it.
+        UpdateButton.SetResourceReference(ForegroundProperty, _viewModel.UpdateOverdue ? "Destructive" : "Accent");
+        UpdateButton.ToolTip = _viewModel.UpdateCanInstallInPlace
+            ? "Downloads and verifies the new build, then restarts. Your tracked time is unaffected."
+            : "Opens the download page. This copy can't replace itself.";
     }
 
     /// <summary>
