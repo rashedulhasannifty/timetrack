@@ -151,3 +151,19 @@ public class TrayTooltipTests
     public void TheLongestTooltipFitsTheShellLimit() =>
         Assert.True(TrayTooltip.For(true, "123:59:59", liveSyncBlocked: true, updateOverdue: true).Length <= 127);
 }
+
+/// <summary>Wiring asserted on the IL, as in <see cref="LaunchResolutionWiringTests"/>.</summary>
+public class ReminderWiringTests
+{
+    private static bool References(string method, string typeName, string target) =>
+        LaunchResolutionWiringTests.References(LaunchResolutionWiringTests.Body(method), typeName, target);
+
+    [Fact]
+    public void AutoModeInstallsTheReminder() =>
+        Assert.True(References("InstallIdleDetection", nameof(AppDelegate), "PresentNotTrackingReminder"));
+
+    /// <summary>A reminder left up across sign-out would start the NEXT person's clock.</summary>
+    [Fact]
+    public void SignOutDismissesTheReminder() =>
+        Assert.True(References("TearDownIdleDetection", nameof(NotTrackingReminder), nameof(NotTrackingReminder.DismissIfShowing)));
+}

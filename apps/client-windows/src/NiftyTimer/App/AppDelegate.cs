@@ -87,6 +87,7 @@ public sealed class AppDelegate : IDisposable
 
     private readonly TimePrompt _awayPrompt = new();
     private readonly TimePrompt _recoveryPrompt = new();
+    private readonly NotTrackingReminder _notTrackingReminder = new();
 
     private SessionObserver? _sessionObserver;
     private AutoTrackingCoordinator? _autoCoordinator;
@@ -686,7 +687,23 @@ public sealed class AppDelegate : IDisposable
                 onIdleThresholdCrossed: NotifyIdleThresholdCrossed,
                 onTrackingStateChanged: () => _viewModel.RefreshFromTracker());
             _autoCoordinator = auto;
-            receiver = new FanOutSignalReceiver(auto, manual);
+
+            // Auto mode's own forgot-to-start reminder. Activate() opens an AUTO entry at once, so
+            // a stopped clock while the person is present means something went wrong downstream —
+            // a fault, not a hint, so it is a window rather than a balloon. The auto coordinator
+            // already owns the idle nudge here, and an unanswered away prompt is itself the thing
+            // asking them to act.
+            var reminder = new ManualNudgeMonitor(
+                _notifier,
+                thresholdSeconds,
+                ForgotToStartSeconds,
+                isTracking: () => _tracker.State is TrackerState.Tracking,
+                isPaused: () => _tracker.State is TrackerState.Paused,
+                presentForgotToStart: PresentNotTrackingReminder,
+                emitsManualIdleNudge: false,
+                isAwaitingResolution: () => auto.MonitorState is IdleState.Awaiting);
+            _nudgeMonitor = reminder;
+            receiver = new FanOutSignalReceiver(auto, manual, new NudgeSignalAdapter(reminder, thresholdSeconds));
         }
 
         _sessionObserver = new SessionObserver(receiver);
@@ -1119,6 +1136,9 @@ public sealed class AppDelegate : IDisposable
         // forever. Reset the one-shot so the next user gets their own recovery attempt.
         _recoveryPrompt.DismissIfShowing();
         _hasAttemptedRecovery = false;
+
+        // Same class: the reminder's Start button would open an entry for whoever signs in next.
+        _notTrackingReminder.DismissIfShowing();
     }
 
     /// <summary>
@@ -1141,7 +1161,9 @@ public sealed class AppDelegate : IDisposable
 
         if (retry.WarnUser)
         {
-            WarnNotTracking("Tracking hasn't started — Nifty Timer can't reach the server. Your time isn't being recorded.");
+            PresentNotTrackingReminder(
+                "Time tracking",
+                "Tracking hasn't started — Nifty Timer can't reach the server. Your time isn't being recorded.");
         }
 
         CancelPolicyRetry();
@@ -1201,23 +1223,21 @@ public sealed class AppDelegate : IDisposable
     }
 
     /// <summary>
-    /// Tell the person their time is not being recorded. Suppressed unless manual tracking is
-    /// actually available — without an acknowledgement on file they could do nothing about it, and
-    /// the popup already says the server is unreachable.
-    ///
-    /// A tray balloon for now; the macOS client raises a window with a "Start tracking" button,
-    /// which lands here with the auto-mode forgot-to-start reminder that shares it.
+    /// The one place a "your time isn't being recorded" window is raised, from both triggers: a
+    /// launch resolve that keeps failing, and auto mode's forgot-to-start. A WINDOW, as on the Mac,
+    /// because a balloon is silently dropped when notifications are off, and this is the reminder
+    /// that must not be lost. Suppressed unless manual tracking is actually available — without an
+    /// acknowledgement on file its Start button could do nothing (CLAUDE.md §1), and the popup
+    /// already says the server is unreachable.
     /// </summary>
-    private void WarnNotTracking(string message)
+    private void PresentNotTrackingReminder(string title, string message)
     {
         if (!_viewModel.IsReady)
         {
             return;
         }
 
-        // The once-per-schedule rule lives in PolicyResolutionRetry, not in the notifier's
-        // five-minute repeat window — a second caller of this id must not rely on that window.
-        _notifier.Notify("not-tracking", "Time tracking", message);
+        _notTrackingReminder.Present(title, message, onStart: () => _viewModel.Start());
     }
 
     /// <summary>
