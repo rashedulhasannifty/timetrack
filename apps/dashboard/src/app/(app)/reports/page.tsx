@@ -69,7 +69,8 @@ export default async function ReportsPage({
               Range {formatDate(from)} – {formatDate(to)} · {team.rows.length} users ·{' '}
               {projects.rows.length} projects
             </span>
-            <div className="flex items-center gap-3">
+            {/* items-end: align the button with the picker's inputs, not its labelled block. */}
+            <div className="flex items-end gap-3">
               <ReportRangePicker from={from} to={to} />
               <Button
                 variant="secondary"

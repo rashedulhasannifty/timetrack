@@ -154,10 +154,13 @@ describe('ProjectsService.detail', () => {
 
   it('assembles detail with totalSeconds = sum of members', async () => {
     const projectId = '11111111-1111-4111-8111-111111111111';
+    // A real UUID, not 't1': detail() re-validates through ProjectDetailSchema, which now
+    // carries teamId. The actor is an ADMIN so the own-team check doesn't compare against 't1'.
+    const teamId = '44444444-4444-4444-8444-444444444444';
     const { svc } = makeService({
       findForActor: vi.fn().mockResolvedValue({
         id: projectId,
-        teamId: 't1',
+        teamId,
         name: 'Website',
         color: '#34c759',
         archived: false,
@@ -174,8 +177,9 @@ describe('ProjectsService.detail', () => {
         .fn()
         .mockResolvedValue([{ taskId: null, name: 'No task', trackedSeconds: 4321 }]),
     });
-    const result = await svc.detail(projectId, query, manager);
+    const result = await svc.detail(projectId, query, { id: 'a1', role: 'ADMIN', teamId: 't1' });
     expect(result.projectId).toBe(projectId);
+    expect(result.teamId).toBe(teamId);
     expect(result.name).toBe('Website');
     expect(result.color).toBe('#34c759');
     expect(result.totalSeconds).toBe(9000);

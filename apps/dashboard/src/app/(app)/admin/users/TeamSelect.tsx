@@ -1,7 +1,8 @@
 'use client';
 
-import { useActionState, useRef } from 'react';
+import { useActionState, useRef, useState } from 'react';
 import type { TeamListItem } from '@timetrack/contracts';
+import { ConfirmDialog, splitConfirmText } from '../../../../components/ui/ConfirmDialog';
 import { setUserTeamAction, type RowState } from './actions';
 
 const INITIAL: RowState = { ok: false };
@@ -33,23 +34,34 @@ export function TeamSelect({
   // cancel (React leaves an uncontrolled select where the user put it), so a cancel writes
   // this value back by hand — otherwise the dropdown would show a move that never happened.
   const committed = useRef(teamId);
+  const formRef = useRef<HTMLFormElement>(null);
+  const selectRef = useRef<HTMLSelectElement>(null);
+  // The team picked but not yet confirmed; non-null while the confirm modal is open.
+  const [target, setTarget] = useState<TeamListItem | null>(null);
+  const from = teams.find((t) => t.id === committed.current);
 
-  function confirmMove(event: React.ChangeEvent<HTMLSelectElement>): void {
-    const select = event.currentTarget;
-    const to = teams.find((t) => t.id === select.value);
-    const from = teams.find((t) => t.id === committed.current);
+  function pick(event: React.ChangeEvent<HTMLSelectElement>): void {
+    const to = teams.find((t) => t.id === event.currentTarget.value);
     if (!to || !from || to.id === from.id) return;
-
-    if (!window.confirm(describeMove(userName, from, to))) {
-      select.value = committed.current;
-      return;
-    }
-    committed.current = to.id;
-    select.form?.requestSubmit();
+    setTarget(to);
   }
 
+  function cancel(): void {
+    if (selectRef.current) selectRef.current.value = committed.current;
+    setTarget(null);
+  }
+
+  function confirm(): void {
+    if (!target) return;
+    committed.current = target.id;
+    setTarget(null);
+    formRef.current?.requestSubmit();
+  }
+
+  const text = target && from ? splitConfirmText(describeMove(userName, from, target)) : null;
+
   return (
-    <form action={formAction} className="flex flex-col gap-1">
+    <form ref={formRef} action={formAction} className="flex flex-col gap-1">
       <input type="hidden" name="userId" value={userId} />
       <select
         name="teamId"
@@ -57,7 +69,8 @@ export function TeamSelect({
         disabled={pending || teams.length < 2}
         aria-label="Team"
         title={teams.length < 2 ? 'Create a second team to move people between teams' : undefined}
-        onChange={confirmMove}
+        ref={selectRef}
+        onChange={pick}
         className="bg-surface border-separator text-text focus:border-accent text-caption rounded-md border px-2 py-1 outline-none transition-colors disabled:opacity-50"
       >
         {teams.map((t) => (
@@ -69,6 +82,14 @@ export function TeamSelect({
       {state.message ? (
         <span className="text-destructive text-caption">{state.message}</span>
       ) : null}
+      <ConfirmDialog
+        open={text !== null}
+        title={text?.title ?? ''}
+        message={text?.message ?? ''}
+        confirmLabel="Move"
+        onConfirm={confirm}
+        onCancel={cancel}
+      />
     </form>
   );
 }

@@ -6,6 +6,9 @@ using NiftyTimer.Tracking;
 
 namespace NiftyTimer.App;
 
+/// <summary>One row in the project picker: a project on its own, or one of its tasks.</summary>
+public sealed record PickerChoice(string ProjectId, string? TaskId, string ProjectName, string? TaskName);
+
 /// <summary>
 /// What the tray dropdown shows and what it can do. UI-thread-only.
 ///
@@ -22,6 +25,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     private readonly Func<DateTimeOffset> _clock;
 
     private bool _isReady;
+    private bool _isSignedIn;
     private string? _userId;
     private IReadOnlyList<Project> _projects = [];
     private StoredSelection? _selection;
@@ -30,10 +34,15 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     private bool _liveSyncBlocked;
     private bool _updateAvailable;
     private bool _updateOverdue;
+    private string? _updateVersion;
+    private bool _updateCanInstallInPlace = true;
+    private bool _isInstallingUpdate;
     private string? _notice;
     private string _note = string.Empty;
-    private DateTimeOffset? _displayStart;
     private string _query = string.Empty;
+    private DateTimeOffset? _displayStart;
+    private DateTimeOffset? _totalsFetchedAt;
+    private bool _wasTracking;
 
     public MenuViewModel(
         TimeTracker tracker,
@@ -51,6 +60,13 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public event Action? TrackingStarted;
 
     /// <summary>
+    /// The clock went from running to not running — stopped, paused, rolled back, or auto-stopped.
+    /// The live increment on the totals ends at that moment, so the figures would drop back to the
+    /// last fetch; this is the cue to fetch fresh ones rather than show time going backwards.
+    /// </summary>
+    public event Action? TrackingStopped;
+
+    /// <summary>
     /// True once the session is usable for manual tracking: signed in, and the monitoring policy
     /// acknowledged (either confirmed online this launch, or recorded locally by
     /// <see cref="Policy.AckMarker"/> on a previous one).
@@ -59,6 +75,20 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     {
         get => _isReady;
         set => Set(ref _isReady, value, [nameof(CanStart), nameof(CanStop)]);
+    }
+
+    /// <summary>
+    /// Someone is signed in on this machine, whether or not they can track yet. Drives the popup's
+    /// signed-out panel, as on macOS.
+    ///
+    /// Kept apart from <see cref="IsReady"/> on purpose: a signed-in person who is offline and has
+    /// never acknowledged is not ready, and offering them "Not signed in" and a Sign in button
+    /// would be telling them something false.
+    /// </summary>
+    public bool IsSignedIn
+    {
+        get => _isSignedIn;
+        set => Set(ref _isSignedIn, value);
     }
 
     public string? UserId
@@ -73,16 +103,95 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         set => Set(ref _projects, value, [nameof(Choices), nameof(FilteredChoices), nameof(SelectedChoice)]);
     }
 
+    /// <summary>
+    /// What the person has typed into the picker's search field. Kept here rather than in the
+    /// popup so it survives the popup hiding and showing, as the macOS dropdown's does, and so the
+    /// filter is testable without a window.
+    /// </summary>
+    public string Query
+    {
+        get => _query;
+        set => Set(ref _query, value ?? string.Empty, [nameof(FilteredChoices)]);
+    }
+
+    /// <summary>Every row the picker can offer: each project, then each of its tasks.</summary>
+    public IReadOnlyList<PickerChoice> Choices => ChoicesFor(_projects);
+
+    /// <summary>The rows matching <see cref="Query"/>. See <see cref="Filter"/>.</summary>
+    public IReadOnlyList<PickerChoice> FilteredChoices => Filter(Choices, _query);
+
+    /// <summary>
+    /// The row that carries the checkmark. Resolved against the FULL list rather than the filtered
+    /// one: a selection the current query happens to hide is still the selection.
+    /// </summary>
+    public PickerChoice? SelectedChoice =>
+        _selection is null
+            ? null
+            : Choices.FirstOrDefault(c => c.ProjectId == _selection.ProjectId && c.TaskId == _selection.TaskId);
+
+    /// <summary>
+    /// A row matches when the query appears ANYWHERE in its project or task name, ignoring case —
+    /// the macOS client's rule. The combo box this replaced only matched a prefix of the whole
+    /// label, so "design" could not find "Website · Design review" at all. OrdinalIgnoreCase rather
+    /// than the current culture, so the same query returns the same rows on every machine, and
+    /// surrounding whitespace is ignored so a stray space does not empty the list.
+    /// </summary>
+    public static IReadOnlyList<PickerChoice> Filter(IReadOnlyList<PickerChoice> choices, string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return choices;
+        }
+
+        var trimmed = query.Trim();
+        return choices
+            .Where(c => c.ProjectName.Contains(trimmed, StringComparison.OrdinalIgnoreCase)
+                        || (c.TaskName?.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ?? false))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Flatten projects into rows. A project always contributes its own row — selecting a project
+    /// without a task is a valid selection, and a project with no tasks would otherwise vanish.
+    /// </summary>
+    internal static List<PickerChoice> ChoicesFor(IReadOnlyList<Project> projects)
+    {
+        var choices = new List<PickerChoice>();
+        foreach (var project in projects)
+        {
+            choices.Add(new PickerChoice(project.Id, null, project.Name, null));
+            foreach (var task in project.Tasks ?? [])
+            {
+                choices.Add(new PickerChoice(project.Id, task.Id, project.Name, task.Name));
+            }
+        }
+
+        return choices;
+    }
+
     public StoredSelection? Selection
     {
         get => _selection;
         private set => Set(ref _selection, value, [nameof(SelectionLabel), nameof(SelectedChoice)]);
     }
 
+    /// <summary>
+    /// The server's figures, as of the moment they were assigned. That moment is what makes them
+    /// live rather than a snapshot — see <see cref="LiveTotal"/>.
+    /// </summary>
     public SelfTotals? Totals
     {
         get => _totals;
-        set => Set(ref _totals, value, [nameof(TodayLabel), nameof(WeekLabel), nameof(MonthLabel)]);
+        set
+        {
+            // Stamped on every arrival, even an identical one: the base was true at THIS instant,
+            // and the live increment counts from here.
+            _totalsFetchedAt = value is null ? null : _clock();
+            if (!Set(ref _totals, value, [nameof(TodayLabel), nameof(WeekLabel), nameof(MonthLabel)]))
+            {
+                Raise(nameof(TodayLabel), nameof(WeekLabel), nameof(MonthLabel));
+            }
+        }
     }
 
     /// <summary>How many records are still waiting to reach the server.</summary>
@@ -118,6 +227,48 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     {
         get => _updateOverdue;
         set => Set(ref _updateOverdue, value);
+    }
+
+    /// <summary>The newer build's version, named in the update row as on macOS.</summary>
+    public string? UpdateVersion
+    {
+        get => _updateVersion;
+        set => Set(ref _updateVersion, value, [nameof(UpdateLabel)]);
+    }
+
+    /// <summary>
+    /// This copy can replace itself. False for a machine-wide or IT-deployed install, where the row
+    /// offers the download page instead of a button that can only fail.
+    /// </summary>
+    public bool UpdateCanInstallInPlace
+    {
+        get => _updateCanInstallInPlace;
+        set => Set(ref _updateCanInstallInPlace, value, [nameof(UpdateLabel)]);
+    }
+
+    /// <summary>An update is downloading and verifying; the row says so instead of offering it.</summary>
+    public bool IsInstallingUpdate
+    {
+        get => _isInstallingUpdate;
+        set => Set(ref _isInstallingUpdate, value, [nameof(UpdateLabel)]);
+    }
+
+    public string UpdateLabel => UpdateRowLabel(_updateVersion, _updateCanInstallInPlace, _isInstallingUpdate);
+
+    /// <summary>The macOS update row's wording: install, download, or in progress.</summary>
+    public static string UpdateRowLabel(string? version, bool canInstallInPlace, bool installing)
+    {
+        if (version is null)
+        {
+            return installing ? "Updating…" : canInstallInPlace ? "Update now" : "Download the update";
+        }
+
+        if (installing)
+        {
+            return $"Updating to {version}…";
+        }
+
+        return canInstallInPlace ? $"Update to {version}" : $"Download {version}";
     }
 
     /// <summary>A one-line message for the user; null when there is nothing to say.</summary>
@@ -174,11 +325,45 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     /// </summary>
     public TimeTracker.Selection SelectionForAuto => new(_selection?.ProjectId, _selection?.TaskId);
 
-    public string TodayLabel => _totals is null ? "—" : WorkTotalFormat.Short(_totals.TodaySeconds);
+    public string TodayLabel => _totals is null ? "—" : WorkTotalFormat.Short(Live(_totals.TodaySeconds));
 
-    public string WeekLabel => _totals is null ? "—" : WorkTotalFormat.Short(_totals.WeekSeconds);
+    public string WeekLabel => _totals is null ? "—" : WorkTotalFormat.Short(Live(_totals.WeekSeconds));
 
-    public string MonthLabel => _totals is null ? "—" : WorkTotalFormat.Short(_totals.MonthSeconds);
+    public string MonthLabel => _totals is null ? "—" : WorkTotalFormat.Short(Live(_totals.MonthSeconds));
+
+    /// <summary>
+    /// A total as it stands right now: the server's figure plus the tracked time accrued since it
+    /// was fetched. The same increment applies to all three — a minute worked now is a minute of
+    /// today, of this week and of this month.
+    ///
+    /// Anchored on <c>max(fetchedAt, runningSince)</c>, which is the whole trick:
+    /// <list type="bullet">
+    ///   <item>the fetched figure ALREADY counts the running session up to the fetch, so counting
+    ///   from the session start would count most of it twice;</item>
+    ///   <item>a session that began AFTER the fetch has only run since its start, so counting from
+    ///   the fetch would add time that was never tracked.</item>
+    /// </list>
+    /// Only while the clock actually runs — paused or stopped accrues nothing.
+    /// </summary>
+    public static int LiveTotal(int baseSeconds, DateTimeOffset? runningSince, DateTimeOffset? fetchedAt, DateTimeOffset now)
+    {
+        if (runningSince is not { } start || fetchedAt is not { } fetched)
+        {
+            return baseSeconds;
+        }
+
+        var since = fetched > start ? fetched : start;
+        return baseSeconds + Math.Max(0, (int)(now - since).TotalSeconds);
+    }
+
+    // The entry's REAL start, not the display anchor: the server counts the entry itself, so the
+    // anchor a discarded idle window leaves behind would double-count the discarded minutes.
+    private int Live(int baseSeconds) =>
+        LiveTotal(
+            baseSeconds,
+            _tracker.State is TrackerState.Tracking t ? t.StartedAt : null,
+            _totalsFetchedAt,
+            _clock());
 
     public string SelectionLabel
     {
@@ -203,70 +388,6 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>
-    /// What the search box holds. macOS gets this from SwiftUI's <c>query</c>; the Windows popup
-    /// used to get text search for free from the stock ComboBox, which PR 2 replaces.
-    /// </summary>
-    public string Query
-    {
-        get => _query;
-        set => Set(ref _query, value, [nameof(FilteredChoices)]);
-    }
-
-    /// <summary>Every project, each followed by its own tasks. Flat, because the list renders flat.</summary>
-    public IReadOnlyList<PickerItem> Choices => BuildChoices(_projects);
-
-    /// <summary>What the list actually shows, narrowed by <see cref="Query"/>.</summary>
-    public IReadOnlyList<PickerItem> FilteredChoices => Filter(Choices, _query);
-
-    /// <summary>
-    /// The row that carries the checkmark. Resolved against the FULL list rather than the filtered
-    /// one: a selection the current query happens to hide is still the selection.
-    /// </summary>
-    public PickerItem? SelectedChoice =>
-        _selection is null
-            ? null
-            : Choices.FirstOrDefault(c => c.ProjectId == _selection.ProjectId && c.TaskId == _selection.TaskId);
-
-    /// <summary>
-    /// Flatten projects into rows. A project always contributes its own row — selecting a project
-    /// without a task is a valid selection, and a project with no tasks would otherwise vanish.
-    /// </summary>
-    internal static IReadOnlyList<PickerItem> BuildChoices(IReadOnlyList<Project> projects)
-    {
-        var items = new List<PickerItem>();
-        foreach (var project in projects)
-        {
-            items.Add(new PickerItem(project.Name, null, project.Id, null));
-            foreach (var task in project.Tasks ?? [])
-            {
-                items.Add(new PickerItem(project.Name, task.Name, project.Id, task.Id));
-            }
-        }
-
-        return items;
-    }
-
-    /// <summary>
-    /// Narrow by substring on either name. OrdinalIgnoreCase rather than the current culture: the
-    /// result must not depend on the machine's locale, or the same query returns different rows on
-    /// two employees' laptops.
-    /// </summary>
-    internal static IReadOnlyList<PickerItem> Filter(IReadOnlyList<PickerItem> choices, string? query)
-    {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            return choices;
-        }
-
-        var trimmed = query.Trim();
-        return choices
-            .Where(c =>
-                c.ProjectName.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ||
-                (c.TaskName?.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ?? false))
-            .ToList();
-    }
-
     public void Start()
     {
         if (!CanStart)
@@ -282,14 +403,21 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// What the global hotkey does: start if we can, stop if we are running, and otherwise do
-    /// nothing at all. Silence is the right answer for the third case — the hotkey fires from
-    /// whatever application has focus, so a person who pressed it before signing in should not be
-    /// interrupted by an error they did not ask for.
+    /// What the global hotkey does: resume if paused, stop if running, start if we can, and
+    /// otherwise do nothing at all. Silence is the right answer for the last case — the hotkey
+    /// fires from whatever application has focus, so a person who pressed it before signing in
+    /// should not be interrupted by an error they did not ask for.
+    ///
+    /// Paused resumes rather than stops, matching the macOS client: a pause is a break the person
+    /// means to come back from, and the one-key way back should not end the session instead.
     /// </summary>
     public void ToggleTracking()
     {
-        if (CanStop)
+        if (IsPaused)
+        {
+            Resume();
+        }
+        else if (IsTracking)
         {
             Stop();
         }
@@ -418,6 +546,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public void Reset()
     {
         IsReady = false;
+        IsSignedIn = false;
         UserId = null;
         Projects = [];
         Selection = null;
@@ -432,18 +561,34 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Called once a second while the popup is open, to advance the live elapsed clock.</summary>
-    public void Tick() => Raise(nameof(ElapsedLabel), nameof(Elapsed));
+    public void Tick() =>
+        Raise(nameof(ElapsedLabel), nameof(Elapsed), nameof(TodayLabel), nameof(WeekLabel), nameof(MonthLabel));
 
     private string? NoteOrNull() => string.IsNullOrWhiteSpace(_note) ? null : _note;
 
-    private void RaiseTrackingState() =>
+    private void RaiseTrackingState()
+    {
         Raise(
             nameof(IsTracking),
             nameof(IsPaused),
             nameof(CanStart),
             nameof(CanStop),
             nameof(ElapsedLabel),
-            nameof(Elapsed));
+            nameof(Elapsed),
+            nameof(TodayLabel),
+            nameof(WeekLabel),
+            nameof(MonthLabel));
+
+        // Every path that changes the tracker's state ends here, the auto layer included (through
+        // RefreshFromTracker), so this is the one place a stop can be observed.
+        var tracking = IsTracking;
+        if (_wasTracking && !tracking)
+        {
+            TrackingStopped?.Invoke();
+        }
+
+        _wasTracking = tracking;
+    }
 
     private bool Set<T>(
         ref T field,

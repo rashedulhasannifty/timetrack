@@ -16,7 +16,25 @@
             BorderThickness="1"
             CornerRadius="0"
             Padding="14">
-        <StackPanel>
+        <Grid>
+
+        <!-- Signed out: no My data, no Sign out — both belong to a session. Mirrors the macOS
+             dropdown's signed-out view. -->
+        <StackPanel x:Name="SignedOutPanel" Visibility="Collapsed">
+            <StackPanel Orientation="Horizontal">
+                <Ellipse Width="7" Height="7" Fill="{DynamicResource TextSecondary}" VerticalAlignment="Center" />
+                <TextBlock Text="Not signed in" Style="{StaticResource LabelText}"
+                           Foreground="{DynamicResource TextSecondary}" Margin="6,0,0,0" />
+            </StackPanel>
+            <TextBlock Text="Sign in to start tracking your time." Style="{StaticResource CaptionText}"
+                       TextWrapping="Wrap" Margin="0,8,0,12" />
+            <Button x:Name="SignInButton" Content="Sign in" Style="{StaticResource ProminentButton}"
+                    HorizontalAlignment="Stretch" Click="OnSignIn" />
+            <Button Content="Quit" Style="{StaticResource LinkButton}" HorizontalAlignment="Right"
+                    Margin="0,12,0,0" Click="OnQuit" />
+        </StackPanel>
+
+        <StackPanel x:Name="SignedInPanel">
 
             <!-- Status: a dot plus the phase, mirroring the macOS dropdown. The dot is the fastest
                  read in the window; PRD 4.2 wants the recording state disclosed, not inferred. -->
@@ -81,51 +99,31 @@
                        Margin="0,0,0,10" />
 
             <TextBlock Text="SWITCH PROJECT" Style="{StaticResource MicroText}" Margin="0,0,0,4" />
+            <Grid Margin="0,0,0,6">
+                <TextBox x:Name="SearchBox"
+                         TextChanged="OnQueryChanged"
+                         AutomationProperties.Name="Search projects and tasks" />
+                <!-- WPF's TextBox has no placeholder. Hit-test-invisible so a click lands in the
+                     field underneath. -->
+                <TextBlock x:Name="SearchHint"
+                           Text="Search projects and tasks"
+                           Style="{StaticResource CaptionText}"
+                           IsHitTestVisible="False"
+                           VerticalAlignment="Center"
+                           Margin="10,0,0,0" />
+            </Grid>
 
-            <TextBox x:Name="SearchBox"
-                     TextChanged="OnSearchChanged"
-                     Margin="0,0,0,6" />
-
-            <!-- A DEFINITE height, not MaxHeight. The window is SizeToContent="Height", so a list
-                 that sizes to its content makes the whole popup jump every time a keystroke
-                 narrows the results — and grow without bound on a long project list. 220px is
-                 about six rows; past that it scrolls. -->
+            <!-- A DEFINITE height, not MaxHeight. The window is SizeToContent="Height" and
+                 re-anchors its bottom edge whenever its height changes (OnSizeChanged), so a list
+                 that sized to its content would move the whole popup — search field included —
+                 under the person's cursor on every keystroke that narrows the results. 220px is
+                 about six rows; past that it scrolls. The row chrome is the global ListBoxItem
+                 style in Styles.xaml. -->
             <ListBox x:Name="ProjectList"
                      Height="220"
-                     Background="Transparent"
-                     BorderThickness="0"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      SelectionChanged="OnProjectSelected"
+                     AutomationProperties.Name="Projects and tasks"
                      Margin="0,0,0,12">
-                <ListBox.ItemContainerStyle>
-                    <Style TargetType="ListBoxItem">
-                        <Setter Property="Padding" Value="8,7" />
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="ListBoxItem">
-                                    <Border x:Name="Chrome"
-                                            Background="Transparent"
-                                            CornerRadius="{StaticResource RadiusSm}"
-                                            Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter />
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Chrome" Property="Background"
-                                                    Value="{DynamicResource Surface}" />
-                                        </Trigger>
-                                        <Trigger Property="IsSelected" Value="True">
-                                            <Setter TargetName="Chrome" Property="Background"
-                                                    Value="{DynamicResource Tint}" />
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </ListBox.ItemContainerStyle>
-
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <Grid>
@@ -210,13 +208,14 @@
                        Visibility="Collapsed"
                        Margin="0,10,0,0" />
 
-            <StackPanel x:Name="UpdateRow" Orientation="Horizontal" Visibility="Collapsed"
-                        Margin="0,10,0,0">
-                <TextBlock x:Name="UpdateLabel" Style="{StaticResource CaptionText}"
-                           VerticalAlignment="Center" />
-                <Button x:Name="UpdateButton" Content="Update now" Style="{StaticResource LinkButton}" Padding="6,3" Margin="8,0,0,0"
-                        Click="OnUpdate"
-                        ToolTip="Downloads and verifies the new build, then restarts. Your tracked time is unaffected." />
+            <!-- Present only when there is genuinely something newer. Names the version, as on
+                 macOS, and the link turns destructive once the update is overdue. While installing,
+                 the link gives way to a plain line saying so. -->
+            <StackPanel x:Name="UpdateRow" Visibility="Collapsed" Margin="0,10,0,0">
+                <Button x:Name="UpdateButton" Style="{StaticResource LinkButton}"
+                        HorizontalAlignment="Left" Click="OnUpdate" />
+                <TextBlock x:Name="UpdateProgressLabel" Style="{StaticResource CaptionText}"
+                           Visibility="Collapsed" />
             </StackPanel>
 
             <Border BorderBrush="{DynamicResource Separator}" BorderThickness="0,1,0,0"
@@ -255,5 +254,7 @@
             </Border>
 
         </StackPanel>
+
+        </Grid>
     </Border>
 </Window>

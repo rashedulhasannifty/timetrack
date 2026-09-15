@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Threading;
@@ -56,6 +57,7 @@ public sealed class AppDelegate : IDisposable
     private PolicyClient _policyClient = null!;
     private AckClient _ackClient = null!;
     private ProjectClient _projectClient = null!;
+    private RecentSelectionClient _recentSelectionClient = null!;
     private ProjectCache _projectCache = null!;
     private SelfTotalsClient _totalsClient = null!;
     private SelectionStore _selectionStore = null!;
@@ -86,6 +88,8 @@ public sealed class AppDelegate : IDisposable
 
     private readonly TimePrompt _awayPrompt = new();
     private readonly TimePrompt _recoveryPrompt = new();
+    private readonly NotTrackingReminder _notTrackingReminder = new();
+    private readonly DistractionNudge _distractionNudge = new();
 
     private SessionObserver? _sessionObserver;
     private AutoTrackingCoordinator? _autoCoordinator;
@@ -99,10 +103,36 @@ public sealed class AppDelegate : IDisposable
     private ActivitySampler? _activitySampler;
     private ScreenshotScheduler? _screenshotScheduler;
 
+    // Fed only by the activity sampler, so it lives and dies with it. It sees a Category and
+    // nothing else.
+    private DistractionMonitor? _distractionMonitor;
+
     // Manual-mode only, and gated with the rest of the observation: it reads the same continuous
     // idle scalar. It never stops a clock, but it does watch the person, which is what decides
     // where it may be installed.
     private ManualNudgeMonitor? _nudgeMonitor;
+
+    // The launch-time policy resolve is retried until idle detection installs — see
+    // PolicyResolutionRetry for why one attempt was not enough. The retry owns the schedule and its
+    // single warning; this owns the timer, as SyncEngine does over BackoffPolicy.
+    private readonly PolicyResolutionRetry _policyRetry = new();
+    private DispatcherTimer? _policyRetryTimer;
+    private WakeWatcher? _wakeWatcher;
+
+    // One-shot per signed-in session, reset on sign-out. The retry passes back through
+    // ProceedToPolicyAsync, and readiness is not the thing being retried: re-running BecomeReady on
+    // every attempt would reload the project picker under the person each time.
+    private bool _hasBecomeReady;
+
+    // One fresh-install fallback per signed-in session — the store gate alone never closes for a
+    // person with no recent history, and would re-ask on every project refresh.
+    private bool _hasAttemptedRecentSelectionFallback;
+
+    // Menu-open refreshes, rate-limited so clicking the tray icon repeatedly cannot hammer the API.
+    // Totals are shorter: they are what the person opened the menu to look at, and they move
+    // minute by minute while the clock runs.
+    private readonly RefreshThrottle _projectRefreshThrottle = new(TimeSpan.FromSeconds(60));
+    private readonly RefreshThrottle _totalsRefreshThrottle = new(TimeSpan.FromSeconds(20));
 
     private DispatcherTimer? _heartbeat;
     private DispatcherTimer? _refresh;
@@ -129,6 +159,7 @@ public sealed class AppDelegate : IDisposable
         _policyClient = new PolicyClient(_http, _config.ApiBaseUri, _session);
         _ackClient = new AckClient(_http, _config.ApiBaseUri, _session);
         _projectClient = new ProjectClient(json);
+        _recentSelectionClient = new RecentSelectionClient(json);
         _totalsClient = new SelfTotalsClient(json);
 
         _ackMarker = new AckMarker(_settings);
@@ -196,6 +227,10 @@ public sealed class AppDelegate : IDisposable
         _activitySync.Start();
         StartTimers();
 
+        // A machine that slept through a failed launch resolve most likely wakes with network, so
+        // the pending retry runs then rather than sitting out the rest of its backoff.
+        _wakeWatcher = new WakeWatcher(RetryPolicyOnWake);
+
         _ = BootstrapAsync();
     }
 
@@ -225,6 +260,8 @@ public sealed class AppDelegate : IDisposable
 
         _heartbeat?.Stop();
         _refresh?.Stop();
+        CancelPolicyRetry();
+        _wakeWatcher?.Dispose();
 
         // Quit must settle the same things sign-out does. Without this, quitting with an away
         // window pending loses its UNRESOLVED idle event — the two exit paths would disagree about
@@ -258,15 +295,8 @@ public sealed class AppDelegate : IDisposable
 
     private void WireEvents()
     {
-        _tray.Activated += () =>
-        {
-            _popup.ShowNearTray();
-
-            // Throttled to once every thirty minutes inside the coordinator, so opening the menu
-            // repeatedly cannot spend the unauthenticated GitHub rate limit.
-            _ = _updates.CheckOnMenuOpenAsync(_shutdown.Token);
-        };
-        _tray.ContextMenuRequested += () => _popup.ShowNearTray();
+        _tray.Activated += OnTrayActivated;
+        _tray.ContextMenuRequested += OnTrayActivated;
 
         // An out-of-date build keeps tracking. The strongest thing this may do is put a marker on
         // the tray and a line in the menu — never stop the clock, never block a start.
@@ -274,11 +304,16 @@ public sealed class AppDelegate : IDisposable
         {
             _viewModel.UpdateAvailable = status.ManifestOrNull is not null;
             _viewModel.UpdateOverdue = status.IsOverdue;
+            _viewModel.UpdateVersion = status.ManifestOrNull?.Version.ToString();
+
+            // Probed only when there is something to install: the check writes a file.
+            _viewModel.UpdateCanInstallInPlace = status.ManifestOrNull is null || _updateInstaller.CanInstall();
             UpdateTray();
         });
 
         _popup.SignOutRequested += () => _ = SignOutAsync();
-        _popup.UpdateRequested += () => _ = ApplyUpdateAsync();
+        _popup.SignInRequested += ShowLogin;
+        _popup.UpdateRequested += OnUpdateRequested;
         _popup.QuitRequested += () =>
         {
             // The popup cancels its own Closing so that dismissing it never ends the process —
@@ -318,6 +353,51 @@ public sealed class AppDelegate : IDisposable
 
         _viewModel.PropertyChanged += (_, _) => UpdateTray();
         _viewModel.TrackingStarted += UpdateTray;
+        _viewModel.TrackingStopped += OnTrackingStopped;
+    }
+
+    /// <summary>Left click and right click both open the one menu, so both get the same refresh.</summary>
+    private void OnTrayActivated()
+    {
+        _popup.ShowNearTray();
+        MenuDidOpen();
+    }
+
+    /// <summary>
+    /// Everything worth re-checking because a person is looking at the menu right now: a project
+    /// added in the dashboard appears without a relaunch, the totals are current, and the pending
+    /// count is true. The background timers are the floor, not the whole story.
+    /// </summary>
+    private void MenuDidOpen()
+    {
+        RefreshPendingCount();
+
+        if (_viewModel.IsReady && _projectRefreshThrottle.ShouldRefresh())
+        {
+            _ = RefreshProjectsAsync();
+        }
+
+        if (_viewModel.IsReady && _totalsRefreshThrottle.ShouldRefresh())
+        {
+            _ = RefreshTotalsAsync();
+        }
+
+        // Throttled to once every thirty minutes inside the coordinator, so opening the menu
+        // repeatedly cannot spend the unauthenticated GitHub rate limit.
+        _ = _updates.CheckOnMenuOpenAsync(_shutdown.Token);
+    }
+
+    /// <summary>
+    /// The clock stopped, so the live increment on the totals ended with it. The server still
+    /// counts that entry, so re-reading now returns the full figure instead of letting the menu
+    /// show time going backwards.
+    /// </summary>
+    private void OnTrackingStopped()
+    {
+        if (_viewModel.IsReady)
+        {
+            _ = RefreshTotalsAsync();
+        }
     }
 
     private void StartTimers()
@@ -366,11 +446,18 @@ public sealed class AppDelegate : IDisposable
         switch (outcome)
         {
             case BootstrapOutcome.Authenticated:
+                _viewModel.IsSignedIn = true;
                 await ProceedToPolicyAsync().ConfigureAwait(true);
                 break;
 
             case BootstrapOutcome.Offline:
+                // Signed in, just unreachable: the popup must not claim otherwise.
+                _viewModel.IsSignedIn = true;
                 ProceedOffline();
+
+                // The refresh token is still ours; the API just could not be reached. Scheduled
+                // here, never inside ProceedOffline — see SchedulePolicyRetry.
+                SchedulePolicyRetry();
                 break;
 
             case BootstrapOutcome.Unauthenticated:
@@ -396,6 +483,12 @@ public sealed class AppDelegate : IDisposable
             // resume if this user acknowledged previously; capture may not, because it is not
             // installed on this path at all.
             ProceedOffline();
+
+            // This is the login-item failure mode: the app starts before the network is up, the
+            // fetch throws, and — until the retry existed — that was the end of it for the whole
+            // session. In auto mode the person was left with a ready-looking client whose clock
+            // never started.
+            SchedulePolicyRetry();
             return;
         }
 
@@ -410,6 +503,14 @@ public sealed class AppDelegate : IDisposable
         if (_session.UserId is { } userId)
         {
             _ackMarker.Record(userId, policy.PolicyVersion);
+        }
+
+        // After an offline launch BecomeReady has already run, from the cache, and runs once per
+        // session. A resolve that succeeds later is the first moment the server's project list is
+        // reachable, so fetch it here rather than keep the cached list until the next launch.
+        if (_hasBecomeReady)
+        {
+            _ = RefreshProjectsAsync();
         }
 
         BecomeReady();
@@ -479,6 +580,15 @@ public sealed class AppDelegate : IDisposable
         _eventCounter = counter;
         _ = counter.StartAsync(_shutdown.Token);
 
+        // Reads the team policy on every tick, so an admin's change reaches a running client on
+        // its next sample rather than its next launch. The distraction nudge alone falls back to
+        // an in-app card when Windows notifications are switched off, as on the Mac, so it is
+        // never silently dropped. Ticks arrive on the UI thread (OnActivityCategorized hops), so
+        // the card is presented there.
+        _distractionMonitor = new DistractionMonitor(
+            new FallbackDistractionNotifier(_notifier, SystemNotifications.AreEnabled, _distractionNudge.Present),
+            () => DistractionSettings.From(_livePolicy.Current));
+
         _activitySampler = new ActivitySampler(
             _ackGate,
             counter,
@@ -486,7 +596,8 @@ public sealed class AppDelegate : IDisposable
             _livePolicy,
             _activityStore,
             isTracking: () => _tracker.State is TrackerState.Tracking,
-            onSampled: () => OnUi(RefreshPendingCount));
+            onSampled: () => OnUi(RefreshPendingCount),
+            onCategorized: OnActivityCategorized);
         _activitySampler.Start();
     }
 
@@ -503,7 +614,7 @@ public sealed class AppDelegate : IDisposable
             _imageBuffer,
             settings.ScreenshotIntervalMinutes,
             isTracking: () => _tracker.State is TrackerState.Tracking,
-            onCaptured: () => OnUi(RefreshPendingCount));
+            onCaptured: OnScreenshotCaptured);
         _screenshotScheduler.Start();
     }
 
@@ -536,8 +647,14 @@ public sealed class AppDelegate : IDisposable
         catch (Exception e) when (e is AckGateException or NotAuthenticatedException
                                       or AuthException or OperationCanceledException)
         {
-            // Gate closed or policy unreadable → idle detection simply does not start. Manual
-            // tracking, already enabled, continues. Fail-safe; there is no fallback path.
+            // Gate closed or policy unreadable → idle detection does not start. Manual tracking,
+            // already enabled, continues. Fail-safe — but not final: at login this is usually a
+            // network that was not up yet, and the person cannot see that it happened, so ask
+            // again. A cancellation is the app shutting down, which is not worth retrying.
+            if (e is not OperationCanceledException)
+            {
+                SchedulePolicyRetry();
+            }
         }
     }
 
@@ -587,9 +704,26 @@ public sealed class AppDelegate : IDisposable
                 thresholdSeconds,
                 currentSelection: () => _viewModel.SelectionForAuto,
                 presentAwayPrompt: (minutes, resolve) => _awayPrompt.PresentAway(minutes, resolve),
+                onIdleThresholdCrossed: NotifyIdleThresholdCrossed,
                 onTrackingStateChanged: () => _viewModel.RefreshFromTracker());
             _autoCoordinator = auto;
-            receiver = new FanOutSignalReceiver(auto, manual);
+
+            // Auto mode's own forgot-to-start reminder. Activate() opens an AUTO entry at once, so
+            // a stopped clock while the person is present means something went wrong downstream —
+            // a fault, not a hint, so it is a window rather than a balloon. The auto coordinator
+            // already owns the idle nudge here, and an unanswered away prompt is itself the thing
+            // asking them to act.
+            var reminder = new ManualNudgeMonitor(
+                _notifier,
+                thresholdSeconds,
+                ForgotToStartSeconds,
+                isTracking: () => _tracker.State is TrackerState.Tracking,
+                isPaused: () => _tracker.State is TrackerState.Paused,
+                presentForgotToStart: PresentNotTrackingReminder,
+                emitsManualIdleNudge: false,
+                isAwaitingResolution: () => auto.MonitorState is IdleState.Awaiting);
+            _nudgeMonitor = reminder;
+            receiver = new FanOutSignalReceiver(auto, manual, new NudgeSignalAdapter(reminder, thresholdSeconds));
         }
 
         _sessionObserver = new SessionObserver(receiver);
@@ -598,6 +732,11 @@ public sealed class AppDelegate : IDisposable
         // Auto mode opens its first span immediately; the manual coordinator self-arms on the first
         // manual signal, so it needs no activation.
         _autoCoordinator?.Activate();
+
+        // Idle detection is the capture path the launch retry exists to reach — in auto mode it is
+        // what starts the clock — so installing it, not merely fetching the policy, ends the loop.
+        _policyRetry.MarkResolved();
+        CancelPolicyRetry();
     }
 
     /// <summary>
@@ -662,6 +801,12 @@ public sealed class AppDelegate : IDisposable
 
     private void BecomeReady()
     {
+        if (_hasBecomeReady)
+        {
+            return;
+        }
+
+        _hasBecomeReady = true;
         _viewModel.IsReady = true;
         _viewModel.Notice = null;
 
@@ -693,7 +838,22 @@ public sealed class AppDelegate : IDisposable
     private LoginWindow CreateLoginWindow()
     {
         var window = new LoginWindow(_session, _config.ApiBaseUri);
-        window.SignedIn += () => _ = ProceedToPolicyAsync();
+        window.SignedIn += () =>
+        {
+            _viewModel.IsSignedIn = true;
+            _ = ProceedToPolicyAsync();
+        };
+
+        // A sign-in succeeds by HIDING the window, which is then reused. Closing it with the title
+        // bar's X really closes it, and a closed WPF window throws if shown again — so forget it,
+        // and the popup's Sign in button builds a fresh one.
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_login, window))
+            {
+                _login = null;
+            }
+        };
         return window;
     }
 
@@ -725,6 +885,9 @@ public sealed class AppDelegate : IDisposable
         {
             var projects = await _projectClient.ListAsync(_shutdown.Token).ConfigureAwait(true);
             _projectCache.Save(projects);
+
+            // Before the restore below, so a recovered selection goes through the one normal path.
+            await TryRecentSelectionFallbackAsync().ConfigureAwait(true);
             _viewModel.Projects = projects;
             if (_session.UserId is { } userId)
             {
@@ -738,11 +901,54 @@ public sealed class AppDelegate : IDisposable
         }
     }
 
+    /// <summary>
+    /// Fresh-install fallback: nothing stored for this person (new laptop, reinstall), so ask the
+    /// server what they were last tracking against. Never overrides a local selection, runs at
+    /// most once per signed-in session, and a transient failure un-marks the attempt so a 429 or
+    /// a 503 does not burn it. The result is written to the store, so the restore that follows
+    /// resolves it against the project list like any other stored selection.
+    /// </summary>
+    private async Task TryRecentSelectionFallbackAsync()
+    {
+        if (_hasAttemptedRecentSelectionFallback
+            || _session.UserId is not { } userId
+            || _selectionStore.Load(userId) is not null)
+        {
+            return;
+        }
+
+        _hasAttemptedRecentSelectionFallback = true;
+        var outcome = await _recentSelectionClient.MostRecentSelectionAsync(_shutdown.Token).ConfigureAwait(true);
+
+        switch (outcome)
+        {
+            // Re-checked after the await: a sign-out and a different sign-in inside that round
+            // trip must not save one person's history under another's key.
+            case RecentSelectionOutcome.Found found when _session.UserId == userId:
+                _selectionStore.Save(found.Selection, userId);
+                break;
+
+            case RecentSelectionOutcome.TransientFailure:
+                _hasAttemptedRecentSelectionFallback = false;
+                break;
+        }
+    }
+
     private async Task RefreshTotalsAsync()
     {
+        var requestedFor = _session.UserId;
         try
         {
-            _viewModel.Totals = await _totalsClient.FetchAsync(_shutdown.Token).ConfigureAwait(true);
+            var totals = await _totalsClient.FetchAsync(_shutdown.Token).ConfigureAwait(true);
+
+            // Sign-out can land while the fetch is in flight. Dropping the result then keeps one
+            // person's tracked time out of the next person's dropdown.
+            if (_session.UserId is not { } userId || userId != requestedFor)
+            {
+                return;
+            }
+
+            _viewModel.Totals = totals;
         }
         catch (Exception e) when (e is ResourceUnavailableException or NotAuthenticatedException
                                       or AuthException or OperationCanceledException)
@@ -766,14 +972,15 @@ public sealed class AppDelegate : IDisposable
     {
         _tray.State = _viewModel.IsTracking ? TrayState.Tracking : TrayState.Idle;
 
-        var status = _viewModel.IsTracking
-            ? $"Nifty Timer — tracking {_viewModel.ElapsedLabel}"
-            : "Nifty Timer — not tracking";
+        // The same two conditions the tooltip explains, shown as a badge so they are visible
+        // without hovering — the Mac's always-visible menu-bar marker.
+        _tray.Warning = _viewModel.LiveSyncBlocked || _viewModel.UpdateOverdue;
 
-        // The update marker rides the tooltip rather than changing the icon. The icon carries one
-        // meaning — whether the clock is running — and overloading it with a second would make the
-        // always-visible indicator ambiguous about the thing it exists to show.
-        _tray.Tooltip = _viewModel.UpdateOverdue ? status + " (update available)" : status;
+        _tray.Tooltip = TrayTooltip.For(
+            _viewModel.IsTracking,
+            _viewModel.ElapsedLabel,
+            _viewModel.LiveSyncBlocked,
+            _viewModel.UpdateOverdue);
     }
 
     /// <summary>
@@ -795,6 +1002,13 @@ public sealed class AppDelegate : IDisposable
         // reach the buffer before the final drain below — otherwise Clear() discards them, or worse
         // they drain later under the next person's token.
         TearDownIdleDetection();
+
+        // The launch retry belongs to the person leaving: cancel it, and re-arm its schedule and
+        // its single warning for whoever signs in next. Readiness is theirs to earn again too.
+        CancelPolicyRetry();
+        _policyRetry.Reset();
+        _hasBecomeReady = false;
+        _hasAttemptedRecentSelectionFallback = false;
 
         // Capture comes down and SETTLES before anything drains. Stopping a scheduler does not
         // abort a cycle that is already inside a grab or a measurement window, and such a cycle
@@ -834,10 +1048,12 @@ public sealed class AppDelegate : IDisposable
         _projectCache.Clear();
         _liveSpanStore.Clear();
 
+        // The saved project selection is deliberately KEPT, as on the Mac. It is namespaced by
+        // userId, so the next person on this machine cannot read it, and the same person signing
+        // back in gets their project back rather than re-picking it.
         if (userId is not null)
         {
             _ackMarker.Clear(userId);
-            _selectionStore.Clear(userId);
         }
 
         _session.Logout();
@@ -847,6 +1063,8 @@ public sealed class AppDelegate : IDisposable
         // machine would silently lose a nudge because the previous one saw it.
         _notifier.Reset();
         _endOfDay.Reset();
+        _projectRefreshThrottle.Reset();
+        _totalsRefreshThrottle.Reset();
 
         _viewModel.Reset();
         UpdateTray();
@@ -870,6 +1088,38 @@ public sealed class AppDelegate : IDisposable
     /// app under them mid-task, which for a time tracker means restarting the thing that is
     /// recording their day.
     /// </summary>
+    /// <summary>
+    /// The update link. A copy that can replace itself installs in place; one that cannot — a
+    /// machine-wide or IT-deployed install — opens the download page instead, as the macOS client
+    /// does, rather than offering a button that can only fail.
+    /// </summary>
+    private void OnUpdateRequested()
+    {
+        if (_viewModel.UpdateCanInstallInPlace)
+        {
+            _ = ApplyUpdateAsync();
+            return;
+        }
+
+        try
+        {
+            // Qualified rather than imported: System.Diagnostics would bring its Activity type
+            // into a file that already imports the NiftyTimer.Activity namespace.
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(ReleasesPage(_config.UpdateRepo).ToString())
+                {
+                    UseShellExecute = true,
+                });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // No browser registered. Say so rather than fail silently.
+            _viewModel.Notice = "Couldn't open the download page.";
+        }
+    }
+
+    internal static Uri ReleasesPage(string repo) => new($"https://github.com/{repo}/releases/latest");
+
     private async Task ApplyUpdateAsync()
     {
         if (_updateInProgress || _updates.Status.ManifestOrNull is not { } manifest)
@@ -878,6 +1128,7 @@ public sealed class AppDelegate : IDisposable
         }
 
         _updateInProgress = true;
+        _viewModel.IsInstallingUpdate = true;
         try
         {
             if (!_updateInstaller.CanInstall())
@@ -888,7 +1139,7 @@ public sealed class AppDelegate : IDisposable
                 return;
             }
 
-            _viewModel.Notice = "Downloading update…";
+            // No "Downloading…" notice: the update row now says "Updating to X…" itself.
             var staged = await _updateInstaller.StageAsync(manifest, _shutdown.Token).ConfigureAwait(true);
 
             // Close the running span first. The swap script waits for this process to exit, so a
@@ -921,6 +1172,7 @@ public sealed class AppDelegate : IDisposable
         finally
         {
             _updateInProgress = false;
+            _viewModel.IsInstallingUpdate = false;
         }
     }
 
@@ -949,6 +1201,14 @@ public sealed class AppDelegate : IDisposable
             sampler.Dispose();
             _activitySampler = null;
         }
+
+        // After the sampler has settled, so no last sample lands on it. The streak belongs to the
+        // person signing out; the next person starts from zero.
+        _distractionMonitor?.Stop();
+        _distractionMonitor = null;
+
+        // A card still on screen belongs to the person signing out.
+        _distractionNudge.DismissIfShowing();
 
         // Last, so nothing is still counting input while a cycle drains. Disposing this
         // unregisters Raw Input: leaving it registered would keep the process subscribed to every
@@ -986,7 +1246,135 @@ public sealed class AppDelegate : IDisposable
         // forever. Reset the one-shot so the next user gets their own recovery attempt.
         _recoveryPrompt.DismissIfShowing();
         _hasAttemptedRecovery = false;
+
+        // Same class: the reminder's Start button would open an entry for whoever signs in next.
+        _notTrackingReminder.DismissIfShowing();
     }
+
+    /// <summary>
+    /// Ask again for the policy after a failed resolution, on capped backoff, until idle detection
+    /// installs. <see cref="PolicyResolutionRetry"/> owns the schedule and the one-shot warning;
+    /// this owns the timer.
+    ///
+    /// Called by the CALLERS of <see cref="ProceedOffline"/>, never from inside it. The retry
+    /// re-enters <see cref="ProceedToPolicyAsync"/>, which re-fetches the policy before installing
+    /// anything — so it is the online branch running again, not the offline branch gaining a path
+    /// to the installers. Scheduling it from <c>ProceedOffline</c> would blur exactly the line
+    /// <c>OfflineCaptureUnreachableTests</c> guards.
+    /// </summary>
+    private void SchedulePolicyRetry() => OnUi(() =>
+    {
+        if (_policyRetry.RecordFailure() is not PolicyRetryOutcome.Retry retry)
+        {
+            return;
+        }
+
+        if (retry.WarnUser)
+        {
+            PresentNotTrackingReminder(
+                "Time tracking",
+                "Tracking hasn't started — Nifty Timer can't reach the server. Your time isn't being recorded.");
+        }
+
+        CancelPolicyRetry();
+
+        // Re-checked at FIRE time, not schedule time. Sign-out cancels this timer, but a resolve
+        // already in flight when sign-out lands still reaches its catch and schedules one more —
+        // which must not then run against the next person's launch.
+        var scheduledFor = _session.UserId;
+        var timer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = retry.After,
+        };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (!ReferenceEquals(_policyRetryTimer, timer))
+            {
+                return;
+            }
+
+            _policyRetryTimer = null;
+            if (_session.UserId is not { } userId || userId != scheduledFor)
+            {
+                return;
+            }
+
+            _ = ProceedToPolicyAsync();
+        };
+
+        _policyRetryTimer = timer;
+        timer.Start();
+    });
+
+    private void CancelPolicyRetry()
+    {
+        _policyRetryTimer?.Stop();
+        _policyRetryTimer = null;
+    }
+
+    /// <summary>
+    /// The machine woke. If a resolve is waiting out its backoff, run it now.
+    ///
+    /// Only while a retry is PENDING, which is narrower than "not yet resolved": an unanswered
+    /// acknowledgement window is also unresolved, and re-entering the policy branch then would open
+    /// a second one on top of it. Resume arrives twice per wake (see <see cref="WakeWatcher"/>);
+    /// the first call cancels the timer, so the second finds nothing pending.
+    /// </summary>
+    private void RetryPolicyOnWake()
+    {
+        if (_policyRetryTimer is null)
+        {
+            return;
+        }
+
+        CancelPolicyRetry();
+        _ = ProceedToPolicyAsync();
+    }
+
+    /// <summary>
+    /// The one place a "your time isn't being recorded" window is raised, from both triggers: a
+    /// launch resolve that keeps failing, and auto mode's forgot-to-start. A WINDOW, as on the Mac,
+    /// because a balloon is silently dropped when notifications are off, and this is the reminder
+    /// that must not be lost. Suppressed unless manual tracking is actually available — without an
+    /// acknowledgement on file its Start button could do nothing (CLAUDE.md §1), and the popup
+    /// already says the server is unreachable.
+    /// </summary>
+    private void PresentNotTrackingReminder(string title, string message)
+    {
+        if (!_viewModel.IsReady)
+        {
+            return;
+        }
+
+        _notTrackingReminder.Present(title, message, onStart: () => _viewModel.Start());
+    }
+
+    /// <summary>
+    /// The sampler's category feed, on the thread pool. Hopped to the UI thread, where the monitor
+    /// lives; a tick that lands after sign-out finds no monitor and does nothing.
+    /// </summary>
+    private void OnActivityCategorized(Category category) =>
+        OnUi(() => _distractionMonitor?.Tick(category));
+
+    /// <summary>
+    /// A screenshot was just taken. The tray flashes its lens, as the Mac flashes its camera: the
+    /// capture moment is surfaced, never silent (PRD §6.2). Arrives off the UI thread.
+    /// </summary>
+    private void OnScreenshotCaptured() => OnUi(ShowScreenshotTaken);
+
+    private void ShowScreenshotTaken()
+    {
+        _tray.FlashCapturing();
+        RefreshPendingCount();
+    }
+
+    /// <summary>Auto mode's idle nudge. Advisory only — the away prompt is what changes the record.</summary>
+    private void NotifyIdleThresholdCrossed(int seconds) =>
+        _notifier.Notify("idle-nudge", "Time tracking", IdleNudgeBody(seconds));
+
+    internal static string IdleNudgeBody(int seconds) =>
+        string.Create(CultureInfo.InvariantCulture, $"Idle for {AwayMinutes.Of(seconds)} min — still working?");
 
     private static void OnUi(Action action)
     {

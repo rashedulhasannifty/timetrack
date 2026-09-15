@@ -94,6 +94,267 @@ public class TrayPopupWindowPositionTests
 }
 
 /// <summary>
+/// The picker as the person uses it: typing into the real search field filters the real list,
+/// and picking a row reaches the view model. Driven headlessly on the shared WPF thread; the
+/// window is constructed but never shown.
+/// </summary>
+[Collection("wpf")]
+public class TrayPopupPickerTests
+{
+    private static readonly Project Website = new(
+        "p1", "team", "Website", false, [new ProjectTask("t1", "p1", "Design review")]);
+
+    private static readonly Project Billing = new("p2", "team", "Billing", false, null);
+
+    private static T WithPopup<T>(Func<MenuViewModel, TrayPopupWindow, T> body) =>
+        Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 9, 14, 9, 0, 0, TimeSpan.Zero));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()))
+            {
+                Projects = [Website, Billing],
+            };
+            var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
+
+            try
+            {
+                return body(viewModel, window);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+    [Fact]
+    public void TypingInTheSearchFieldFiltersTheListBySubstring()
+    {
+        var (query, shown) = WithPopup((vm, window) =>
+        {
+            ((TextBox)window.FindName("SearchBox")).Text = "design";
+            var list = (ListBox)window.FindName("ProjectList");
+            return (vm.Query, list.Items.Cast<PickerChoice>().ToList());
+        });
+
+        Assert.Equal("design", query);
+        Assert.Equal("t1", Assert.Single(shown).TaskId);
+    }
+
+    [Fact]
+    public void PickingARowSelectsItsProjectAndTask()
+    {
+        var selection = WithPopup((vm, window) =>
+        {
+            var list = (ListBox)window.FindName("ProjectList");
+            list.SelectedItem = list.Items.Cast<PickerChoice>().Single(c => c.TaskId == "t1");
+            return vm.Selection;
+        });
+
+        Assert.Equal(new StoredSelection("p1", "t1"), selection);
+    }
+
+    /// <summary>The hint is the field's only label, so it must go the moment anything is typed.</summary>
+    [Fact]
+    public void ThePlaceholderHidesOnceSomethingIsTyped()
+    {
+        var (before, after) = WithPopup((_, window) =>
+        {
+            var hint = (TextBlock)window.FindName("SearchHint");
+            var first = hint.Visibility;
+            ((TextBox)window.FindName("SearchBox")).Text = "b";
+            return (first, hint.Visibility);
+        });
+
+        Assert.Equal(Visibility.Visible, before);
+        Assert.Equal(Visibility.Collapsed, after);
+    }
+}
+
+/// <summary>
+/// The popup when nobody is signed in: a Sign in button and Quit, and none of the session's
+/// controls. Mirrors the macOS dropdown's signed-out view.
+/// </summary>
+[Collection("wpf")]
+public class TrayPopupSignedOutTests
+{
+    private static T WithPopup<T>(bool signedIn, Func<TrayPopupWindow, T> body) =>
+        Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 9, 14, 9, 0, 0, TimeSpan.Zero));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+            var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
+            viewModel.IsSignedIn = signedIn;
+
+            try
+            {
+                return body(window);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+    private static (Visibility SignedOut, Visibility SignedIn) Panels(TrayPopupWindow window) => (
+        ((FrameworkElement)window.FindName("SignedOutPanel")).Visibility,
+        ((FrameworkElement)window.FindName("SignedInPanel")).Visibility);
+
+    [Fact]
+    public void SignedOutShowsOnlyTheSignInPanel()
+    {
+        var (signedOut, signedIn) = WithPopup(signedIn: false, Panels);
+
+        Assert.Equal(Visibility.Visible, signedOut);
+        Assert.Equal(Visibility.Collapsed, signedIn);
+    }
+
+    [Fact]
+    public void SignedInShowsOnlyTheSessionPanel()
+    {
+        var (signedOut, signedIn) = WithPopup(signedIn: true, Panels);
+
+        Assert.Equal(Visibility.Collapsed, signedOut);
+        Assert.Equal(Visibility.Visible, signedIn);
+    }
+
+    [Fact]
+    public void TheSignInButtonAsksForTheSignInWindow()
+    {
+        var asked = WithPopup(signedIn: false, window =>
+        {
+            var count = 0;
+            window.SignInRequested += () => count++;
+            ((Button)window.FindName("SignInButton")).RaiseEvent(
+                new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            return count;
+        });
+
+        Assert.Equal(1, asked);
+    }
+}
+
+/// <summary>The AppDelegate half of the signed-out panel, pinned with the shared IL scanner.</summary>
+public class SignInWiringTests
+{
+    /// <summary>
+    /// Both launch branches that find a stored session — online and offline — must mark it signed
+    /// in, or a signed-in person opens the popup to "Not signed in".
+    /// </summary>
+    [Fact]
+    public void TheLaunchMarksAStoredSessionSignedIn() =>
+        Assert.True(
+            LaunchResolutionWiringTests.References(
+                LaunchResolutionWiringTests.Body("BootstrapAsync"), nameof(MenuViewModel), "set_IsSignedIn"),
+            "AppDelegate.BootstrapAsync no longer marks a stored session as signed in.");
+
+    [Fact]
+    public void ThePopupsSignInButtonOpensTheSignInWindow() =>
+        Assert.True(
+            LaunchResolutionWiringTests.References(
+                LaunchResolutionWiringTests.Body("WireEvents"), nameof(AppDelegate), "ShowLogin"),
+            "AppDelegate.WireEvents no longer hands ShowLogin to the popup's Sign in button.");
+}
+
+/// <summary>The update row: the version by name, and what the link will do.</summary>
+[Collection("wpf")]
+public class TrayPopupUpdateRowTests
+{
+    private static T WithPopup<T>(Action<MenuViewModel> arrange, Func<TrayPopupWindow, T> body) =>
+        Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(
+                new BufferSpy(),
+                () => new DateTimeOffset(2026, 9, 14, 9, 0, 0, TimeSpan.Zero));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()))
+            {
+                IsSignedIn = true,
+            };
+            var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
+            arrange(viewModel);
+
+            try
+            {
+                return body(window);
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+
+    [Fact]
+    public void AnAvailableUpdateIsOfferedByVersion()
+    {
+        var (row, content) = WithPopup(
+            vm =>
+            {
+                vm.UpdateVersion = "1.4.0";
+                vm.UpdateAvailable = true;
+            },
+            window => (
+                ((FrameworkElement)window.FindName("UpdateRow")).Visibility,
+                ((Button)window.FindName("UpdateButton")).Content));
+
+        Assert.Equal(Visibility.Visible, row);
+        Assert.Equal("Update to 1.4.0", content);
+    }
+
+    [Fact]
+    public void WhileInstallingTheLinkGivesWayToAStatusLine()
+    {
+        var (button, label, text) = WithPopup(
+            vm =>
+            {
+                vm.UpdateVersion = "1.4.0";
+                vm.UpdateAvailable = true;
+                vm.IsInstallingUpdate = true;
+            },
+            window => (
+                ((Button)window.FindName("UpdateButton")).Visibility,
+                ((TextBlock)window.FindName("UpdateProgressLabel")).Visibility,
+                ((TextBlock)window.FindName("UpdateProgressLabel")).Text));
+
+        Assert.Equal(Visibility.Collapsed, button);
+        Assert.Equal(Visibility.Visible, label);
+        Assert.Equal("Updating to 1.4.0…", text);
+    }
+
+    [Fact]
+    public void NoUpdateNoRow()
+    {
+        var row = WithPopup(
+            _ => { },
+            window => ((FrameworkElement)window.FindName("UpdateRow")).Visibility);
+
+        Assert.Equal(Visibility.Collapsed, row);
+    }
+}
+
+public class UpdateLinkWiringTests
+{
+    [Fact]
+    public void TheReleasesPageIsTheRepositorysLatestRelease() =>
+        Assert.Equal(
+            new Uri("https://github.com/owner/repo/releases/latest"),
+            AppDelegate.ReleasesPage("owner/repo"));
+
+    /// <summary>The link routes through the install-or-download decision, not straight to install.</summary>
+    [Fact]
+    public void ThePopupsUpdateLinkDecidesBetweenInstallAndDownload() =>
+        Assert.True(
+            LaunchResolutionWiringTests.References(
+                LaunchResolutionWiringTests.Body("WireEvents"), nameof(AppDelegate), "OnUpdateRequested"),
+            "AppDelegate.WireEvents no longer routes the update link through OnUpdateRequested.");
+}
+
+/// <summary>
 /// The fix for the popup growing past its own anchor when the phase changes while it is open.
 /// <see cref="TrayPopupWindow.ShowNearTray"/> anchors the window's bottom edge 12px above the work
 /// area, but the window is <c>SizeToContent="Height"</c>: <see cref="TrayPopupWindow"/>'s private
@@ -113,7 +374,11 @@ public class TrayPopupWindowReanchorTests
             var tracker = new TimeTracker(
                 new BufferSpy(),
                 () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
-            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()))
+            {
+                // The session panel is collapsed until someone is signed in, and these tests measure it.
+                IsSignedIn = true,
+            };
             var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
 
             try
@@ -202,7 +467,11 @@ public class TrayPopupWindowControlsTests
             var tracker = new TimeTracker(
                 new BufferSpy(),
                 () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
-            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()))
+            {
+                // The session panel is collapsed until someone is signed in, and these tests measure it.
+                IsSignedIn = true,
+            };
             var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
 
             try
@@ -312,13 +581,13 @@ public class TrayPopupWindowControlsTests
 /// <summary>
 /// Task 5 picker rewrite. <see cref="TrayPopupWindow.RenderPicker"/> reassigns
 /// <c>ProjectList.ItemsSource</c> from <see cref="MenuViewModel.FilteredChoices"/>, which
-/// allocates a fresh <c>List&lt;PickerItem&gt;</c> on every read, and <see cref="MenuViewModel.Tick"/>
+/// allocates a fresh <c>List&lt;PickerChoice&gt;</c> on every read, and <see cref="MenuViewModel.Tick"/>
 /// drives <c>Render()</c> once a second while the popup is visible, regardless of tracking state
 /// (it raises <c>ElapsedLabel</c> unconditionally). An unconditional reassignment there would hand
 /// the ListBox a brand-new collection every second: reassigning <c>ItemsSource</c> regenerates the
 /// item containers and resets the scroll offset to the top, so anyone scrolled into a long project
 /// list would be snapped back to row one once a second while the popup just sits open. The guard,
-/// a <c>SequenceEqual</c> against the previous source (<c>PickerItem</c> is a record, so this
+/// a <c>SequenceEqual</c> against the previous source (<c>PickerChoice</c> is a record, so this
 /// compares by value), exists to prevent exactly that, and is the fix this class covers.
 /// </summary>
 [Collection("wpf")]
@@ -326,7 +595,11 @@ public class TrayPopupWindowPickerTests
 {
     private static (MenuViewModel ViewModel, TrayPopupWindow Window) Build(TimeTracker tracker)
     {
-        var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+        var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()))
+        {
+            // The session panel is collapsed until someone is signed in, and these tests measure it.
+            IsSignedIn = true,
+        };
         var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
 
         viewModel.IsReady = true;
@@ -406,7 +679,7 @@ public class TrayPopupWindowPickerTests
                 viewModel.Start();
 
                 var beforeSource = window.ProjectList.ItemsSource;
-                var target = (PickerItem)window.ProjectList.Items[2]!; // "Internal Tools", p2
+                var target = (PickerChoice)window.ProjectList.Items[2]!; // "Internal Tools", p2
                 Assert.Equal("Internal Tools", target.ProjectName);
 
                 // A real WPF selection change, the same path a click drives, through the actual
@@ -417,7 +690,7 @@ public class TrayPopupWindowPickerTests
                 window.UpdateLayout();
 
                 var afterSource = window.ProjectList.ItemsSource;
-                var selected = (PickerItem)window.ProjectList.SelectedItem!;
+                var selected = (PickerChoice)window.ProjectList.SelectedItem!;
                 var container = (ListBoxItem?)window.ProjectList.ItemContainerGenerator.ContainerFromIndex(2);
 
                 return (
@@ -468,7 +741,7 @@ public class TrayPopupWindowPickerTests
                 var count = 0;
                 viewModel.TrackingStarted += () => count++;
 
-                var target = (PickerItem)window.ProjectList.Items[2]!; // "Internal Tools", p2
+                var target = (PickerChoice)window.ProjectList.Items[2]!; // "Internal Tools", p2
                 window.ProjectList.SelectedItem = target;
 
                 var state = Assert.IsType<TrackerState.Tracking>(tracker.State);
@@ -487,7 +760,7 @@ public class TrayPopupWindowPickerTests
 
     /// <summary>
     /// End to end through the real window: typing into SearchBox reaches
-    /// MenuViewModel.Query via OnSearchChanged, and the rendered ListBox narrows and restores
+    /// MenuViewModel.Query via OnQueryChanged, and the rendered ListBox narrows and restores
     /// through RenderPicker -- the whole path a person driving the popup actually exercises, not
     /// just Filter() exercised on the view model in isolation.
     /// </summary>
@@ -559,7 +832,11 @@ public class TrayPopupWindowThemeRefreshTests
             var tracker = new TimeTracker(
                 new BufferSpy(),
                 () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
-            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()))
+            {
+                // The session panel is collapsed until someone is signed in, and these tests measure it.
+                IsSignedIn = true,
+            };
             var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
 
             try
@@ -613,7 +890,11 @@ public class TrayPopupWindowThemeRefreshTests
             var tracker = new TimeTracker(
                 new BufferSpy(),
                 () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
-            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()));
+            var viewModel = new MenuViewModel(tracker, new SelectionStore(new InMemoryUserSettings()))
+            {
+                // The session panel is collapsed until someone is signed in, and these tests measure it.
+                IsSignedIn = true,
+            };
             var window = new TrayPopupWindow(viewModel, new Uri("https://example.invalid/"), "test-build");
 
             try

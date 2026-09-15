@@ -52,6 +52,7 @@ public sealed class ActivitySampler : IDisposable
     private readonly Func<DateTimeOffset> _clock;
     private readonly Func<TimeSpan, CancellationToken, Task> _sleep;
     private readonly Action _onSampled;
+    private readonly Action<Category> _onCategorized;
     private readonly Lock _gate = new();
 
     private CancellationTokenSource _cycles = new();
@@ -73,7 +74,8 @@ public sealed class ActivitySampler : IDisposable
         Func<DateTimeOffset, string>? idGen = null,
         Func<DateTimeOffset>? clock = null,
         Func<TimeSpan, CancellationToken, Task>? sleep = null,
-        Action? onSampled = null)
+        Action? onSampled = null,
+        Action<Category>? onCategorized = null)
     {
         _ackGate = ackGate;
         _counter = counter;
@@ -87,6 +89,7 @@ public sealed class ActivitySampler : IDisposable
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
         _sleep = sleep ?? Task.Delay;
         _onSampled = onSampled ?? (static () => { });
+        _onCategorized = onCategorized ?? (static _ => { });
     }
 
     public void Start()
@@ -238,6 +241,11 @@ public sealed class ActivitySampler : IDisposable
         });
 
         _onSampled();
+
+        // The distraction nudge's feed. Only the category crosses — the callback's type cannot
+        // carry an app name or a title — and it runs on this pool thread, so the receiver
+        // marshals it onto the UI thread itself.
+        _onCategorized(category);
         return true;
     }
 

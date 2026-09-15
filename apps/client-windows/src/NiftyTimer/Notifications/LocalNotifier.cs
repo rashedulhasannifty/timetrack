@@ -1,4 +1,5 @@
 using NiftyTimer.App;
+using NiftyTimer.Tracking;
 
 namespace NiftyTimer.Notifications;
 
@@ -27,6 +28,16 @@ public sealed class LocalNotifier : ILocalNotifier
     /// </summary>
     private static readonly TimeSpan RepeatWindow = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// Ids whose sender paces its own repeats from team policy, so the backstop above must not
+    /// override it. The distraction nudge may legitimately repeat every minute; a five-minute
+    /// window would silently swallow every repeat an admin set below five.
+    /// </summary>
+    private static readonly HashSet<string> SelfPacedIds = new(StringComparer.Ordinal)
+    {
+        DistractionMonitor.NotificationId,
+    };
+
     private readonly Action<string, string> _show;
     private readonly Func<DateTimeOffset> _clock;
     private readonly Dictionary<string, DateTimeOffset> _lastShown = [];
@@ -49,7 +60,7 @@ public sealed class LocalNotifier : ILocalNotifier
         lock (_gate)
         {
             var now = _clock();
-            if (_lastShown.TryGetValue(id, out var last) && now - last < RepeatWindow)
+            if (!SelfPacedIds.Contains(id) && _lastShown.TryGetValue(id, out var last) && now - last < RepeatWindow)
             {
                 return;
             }

@@ -57,7 +57,7 @@ echo "→ minio bucket '${S3_BUCKET}' → ${BACKUP_DIR}/minio"
 docker run --rm --network "$NETWORK" \
   -v "$BACKUP_DIR/minio:/backup" \
   -e MC_HOST_local="http://${MINIO_USER}:${MINIO_PASS}@minio:9000" \
-  minio/mc:latest \
+  quay.io/minio/mc:latest \
   mirror --overwrite --remove "local/${S3_BUCKET}" /backup
 echo "  ✓ $(du -sh "$BACKUP_DIR/minio" | cut -f1) mirrored"
 

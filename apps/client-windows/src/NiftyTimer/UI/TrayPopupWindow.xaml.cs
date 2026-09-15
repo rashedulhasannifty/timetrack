@@ -56,6 +56,9 @@ public partial class TrayPopupWindow : Window
     /// <summary>The user asked to quit the app.</summary>
     public event Action? QuitRequested;
 
+    /// <summary>Nobody is signed in and the person asked to.</summary>
+    public event Action? SignInRequested;
+
     /// <summary>
     /// The person asked to apply a pending update. Advisory throughout: an update is never
     /// applied without this, and declining it costs nothing but staying on the old build.
@@ -156,13 +159,25 @@ public partial class TrayPopupWindow : Window
         }
     }
 
-    private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e) => Render();
+    /// <summary>
+    /// The picker is rebuilt only when what it shows changed. Everything else re-renders on every
+    /// notification, and the clock raises one a second while the popup is open — rebuilding the
+    /// list that often would snap it back to the top under the person scrolling it.
+    /// </summary>
+    private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e) =>
+        Render(picker: e.PropertyName is null or ""
+            or nameof(MenuViewModel.Projects)
+            or nameof(MenuViewModel.Selection)
+            or nameof(MenuViewModel.FilteredChoices));
 
-    private void Render()
+    private void Render(bool picker = true)
     {
         _suppressCallbacks = true;
         try
         {
+            SignedOutPanel.Visibility = _viewModel.IsSignedIn ? Visibility.Collapsed : Visibility.Visible;
+            SignedInPanel.Visibility = _viewModel.IsSignedIn ? Visibility.Visible : Visibility.Collapsed;
+
             RenderStatus();
 
             NoticeLabel.Text = NoticeText() ?? string.Empty;
@@ -172,7 +187,10 @@ public partial class TrayPopupWindow : Window
 
             RenderControls();
 
-            RenderPicker();
+            if (picker)
+            {
+                RenderPicker();
+            }
 
             if (NoteBox.Text != _viewModel.Note)
             {
@@ -267,29 +285,32 @@ public partial class TrayPopupWindow : Window
     /// unconditional reassignment would hand the ListBox a new collection every second, which
     /// regenerates its containers and resets the scroll offset to the top — so anyone scrolled
     /// into a long project list would get snapped back to row one while the popup just sits
-    /// there. <c>PickerItem</c> is a record, so <c>SequenceEqual</c> compares the rows by value
+    /// there. <c>PickerChoice</c> is a record, so <c>SequenceEqual</c> compares the rows by value
     /// and only replaces the source when the projection actually changed.
     /// </summary>
     private void RenderPicker()
     {
-        var choices = _viewModel.FilteredChoices;
-        if (ProjectList.ItemsSource is not IReadOnlyList<PickerItem> current || !current.SequenceEqual(choices))
-        {
-            ProjectList.ItemsSource = choices;
-        }
-
-        var selected = _viewModel.SelectedChoice;
-        ProjectList.SelectedItem = selected is null
-            ? null
-            : choices.FirstOrDefault(c => c.ProjectId == selected.ProjectId && c.TaskId == selected.TaskId);
-
         if (SearchBox.Text != _viewModel.Query)
         {
             SearchBox.Text = _viewModel.Query;
         }
+
+        SearchHint.Visibility = _viewModel.Query.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var choices = _viewModel.FilteredChoices;
+        if (ProjectList.ItemsSource is not IReadOnlyList<PickerChoice> shown || !shown.SequenceEqual(choices))
+        {
+            ProjectList.ItemsSource = choices;
+        }
+
+        // A selection the filter hides shows no row as selected; it is still the selection.
+        var selected = _viewModel.SelectedChoice;
+        ProjectList.SelectedItem = selected is null
+            ? null
+            : choices.FirstOrDefault(c => c.ProjectId == selected.ProjectId && c.TaskId == selected.TaskId);
     }
 
-    private void OnSearchChanged(object sender, TextChangedEventArgs e)
+    private void OnQueryChanged(object sender, TextChangedEventArgs e)
     {
         if (!_suppressCallbacks)
         {
@@ -299,12 +320,12 @@ public partial class TrayPopupWindow : Window
 
     private void OnProjectSelected(object sender, SelectionChangedEventArgs e)
     {
-        if (_suppressCallbacks || ProjectList.SelectedItem is not PickerItem item)
+        if (_suppressCallbacks || ProjectList.SelectedItem is not PickerChoice choice)
         {
             return;
         }
 
-        _viewModel.SelectProject(item.ProjectId, item.TaskId);
+        _viewModel.SelectProject(choice.ProjectId, choice.TaskId);
     }
 
     private void OnNoteChanged(object sender, TextChangedEventArgs e)
@@ -429,6 +450,12 @@ public partial class TrayPopupWindow : Window
         QuitRequested?.Invoke();
     }
 
+    private void OnSignIn(object sender, RoutedEventArgs e)
+    {
+        Hide();
+        SignInRequested?.Invoke();
+    }
+
     private void OnUpdate(object sender, RoutedEventArgs e)
     {
         Hide();
@@ -442,9 +469,19 @@ public partial class TrayPopupWindow : Window
     private void SyncUpdateRow()
     {
         UpdateRow.Visibility = _viewModel.UpdateAvailable ? Visibility.Visible : Visibility.Collapsed;
-        UpdateLabel.Text = _viewModel.UpdateOverdue
-            ? "An update has been waiting a while."
-            : "A new version is available.";
+
+        var installing = _viewModel.IsInstallingUpdate;
+        UpdateButton.Visibility = installing ? Visibility.Collapsed : Visibility.Visible;
+        UpdateProgressLabel.Visibility = installing ? Visibility.Visible : Visibility.Collapsed;
+        UpdateButton.Content = _viewModel.UpdateLabel;
+        UpdateProgressLabel.Text = _viewModel.UpdateLabel;
+
+        // A resource reference, not a brush: the popup lives for the whole session and has to
+        // follow a theme switch like everything else in it.
+        UpdateButton.SetResourceReference(ForegroundProperty, _viewModel.UpdateOverdue ? "Destructive" : "Accent");
+        UpdateButton.ToolTip = _viewModel.UpdateCanInstallInPlace
+            ? "Downloads and verifies the new build, then restarts. Your tracked time is unaffected."
+            : "Opens the download page. This copy can't replace itself.";
     }
 
     /// <summary>

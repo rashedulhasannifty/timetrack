@@ -58,6 +58,8 @@ public class ThemeSweepTests
     [InlineData("LoginWindow.xaml")]
     [InlineData("AckWindow.xaml")]
     [InlineData("TimePromptWindow.xaml")]
+    [InlineData("RevealablePasswordField.xaml")]
+    [InlineData("DistractionNudgeWindow.xaml")]
     [InlineData("Tokens.xaml")]
     [InlineData("Styles.xaml")]
     [InlineData("BrandMark.xaml")]

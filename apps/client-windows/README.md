@@ -371,3 +371,10 @@ pwsh ./scripts/generate-tray-icons.ps1
 The `.ico` files are committed, not generated at build time, and the project copies them by
 explicit name. A rename becomes a build failure rather than an app that silently starts without
 its indicator.
+
+There are ten: idle (a ring), tracking (a disc) and capturing (a lens, flashed while a screenshot
+is taken), each in a light-taskbar and a dark-taskbar variant, plus idle and tracking with the
+amber warning badge. CI re-runs the script and fails if its output differs from what is
+committed, so change the script and re-run it rather than editing an icon by hand. Adding an icon
+also means adding it to `NiftyTimer.csproj` and `package-app.ps1`; `TrayIconGenerationTests` and
+`PackagingContractTests` check both.

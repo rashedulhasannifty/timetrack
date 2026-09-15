@@ -27,7 +27,7 @@ public partial class LoginWindow : Window
     private async void OnSignIn(object sender, RoutedEventArgs e)
     {
         var email = EmailBox.Text.Trim();
-        var password = PasswordBox.Password;
+        var password = PasswordField.Password;
 
         if (email.Length == 0 || password.Length == 0)
         {
@@ -39,7 +39,7 @@ public partial class LoginWindow : Window
         try
         {
             await _session.LoginAsync(email, password).ConfigureAwait(true);
-            PasswordBox.Clear();
+            PasswordField.Clear();
             ShowError(null);
             Hide();
             SignedIn?.Invoke();

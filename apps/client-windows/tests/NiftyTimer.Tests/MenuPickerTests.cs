@@ -24,19 +24,19 @@ public class MenuPickerTests
     [Fact]
     public void EveryProjectContributesARowAndEachTaskAddsOneBeneathIt()
     {
-        var choices = MenuViewModel.BuildChoices(Sample());
+        var choices = MenuViewModel.ChoicesFor(Sample());
 
         Assert.Equal(4, choices.Count);
-        Assert.Equal(new PickerItem("Apollo", null, "p1", null), choices[0]);
-        Assert.Equal(new PickerItem("Apollo", "Design", "p1", "t1a"), choices[1]);
-        Assert.Equal(new PickerItem("Apollo", "Build", "p1", "t1b"), choices[2]);
-        Assert.Equal(new PickerItem("Borealis", null, "p2", null), choices[3]);
+        Assert.Equal(new PickerChoice("p1", null, "Apollo", null), choices[0]);
+        Assert.Equal(new PickerChoice("p1", "t1a", "Apollo", "Design"), choices[1]);
+        Assert.Equal(new PickerChoice("p1", "t1b", "Apollo", "Build"), choices[2]);
+        Assert.Equal(new PickerChoice("p2", null, "Borealis", null), choices[3]);
     }
 
     [Fact]
     public void AProjectWithNoTasksStillGetsItsOwnRow()
     {
-        var choices = MenuViewModel.BuildChoices(Sample());
+        var choices = MenuViewModel.ChoicesFor(Sample());
 
         Assert.Contains(choices, c => c.ProjectId == "p2" && c.TaskName is null);
     }
@@ -44,7 +44,7 @@ public class MenuPickerTests
     [Fact]
     public void AnEmptyQueryReturnsEverything()
     {
-        var choices = MenuViewModel.BuildChoices(Sample());
+        var choices = MenuViewModel.ChoicesFor(Sample());
 
         Assert.Equal(choices, MenuViewModel.Filter(choices, string.Empty));
         Assert.Equal(choices, MenuViewModel.Filter(choices, null));
@@ -54,7 +54,7 @@ public class MenuPickerTests
     [Fact]
     public void TheQueryMatchesProjectNames()
     {
-        var choices = MenuViewModel.BuildChoices(Sample());
+        var choices = MenuViewModel.ChoicesFor(Sample());
 
         var matched = MenuViewModel.Filter(choices, "borea");
 
@@ -65,7 +65,7 @@ public class MenuPickerTests
     [Fact]
     public void TheQueryAlsoMatchesTaskNames()
     {
-        var choices = MenuViewModel.BuildChoices(Sample());
+        var choices = MenuViewModel.ChoicesFor(Sample());
 
         var matched = MenuViewModel.Filter(choices, "design");
 
@@ -76,7 +76,7 @@ public class MenuPickerTests
     [Fact]
     public void MatchingIsCaseInsensitive()
     {
-        var choices = MenuViewModel.BuildChoices(Sample());
+        var choices = MenuViewModel.ChoicesFor(Sample());
 
         Assert.Equal(3, MenuViewModel.Filter(choices, "APOLLO").Count);
     }
@@ -84,7 +84,7 @@ public class MenuPickerTests
     [Fact]
     public void SurroundingWhitespaceIsIgnored()
     {
-        var choices = MenuViewModel.BuildChoices(Sample());
+        var choices = MenuViewModel.ChoicesFor(Sample());
 
         Assert.Single(MenuViewModel.Filter(choices, "  borealis  "));
     }
@@ -92,7 +92,7 @@ public class MenuPickerTests
     [Fact]
     public void NoMatchReturnsEmptyRatherThanEverything()
     {
-        var choices = MenuViewModel.BuildChoices(Sample());
+        var choices = MenuViewModel.ChoicesFor(Sample());
 
         Assert.Empty(MenuViewModel.Filter(choices, "zzz"));
     }
