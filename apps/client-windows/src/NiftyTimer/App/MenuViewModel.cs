@@ -100,7 +100,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public IReadOnlyList<Project> Projects
     {
         get => _projects;
-        set => Set(ref _projects, value, [nameof(Choices), nameof(FilteredChoices)]);
+        set => Set(ref _projects, value, [nameof(Choices), nameof(FilteredChoices), nameof(SelectedChoice)]);
     }
 
     /// <summary>
@@ -121,24 +121,40 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public IReadOnlyList<PickerChoice> FilteredChoices => Filter(Choices, _query);
 
     /// <summary>
+    /// The row that carries the checkmark. Resolved against the FULL list rather than the filtered
+    /// one: a selection the current query happens to hide is still the selection.
+    /// </summary>
+    public PickerChoice? SelectedChoice =>
+        _selection is null
+            ? null
+            : Choices.FirstOrDefault(c => c.ProjectId == _selection.ProjectId && c.TaskId == _selection.TaskId);
+
+    /// <summary>
     /// A row matches when the query appears ANYWHERE in its project or task name, ignoring case —
     /// the macOS client's rule. The combo box this replaced only matched a prefix of the whole
-    /// label, so "design" could not find "Website · Design review" at all.
+    /// label, so "design" could not find "Website · Design review" at all. OrdinalIgnoreCase rather
+    /// than the current culture, so the same query returns the same rows on every machine, and
+    /// surrounding whitespace is ignored so a stray space does not empty the list.
     /// </summary>
-    public static IReadOnlyList<PickerChoice> Filter(IReadOnlyList<PickerChoice> choices, string query)
+    public static IReadOnlyList<PickerChoice> Filter(IReadOnlyList<PickerChoice> choices, string? query)
     {
-        if (string.IsNullOrEmpty(query))
+        if (string.IsNullOrWhiteSpace(query))
         {
             return choices;
         }
 
+        var trimmed = query.Trim();
         return choices
-            .Where(c => c.ProjectName.Contains(query, StringComparison.OrdinalIgnoreCase)
-                        || (c.TaskName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false))
+            .Where(c => c.ProjectName.Contains(trimmed, StringComparison.OrdinalIgnoreCase)
+                        || (c.TaskName?.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ?? false))
             .ToList();
     }
 
-    private static List<PickerChoice> ChoicesFor(IReadOnlyList<Project> projects)
+    /// <summary>
+    /// Flatten projects into rows. A project always contributes its own row — selecting a project
+    /// without a task is a valid selection, and a project with no tasks would otherwise vanish.
+    /// </summary>
+    internal static List<PickerChoice> ChoicesFor(IReadOnlyList<Project> projects)
     {
         var choices = new List<PickerChoice>();
         foreach (var project in projects)
@@ -156,7 +172,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public StoredSelection? Selection
     {
         get => _selection;
-        private set => Set(ref _selection, value, [nameof(SelectionLabel)]);
+        private set => Set(ref _selection, value, [nameof(SelectionLabel), nameof(SelectedChoice)]);
     }
 
     /// <summary>
