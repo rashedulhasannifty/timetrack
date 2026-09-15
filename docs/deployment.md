@@ -273,7 +273,10 @@ immutable, while the screenshots bucket must be able to delete for retention and
 
 1. **Bucket** in the region nearest the VM (e.g. `ap-southeast-1`): Block Public Access on (the
    default), default encryption SSE-S3, **versioning on**, then **Object Lock** with a default
-   retention of _Governance_, 30 days.
+   retention of _Compliance_, 30 days. Compliance, not Governance: a Governance lock can be
+   bypassed by any key holding `s3:BypassGovernanceRetention`, while a Compliance lock cannot be
+   shortened or removed by anyone, root included — so it holds even if the VM's key is broader
+   than step 3's policy.
 2. **Lifecycle rule** on the `postgres/` prefix: transition to Glacier Instant Retrieval after
    30 days, expire current versions after 365 days, permanently delete noncurrent versions 30
    days after they become noncurrent, and delete incomplete multipart uploads after 1 day.
@@ -297,8 +300,13 @@ immutable, while the screenshots bucket must be able to delete for retention and
    It can upload (and abort its own failed multipart upload, which large dumps use) and nothing
    else — no list, no read, no delete — so a compromised VM can
    neither read the archive nor destroy it, and versioning + Object Lock stop an overwrite from
-   destroying it either. **Never** put a broader key on the VM "to get it working": an
-   account-wide S3 key here would expose every other bucket in the AWS account.
+   destroying it either.
+
+   **If you cannot create IAM users** and reuse an existing, broader key instead, backups still
+   upload, and the Compliance lock from step 1 still keeps every locked version from being
+   deleted. What you lose is containment: that key sits in `.env.prod` on the VM, and every
+   bucket it can reach in the account is exposed to anyone who compromises the box. Treat that
+   as a decision for the AWS account owner, and replace it with the scoped user when you can.
 
 4. Add the repository secrets `BACKUP_S3_BUCKET`, `BACKUP_S3_REGION`, `BACKUP_S3_ACCESS_KEY`,
    `BACKUP_S3_SECRET_KEY` and redeploy; the deploy writes them into `.env.prod`.
