@@ -47,6 +47,14 @@ echo "  ✓ $(du -h "$DUMP" | cut -f1) verified"
 # ── MinIO ───────────────────────────────────────────────────────────────────────────────
 # Screenshots are retention-bounded (30d by default), so mirroring stays cheap. --remove
 # keeps the mirror faithful rather than growing forever with objects retention deleted.
+#
+# Only while screenshots live in the bundled MinIO. On external S3 (deployment §5) the bucket
+# is off this disk already, and S3_BUCKET names the S3 bucket — mirroring MinIO's bucket of that
+# name would find it empty and --remove would wipe the last local copy of the old screenshots.
+S3_ENDPOINT_CFG="$(env_value S3_ENDPOINT || true)"
+if [[ -n "$S3_ENDPOINT_CFG" && "$S3_ENDPOINT_CFG" != "http://minio:9000" ]]; then
+  echo "→ screenshots are on external S3 (${S3_ENDPOINT_CFG}) — no MinIO mirror"
+else
 S3_BUCKET="$(env_value S3_BUCKET)"
 MINIO_USER="$(env_value MINIO_ROOT_USER)"
 MINIO_PASS="$(env_value MINIO_ROOT_PASSWORD)"
@@ -60,6 +68,7 @@ docker run --rm --network "$NETWORK" \
   quay.io/minio/mc:latest \
   mirror --overwrite --remove "local/${S3_BUCKET}" /backup
 echo "  ✓ $(du -sh "$BACKUP_DIR/minio" | cut -f1) mirrored"
+fi
 
 # ── Retention ───────────────────────────────────────────────────────────────────────────
 # Only prunes dumps. The MinIO mirror is a mirror, not a history — it is pruned by --remove.
