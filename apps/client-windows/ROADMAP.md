@@ -1,25 +1,31 @@
 # Nifty Timer for Windows — build plan and progress
 
-Working status for the Windows client. S1–S4 are code-complete. S5, parity with the macOS client,
-is in progress. Beyond S5, what is left is the end-to-end checks that need a real machine, listed at
-the bottom.
+Working status for the Windows client. S1–S5 are code-complete; S5, parity with the macOS client,
+merged on 2026-09-14. What is left is shipping it as 0.2.0 (below) and the end-to-end checks that
+need a real machine, listed at the bottom.
 
 - **Design doc (the "why"):** [`docs/superpowers/specs/2026-08-25-windows-client-design.md`](../../docs/superpowers/specs/2026-08-25-windows-client-design.md)
 - **Client guide (the "how", day to day):** [`README.md`](./README.md)
 - **This file (the "where we are"):** what is done, what is left, and what must not be broken.
 
-| Slice  | Contents                                                           | State              |
-| ------ | ------------------------------------------------------------------ | ------------------ |
-| **S1** | Auth · AckGate · tray indicator · manual timer · buffer + sync     | ✅ **done**        |
-| **S2** | Idle detection · away keep/discard · crash recovery                | ✅ **done**        |
-| **S3** | Screenshots · activity sampling · categorizer                      | ✅ **done**        |
-| **S4** | Notifications · hotkey · updater · packaging · signing · dashboard | ✅ **done**        |
-| **S5** | Parity with the macOS client (see S5 below)                        | 🚧 **in progress** |
+| Slice  | Contents                                                           | State       |
+| ------ | ------------------------------------------------------------------ | ----------- |
+| **S1** | Auth · AckGate · tray indicator · manual timer · buffer + sync     | ✅ **done** |
+| **S2** | Idle detection · away keep/discard · crash recovery                | ✅ **done** |
+| **S3** | Screenshots · activity sampling · categorizer                      | ✅ **done** |
+| **S4** | Notifications · hotkey · updater · packaging · signing · dashboard | ✅ **done** |
+| **S5** | Parity with the macOS client (see S5 below)                        | ✅ **done** |
 
-S1–S4 merged to `main` (PR #167, `c4642f2`); released as 0.6.0. S5 PRs 1–5 (#204–#208) are
-merged to `main` at `6d1a8f0`, where **578 tests pass in CI** (14 integration tests skipped: 13
-need a live API, 1 needs a real display). S5 PR 6, the tray markers, is in review. Release build
-clean, `TreatWarningsAsErrors` on. The root `pnpm lint && typecheck && test && build` is green too.
+S1–S4 merged to `main` (PR #167, `c4642f2`); released as 0.6.0. S5 PRs 1–6 (#204–#209) are
+merged to `main` at `6dbe722`, where CI runs **604 tests: 590 pass and 14 are skipped** (13
+integration tests need a live API, 1 needs a real display). Release build clean,
+`TreatWarningsAsErrors` on. The root `pnpm lint && typecheck && test && build` is green too.
+
+**Released:** `v0.1.0-windows-pilot` on 2026-08-31, which predates all of S5. `<Version>` is now
+`0.2.0` so the next release carries it; publishing is a step on a Windows machine, in
+[`DISTRIBUTION.md`](./DISTRIBUTION.md). **Open:** #190, the popup restyle (PR 2 of the visual pass:
+brand mark, status dot, hero timer, phase-driven buttons), brought up to date with S5 on 2026-09-15.
+Merge it before tagging 0.2.0 if it is meant to ship in it.
 
 ---
 
@@ -27,7 +33,7 @@ clean, `TreatWarningsAsErrors` on. The root `pnpm lint && typecheck && test && b
 
 ```powershell
 git clone <repo> && cd timetrack
-git checkout feat/client-windows
+git checkout main
 
 winget install Microsoft.DotNet.SDK.9      # the only prerequisite for the client itself
 
@@ -290,10 +296,11 @@ repo; the Mac client's `UpdateFeed` requires an asset named `NiftyTimer-pilot.zi
 becomes `latest` → **every installed Mac client goes silently blind to updates and the dashboard
 download button 404s** — fixable only by shipping a Mac update through the path that just broke.
 
-**The repository does not exist yet.** `UpdateFeed` and `WindowsDownloadPlate` are written against
-the configured name, and both filenames are asserted by `PackagingContractTests`, but nobody has
-confirmed the feed resolves or that the Mac path survives a real Windows release. Checklist row 10
-stays open.
+**The repository exists, and the Mac path was checked against a real release.** It was created
+public on 2026-08-31 and `v0.1.0-windows-pilot` was published to it the same day;
+`verify-release-feeds.ps1` returned the macOS feed byte-identical before and after, so checklist
+row 10 is closed. Both filenames are still asserted by `PackagingContractTests`.
+[`DISTRIBUTION.md`](./DISTRIBUTION.md) has the runbook.
 
 ### Verification
 
@@ -308,7 +315,7 @@ stays open.
 
 ---
 
-## 🚧 S5 — parity with the macOS client (in progress)
+## ✅ S5 — parity with the macOS client (done)
 
 The goal is one-to-one behaviour with the Mac client. On 2026-09-14 every Swift source file was
 compared with its Windows counterpart. This table is the resulting gap list, in the order the gaps
@@ -327,7 +334,7 @@ are being closed, one PR per group.
 | 12            | Tray warning tooltip, ranked by precedence                                                                                                                     | ✅ PR 4 for the tooltip ladder. Windows has two of the Mac's four states: a blocked live entry and an overdue update. The always-visible ⚠ (macOS shows it in the menu bar) is the tray's amber badge, PR 6 |
 | 16            | Fresh-install project fallback from the last two weeks of entries                                                                                              | ✅ PR 4                                                                                                                                                                                                     |
 | 7, 13–15 (UI) | Signed-out popup, update row naming the version, substring project search, acknowledgement checkbox and cards, show-password toggle, distraction fallback card | ✅ PR 5 (#208)                                                                                                                                                                                              |
-| 5, 17 (UI)    | Capture flash, and a tray ⚠ marker visible without hovering                                                                                                    | 🚧 PR 6, in review. A lens icon flashed for 1.5s after each screenshot, and an amber badge on the idle and tracking marks. See the PR 6 decisions                                                           |
+| 5, 17 (UI)    | Capture flash, and a tray ⚠ marker visible without hovering                                                                                                    | ✅ PR 6 (#209). A lens icon flashed for 1.5s after each screenshot, and an amber badge on the idle and tracking marks. See the PR 6 decisions                                                               |
 | 6             | Browser-site categorization                                                                                                                                    | ❌ Not planned. See "Known gaps"                                                                                                                                                                            |
 
 **Decisions taken in PR 1, with reasons. Do not reverse them without a replacement:**
@@ -378,8 +385,8 @@ are being closed, one PR per group.
 - **The consent card says "app", not the Mac's "app & website".** This client does not categorize
   sites, and consent must not claim more than is captured.
 - **A copy that cannot replace itself offers the download page**, as the Mac does, rather than an
-  update button that can only fail. That page is `releases/latest` of `UpdateRepo`, which does not
-  exist yet (see S4), so until it does the link 404s. Tests pin only the URL's shape.
+  update button that can only fail. That page is `releases/latest` of `UpdateRepo`, which has
+  resolved since the first release on 2026-08-31 (see S4). Tests pin only the URL's shape.
 
 **Decisions taken in PR 6:**
 
@@ -444,8 +451,10 @@ implementation traps; these are the product rules.
   no-op with a warning until a certificate exists; see `SIGNING.md` for the cutover, including the
   fact that a signing-identity change **cannot** be delivered by the updater (the transition rule
   refuses it, by design) and needs a manual re-download.
-- **The Windows distribution repo does not exist yet**, so the update feed has never resolved
-  against a real release and checklist row 10 — "the Mac path is not regressed" — is unverified.
+- ~~**The Windows distribution repo does not exist yet**, so the update feed has never resolved
+  against a real release and checklist row 10 — "the Mac path is not regressed" — is unverified.~~
+  **Resolved 2026-08-31:** the repo exists, `v0.1.0-windows-pilot` is published and row 10 passed.
+  See [`DISTRIBUTION.md`](./DISTRIBUTION.md).
 - **No integration coverage for the S3 upload paths.** `LiveApiTests` covers time entries, idle
   events, auth and policy against a real API; the `screenshots` multipart POST and
   `activity-samples/batch` are exercised only against fakes. The multipart field-order rule in
@@ -504,7 +513,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 ## End-to-end checklist (design doc §Verification)
 
-Against a local stack with a dev-packaged client. Status as of S4:
+Against a local stack with a dev-packaged client. Status as of S5 (2026-09-15):
 
 | #   | Check                                                                                                                                                              | Status                          |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
@@ -517,7 +526,7 @@ Against a local stack with a dev-packaged client. Status as of S4:
 | 7   | 409 path — start on Mac then Windows, clear message, buffer not wedged                                                                                             | ✅ verified live                |
 | 8   | Sign-out — buffers flush then clear; second user uploads nothing of the first's                                                                                    | unit-tested, not in-app         |
 | 9   | Counts-not-content — type a known string, grep every request body and local file                                                                                   | ⬜ **needs a manual pass**      |
-| 10  | Mac not regressed — update feed and download URL still resolve after a Win release                                                                                 | ⬜ **blocked: no repo yet**     |
+| 10  | Mac not regressed — update feed and download URL still resolve after a Win release                                                                                 | ✅ verified live (2026-08-31)   |
 | 11  | Nudges — idle, forgot-to-start and the 18:00 summary appear as real notifications                                                                                  | ⬜ **needs a manual pass**      |
 | 12  | Hotkey — Ctrl+Alt+T starts and stops from another app, and loses gracefully                                                                                        | ⬜ **needs a manual pass**      |
 | 13  | Update — a staged build verifies, swaps, relaunches, and rolls back on failure                                                                                     | ⬜ **needs a manual pass**      |
@@ -535,9 +544,9 @@ Against a local stack with a dev-packaged client. Status as of S4:
 | 25  | Warning badge — an overdue update or a blocked live entry puts the amber badge on the icon without hovering, and it clears with the condition                      | ⬜ **needs a manual pass** (S5) |
 
 **These are the honest gaps, and they are the real remaining risk.** Every state machine, store,
-uploader, scheduler, parser and guard is unit-tested — 394 tests — the two structural guards are
-mutation-verified, and the packaging pipeline has actually been run end to end. But several things
-cannot be tested without a display, a person, and a published release:
+uploader, scheduler, parser and guard is unit-tested — 604 tests in CI — the two structural guards
+are mutation-verified, and the packaging pipeline has actually been run end to end. But several
+things cannot be tested without a display and a person:
 
 - **Row 9 is the important one.** It is the only thing that demonstrates counts-not-content
   _empirically_ rather than by reading the source. `scripts/verify-counts-not-content.ps1` does the
@@ -602,14 +611,12 @@ cannot be tested without a display, a person, and a published release:
   it. The last step is the one that matters: it is the whole "don't fight the user" guarantee, and
   it is the part Windows cannot enforce as strongly as macOS.
 
-- **Row 10 is blocked, not pending.** The Windows distribution repository does not exist, so the
-  update feed has never resolved and the claim that the Mac path is unaffected is reasoning rather
-  than evidence. [`DISTRIBUTION.md`](./DISTRIBUTION.md) has the publishing runbook and
-  `scripts/verify-release-feeds.ps1` checks both feeds — run it before and after the first Windows
-  release; the macOS lines must be identical. The "before" half is already recorded (macOS
-  `v0.6.0-pilot`, both assets present, 2026-08-27). One thing to settle **before** creating the
-  repo: the macOS feed points at a personal account while the Windows constants name the
-  organisation, and an installed client pins whichever it shipped with.
+- **Row 10 is closed.** The first Windows release went out on 2026-08-31 and
+  `scripts/verify-release-feeds.ps1` returned the macOS lines byte-identical before and after it.
+  The check repeats for every Windows release, 0.2.0 included: capture the macOS lines first and
+  compare after. [`DISTRIBUTION.md`](./DISTRIBUTION.md) has the runbook. The account mismatch this
+  note used to flag was settled before that release; both platforms publish under the personal
+  account.
 - **Rows 5 and 6 have been open since S2.**
 
-None of these is blocked on anything except a machine and a repository.
+None of these is blocked on anything except a Windows machine and a person to drive it.
