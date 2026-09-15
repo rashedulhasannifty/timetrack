@@ -1,0 +1,85 @@
+name: Client (Windows) release build
+
+# Builds the PRODUCTION Windows package on demand, so a release can be cut without a Windows
+# machine. It never publishes: it leaves NiftyTimer-windows-pilot.zip and its .sha256 as a run
+# artifact, and a person publishes them to rashedulhasansojib/niftytimer-windows
+# (apps/client-windows/DISTRIBUTION.md). Publishing stays manual on purpose — this repository's
+# token cannot write to the distribution repo, and a release is what every installed client's
+# updater acts on.
+#
+# Manual only. Windows minutes bill at 2x, and a release build nobody asked for is waste.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: apps/client-windows
+    shell: pwsh
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # A release is only as good as the commit it is cut from. Re-running the suite costs a couple
+      # of minutes and means a red commit can never reach the artifact.
+      - name: Test
+        run: dotnet test NiftyTimer.sln -c Release
+
+      # No -Dev: package-app.ps1 defaults to PRODUCTION — app id, API, dashboard, update repo.
+      - name: Package (production)
+        run: ./scripts/package-app.ps1
+
+      # A no-op with a warning until a certificate exists (SIGNING.md). Kept so the day one does,
+      # this build starts signing without anyone editing the workflow.
+      - name: Sign
+        run: ./scripts/sign.ps1
+
+      - name: Release assets
+        run: ./scripts/release-assets.ps1
+
+      # Refuse an artifact that could not be the release, and print what it is. A dev-stamped
+      # build would talk to 127.0.0.1 and record nothing; an exe whose version differs from the
+      # tag would make every install offer to update to the build it is already running.
+      - name: Check and describe
+        id: describe
+        run: |
+          $version = (Select-Xml -Path src/NiftyTimer/NiftyTimer.csproj -XPath '//Version').Node.InnerText.Trim()
+          $settings = Get-Content dist/NiftyTimer/appsettings.json -Raw | ConvertFrom-Json
+
+          if ($settings.appId -ne 'com.niftyitsolution.niftytimer') {
+            throw "appsettings.json is not the production install (appId '$($settings.appId)')."
+          }
+          if (-not $settings.apiBaseUrl.StartsWith('https://')) {
+            throw "appsettings.json does not point at a production API ('$($settings.apiBaseUrl)')."
+          }
+
+          $productVersion = (Get-Item dist/NiftyTimer/NiftyTimer.exe).VersionInfo.ProductVersion
+          if (-not $productVersion.StartsWith($version)) {
+            throw "NiftyTimer.exe reports '$productVersion' but <Version> is '$version'."
+          }
+
+          Write-Host "commit : $env:GITHUB_SHA"
+          Write-Host "tag    : v$version-windows-pilot"
+          Write-Host "sha256 : $(Get-Content dist/NiftyTimer-windows-pilot.zip.sha256)"
+          Write-Host "settings:"
+          Get-Content dist/NiftyTimer/appsettings.json
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      # upload-artifact resolves paths from the workspace root, not the run working-directory.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: NiftyTimer-windows-v${{ steps.describe.outputs.version }}
+          path: |
+            apps/client-windows/dist/NiftyTimer-windows-pilot.zip
+            apps/client-windows/dist/NiftyTimer-windows-pilot.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
