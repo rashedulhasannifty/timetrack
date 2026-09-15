@@ -180,17 +180,18 @@ path still works when CI is unavailable.
 | SSH      | `SSH_HOST`, `SSH_USER`, `SSH_KEY`, `SSH_PORT`, `DEPLOY_PATH`                                                                                          |
 | Postgres | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_URL`                                                                                   |
 | Auth     | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `DASHBOARD_SESSION_SECRET`                                                                                 |
-| Storage  | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`                                                               |
+| Storage  | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`; `S3_ENDPOINT` + `S3_REGION` only for external S3 (below)     |
 | URLs     | `API_URL`, `APP_URL`, `CORS_ORIGINS`, `PUBLIC_DOMAIN`, `ACME_EMAIL`                                                                                   |
 | Optional | `INVITE_TTL_DAYS`; `SMTP_HOST` + `SMTP_PORT` + `SMTP_USER` + `SMTP_PASS` + `MAIL_FROM`; `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`; the five `OIDC_*` |
 
-`NODE_ENV`, `LOG_LEVEL`, `REDIS_URL`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_REGION` and
-`API_PORT` are **not** secrets — the workflow hardcodes them (`S3_PUBLIC_ENDPOINT` is derived
-from `PUBLIC_DOMAIN`). `NODE_ENV=production` in particular must never be omitted: the schema
+`NODE_ENV`, `LOG_LEVEL`, `REDIS_URL`, `S3_PUBLIC_ENDPOINT` and `API_PORT` are **not**
+secrets — the workflow hardcodes them (`S3_PUBLIC_ENDPOINT` is derived from `PUBLIC_DOMAIN`).
+So are `S3_ENDPOINT` and `S3_REGION` (the bundled MinIO) unless you set them as secrets to move
+screenshots to external S3 — see below. `NODE_ENV=production` in particular must never be omitted: the schema
 defaults to `development`, and under `development` the API returns the raw invite token in its
 response and the `APP_URL` guard never fires.
 
-**`S3_ENDPOINT` vs `S3_PUBLIC_ENDPOINT`.** The API reaches MinIO over the container network
+**`S3_ENDPOINT` vs `S3_PUBLIC_ENDPOINT`** (bundled MinIO only). The API reaches MinIO over the container network
 (`http://minio:9000`), but the dashboard renders screenshots from **presigned URLs the browser
 fetches directly** (PRD §7.4) — so those URLs must name an origin the browser can resolve.
 SigV4 signs the host, so the URL has to be _signed for_ that origin; rewriting it afterwards
@@ -210,12 +211,49 @@ together — the all-or-nothing refinements still apply.
 successful workflow** (Actions → that run → Re-run jobs). The `concurrency` group serialises
 deploys so two `migrate` runs can never race.
 
+### Screenshots on external S3 (AWS)
+
+By default screenshots live in the bundled MinIO, on the VM's disk. To keep them in an S3
+bucket instead, set the `S3_ENDPOINT` and `S3_REGION` secrets. The deploy then writes those and
+**no** `S3_PUBLIC_ENDPOINT`: the browser follows presigned URLs straight to S3, so the API signs
+them for S3's own host. No app change is involved — the same client code talks to MinIO and S3
+(verified against AWS with path-style and virtual-hosted addressing).
+
+**Bucket** (region nearest the VM, e.g. `ap-southeast-1`): Block Public Access on, default
+encryption SSE-S3, and **no versioning and no Object Lock** — retention and employee data
+erasure must really delete, and a versioned bucket would keep every "deleted" screenshot as a
+hidden old version. Optional lifecycle rules keep a growing archive cheap: Standard-IA after 30
+days, Glacier Instant Retrieval after 90, abort incomplete multipart uploads after 1 day.
+**Never** Glacier Flexible Retrieval or Deep Archive: those need a restore before any GET, so
+every presigned URL for an archived screenshot would fail.
+
+**Credentials** (`S3_ACCESS_KEY` / `S3_SECRET_KEY`) need, on that bucket: `s3:ListBucket` on the
+bucket — the API's boot and `/health/ready` call `HeadBucket`, and without it the API refuses to
+start — plus `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` and `s3:AbortMultipartUpload` on
+its objects. Leave `MINIO_ROOT_*` unchanged: they still run the MinIO container, which stays up
+as the rollback.
+
+**Cutover:**
+
+1. Note the current `S3_BUCKET` value — it is the MinIO bucket to copy from. Then set
+   `S3_ENDPOINT` (e.g. `https://s3.ap-southeast-1.amazonaws.com`) and `S3_REGION`, and change
+   `S3_BUCKET`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` to the S3 bucket and its key.
+2. Deploy. New screenshots now go to S3; ones taken before the cutover render as broken images
+   until step 3.
+3. Actions → **Ops — copy screenshots from MinIO to S3**: `dry-run` with the old bucket name,
+   then `apply` (type `COPY`). It copies and never deletes; a re-run skips what already arrived.
+4. Open a pre-cutover screenshot in the dashboard to confirm.
+
+**Rollback:** delete the `S3_ENDPOINT`/`S3_REGION` secrets, restore the three `S3_*` to their
+MinIO values, and redeploy. Screenshots taken while on S3 are not in MinIO — copy them back with
+`mc mirror` first if you need them.
+
 ---
 
 ## 6. Backups & DR
 
 - **Postgres:** nightly `pg_dump` (or WAL archiving/`pgBackRest` for PITR) to off-box storage; test restores quarterly. Time entries are the payroll record — never on a short retention.
-- **MinIO:** replicate the bucket (MinIO mirror/`mc mirror`) or snapshot the volume; screenshots are retention-bounded (default 30d) so backup windows can be short.
+- **MinIO:** replicate the bucket (MinIO mirror/`mc mirror`) or snapshot the volume; screenshots are retention-bounded (default 30d) so backup windows can be short. On external S3 (§5) the bucket is already off the VM, and `backup.sh` skips the mirror.
 - **Redis:** ephemeral (BullMQ queues) — no backup needed; jobs are idempotent and retried.
 - Document RPO/RTO with the customer; encrypt backups at rest and in transit.
 

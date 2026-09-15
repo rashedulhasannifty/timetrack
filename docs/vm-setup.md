@@ -261,7 +261,9 @@ Host is `postgres` — the compose service name, not `localhost`.
 
 ### Storage (5)
 
-`S3_*` must equal the `MINIO_ROOT_*` pair; that is how the app authenticates to MinIO.
+`S3_*` must equal the `MINIO_ROOT_*` pair; that is how the app authenticates to MinIO. To keep
+screenshots in an external S3 bucket (e.g. AWS) instead, see `deployment.md` §5 — that adds
+`S3_ENDPOINT` + `S3_REGION` secrets and points the `S3_*` trio at the bucket.
 
 | Secret                                 | Value                          |
 | -------------------------------------- | ------------------------------ |
