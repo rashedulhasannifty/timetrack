@@ -66,13 +66,22 @@ public sealed class UpdateInstallException : Exception
 /// </summary>
 public sealed class UpdateInstaller
 {
+    /// <summary>How long a download may go without receiving a byte before it is abandoned.</summary>
+    internal static readonly TimeSpan DefaultStallTimeout = TimeSpan.FromSeconds(60);
+
     private readonly HttpClient _http;
     private readonly string _installDirectory;
     private readonly string _runningExecutable;
+    private readonly TimeSpan _stallTimeout;
 
-    public UpdateInstaller(HttpClient http, string? installDirectory = null, string? runningExecutable = null)
+    public UpdateInstaller(
+        HttpClient http,
+        string? installDirectory = null,
+        string? runningExecutable = null,
+        TimeSpan? stallTimeout = null)
     {
         _http = http;
+        _stallTimeout = stallTimeout ?? DefaultStallTimeout;
         _runningExecutable = runningExecutable ?? Environment.ProcessPath ?? string.Empty;
         _installDirectory = installDirectory
             ?? (_runningExecutable.Length > 0
@@ -117,18 +126,7 @@ public sealed class UpdateInstaller
         Directory.CreateDirectory(work);
 
         var zipPath = Path.Combine(work, "update.zip");
-        using (var response = await _http.GetAsync(manifest.ZipUrl, cancellationToken).ConfigureAwait(false))
-        {
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new UpdateInstallException(
-                    UpdateInstallFailure.Download,
-                    $"Download returned {(int)response.StatusCode}.");
-            }
-
-            await using var file = File.Create(zipPath);
-            await response.Content.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
-        }
+        await DownloadAsync(manifest.ZipUrl, zipPath, cancellationToken).ConfigureAwait(false);
 
         var actual = Sha256Of(zipPath);
         var expected = manifest.Sha256.ToLowerInvariant();
@@ -167,6 +165,51 @@ public sealed class UpdateInstaller
         }
 
         return staged;
+    }
+
+    /// <summary>
+    /// Stream the zip to disk, bounded by silence rather than by total time.
+    ///
+    /// 0.1.0 fetched it with a plain <c>GetAsync</c>, which reads the whole body before returning —
+    /// inside the app's shared 30-second HTTP timeout. The zip is about 63 MB, so on any connection
+    /// slower than roughly 17 Mbit/s every update failed after half a minute. Now only the wait for
+    /// headers falls under that timeout; the body is streamed, and it is abandoned only when no data
+    /// arrives for the stall timeout — a slow link finishes, a dead one fails.
+    /// </summary>
+    private async Task DownloadAsync(Uri url, string path, CancellationToken cancellationToken)
+    {
+        using var stall = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stall.CancelAfter(_stallTimeout);
+        try
+        {
+            using var response = await _http
+                .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, stall.Token)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new UpdateInstallException(
+                    UpdateInstallFailure.Download,
+                    $"Download returned {(int)response.StatusCode}.");
+            }
+
+            await using var source = await response.Content.ReadAsStreamAsync(stall.Token).ConfigureAwait(false);
+            await using var file = File.Create(path);
+            var buffer = new byte[81920];
+            int read;
+            while ((read = await source.ReadAsync(buffer, stall.Token).ConfigureAwait(false)) > 0)
+            {
+                await file.WriteAsync(buffer.AsMemory(0, read), stall.Token).ConfigureAwait(false);
+
+                // Data arrived, so the connection is alive: push the deadline out again.
+                stall.CancelAfter(_stallTimeout);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new UpdateInstallException(
+                UpdateInstallFailure.Download,
+                $"The download received no data for {_stallTimeout.TotalSeconds.ToString("0", CultureInfo.InvariantCulture)} seconds.");
+        }
     }
 
     /// <summary>
