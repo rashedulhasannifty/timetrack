@@ -9,7 +9,7 @@
     <LangVersion>latest</LangVersion>
     <RootNamespace>NiftyTimer</RootNamespace>
     <AssemblyName>NiftyTimer</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <!-- Do NOT set InvariantGlobalization. WPF reads the current input language through
