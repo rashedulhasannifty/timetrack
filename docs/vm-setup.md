@@ -400,6 +400,10 @@ systemctl list-timers timetrack-backup.timer
 
 The unit file assumes user `deploy` and `/home/deploy/timetrack`; edit it if yours differ.
 
+Those dumps stay on this VM's disk until you set the `BACKUP_S3_*` secrets, which make each
+run also upload the dump to an S3 bucket. The bucket and its upload-only IAM key are a one-time
+setup in `docs/deployment.md` §6. Without it, losing the VM loses the backups too.
+
 ---
 
 ## 12. The macOS client
