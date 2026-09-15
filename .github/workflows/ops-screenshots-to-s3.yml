@@ -1,0 +1,75 @@
+name: Ops — copy screenshots from MinIO to S3
+
+# One-off, for moving screenshots from the bundled MinIO to an external S3 bucket
+# (docs/deployment.md §5, "Screenshots on external S3"). Run it AFTER the deploy that set
+# S3_ENDPOINT, so the running app already writes new screenshots to S3 and this only carries the
+# old ones across.
+#
+# Copies, never deletes: no --remove, and the MinIO bucket is left exactly as it was, so it stays
+# the rollback. Safe to re-run — objects already in S3 are skipped.
+#
+# DRY RUN unless mode is `apply`, and `apply` additionally requires typing the confirmation.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_bucket:
+        description: 'MinIO bucket holding the existing screenshots (the old S3_BUCKET value)'
+        required: true
+        default: 'timetrack-screenshots'
+      mode:
+        description: 'dry-run lists what would be copied; apply copies'
+        required: true
+        default: 'dry-run'
+        type: choice
+        options: ['dry-run', 'apply']
+      confirm:
+        description: 'Type COPY to confirm (apply only)'
+        required: false
+        default: ''
+
+# Never concurrently with a deploy: that rolls the stack, including the MinIO this reads from.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    steps:
+      # Checked BEFORE reaching the host, so a mistyped confirmation costs nothing.
+      - name: Refuse an unconfirmed apply or a malformed bucket name
+        env:
+          SOURCE_BUCKET: ${{ inputs.source_bucket }}
+          MODE: ${{ inputs.mode }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$MODE" = "apply" ] && [ "$CONFIRM" != "COPY" ]; then
+            echo "::error::mode=apply requires confirm=COPY. Nothing was run."
+            exit 1
+          fi
+          # S3 bucket-name rules. The value reaches a remote shell, so nothing else gets through.
+          if ! printf '%s' "$SOURCE_BUCKET" | grep -Eq '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'; then
+            echo "::error::not a valid bucket name. Nothing was run."
+            exit 1
+          fi
+
+      - name: Copy
+        uses: appleboy/ssh-action@v1
+        env:
+          SOURCE_BUCKET: ${{ inputs.source_bucket }}
+          MODE: ${{ inputs.mode }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          envs: SOURCE_BUCKET,MODE
+          command_timeout: 60m
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            COMPOSE="docker compose --env-file .env.prod -f infra/docker-compose.prod.yml"
+
+            echo "→ ${MODE}: minio/${SOURCE_BUCKET} → S3"
+            $COMPOSE --profile ops run --rm screenshots-to-s3 "${SOURCE_BUCKET}" "${MODE}"
