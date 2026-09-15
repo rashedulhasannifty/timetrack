@@ -38,7 +38,7 @@ public class UpdateDownloadTests
 
     private static ReleaseManifest Manifest(string sha256) =>
         new(
-            AppVersion.Parse("0.2.1"),
+            AppVersion.Parse("0.2.1")!,
             DateTimeOffset.UtcNow,
             new Uri("https://example.invalid/NiftyTimer-windows-pilot.zip"),
             sha256);
