@@ -277,7 +277,7 @@ immutable, while the screenshots bucket must be able to delete for retention and
    bypassed by any key holding `s3:BypassGovernanceRetention`, while a Compliance lock cannot be
    shortened or removed by anyone, root included — so it holds even if the VM's key is broader
    than step 3's policy.
-2. **Lifecycle rule** on the `postgres/` prefix: transition to Glacier Instant Retrieval after
+2. **Lifecycle rule** on the whole bucket: transition to Glacier Instant Retrieval after
    30 days, expire current versions after 365 days, permanently delete noncurrent versions 30
    days after they become noncurrent, and delete incomplete multipart uploads after 1 day.
    Time entries are the payroll record — set the expiry to your payroll retention requirement,
