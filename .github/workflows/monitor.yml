@@ -91,6 +91,12 @@ jobs:
             echo "BACKUP_BYTES=$($SUDO stat -c %s "$newest")"
             echo "BACKUP_NAME=$(basename "$newest")"
           fi
+          # backup.sh touches this only after an off-site upload succeeds.
+          if $SUDO test -f "$BK/.offsite-last"; then
+            echo "OFFSITE_AGE_MIN=$(( ( $(date +%s) - $($SUDO stat -c %Y "$BK/.offsite-last") ) / 60 ))"
+          else
+            echo "OFFSITE=NONE"
+          fi
           echo "WORKER_STATE=$(docker inspect timetrack-prod-worker-1 --format '{{.State.Status}}' 2>/dev/null || echo missing)"
           # A worker that is "up" but not consuming is invisible without this: the container has
           # no healthcheck, so a wedged queue consumer looks identical to a healthy one.
@@ -117,6 +123,14 @@ jobs:
                 echo "- **Newest backup is $((age/60))h old** (\`$name\`, expected under 26h)." >> findings.txt
               [ -n "$bytes" ] && [ "$bytes" -lt "$BACKUP_MIN_BYTES" ] && \
                 echo "- **Newest backup is only ${bytes} bytes** (\`$name\`) — likely a failed dump." >> findings.txt
+            fi
+
+            if grep -q '^OFFSITE=NONE' host.txt; then
+              echo "- **No off-site backup recorded.** Dumps share a disk with the database, so losing the VM loses both — set the \`BACKUP_S3_*\` secrets (deployment §6)." >> findings.txt
+            else
+              oage=$(val OFFSITE_AGE_MIN)
+              [ -n "$oage" ] && [ "$oage" -gt "$BACKUP_MAX_AGE_MIN" ] && \
+                echo "- **Newest off-site backup is $((oage/60))h old** (expected under 26h) — check \`journalctl -u timetrack-backup.service\`." >> findings.txt
             fi
 
             w=$(val WORKER_STATE)

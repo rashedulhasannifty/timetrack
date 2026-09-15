@@ -183,6 +183,7 @@ path still works when CI is unavailable.
 | Storage  | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`; `S3_ENDPOINT` + `S3_REGION` only for external S3 (below)     |
 | URLs     | `API_URL`, `APP_URL`, `CORS_ORIGINS`, `PUBLIC_DOMAIN`, `ACME_EMAIL`                                                                                   |
 | Optional | `INVITE_TTL_DAYS`; `SMTP_HOST` + `SMTP_PORT` + `SMTP_USER` + `SMTP_PASS` + `MAIL_FROM`; `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`; the five `OIDC_*` |
+| Backup   | `BACKUP_S3_BUCKET` + `BACKUP_S3_REGION` + `BACKUP_S3_ACCESS_KEY` + `BACKUP_S3_SECRET_KEY` (optional `BACKUP_S3_ENDPOINT`) — off-site dumps, §6        |
 
 `NODE_ENV`, `LOG_LEVEL`, `REDIS_URL`, `S3_PUBLIC_ENDPOINT` and `API_PORT` are **not**
 secrets — the workflow hardcodes them (`S3_PUBLIC_ENDPOINT` is derived from `PUBLIC_DOMAIN`).
@@ -259,7 +260,8 @@ MinIO values, and redeploy. Screenshots taken while on S3 are not in MinIO — c
 
 ### Shipped: `infra/backup.sh` + a systemd timer
 
-`infra/backup.sh` dumps Postgres and mirrors the MinIO bucket. `pg_dump` runs **inside** the
+`infra/backup.sh` dumps Postgres, copies the dump off-site to S3 (below), and mirrors the MinIO
+bucket. `pg_dump` runs **inside** the
 container reading its own `POSTGRES_*`, so no credential appears on the host command line or
 in `ps`. The dump is verified twice — `gzip -t`, then a grep for pg_dump's own
 `PostgreSQL database dump complete` marker, because a dump killed mid-stream still produces a
@@ -295,10 +297,69 @@ gunzip -c backups/postgres/timetrack-<stamp>.sql.gz | \
 Test a restore into a scratch database quarterly. **A backup you have never restored is a
 hypothesis, not a backup.**
 
-> ⚠️ **Not yet disaster recovery.** These backups land on the **same disk** as the data they
-> protect. That covers a bad migration, an accidental delete, or a corrupted table — it does
-> not cover losing the VM. Copying `$BACKUP_DIR` off-box (Azure Blob, another host) is the
-> remaining step and is not automated here.
+### Off-site copy to S3
+
+The local dumps share a disk with the database: they cover a bad migration, an accidental
+delete, or a corrupted table — not losing the VM. So after the dump verifies, `backup.sh`
+uploads it to `s3://$BACKUP_S3_BUCKET/postgres/` and touches `backups/postgres/.offsite-last`.
+`monitor.yml` reports a missing or stale (> 26h) stamp. Until the `BACKUP_S3_*` secrets are set
+the script warns and skips the upload, and the monitor keeps saying so. A failed upload keeps
+the local dump, lets the rest of the script run, then fails the unit.
+
+One-time AWS setup. Use a **dedicated** bucket, never the screenshots one: this one is
+immutable, while the screenshots bucket must be able to delete for retention and erasure.
+
+1. **Bucket** in the region nearest the VM (e.g. `ap-southeast-1`): Block Public Access on (the
+   default), default encryption SSE-S3, **versioning on**, then **Object Lock** with a default
+   retention of _Compliance_, 30 days. Compliance, not Governance: a Governance lock can be
+   bypassed by any key holding `s3:BypassGovernanceRetention`, while a Compliance lock cannot be
+   shortened or removed by anyone, root included — so it holds even if the VM's key is broader
+   than step 3's policy.
+2. **Lifecycle rule** on the whole bucket: transition to Glacier Instant Retrieval after
+   30 days, expire current versions after 365 days, permanently delete noncurrent versions 30
+   days after they become noncurrent, and delete incomplete multipart uploads after 1 day.
+   Time entries are the payroll record — set the expiry to your payroll retention requirement,
+   never shorter.
+3. **IAM user** `timetrack-backup`, access key only (no console), with exactly this policy:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+         "Resource": "arn:aws:s3:::<backup-bucket>/postgres/*"
+       }
+     ]
+   }
+   ```
+
+   It can upload (and abort its own failed multipart upload, which large dumps use) and nothing
+   else — no list, no read, no delete — so a compromised VM can
+   neither read the archive nor destroy it, and versioning + Object Lock stop an overwrite from
+   destroying it either.
+
+   **If you cannot create IAM users** and reuse an existing, broader key instead, backups still
+   upload, and the Compliance lock from step 1 still keeps every locked version from being
+   deleted. What you lose is containment: that key sits in `.env.prod` on the VM, and every
+   bucket it can reach in the account is exposed to anyone who compromises the box. Treat that
+   as a decision for the AWS account owner, and replace it with the scoped user when you can.
+
+4. Add the repository secrets `BACKUP_S3_BUCKET`, `BACKUP_S3_REGION`, `BACKUP_S3_ACCESS_KEY`,
+   `BACKUP_S3_SECRET_KEY` and redeploy; the deploy writes them into `.env.prod`.
+   `BACKUP_S3_ENDPOINT` is only for a non-AWS S3-compatible store — it defaults to
+   `https://s3.<region>.amazonaws.com`.
+5. On the host, run `./infra/backup.sh` once by hand and look for `✓ uploaded`, then confirm
+   the object exists from your own machine.
+
+**Restore from S3** — from a trusted machine whose credentials can read the bucket (the VM's
+key cannot, by design), fetch a dump, copy it to the target host, and restore it as above:
+
+```bash
+aws s3 ls s3://<backup-bucket>/postgres/ | tail -5
+aws s3 cp s3://<backup-bucket>/postgres/timetrack-<stamp>.sql.gz .
+```
 
 ---
 

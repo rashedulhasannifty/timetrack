@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TimeTrack backup — Postgres dump + MinIO mirror. See docs/deployment.md §6.
+# TimeTrack backup — Postgres dump (+ off-site S3 copy) + MinIO mirror. See docs/deployment.md §6.
 #
 #   ./infra/backup.sh              # run a backup
 #   BACKUP_DIR=/mnt/backups ./infra/backup.sh
@@ -44,6 +44,55 @@ gunzip -c "$DUMP" | tail -5 | grep -q "PostgreSQL database dump complete" || {
 }
 echo "  ✓ $(du -h "$DUMP" | cut -f1) verified"
 
+# ── Off-site copy (S3) ──────────────────────────────────────────────────────────────────
+# The dump above lands on the same disk as the database: that covers a bad migration or an
+# accidental delete, not losing the VM. This ships the verified dump to an S3 bucket — see
+# docs/deployment.md §6 for the bucket settings and IAM policy. The key may PUT under postgres/
+# and nothing else: it cannot list, read or delete, and bucket versioning + Object Lock keep an
+# overwrite from destroying anything, so a compromised VM cannot take the off-site copies too.
+#
+# Optional until configured: with no BACKUP_S3_BUCKET this warns and carries on, and the
+# monitor keeps reporting "no off-site backup" until an upload succeeds. `|| true` because
+# env_value's grep exits 1 on a missing key, which `set -e` would otherwise treat as fatal.
+OFFSITE_BUCKET="$(env_value BACKUP_S3_BUCKET || true)"
+OFFSITE_STAMP="$BACKUP_DIR/postgres/.offsite-last"
+OFFSITE_FAILED=""
+if [[ -z "$OFFSITE_BUCKET" ]]; then
+  echo "⚠ off-site copy NOT configured (BACKUP_S3_BUCKET unset) — this is not disaster recovery"
+else
+  OFFSITE_REGION="$(env_value BACKUP_S3_REGION || true)"
+  OFFSITE_ENDPOINT="$(env_value BACKUP_S3_ENDPOINT || true)"
+  if [[ -z "$OFFSITE_ENDPOINT" ]]; then
+    [[ -n "$OFFSITE_REGION" ]] || { echo "✖ BACKUP_S3_REGION is required"; exit 1; }
+    OFFSITE_ENDPOINT="https://s3.${OFFSITE_REGION}.amazonaws.com"
+  fi
+  OFFSITE_KEY="$(env_value BACKUP_S3_ACCESS_KEY)"
+  OFFSITE_SECRET="$(env_value BACKUP_S3_SECRET_KEY)"
+  OFFSITE_NAME="$(basename "$DUMP")"
+  # Exported and handed to docker by NAME only, so the secret never appears in `ps`.
+  export OFFSITE_BUCKET OFFSITE_ENDPOINT OFFSITE_KEY OFFSITE_SECRET OFFSITE_NAME
+
+  echo "→ off-site → ${OFFSITE_ENDPOINT}/${OFFSITE_BUCKET}/postgres/${OFFSITE_NAME}"
+  # --api pins the signature version so `alias set` needs no permission the key lacks.
+  # --checksum sends an integrity checksum with the upload; AWS documents one as required for
+  # uploads into an Object Lock bucket.
+  if docker run --rm -v "$BACKUP_DIR/postgres:/backup:ro" \
+    -e OFFSITE_BUCKET -e OFFSITE_ENDPOINT -e OFFSITE_KEY -e OFFSITE_SECRET -e OFFSITE_NAME \
+    --entrypoint sh quay.io/minio/mc:latest -c '
+      mc alias set offsite "$OFFSITE_ENDPOINT" "$OFFSITE_KEY" "$OFFSITE_SECRET" --api s3v4 >/dev/null &&
+      mc cp --quiet --checksum CRC32C "/backup/$OFFSITE_NAME" \
+        "offsite/$OFFSITE_BUCKET/postgres/$OFFSITE_NAME" >/dev/null'; then
+    # The monitor reads this file's mtime as "last successful off-site upload".
+    printf '%s\n' "$OFFSITE_NAME" > "$OFFSITE_STAMP"
+    echo "  ✓ uploaded"
+  else
+    # Not fatal yet: the MinIO mirror and retention below still run, then the script exits
+    # non-zero so the unit is marked failed. The local dump is kept either way.
+    OFFSITE_FAILED=1
+    echo "✖ off-site upload failed — the local dump is kept at ${DUMP}"
+  fi
+fi
+
 # ── MinIO ───────────────────────────────────────────────────────────────────────────────
 # Screenshots are retention-bounded (30d by default), so mirroring stays cheap. --remove
 # keeps the mirror faithful rather than growing forever with objects retention deleted.
@@ -76,9 +125,5 @@ PRUNED="$(find "$BACKUP_DIR/postgres" -name 'timetrack-*.sql.gz' -mtime "+${KEEP
 echo "→ retention: kept ${KEEP_DAYS}d, pruned ${PRUNED} dump(s)"
 
 REMAINING="$(find "$BACKUP_DIR/postgres" -name 'timetrack-*.sql.gz' | wc -l)"
+[[ -z "$OFFSITE_FAILED" ]] || { echo "✖ backup incomplete — the off-site upload failed"; exit 1; }
 echo "✓ backup complete — ${REMAINING} dump(s) on disk at ${BACKUP_DIR}"
-
-# These backups are ON THE SAME DISK as the data they protect. That covers the common cases
-# (bad migration, accidental delete, corrupted table) but NOT losing the VM. Copying
-# $BACKUP_DIR off-box — Azure Blob, another host, whatever the org already uses — is the
-# remaining step, and until it is done this is not disaster recovery.
