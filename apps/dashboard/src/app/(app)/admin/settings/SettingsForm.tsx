@@ -22,6 +22,7 @@ function NumberField({
   value,
   min,
   max,
+  readOnly = false,
 }: {
   name: string;
   label: string;
@@ -29,6 +30,9 @@ function NumberField({
   value: number;
   min: number;
   max: number;
+  /** Read-only, NOT disabled: a disabled input is left out of FormData, and the action would
+   *  then send 0 and fail validation instead of keeping the stored value. */
+  readOnly?: boolean;
 }) {
   return (
     <label className="flex flex-col gap-1">
@@ -40,7 +44,9 @@ function NumberField({
         min={min}
         max={max}
         required
-        className="tt-numeric bg-surface border-separator text-text focus:border-accent w-32 rounded-md border px-3 py-2 text-[13px] outline-none transition-colors"
+        readOnly={readOnly}
+        aria-readonly={readOnly}
+        className={`tt-numeric bg-surface border-separator text-text focus:border-accent w-32 rounded-md border px-3 py-2 text-[13px] outline-none transition-colors${readOnly ? ' opacity-50' : ''}`}
       />
       <span className="text-text-secondary text-caption">{hint}</span>
     </label>
@@ -52,15 +58,23 @@ function Toggle({
   label,
   hint,
   checked,
+  onCheckedChange,
 }: {
   name: string;
   label: string;
   hint: string;
   checked: boolean;
+  onCheckedChange?: (checked: boolean) => void;
 }) {
   return (
     <label className="flex items-start gap-3">
-      <input name={name} type="checkbox" defaultChecked={checked} className="accent-accent mt-1" />
+      <input
+        name={name}
+        type="checkbox"
+        defaultChecked={checked}
+        onChange={onCheckedChange ? (e) => onCheckedChange(e.target.checked) : undefined}
+        className="accent-accent mt-1"
+      />
       <span>
         <span className="block text-[13px] font-medium">{label}</span>
         <span className="text-text-secondary text-caption">{hint}</span>
@@ -176,6 +190,8 @@ export function SettingsForm({
   const [unproductiveApps, setUnproductiveApps] = useState(settings.unproductiveApps.join('\n'));
   const [productiveSites, setProductiveSites] = useState(settings.productiveSites.join('\n'));
   const [unproductiveSites, setUnproductiveSites] = useState(settings.unproductiveSites.join('\n'));
+  // While on, the retention days are kept but do not apply, so the input goes read-only.
+  const [keepForever, setKeepForever] = useState(settings.keepScreenshotsForever);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -216,12 +232,24 @@ export function SettingsForm({
           <NumberField
             name="screenshotRetentionDays"
             label="Retention"
-            hint="Days screenshots are kept (1–180)."
+            hint={
+              keepForever
+                ? 'Not applied while screenshots are kept forever.'
+                : 'Days screenshots are kept (1–180).'
+            }
             value={settings.screenshotRetentionDays}
             min={1}
             max={180}
+            readOnly={keepForever}
           />
         </div>
+        <Toggle
+          name="keepScreenshotsForever"
+          label="Never delete screenshots"
+          hint="Screenshots are kept until you turn this off; the retention days above apply again from then. Employee data erasure still deletes them."
+          checked={settings.keepScreenshotsForever}
+          onCheckedChange={setKeepForever}
+        />
       </Card>
 
       <Card padding="md" className="flex flex-col gap-4">

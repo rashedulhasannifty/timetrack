@@ -10,8 +10,14 @@ const teamSettingsFields = {
   screenshotsEnabled: z.boolean(),
   screenshotIntervalMinutes: z.number().int().min(5).max(60),
   screenshotBlur: z.enum(['NONE', 'BLUR', 'THUMBNAIL_ONLY']),
-  // PRD §10 — hard floor stops anyone setting screenshots to "forever" by accident.
+  // PRD §10 — the 180-day ceiling stops anyone setting screenshots to "forever" by accident.
+  // Forever is never a retention value; it is only the explicit flag below.
   screenshotRetentionDays: z.number().int().min(1).max(180),
+  // PRD §10 — an admin's deliberate, per-team choice to keep screenshots indefinitely. OFF by
+  // default. While on, the retention job never deletes this team's screenshots and the days
+  // above are kept, unused, for when it is turned off. Employee erasure still deletes them.
+  // Server-side only; it rides EffectivePolicy to the clients, which ignore it.
+  keepScreenshotsForever: z.boolean(),
   activityRetentionDays: z.number().int().min(7).max(365),
   idleThresholdMinutes: z.number().int().min(1).max(60),
   captureWindowTitles: z.boolean(),
@@ -67,6 +73,8 @@ export const TeamSettingsSchema = z.object({
   screenshotIntervalMinutes: teamSettingsFields.screenshotIntervalMinutes.default(10),
   screenshotBlur: teamSettingsFields.screenshotBlur.default('NONE'),
   screenshotRetentionDays: teamSettingsFields.screenshotRetentionDays.default(30),
+  // OFF by default — a deploy, or a legacy row with no such key, must never start hoarding.
+  keepScreenshotsForever: teamSettingsFields.keepScreenshotsForever.default(false),
   activityRetentionDays: teamSettingsFields.activityRetentionDays.default(90),
   idleThresholdMinutes: teamSettingsFields.idleThresholdMinutes.default(5),
   captureWindowTitles: teamSettingsFields.captureWindowTitles.default(true),

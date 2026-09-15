@@ -241,6 +241,66 @@ describe.runIf(RUN_E2E)('retention-cleanup processor — real Postgres + MinIO',
     await run(job(s3).processor);
     expect(await countShots(u)).toBe(1);
   });
+
+  // Last in the file on purpose: while a forever team exists no screenshot partition drops, so
+  // it would change what the DROP test above sees. The team is switched off at the end.
+  it('FOREVER: a keep-forever team loses nothing, and the partition it shares is held, while a normal team is still swept in the same run', async () => {
+    // An old month entirely past every finite cutoff — without the flag it would be DROPPED.
+    await env.prisma.$executeRawUnsafe(
+      `CREATE TABLE IF NOT EXISTS "screenshots_2025_11" PARTITION OF "screenshots"
+       FOR VALUES FROM ('2025-11-01') TO ('2025-12-01')`,
+    );
+    const forever = await env.prisma.team.create({
+      data: {
+        name: 'forever',
+        settings: { screenshotRetentionDays: 7, keepScreenshotsForever: true },
+      },
+      select: { id: true },
+    });
+    const normal = await makeTeam(7);
+    const uF = await makeUser(forever.id, 'forever-u@x.com');
+    const uN = await makeUser(normal, 'normal-u@x.com');
+
+    const fOld = await shot(uF, '019797a0-0000-7000-8000-0000000f0001', '2025-11-15T00:00:00Z');
+    const fLive = await shot(uF, '019797a0-0000-7000-8000-0000000f0002', '2026-07-05T00:00:00Z');
+    const nOld = await shot(uN, '019797a0-0000-7000-8000-0000000f0003', '2025-11-15T00:00:00Z');
+    const nLive = await shot(uN, '019797a0-0000-7000-8000-0000000f0004', '2026-07-05T00:00:00Z');
+
+    await run(job(s3).processor);
+
+    // The forever team keeps every row AND object — old month and live month alike.
+    expect(await countShots(uF)).toBe(2);
+    expect(await exists(fOld)).toBe(true);
+    expect(await exists(fLive)).toBe(true);
+    // The normal team is still swept, including in the old partition the held DROP left behind.
+    expect(await countShots(uN)).toBe(0);
+    expect(await exists(nOld)).toBe(false);
+    expect(await exists(nLive)).toBe(false);
+    // The shared partition was held, not dropped.
+    const held = await env.prisma.$queryRawUnsafe<{ relname: string }[]>(
+      `SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid=i.inhrelid
+       JOIN pg_class p ON p.oid=i.inhparent WHERE c.relname='screenshots_2025_11'`,
+    );
+    expect(held).toHaveLength(1);
+
+    const audit = await env.prisma.auditLog.findFirst({
+      where: { action: 'retention.cleanup' },
+      orderBy: { timestamp: 'desc' },
+    });
+    const diff = audit?.diff as {
+      screenshots: { keptForever: string[]; droppedPartitions: string[] };
+      activity_samples: { keptForever: string[] };
+    };
+    expect(diff.screenshots.keptForever).toContain(forever.id);
+    expect(diff.screenshots.droppedPartitions).toEqual([]);
+    // The flag is about screenshots only — activity retention treats the team normally.
+    expect(diff.activity_samples.keptForever).toEqual([]);
+
+    await env.prisma.team.update({
+      where: { id: forever.id },
+      data: { settings: { screenshotRetentionDays: 7, keepScreenshotsForever: false } },
+    });
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.
