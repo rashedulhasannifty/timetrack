@@ -74,7 +74,8 @@ else
 
   echo "→ off-site → ${OFFSITE_ENDPOINT}/${OFFSITE_BUCKET}/postgres/${OFFSITE_NAME}"
   # --api pins the signature version so `alias set` needs no permission the key lacks.
-  # --checksum because S3 refuses an upload into an Object Lock bucket that carries none.
+  # --checksum sends an integrity checksum with the upload; AWS documents one as required for
+  # uploads into an Object Lock bucket.
   if docker run --rm -v "$BACKUP_DIR/postgres:/backup:ro" \
     -e OFFSITE_BUCKET -e OFFSITE_ENDPOINT -e OFFSITE_KEY -e OFFSITE_SECRET -e OFFSITE_NAME \
     --entrypoint sh quay.io/minio/mc:latest -c '
