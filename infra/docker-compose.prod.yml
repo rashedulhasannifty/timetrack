@@ -211,6 +211,38 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
 
+  # One-off copy of the existing screenshots from this MinIO to the external S3 bucket that
+  # S3_ENDPOINT/S3_BUCKET now name — the move in docs/deployment.md §5, driven by
+  # .github/workflows/ops-screenshots-to-s3.yml. Args: <source-bucket> <dry-run|apply>.
+  # Copies only (no --remove): MinIO is left untouched as the rollback, and a re-run skips what
+  # already arrived. Refuses to run while S3_ENDPOINT still points at MinIO itself.
+  screenshots-to-s3:
+    image: quay.io/minio/mc:latest
+    profiles: ['ops']
+    env_file: ['../.env.prod']
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        SRC="$${1:?usage: <source-bucket> <dry-run|apply>}"
+        MODE="$${2:-dry-run}"
+        case "$$S3_ENDPOINT" in
+          http://minio:9000*) echo "✖ S3_ENDPOINT is still the bundled MinIO — deploy the S3 settings first"; exit 1 ;;
+        esac
+        mc alias set old http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null
+        mc alias set new "$$S3_ENDPOINT" "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" --api s3v4 >/dev/null
+        echo "→ $$MODE: old/$$SRC → new/$$S3_BUCKET"
+        if [ "$$MODE" = "apply" ]; then
+          mc mirror --quiet --summary "old/$$SRC" "new/$$S3_BUCKET"
+        else
+          mc mirror --quiet --summary --dry-run "old/$$SRC" "new/$$S3_BUCKET"
+        fi
+      - sh
+    restart: 'no'
+
 volumes:
   pgdata:
   redisdata:
