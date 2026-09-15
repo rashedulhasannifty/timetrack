@@ -102,6 +102,20 @@ gh release create v0.1.0-windows-pilot `
 Exit codes: `0` both feeds resolve and macOS is unaffected (row 10 satisfied) · `1` **the macOS feed
 is broken** · `2` Windows not published yet, macOS fine.
 
+### Without a Windows machine
+
+`.github/workflows/client-windows-release.yml` does step 2 on GitHub's Windows runner. Run it on
+`main` from the Actions tab (**Client (Windows) release build → Run workflow**) or with
+`gh workflow run client-windows-release.yml --ref main`. It re-runs the tests, packages the
+production build, refuses an artifact whose `appsettings.json` is not the production install or
+whose exe version differs from `<Version>`, and uploads the zip and its `.sha256` as a run
+artifact. It never publishes.
+
+Download with `gh run download <run-id>`, check the digest in the download folder with
+`shasum -a 256 -c NiftyTimer-windows-pilot.zip.sha256`, then publish with step 3. Publishing needs
+an account with write access to the distribution repo — today that is `rashedulhasansojib`, not
+the organisation account the monorepo is pushed from.
+
 ### The sidecar is not optional
 
 `UpdateInstaller` verifies the published SHA-256 before swapping a binary, so a release without
