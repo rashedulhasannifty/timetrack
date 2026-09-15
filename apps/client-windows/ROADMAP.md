@@ -455,6 +455,13 @@ implementation traps; these are the product rules.
 
 ## Known gaps, stated explicitly
 
+- **0.1.0 and 0.2.0 cannot update themselves over a slower connection.** Their updater fetched the
+  ~63 MB zip inside the app's shared 30-second HTTP timeout, so below roughly 17 Mbit/s every
+  attempt showed "Update failed" after half a minute. Found on the first real update, 0.1.0 →
+  0.2.0, on 2026-09-15. Fixed in 0.2.1, which streams the download and gives up only after 60
+  seconds with no data (`UpdateDownloadTests`). An install older than 0.2.1 on a slow link needs
+  **one manual update** — quit from the menu, extract the latest zip over the install folder, start
+  `NiftyTimer.exe`; its data in `%LOCALAPPDATA%` is untouched — after which updates work.
 - **Browser-URL site categorization is not implemented on Windows.** macOS reads the active tab URL
   via AppleScript against 5 browsers; Windows has no equivalent (UI Automation against address bars
   is fragile and per-browser; an extension is a separate product). Because `Categorizer` keeps site
