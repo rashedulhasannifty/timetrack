@@ -282,6 +282,14 @@ public sealed class UpdateInstaller
           Start-Sleep -Milliseconds 500
         }
 
+        # Still alive means hung on the way out. It closed its span and flushed before handing over,
+        # so ending it loses nothing — and relaunching beside it would meet its single-instance lock
+        # and exit, leaving no copy running at all.
+        if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
+          Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+          Wait-Process -Id $ProcessId -Timeout 10 -ErrorAction SilentlyContinue
+        }
+
         $backup = "$Install.previous"
 
         try {
