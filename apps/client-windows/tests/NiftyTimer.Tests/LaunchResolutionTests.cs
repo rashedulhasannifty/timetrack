@@ -262,7 +262,15 @@ public class LaunchResolutionWiringTests
     /// Whether <paramref name="method"/> calls or loads (<c>ldftn</c> — a method group handed over
     /// as a callback) <paramref name="typeName"/>.<paramref name="methodName"/>.
     /// </summary>
-    internal static bool References(MethodBase method, string typeName, string methodName)
+    internal static bool References(MethodBase method, string typeName, string methodName) =>
+        FirstReference(method, typeName, methodName) >= 0;
+
+    /// <summary>
+    /// The IL offset of the first call or load of <paramref name="typeName"/>.<paramref name="methodName"/>
+    /// in <paramref name="method"/>, or -1. For guards that care about ORDER — something must be
+    /// set up before something else is built.
+    /// </summary>
+    internal static int FirstReference(MethodBase method, string typeName, string methodName)
     {
         var il = method.GetMethodBody()?.GetILAsByteArray() ?? Array.Empty<byte>();
         Assert.NotEmpty(il);
@@ -288,7 +296,7 @@ public class LaunchResolutionWiringTests
                 var resolved = method.Module.ResolveMethod(BitConverter.ToInt32(il, operandAt));
                 if (resolved?.Name == methodName && resolved.DeclaringType?.Name == typeName)
                 {
-                    return true;
+                    return i;
                 }
             }
             catch (Exception e) when (e is ArgumentException or BadImageFormatException)
@@ -297,6 +305,6 @@ public class LaunchResolutionWiringTests
             }
         }
 
-        return false;
+        return -1;
     }
 }

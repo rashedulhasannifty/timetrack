@@ -138,6 +138,10 @@ public sealed class AppDelegate : IDisposable
     private DispatcherTimer? _refresh;
     private bool _disposed;
 
+    private readonly CrashLog? _crashLog;
+
+    public AppDelegate(CrashLog? crashLog = null) => _crashLog = crashLog;
+
     public void Start()
     {
         var support = AppInstall.SupportDirectory(_config.AppId);
@@ -202,6 +206,7 @@ public sealed class AppDelegate : IDisposable
         {
             Theme = ThemeResolver.FromRegistry(),
         };
+        _tray.GaveUp += OnTrayGaveUp;
         _popup = new TrayPopupWindow(_viewModel, _config.DashboardUri, BuildStamp.Describe(_config.AppId));
 
         // The notifier rides the tray icon that already exists, so there is nothing extra to
@@ -231,7 +236,10 @@ public sealed class AppDelegate : IDisposable
         // the pending retry runs then rather than sitting out the rest of its backoff.
         _wakeWatcher = new WakeWatcher(RetryPolicyOnWake);
 
-        _ = BootstrapAsync();
+        // Sign-in — and so everything that can lead to capture — waits until the indicator is
+        // actually on the taskbar. At login the shell can refuse the icon for a while, and
+        // capturing in that gap would be recording with no sign of it (PRD §4.2).
+        _tray.WhenShown(() => _ = BootstrapAsync());
     }
 
     /// <summary>
@@ -361,6 +369,25 @@ public sealed class AppDelegate : IDisposable
     {
         _popup.ShowNearTray();
         MenuDidOpen();
+    }
+
+    /// <summary>
+    /// Another launch of the exe asked for the menu. Opening it is what keeps double-clicking the
+    /// exe "bringing the app back", now that it no longer starts a second copy.
+    /// </summary>
+    public void ShowMenu() => OnTrayActivated();
+
+    /// <summary>
+    /// The shell refused the tray icon for the whole retry budget. Exit rather than run on without
+    /// the indicator, and leave a line saying why, so the disappearance is explained.
+    /// </summary>
+    private void OnTrayGaveUp()
+    {
+        _crashLog?.Write(
+            "The tray icon could not be added to the taskbar after repeated attempts. "
+            + "Exiting rather than running without the always-visible indicator.");
+        _popup.AllowClose = true;
+        Application.Current.Shutdown();
     }
 
     /// <summary>

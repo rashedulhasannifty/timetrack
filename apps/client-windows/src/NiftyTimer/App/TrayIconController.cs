@@ -81,7 +81,9 @@ public sealed class TrayIconController : IDisposable
     private bool _capturing;
     private bool _warning;
     private DispatcherTimer? _captureRevert;
-    private bool _added;
+    private DispatcherTimer? _retry;
+    private readonly List<Action> _whenShown = [];
+    private readonly TrayRegistration _registration;
     private bool _disposed;
 
     public TrayIconController(string resourceDirectory)
@@ -103,7 +105,12 @@ public sealed class TrayIconController : IDisposable
             }
         }
 
-        Add();
+        // A refusal here used to throw out of the constructor — at login, before Explorer had a
+        // notification area — and end the process with nothing above it to catch it.
+        _registration = new TrayRegistration(
+            () => Notify(NimAdd, NifMessage | NifIcon | NifTip),
+            () => Notify(NimModify, NifMessage | NifIcon | NifTip));
+        Apply(_registration.Register());
     }
 
     /// <summary>The user clicked the icon and wants the dropdown.</summary>
@@ -111,6 +118,31 @@ public sealed class TrayIconController : IDisposable
 
     /// <summary>The user right-clicked the icon.</summary>
     public event Action? ContextMenuRequested;
+
+    /// <summary>
+    /// The shell refused the icon for longer than <see cref="TrayRegistration"/>'s budget. The owner
+    /// must exit: running on without the indicator is what PRD §4.2 forbids.
+    /// </summary>
+    public event Action? GaveUp;
+
+    /// <summary>The icon is on the taskbar right now.</summary>
+    public bool IsShown => _registration.IsShown;
+
+    /// <summary>
+    /// Run <paramref name="action"/> once the icon is on the taskbar — at once if it already is.
+    /// This is how startup keeps sign-in, and everything that can lead to capture, behind the
+    /// indicator while the shell is still refusing it.
+    /// </summary>
+    public void WhenShown(Action action)
+    {
+        if (_registration.IsShown)
+        {
+            action();
+            return;
+        }
+
+        _whenShown.Add(action);
+    }
 
     public TrayState State
     {
@@ -206,7 +238,7 @@ public sealed class TrayIconController : IDisposable
     /// </summary>
     public void ShowBalloon(string title, string body)
     {
-        if (!_added || _disposed)
+        if (!_registration.IsShown || _disposed)
         {
             return;
         }
@@ -302,12 +334,12 @@ public sealed class TrayIconController : IDisposable
 
         _disposed = true;
         _captureRevert?.Stop();
+        _retry?.Stop();
 
-        if (_added)
+        if (_registration.IsShown)
         {
             var data = NewData(NifMessage);
             Shell_NotifyIcon(NimDelete, ref data);
-            _added = false;
         }
 
         foreach (var icon in _icons.Values)
@@ -335,20 +367,61 @@ public sealed class TrayIconController : IDisposable
         return handle;
     }
 
-    private void Add()
+    private bool Notify(int message, int flags)
     {
-        var data = NewData(NifMessage | NifIcon | NifTip);
-        _added = Shell_NotifyIcon(NimAdd, ref data);
-        if (!_added)
+        var data = NewData(flags);
+        return Shell_NotifyIcon(message, ref data);
+    }
+
+    /// <summary>
+    /// Act on what the registration decided. Never throws: this runs from the constructor at launch
+    /// and from the window procedure on a <c>TaskbarCreated</c> broadcast, and an exception from
+    /// either used to end the process with nothing above it to catch it.
+    /// </summary>
+    private void Apply(TrayRegistrationOutcome outcome)
+    {
+        switch (outcome)
         {
-            throw new InvalidOperationException(
-                "Shell_NotifyIcon(NIM_ADD) failed; the tray indicator could not be created.");
+            case TrayRegistrationOutcome.Shown:
+                _retry?.Stop();
+                var pending = _whenShown.ToArray();
+                _whenShown.Clear();
+                foreach (var action in pending)
+                {
+                    action();
+                }
+
+                break;
+
+            case TrayRegistrationOutcome.RetryLater:
+                _retry ??= CreateRetry();
+                _retry.Start();
+                break;
+
+            case TrayRegistrationOutcome.GiveUp:
+                _retry?.Stop();
+                GaveUp?.Invoke();
+                break;
         }
+    }
+
+    private DispatcherTimer CreateRetry()
+    {
+        var timer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TrayRegistration.RetryInterval };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (!_disposed)
+            {
+                Apply(_registration.Register());
+            }
+        };
+        return timer;
     }
 
     private void Update()
     {
-        if (!_added)
+        if (!_registration.IsShown)
         {
             return;
         }
@@ -383,9 +456,9 @@ public sealed class TrayIconController : IDisposable
     {
         if (_taskbarCreated != 0 && msg == (int)_taskbarCreated)
         {
-            // Explorer restarted and dropped every tray entry. Re-add ours.
-            _added = false;
-            Add();
+            // Explorer (re)created the taskbar. Our entry may be gone, or — when the broadcast
+            // comes without a restart — still there. Register again, and never throw from here.
+            Apply(_registration.OnTaskbarCreated());
             handled = true;
             return IntPtr.Zero;
         }

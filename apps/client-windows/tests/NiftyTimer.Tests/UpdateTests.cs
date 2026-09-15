@@ -292,6 +292,26 @@ public class UpdateInstallerTests
         Assert.Contains("Move-Item -Force $backup $Install", script, StringComparison.Ordinal);
         Assert.Contains("Start-Process -FilePath $Relaunch", script, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The wait for the old copy is bounded. A copy still alive after it is hung on the way out, and
+    /// relaunching beside it would meet its single-instance lock and exit — no copy running at all
+    /// after an update. So the script ends it, after the wait and before touching the install.
+    /// </summary>
+    [Fact]
+    public void TheSwapScriptEndsAHungCopyBeforeSwapping()
+    {
+        var script = UpdateInstaller.SwapScript();
+        var stop = script.IndexOf("Stop-Process -Id $ProcessId -Force", StringComparison.Ordinal);
+
+        Assert.True(stop >= 0, "The swap script no longer ends a copy that outlives the wait.");
+        Assert.True(
+            stop > script.IndexOf("Start-Sleep", StringComparison.Ordinal),
+            "The hung copy must be ended only after the bounded wait, not instead of it.");
+        Assert.True(
+            stop < script.IndexOf("Move-Item -Force $Install $backup", StringComparison.Ordinal),
+            "The hung copy must be ended before the install is moved, or its locked image fails the swap.");
+    }
 }
 
 /// <summary>
