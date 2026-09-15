@@ -50,7 +50,7 @@ What else Time Doctor 2 offers:
 | Distraction nudge                      | ✅ macOS only (local)                                                                       | **Missing on Windows**                                                            |
 | Approvals                              | ✅ Weekly timesheets, approve or flag, auto-approve                                         | Manual entries are audited, not approved one by one                               |
 | Reports and export                     | ✅ Overview, trends, team, projects, app usage, CSV                                         | No PDF or XLS, no scheduled reports, no attendance report                         |
-| Attendance and schedules               | ❌                                                                                          | Missing                                                                           |
+| Attendance and schedules               | ❌                                                                                          | Future plan: will come from the company's face-ID device. See "Future plan" below |
 | Leave / time off                       | ❌                                                                                          | Missing                                                                           |
 | Payroll, rates, billable time, clients | ❌                                                                                          | Missing. A PRD §2 goal is "defensible time records for billing/payroll"           |
 | Manager alerts                         | Two weekly emails                                                                           | Limited on purpose (PRD §6.4). Needs a product decision                           |
@@ -70,12 +70,13 @@ What else Time Doctor 2 offers:
 
 ### 1. High value, fits the current architecture
 
-1. **Schedules and attendance.** A `Schedule` model, a daily worker job that assigns statuses, and an attendance report.
-2. **Leave / time off**, going through the existing `/approvals` flow.
-3. **Per-entry approval of manual time**, with an auto-approve threshold.
-4. **Pay rates and a payroll CSV**, plus a billable flag and clients on projects.
-5. **Configurable manager alerts** and daily digests. Needs a product decision against PRD §6.4 first.
-6. **PDF and XLS export and scheduled emailed reports.** PDF would need a new dependency, which needs approval first.
+1. **Leave / time off**, going through the existing `/approvals` flow.
+2. **Per-entry approval of manual time**, with an auto-approve threshold.
+3. **Pay rates and a payroll CSV**, plus a billable flag and clients on projects.
+4. **Configurable manager alerts** and daily digests. Needs a product decision against PRD §6.4 first.
+5. **PDF and XLS export and scheduled emailed reports.** PDF would need a new dependency, which needs approval first.
+
+Schedules and attendance were item 1 here. They are now a future plan (see below).
 
 ### 2. Cheap, and consistent with our employee-first positioning
 
@@ -87,6 +88,19 @@ What else Time Doctor 2 offers:
 - A public API with API keys and webhooks, or a Jira worklog integration.
 - SAML and SCIM.
 - A Linux client and a browser extension.
+
+### Future plan: attendance
+
+The company already records attendance on a face-ID device. The attendance design will be done later, around connecting that device to TimeTrack through an API. Nothing is built from tracked time in the meantime.
+
+What was agreed before this was deferred, to be confirmed when the design starts:
+
+- The device's check-in and check-out times become the attendance record. Only those times cross into TimeTrack, never face images or biometric templates (CLAUDE.md §1).
+- Statuses are visible to both the manager and the employee (PRD §4.3), with no late or absence alerts (PRD §6.4).
+- A default weekly schedule per team, with per-user overrides for part-time or shift workers.
+- One org time zone, Asia/Dhaka. Per-user time zones stay a non-goal.
+
+Leave (item 1 above) does not depend on attendance.
 
 ## What we will not copy
 
