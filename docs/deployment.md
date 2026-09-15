@@ -276,8 +276,9 @@ immutable, while the screenshots bucket must be able to delete for retention and
    retention of _Governance_, 30 days.
 2. **Lifecycle rule** on the `postgres/` prefix: transition to Glacier Instant Retrieval after
    30 days, expire current versions after 365 days, permanently delete noncurrent versions 30
-   days after they become noncurrent. Time entries are the payroll record — set the expiry to
-   your payroll retention requirement, never shorter.
+   days after they become noncurrent, and delete incomplete multipart uploads after 1 day.
+   Time entries are the payroll record — set the expiry to your payroll retention requirement,
+   never shorter.
 3. **IAM user** `timetrack-backup`, access key only (no console), with exactly this policy:
 
    ```json
@@ -286,14 +287,15 @@ immutable, while the screenshots bucket must be able to delete for retention and
      "Statement": [
        {
          "Effect": "Allow",
-         "Action": "s3:PutObject",
+         "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
          "Resource": "arn:aws:s3:::<backup-bucket>/postgres/*"
        }
      ]
    }
    ```
 
-   It can upload and nothing else — no list, no read, no delete — so a compromised VM can
+   It can upload (and abort its own failed multipart upload, which large dumps use) and nothing
+   else — no list, no read, no delete — so a compromised VM can
    neither read the archive nor destroy it, and versioning + Object Lock stop an overwrite from
    destroying it either. **Never** put a broader key on the VM "to get it working": an
    account-wide S3 key here would expose every other bucket in the AWS account.
