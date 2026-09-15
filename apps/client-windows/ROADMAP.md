@@ -404,6 +404,28 @@ are being closed, one PR per group.
 - **The warning is the tooltip's two conditions**: a blocked live entry or an overdue update.
   Screen Recording and Automation, the Mac's other two, have no Windows counterpart.
 
+### Tray icon disappearing — fixed 2026-09-15
+
+Reported from the pilot: the icon sometimes vanishes and the app has to be started again from the
+exe. **The cause was found by reading the code, not from a crash dump** — no affected machine's log
+existed. The Event Viewer entry (Windows Logs › Application, `.NET Runtime` or `Application Error`
+for `NiftyTimer.exe`) is what would confirm it, and the crash log below is what makes the next
+report conclusive.
+
+| Defect                                                                                                                                                                                                                                               | Fix                                                                                                                                                                                             | Guarded by                                                                                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| A refused `NIM_ADD` threw from `TrayIconController`'s constructor (login, before Explorer has a notification area) and from its window procedure on `TaskbarCreated` (where the icon may still exist). Nothing caught it; the process ended silently | `TrayRegistration`: add, else modify, else retry every 2s for 3 minutes, then exit deliberately rather than run without the indicator. Sign-in, and so capture, waits until the icon is showing | `TrayRegistrationTests`, `TrayResilienceWiringTests` (no `InvalidOperationException` in the controller; `Start` waits on `WhenShown`) |
+| No handler above the dispatcher and no log, so every unhandled exception vanished without a trace                                                                                                                                                    | `CrashLog` at `%LOCALAPPDATA%\NiftyTimer\crash.log`, installed first in `OnStartup`. Records, never swallows. Tokens and the profile path are redacted; capped with one rotation                | `CrashLogTests`, `TrayResilienceWiringTests.CrashLoggingIsInstalledBeforeTheAppIsBuilt`                                               |
+| Starting the exe while the app ran started a second copy — two icons, two sets of timers, two processes draining one buffer                                                                                                                          | `SingleInstance`, scoped per install and per session. A second launch opens the running copy's menu and exits, so double-clicking the exe still "brings it back"                                | `SingleInstanceTests`, `TrayResilienceWiringTests.ASecondLaunchDefersToTheRunningCopyBeforeBuildingAnything`                          |
+| The update swap relaunched even when the old copy outlived its 30s wait — which, with the single-instance lock, would leave no copy running                                                                                                          | The script ends a hung copy after the wait and before moving the install                                                                                                                        | `UpdateTests.TheSwapScriptEndsAHungCopyBeforeSwapping`                                                                                |
+
+**Not mutation-verified.** There is no Windows machine on the authoring side; these were written
+without a compiler and first run in PR CI, so no test was watched failing against the old code.
+Revert each fix on a Windows machine and watch its named test fail before calling them proven. The
+tray retry itself runs only against a real shell and is covered by the pure `TrayRegistration`
+tests, not end to end — add it to the manual pass (plug in a monitor and undock a laptop with the
+app running; restart Explorer from Task Manager).
+
 ---
 
 ## Invariants — a build that breaks one of these does not ship
