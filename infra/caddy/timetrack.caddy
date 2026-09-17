@@ -1,0 +1,45 @@
+# TimeTrack site block for the VPS's host Caddy. See docs/deployment.md.
+#
+# The box's Caddy is shared with other apps and owns 80/443, so this is not a standalone
+# Caddyfile: it is appended to /etc/caddy/Caddyfile, and kept here so a routing change is
+# reviewed with the code that needs it instead of drifting on the box. After editing the real file:
+#   sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+#   sudo systemctl reload caddy
+#
+# Caddy auto-provisions the Let's Encrypt certificate and redirects HTTP → HTTPS.
+#
+# Routing by path on one public host:
+#   /v1/*, /health*          -> api (PM2, :3001). Shipped clients pin /v1; must reach it unmodified.
+#   /timetrack-screenshots/* -> MinIO (Docker, :9000). Presigned screenshot URLs the browser loads.
+#   everything else          -> dashboard (PM2, :3100), INCLUDING its own /api/* BFF routes.
+# Do not route /api/* to the API: those are Next routes (auth, SSO), not the Nest API.
+
+timer.niftyitsolution.com {
+	encode zstd gzip
+
+	# HSTS at the edge. includeSubDomains is deliberate; no `preload`.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	@api path /v1 /v1/* /health /health/*
+	handle @api {
+		reverse_proxy 127.0.0.1:3001
+	}
+
+	# MinIO, for presigned screenshot URLs ONLY. The path segment is the S3_BUCKET secret and
+	# must match it. The path is NOT rewritten and the Host is passed through unchanged: SigV4
+	# signs both (for S3_PUBLIC_ENDPOINT), so altering either invalidates every signature.
+	# Objects stay private — without a valid, unexpired signature MinIO answers 403.
+	#
+	# no-store: if the record is ever proxied through Cloudflare, it caches image extensions at
+	# the edge by default, which would leave employee screenshots on a CDN past the URL's expiry.
+	@s3 path /timetrack-screenshots/*
+	handle @s3 {
+		reverse_proxy 127.0.0.1:9000 {
+			header_down Cache-Control "private, no-store"
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:3100
+	}
+}
