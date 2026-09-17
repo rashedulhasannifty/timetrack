@@ -93,7 +93,7 @@ packages/contracts  Zod schemas + inferred types — shared api <-> dashboard
 packages/db         Prisma schema, migrations, generated client
 packages/logger     Pino config + redaction
 packages/config     Zod-validated env
-infra/              docker-compose, Dockerfiles
+infra/              dev docker-compose; prod datastores, PM2, deploy script, Caddy
 ```
 
 ### Placement rules

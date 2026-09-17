@@ -178,10 +178,11 @@ timetrack/
 │   ├── logger/              Pino config + redaction rules
 │   └── config/              Zod-validated env loading
 ├── infra/
-│   ├── docker-compose.yml   postgres · redis · minio
-│   ├── api.Dockerfile
-│   ├── worker.Dockerfile
-│   └── dashboard.Dockerfile
+│   ├── docker-compose.yml   postgres · redis · minio (dev)
+│   ├── datastores/          prod postgres · redis · minio (Docker, systemd unit)
+│   ├── pm2/                 prod process definitions for api · worker · dashboard
+│   ├── deploy/              on-host release script (unpack, migrate, flip, reload, rollback)
+│   └── caddy/               prod reverse-proxy site block
 ├── .github/workflows/ci.yml
 ├── CLAUDE.md
 ├── PRD.md

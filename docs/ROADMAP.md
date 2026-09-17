@@ -29,9 +29,9 @@ work, not code — see **Next**.
   CSV export, timesheet approvals, local-only distraction nudges.
 - **Phase 4 — SSO + admin + retention** ✅ (`docs/plans/phase-4-sso-admin.md`, 6/6). OIDC SSO,
   admin settings UI, nightly retention (DROP PARTITION + audit), audit-log UI, right-to-erasure.
-- **Deployment** — production scaffolding shipped: `infra/docker-compose.prod.yml` (app images +
-  Caddy TLS proxy, own project namespace), `infra/Caddyfile`, `.env.prod.example`
-  (`docs/deployment.md`). macOS client distribution wired: real bundle id
+- **Deployment** — production runs on a shared VPS: api/worker/dashboard as PM2 releases built in
+  Actions, datastores in Docker under a root-owned systemd unit (`infra/datastores/`), host Caddy
+  site block (`infra/caddy/`), `.env.prod.example` (`docs/deployment.md`). macOS client distribution wired: real bundle id
   (`com.niftyitsolution.niftytimer`) + build-time-parameterized packaging + `apps/client-macos/SIGNING.md`.
 
 - **Windows client** — in progress on `feat/client-windows`, not yet merged. A native tray client
