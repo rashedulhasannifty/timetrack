@@ -7,9 +7,10 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
-User=deploy
-WorkingDirectory=/home/deploy/timetrack
-ExecStart=/home/deploy/timetrack/infra/backup.sh
+# Root: the datastores are root-managed containers and the deploy user has no Docker access.
+User=root
+WorkingDirectory=/opt/timetrack
+ExecStart=/opt/timetrack/backup.sh
 # Keep it off the CPU when the app is busy — a backup must never degrade tracking.
 Nice=10
 IOSchedulingClass=idle

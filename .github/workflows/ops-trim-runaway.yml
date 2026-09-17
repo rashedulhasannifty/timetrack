@@ -59,13 +59,16 @@ jobs:
             set -euo pipefail
             cd "${{ secrets.DEPLOY_PATH }}"
 
-            # No `pull`: this runs the worker image the host is ALREADY serving, so the repair
-            # and the running client policy agree about the idle threshold.
-            COMPOSE="docker compose --env-file .env.prod -f infra/docker-compose.prod.yml"
-
+            # Runs the worker release the host is ALREADY serving, so the repair and the running
+            # client policy agree about the idle threshold. with-env.cjs loads shared/.env the
+            # same way PM2 does.
             ARGS="--min-hours ${MIN_HOURS}"
             if [ "${MODE}" = "apply" ]; then ARGS="${ARGS} --apply"; fi
 
             echo "→ ${MODE} (entries over ${MIN_HOURS}h)"
             echo "→ trim-runaway ${ARGS}"
-            $COMPOSE --profile ops run --rm trim-runaway ${ARGS}
+            # Absolute paths: `current` is a symlink, and `..` from inside it resolves against the
+            # physical release directory, not the deploy root.
+            ROOT="$(pwd)"
+            cd "$ROOT/current/worker"
+            node "$ROOT/shared/with-env.cjs" "$ROOT/shared/.env" node dist/scripts/trim-runaway-entries.js ${ARGS}

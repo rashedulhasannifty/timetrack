@@ -1,29 +1,30 @@
 #!/usr/bin/env bash
 # TimeTrack backup — Postgres dump (+ off-site S3 copy) + MinIO mirror. See docs/deployment.md §6.
 #
-#   ./infra/backup.sh              # run a backup
-#   BACKUP_DIR=/mnt/backups ./infra/backup.sh
-#   KEEP_DAYS=30 ./infra/backup.sh
+#   sudo /opt/timetrack/backup.sh              # run a backup
+#   sudo BACKUP_DIR=/mnt/backups /opt/timetrack/backup.sh
+#   sudo KEEP_DAYS=30 /opt/timetrack/backup.sh
 #
-# Run from the deploy directory (the one holding .env.prod). Installed as a systemd timer by
+# Runs as ROOT: the datastores are root-managed containers (infra/datastores/) and the deploy
+# user has no Docker access. Installed root-owned at /opt/timetrack/ with a systemd timer from
 # infra/systemd/ — see §6. Exits non-zero on any failure so the timer's unit is marked failed
 # and OnFailure alerting fires; a backup that quietly produced nothing is worse than none.
 set -euo pipefail
 
-DEPLOY_DIR="${DEPLOY_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-BACKUP_DIR="${BACKUP_DIR:-${DEPLOY_DIR}/backups}"
+APP_ROOT="${APP_ROOT:-/srv/timetrack}"
+OPT_DIR="${OPT_DIR:-/opt/timetrack}"
+BACKUP_DIR="${BACKUP_DIR:-${APP_ROOT}/backups}"
 KEEP_DAYS="${KEEP_DAYS:-14}"
-ENV_FILE="${DEPLOY_DIR}/.env.prod"
-COMPOSE_FILE="${DEPLOY_DIR}/infra/docker-compose.prod.yml"
+ENV_FILE="${APP_ROOT}/shared/.env"
 STAMP="$(date -u +%Y%m%d-%H%M%SZ)"
 
-[[ -f "$ENV_FILE" ]] || { echo "✖ no .env.prod at $ENV_FILE"; exit 1; }
+[[ -f "$ENV_FILE" ]] || { echo "✖ no shared .env at $ENV_FILE"; exit 1; }
 
-# Read only the keys we need. Do NOT `source` .env.prod: MAIL_FROM contains spaces and
+# Read only the keys we need. Do NOT `source` the .env: MAIL_FROM contains spaces and
 # angle brackets, which the shell would treat as redirection.
 env_value() { grep -m1 "^$1=" "$ENV_FILE" | cut -d= -f2-; }
 
-COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+COMPOSE=(docker compose --env-file "$OPT_DIR/datastores.env" -f "$OPT_DIR/docker-compose.datastores.yml")
 mkdir -p "$BACKUP_DIR/postgres" "$BACKUP_DIR/minio"
 
 # ── Postgres ────────────────────────────────────────────────────────────────────────────

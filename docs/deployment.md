@@ -1,95 +1,115 @@
-# Deployment — self-hosted, single VM
+# Deployment — self-hosted, single VPS
 
-Target (`PRD §8`): **50 users on one small VM.** Postgres, Redis, and MinIO run as containers alongside the three app images, behind an auth-gated reverse proxy with TLS. The API is stateless so it can scale horizontally later; the datastores are the only stateful pieces.
+Target (`PRD §8`): **50 users on one small VPS.** The three Node apps run under **PM2** on the
+host; Postgres, Redis and MinIO run as **Docker** containers beside them; the host's **Caddy**
+terminates TLS. The API is stateless so it can scale later; the datastores are the only
+stateful pieces.
 
-This is the operations runbook. The app images are built from `infra/{api,worker,dashboard}.Dockerfile` (repo root as build context).
+The production VPS is shared with other PM2 apps behind the same Caddy, which shapes most of the
+choices below: nothing here may publish 80/443, collide with another app's port, or reload a PM2
+process that isn't ours.
 
-Provisioning a VM from scratch — network rules, deploy user, SSH keys, the 29 Actions
-secrets, first deploy and seeding — is a separate one-time runbook: **[`vm-setup.md`](./vm-setup.md)**.
+This is the operations runbook. Provisioning the VPS — Docker, the datastores unit, sudoers, the
+Actions secrets, the Caddy block, first deploy and seeding — is a separate one-time runbook:
+**[`vm-setup.md`](./vm-setup.md)**.
 
 ---
 
 ## 1. Topology
 
 ```
-                    Internet
-                       │  443 (TLS)
-                ┌──────▼───────┐
-                │ reverse proxy│  Caddy or nginx — TLS, auth gate, routing
-                └──┬────────┬──┘
-        /api, /*   │        │  dashboard
-             ┌─────▼──┐  ┌──▼─────────┐
-             │  api   │  │ dashboard  │      (stateless — scale N replicas)
-             └──┬─────┘  └────────────┘
-                │ produces jobs
-             ┌──▼─────┐
-             │ worker │      (BullMQ consumers — separate scaling axis)
-             └──┬─────┘
-   ┌────────────┼───────────────┐
-┌──▼───┐   ┌────▼────┐    ┌──────▼──────┐
-│ pg 18│   │ redis   │    │ minio (S3)  │   (stateful — volumes + backups)
-└──────┘   └─────────┘    └─────────────┘
+                         Internet
+                            │  443 (TLS)
+                   ┌────────▼─────────┐
+                   │ Caddy (host)     │  shared with other sites on the box
+                   └──┬──────┬──────┬─┘
+     /v1/*, /health*  │      │      │  everything else (incl. dashboard /api/*)
+            ┌─────────▼┐     │     ┌▼────────────────┐
+            │ api :3001│     │     │ dashboard :3100 │   PM2 (deploy user), 1 instance each
+            └────┬─────┘     │     └─────────────────┘
+                 │ jobs      │ /timetrack-screenshots/*  (presigned URLs)
+            ┌────▼─────┐     │
+            │ worker   │     │                            PM2 (deploy user), fork
+            └────┬─────┘     │
+   ┌─────────────┼───────────┼───────────┐
+┌──▼──────┐ ┌────▼─────┐ ┌───▼──────────┐
+│ pg 18   │ │ redis    │ │ minio (S3)   │   Docker, 127.0.0.1-published, root-owned systemd unit
+│ :5432   │ │ :6379    │ │ :9000        │
+└─────────┘ └──────────┘ └──────────────┘
 ```
 
-- **Reverse proxy** terminates TLS, sits behind a VPN or an auth gate (`PRD §8`), routes `/api/*` → api, everything else → dashboard.
-- **Buckets are never public** — the dashboard fetches screenshots via short-lived presigned URLs only.
-- Postgres volume and MinIO data are encrypted at rest (host-level disk encryption or PG/MinIO SSE).
+- **Caddy** routes `/v1/*` and `/health*` → api, `/<S3_BUCKET>/*` → MinIO, everything else →
+  dashboard. The Mac and Windows clients pin `/v1`, so that prefix must reach the API unmodified;
+  the dashboard's own Next `/api/*` BFF routes stay on the dashboard (do **not** route `/api/*` to
+  the API). The site block is tracked at `infra/caddy/timetrack.caddy`.
+- **Every internal port is loopback-only or firewalled.** Docker-published ports bypass UFW, so
+  the datastores publish on `127.0.0.1`. The dashboard binds `127.0.0.1`; the API binds
+  `0.0.0.0:3001`, which UFW (22/80/443 only) keeps off the internet.
+- **Buckets are never public** — the dashboard renders screenshots from short-lived presigned URLs
+  only, served with `Cache-Control: private, no-store`.
+- **One instance per app, deliberately.** `@nestjs/throttler` counts in process memory, so N API
+  workers mean N× every rate limit; the worker owns the BullMQ schedulers. Cluster mode on the api
+  and dashboard still gives a zero-downtime `pm2 reload`. Raise instance counts only together with
+  the change that makes it safe (`infra/pm2/ecosystem.config.cjs`).
+- **The deploy user has no Docker access.** The `docker` group is root-equivalent and `deploy`'s
+  SSH key is a GitHub secret. The datastores are brought up by the root-owned
+  `timetrack-datastores` systemd unit; `deploy` may only start that unit and run the read-only
+  `timetrack-status` script, through `/etc/sudoers.d/timetrack` (`infra/datastores/sudoers`).
+
+### On the host
+
+```
+/srv/timetrack/                         deploy-owned
+  releases/<sha>/{api,worker,dashboard,pm2}   one per deploy, 3 kept
+  current -> releases/<sha>                   flipped atomically
+  shared/.env                                 rendered from secrets every deploy, mode 600
+  shared/{ecosystem.config.cjs,env-file.cjs,with-env.cjs}
+  tmp/                                        upload staging
+/opt/timetrack/                         root-owned
+  docker-compose.datastores.yml  datastores-env.sh  datastores.env (600)  backup.sh
+/etc/systemd/system/timetrack-datastores.service
+/usr/local/bin/timetrack-status
+/etc/sudoers.d/timetrack
+```
+
+- `datastores-env.sh` (the unit's `ExecStartPre`) copies only `POSTGRES_*`, `MINIO_ROOT_*` and
+  `S3_BUCKET` from `shared/.env` into `datastores.env`, single-quoted. Compose also reads
+  `COMPOSE_*` from an env file, so a deploy-writable file must never be handed to a root compose
+  directly — and a password containing `$` would otherwise be interpolated.
+- The env file is parsed by `infra/pm2/env-file.cjs`, never by dotenv or `source`: a secret may
+  contain `#` (a comment to dotenv) or `$`, and `MAIL_FROM` contains `<` and `>`.
 
 ---
 
-## 2. Production compose (shipped)
+## 2. Datastores
 
-The dev `infra/docker-compose.yml` runs only the datastores. Production adds the three app
-images plus a TLS-terminating Caddy reverse proxy. The files:
+`infra/datastores/docker-compose.datastores.yml` — project name `timetrack` (volumes
+`timetrack_pgdata`, `timetrack_redisdata`, `timetrack_miniodata`), isolated from the dev stack
+(`infra/docker-compose.yml`, project `infra`) so a `down -v` on one can never touch the other.
+Redis runs with `appendonly`. A profile-gated `createbuckets` one-shot creates the screenshots
+bucket; the unit runs it after `up --wait`.
 
-- **`infra/docker-compose.prod.yml`** — postgres, redis (appendonly), minio, the three app
-  images, and the proxy, plus three helper services: a `createbuckets` one-shot (idempotent,
-  creates the screenshots bucket so the first upload doesn't hit `NoSuchBucket`), and
-  profile-gated `migrate` / `seed` one-shots.
-- **`infra/Caddyfile`** — auto-TLS (Let's Encrypt) and path routing on a single public host.
-- **`.env.prod.example`** — every var the stack needs, validated against `packages/config` at
-  boot. Copy to `.env.prod` at the repo root, fill, `chmod 600`; never commit the filled file.
-
-The prod compose sets `name: timetrack-prod`, so its containers and volumes live in their own
-namespace (`timetrack-prod_*`), isolated from the dev stack (which defaults to the `infra`
-project). This matters even on a shared machine: without it both files resolve to the same
-project and share `pgdata`/`miniodata`, so a `down -v` on one destroys the other's data.
-
-Run everything **from the repo root** (`env_file` paths are `../.env.prod`, relative to the
-compose file in `infra/`):
+The deploy starts the unit on every run (`sudo systemctl start timetrack-datastores.service` —
+a no-op when already up). It does **not** restart or reconfigure it, so a change to the compose
+file is a manual root step:
 
 ```bash
-# First deploy / every upgrade: migrate BEFORE rolling the apps (§4). First deploy also seeds.
-docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm migrate
-docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm seed
-
-# Start the stack (proxy is the only service that publishes ports: 80/443):
-docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d
-
-# Scale the stateless API (plain compose, not Swarm — there is no deploy.replicas):
-docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d --scale api=2
+install -m 644 infra/datastores/docker-compose.datastores.yml /opt/timetrack/
+systemctl restart timetrack-datastores.service      # restarts the stores — plan a window
 ```
 
-**Routing (Caddyfile):** `/v1/*` and `/health*` → api; everything else → dashboard. The Mac
-client pins `/v1`, so that prefix must reach the API unmodified; the dashboard's own Next
-`/api/*` BFF routes stay on the dashboard (do **not** route `/api/*` to the API). The dashboard
-reaches the API over the internal network (`API_URL=http://api:3001`), not through the proxy.
+Status, as deploy: `sudo timetrack-status` (container state/health + BullMQ queue depths).
 
-Build the app images (repo root as context) before first `up`, or pull them from your registry:
-
-```bash
-docker build -f infra/api.Dockerfile       -t timetrack/api:$TAG .
-docker build -f infra/worker.Dockerfile    -t timetrack/worker:$TAG .
-docker build -f infra/dashboard.Dockerfile -t timetrack/dashboard:$TAG .
-```
+`POSTGRES_PASSWORD` and `MINIO_ROOT_PASSWORD` are baked into the volumes at first start. Changing
+the secret afterwards does **not** rotate them — it makes the apps fail to authenticate.
 
 ---
 
 ## 3. Configuration & secrets
 
 - All config is Zod-validated at boot (`packages/config`) — a missing/invalid var fails fast, never a runtime `undefined`.
-- **Secrets never enter the repo** (`CLAUDE.md §6`). Provide `.env.prod` on the host (root-owned, `chmod 600`) or via the orchestrator's secret store. Rotate `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `S3_*`, DB creds.
-- `.env.prod` must set (beyond `.env.example` defaults): strong 32+ char JWT secrets, real DB/Redis/MinIO creds, `NODE_ENV=production`, `API_URL`/dashboard origin, `PRESIGNED_URL_TTL_SECONDS`.
+- **Secrets never enter the repo** (`CLAUDE.md §6`). They live in GitHub Actions secrets; the deploy renders them to `shared/.env` (mode 600) on every run — edit the secret and redeploy, never the file on the host (the next deploy overwrites it). Rotate `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `S3_*`, DB creds.
+- The rendered file sets (beyond `.env.example` defaults): strong 32+ char JWT secrets, real DB/MinIO creds, `NODE_ENV=production`, the public origins. `.env.prod.example` lists every key.
 - The dashboard reads `API_URL` **server-side** only; no credential in `NEXT_PUBLIC_*`.
 - **`APP_URL` is the public dashboard origin** and is what every invitation email's accept
   link is built from. Boot **fails** if `NODE_ENV=production` and it is still the localhost
@@ -108,108 +128,70 @@ docker build -f infra/dashboard.Dockerfile -t timetrack/dashboard:$TAG .
 
 ## 4. Database migrations on deploy
 
-- Migrations are applied with **`prisma migrate deploy`** (never `migrate dev`, never `db push` against prod — `CLAUDE.md §4`).
-- Run as a one-shot step **before** rolling the api/worker: `pnpm db:deploy` (or `docker run --rm timetrack/api node ...` invoking migrate deploy).
+- Migrations are applied with **`prisma migrate deploy`** (never `migrate dev`, never `db push` against prod — `CLAUDE.md §4`), from the new release's `api/node_modules/@timetrack/db` (Prisma resolves `prisma.config.ts` from the CWD), through `with-env.cjs`.
+- They run **before** the symlink flip, so a failed migration leaves the previous release serving. They are therefore also applied while the **old** code is still live: every migration must be compatible with the release before it (expand now, contract in a later deploy).
 - The **partition-provision** worker job must run (and be alerted on) — if next month's partition is missing, inserts fail. Seed initial partitions ship in the init migration; the nightly job extends them.
 - Migration + schema change always ship in the same commit (already enforced by convention).
 
 ---
 
-## 5. Release flow (runbook)
+## 5. Release flow
 
-All commands run **from the repo root** with `--env-file .env.prod` (see §2 for why). `.env.prod`
-lives at the repo root, `chmod 600`.
+`.github/workflows/deploy.yml` runs when CI completes **successfully** on `main` (or by
+`workflow_dispatch`). It checks out the exact commit CI verified (`workflow_run.head_sha`), then:
 
-**First deploy:**
+1. `pnpm install` + `pnpm build` on `ubuntu-latest` with Node from `.nvmrc` — the same glibc/x64/
+   Node-major as the VPS, which matters because argon2 and sharp load native binaries.
+2. **Assemble** `release.tar.gz`: `pnpm deploy --prod --legacy` for api and worker (a pruned,
+   self-contained `node_modules`; the Prisma CLI and tsx ride along as `@timetrack/db`
+   dependencies), the dashboard's Next `standalone` output + `.next/static` (`cp -a` — the tree is
+   held together by pnpm symlinks), and `infra/pm2/*.cjs`. The shape is asserted before upload.
+3. **Render `shared/.env`** from secrets, piped over SSH stdin (never argv), written via temp file
+   - rename with umask 077. Required vars always; optional groups (`INVITE_TTL_DAYS`, SMTP, OIDC,
+     `BACKUP_S3_*`) only when set — `packages/config` treats an empty string as present, so
+     `OIDC_ISSUER=` would fail `z.url()` and the API would refuse to boot. `DATABASE_URL`'s host is
+     rewritten to `127.0.0.1:5432`; `REDIS_URL`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `NODE_ENV`
+     and `API_PORT` are hardcoded. `SEED_ADMIN_*` is never written.
+4. **Upload** the tarball and `infra/deploy/remote-deploy.sh`, then run the script as deploy:
+   unpack → start datastores → migrate → flip `current` → `pm2 startOrReload --only
+timetrack-api,timetrack-worker,timetrack-dashboard` (never other apps on the daemon) →
+   `pm2 save`.
+5. **Smoke test:** `/health` and dashboard `/login` respond; `/health/ready` reports database,
+   redis and storage `up`; after 10s every app is `online` **with its cwd inside the new
+   release** (a stale process on the old release would pass every HTTP probe).
+6. **Verdict:** success prunes to 3 releases. Failure prints the app logs, flips `current` back,
+   reloads the previous release and exits non-zero. Migrations are forward-only, so rollback
+   restores code, not schema.
 
-1. Provision the VM; install Docker + compose. Point DNS for `PUBLIC_DOMAIN` at it (Caddy needs it resolving before it can issue the cert).
-2. Copy `.env.prod.example` → `.env.prod`, fill it, `chmod 600`.
-3. Build (or pull) the three images — the `docker build …` commands in §2.
-4. Run the migrate one-shot (also seeds the datastores' health-gated startup):
-   `docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm migrate`
-5. Seed the bootstrap ADMIN (needs `SEED_ADMIN_*` set), then rotate that password on first login:
-   `docker compose --env-file .env.prod -f infra/docker-compose.prod.yml --profile setup run --rm seed`
-6. Start the stack: `docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d` (datastores → `createbuckets` → apps → proxy, gated by healthchecks).
-7. Verify `/health` (liveness) and `/health/ready` (PG+Redis+MinIO reachable) via the public domain.
-8. Verify invitations end-to-end: invite a real address from **Admin → Users**, confirm the
-   email arrives, and that its link opens `/accept-invite` and signs the new user in. Nothing
-   before this step exercises the SES credential — the unit tests all mock the transport.
+The `concurrency` group `deploy-production` (shared with `ops-trim-runaway.yml`) serialises
+deploys, so two migrations never race.
 
-**Upgrade:**
+**Rollback / redeploy:** dispatch the workflow at the commit you want —
+`gh workflow run deploy.yml --ref <branch-or-tag>` — or re-run an earlier successful run. Re-running
+the SHA that is already live is refused (it would delete the serving release); deploy a different
+ref instead. A bad migration needs a new corrective migration; restore from backup only for data loss.
 
-1. Build/pull the new `$TAG` (set `TAG` in `.env.prod`).
-2. `--profile setup run --rm migrate` (forward-only).
-3. `up -d` rolls api → worker → dashboard (api is stateless; brief overlap is fine).
-4. Smoke `/health/ready` + a login + a report.
+**Rehearsing a branch:** `gh workflow run deploy.yml --ref <branch>` deploys that branch to
+production. That is how this pipeline was first proven; it is still production.
 
-**Rollback:** redeploy the previous image `$TAG`. **Migrations are forward-only** — do not auto-revert; a bad migration needs a new corrective migration. Restore from backup only for data loss.
+`S3_ENDPOINT` vs `S3_PUBLIC_ENDPOINT`: the API reaches MinIO over loopback
+(`http://127.0.0.1:9000`), but the dashboard renders screenshots from **presigned URLs the
+browser fetches directly** (PRD §7.4), so those URLs must name an origin the browser can
+resolve. SigV4 signs the host, so the URL has to be _signed for_ that origin; rewriting it
+afterwards yields `SignatureDoesNotMatch`. Hence `S3_PUBLIC_ENDPOINT=https://$PUBLIC_DOMAIN`,
+with Caddy routing `/<bucket>/*` to MinIO, path and Host untouched. Get this wrong and every
+screenshot renders broken while the rest of the page works. Without a valid, unexpired
+signature MinIO answers 403.
 
----
+### Useful commands (as deploy)
 
-## 5b. Continuous deployment (GitHub Actions)
-
-`.github/workflows/deploy.yml` automates the **upgrade** path only: CI succeeds on `main` (or
-run it manually via `workflow_dispatch`) → build the three images and push them to GHCR →
-render `.env.prod` on the host → `migrate` → `up -d` → probe the API's `/health`.
-
-It is triggered by the CI workflow _completing_, not by the push, and runs only when that run
-concluded `success` — so a red commit still cannot deploy, but the suite is paid for once
-rather than twice. Everything is tagged and checked out at the exact commit CI verified
-(`workflow_run.head_sha`), not at whatever `main` points to when the deploy starts.
-
-It deliberately does **not** do first-deploy work. These stay manual, once, per §5:
-
-1. NSG 80/443 open; public IP Static; DNS pointed at the host.
-2. Docker Engine + compose v2 installed.
-3. A **dedicated deploy user** with a purpose-generated SSH keypair — the private half becomes
-   the `SSH_KEY` secret. Never a personal key: that secret grants a shell on production.
-4. `mkdir -p <DEPLOY_PATH>/infra` — the workflow scp's `docker-compose.prod.yml` and
-   `Caddyfile` into `<DEPLOY_PATH>/infra/`, and renders `.env.prod` one level up at
-   `<DEPLOY_PATH>/.env.prod` (the compose file's `env_file` is `../.env.prod`).
-5. The `seed` one-shot. It is first-deploy-only and is **not** in the workflow.
-
-Because images come from GHCR, the host needs no source checkout, no repo deploy key, and no
-build capacity — it only pulls. Set `IMAGE_PREFIX` to switch registries; unset, compose falls
-back to the local `timetrack/*` names the `docker build` commands in §2 produce, so the manual
-path still works when CI is unavailable.
-
-**Repository secrets** (Settings → Secrets and variables → Actions):
-
-| Group    | Secrets                                                                                                                                               |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SSH      | `SSH_HOST`, `SSH_USER`, `SSH_KEY`, `SSH_PORT`, `DEPLOY_PATH`                                                                                          |
-| Postgres | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_URL`                                                                                   |
-| Auth     | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `DASHBOARD_SESSION_SECRET`                                                                                 |
-| Storage  | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`                                                               |
-| URLs     | `API_URL`, `APP_URL`, `CORS_ORIGINS`, `PUBLIC_DOMAIN`, `ACME_EMAIL`                                                                                   |
-| Optional | `INVITE_TTL_DAYS`; `SMTP_HOST` + `SMTP_PORT` + `SMTP_USER` + `SMTP_PASS` + `MAIL_FROM`; `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`; the five `OIDC_*` |
-| Backup   | `BACKUP_S3_BUCKET` + `BACKUP_S3_REGION` + `BACKUP_S3_ACCESS_KEY` + `BACKUP_S3_SECRET_KEY` (optional `BACKUP_S3_ENDPOINT`) — off-site dumps, §6        |
-
-`NODE_ENV`, `LOG_LEVEL`, `REDIS_URL`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_REGION` and
-`API_PORT` are **not** secrets — the workflow hardcodes them (`S3_PUBLIC_ENDPOINT` is derived
-from `PUBLIC_DOMAIN`). `NODE_ENV=production` in particular must never be omitted: the schema
-defaults to `development`, and under `development` the API returns the raw invite token in its
-response and the `APP_URL` guard never fires.
-
-**`S3_ENDPOINT` vs `S3_PUBLIC_ENDPOINT`.** The API reaches MinIO over the container network
-(`http://minio:9000`), but the dashboard renders screenshots from **presigned URLs the browser
-fetches directly** (PRD §7.4) — so those URLs must name an origin the browser can resolve.
-SigV4 signs the host, so the URL has to be _signed for_ that origin; rewriting it afterwards
-yields `SignatureDoesNotMatch`. Hence two settings: `S3_ENDPOINT` for the API's own calls, and
-`S3_PUBLIC_ENDPOINT` (`https://$PUBLIC_DOMAIN`) for signing browser-bound URLs, with Caddy
-routing `/$S3_BUCKET/*` to minio (`infra/Caddyfile`, and `S3_BUCKET` must be in the proxy's
-environment for that matcher). Get this wrong and every screenshot renders as a broken image
-while the rest of the page works — that is the symptom to recognise. The bucket stays private:
-without a valid, unexpired signature MinIO answers 403.
-
-**Optional groups are emitted only when set.** `packages/config` treats an empty string as
-_present_, so writing `OIDC_ISSUER=` for an unused feature fails `z.url()` and the API refuses
-to boot. Leave a group's secrets unset and the workflow omits the whole block. Set them
-together — the all-or-nothing refinements still apply.
-
-`TAG` is rendered as the deployed commit SHA, so **rollback is re-running an earlier
-successful workflow** (Actions → that run → Re-run jobs). The `concurrency` group serialises
-deploys so two `migrate` runs can never race.
+```bash
+pm2 ls                                   # every app on the box
+pm2 logs timetrack-api --lines 80        # or timetrack-worker / timetrack-dashboard
+pm2 reload timetrack-api                 # zero-downtime restart of one app
+sudo timetrack-status                    # datastores + queues
+readlink -f /srv/timetrack/current       # live release
+```
 
 ---
 
@@ -229,30 +211,30 @@ in `ps`. The dump is verified twice — `gzip -t`, then a grep for pg_dump's own
 `PostgreSQL database dump complete` marker, because a dump killed mid-stream still produces a
 structurally valid gzip and that is the classic silent backup failure.
 
-Install on the host (as the deploy user, from the deploy directory):
-
-The deploy ships `backup.sh` and the unit files to `<DEPLOY_PATH>/infra/` and makes the
-script executable, so they are already on the host after any successful deploy. Installing
-the timer is the one-time manual step:
+Install on the host, **as root** — the datastores are root-managed and `deploy` has no Docker
+access. `backup.sh` lives at `/opt/timetrack/` (vm-setup §4); the timer is the one-time step:
 
 ```bash
-sudo cp infra/systemd/timetrack-backup.{service,timer} /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now timetrack-backup.timer
-
-./infra/backup.sh          # run once by hand first — do not wait for 02:30 to find out
+/opt/timetrack/backup.sh   # run once by hand first — do not wait for 02:30 to find out
+cp infra/systemd/timetrack-backup.{service,timer} /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now timetrack-backup.timer
 systemctl list-timers timetrack-backup.timer
 journalctl -u timetrack-backup.service -n 50
 ```
 
-Knobs: `BACKUP_DIR` (default `<deploy>/backups`), `KEEP_DAYS` (default 14). Retention prunes
+The deploy does not update `/opt/timetrack/backup.sh`; after changing `infra/backup.sh`,
+re-install it (`install -m 700 infra/backup.sh /opt/timetrack/`).
+
+Knobs: `BACKUP_DIR` (default `/srv/timetrack/backups`), `KEEP_DAYS` (default 14). Retention prunes
 dumps only; the MinIO mirror is a mirror, not a history, and tracks deletions via `--remove`.
 
 **Restore** — the dump is `--clean --if-exists`, so it drops and recreates its own objects:
 
 ```bash
-gunzip -c backups/postgres/timetrack-<stamp>.sql.gz | \
-  docker compose --env-file .env.prod -f infra/docker-compose.prod.yml exec -T postgres \
+gunzip -c /srv/timetrack/backups/postgres/timetrack-<stamp>.sql.gz | \
+  docker compose --env-file /opt/timetrack/datastores.env \
+    -f /opt/timetrack/docker-compose.datastores.yml exec -T postgres \
   sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
@@ -304,12 +286,12 @@ immutable, while the screenshots bucket must be able to delete for retention and
 
    **If you cannot create IAM users** and reuse an existing, broader key instead, backups still
    upload, and the Compliance lock from step 1 still keeps every locked version from being
-   deleted. What you lose is containment: that key sits in `.env.prod` on the VM, and every
+   deleted. What you lose is containment: that key sits in `shared/.env` on the VPS, and every
    bucket it can reach in the account is exposed to anyone who compromises the box. Treat that
    as a decision for the AWS account owner, and replace it with the scoped user when you can.
 
 4. Add the repository secrets `BACKUP_S3_BUCKET`, `BACKUP_S3_REGION`, `BACKUP_S3_ACCESS_KEY`,
-   `BACKUP_S3_SECRET_KEY` and redeploy; the deploy writes them into `.env.prod`.
+   `BACKUP_S3_SECRET_KEY` and redeploy; the deploy writes them into `shared/.env`.
    `BACKUP_S3_ENDPOINT` is only for a non-AWS S3-compatible store — it defaults to
    `https://s3.<region>.amazonaws.com`.
 5. On the host, run `./infra/backup.sh` once by hand and look for `✓ uploaded`, then confirm
@@ -327,9 +309,9 @@ aws s3 cp s3://<backup-bucket>/postgres/timetrack-<stamp>.sql.gz .
 
 ## 7. Observability
 
-- **Health:** proxy/orchestrator probes `/health` (liveness) and `/health/ready` (dependencies). Unready → pulled from rotation. `/health/ready` checks Postgres, Redis **and** MinIO concurrently, each with a 2s timeout so a black-holed dependency cannot hang the probe, and returns `{"status":"ok","checks":{"database":"up","redis":"up","storage":"up"}}`. On failure it is a 503 naming which dependency is down — with no driver text or connection string in the body. The **container** healthcheck deliberately uses `/health`, never this route: a transient dependency blip must not make Docker restart an otherwise-healthy process.
-- **Logs:** Pino JSON to stdout → shipped to the org's sink (Loki/ELK/CloudWatch). `requestId` on every line; redaction enforced (`authorization`, `cookie`, `*.password`, `*.refreshToken`, `*.windowTitle`, raw bytes) — verify redaction in prod config.
-- **Alerts:** `.github/workflows/monitor.yml` probes twice a day (00:00 and 12:00 UTC) from OUTSIDE the box (a watchdog on the VM cannot report the VM being gone) and opens a labelled GitHub issue on failure, closing it on recovery. At that cadence an outage can go unnoticed for up to 12 hours — it is a cheap daily health sweep, not an uptime monitor. It covers `/health/ready` and each dependency it names, disk usage, backup freshness and size, worker liveness, and per-queue backlog/failure depth. Not yet covered: partition-provision and retention job outcomes, and a tracking-gap check (no activity samples during work hours) — that one needs holiday/quiet-day tuning before it would be trustworthy.
+- **Health:** proxy/orchestrator probes `/health` (liveness) and `/health/ready` (dependencies). Unready → pulled from rotation. `/health/ready` checks Postgres, Redis **and** MinIO concurrently, each with a 2s timeout so a black-holed dependency cannot hang the probe, and returns `{"status":"ok","checks":{"database":"up","redis":"up","storage":"up"}}`. On failure it is a 503 naming which dependency is down — with no driver text or connection string in the body. Liveness checks use `/health`, never this route: a transient dependency blip must not get an otherwise-healthy process restarted. The deploy's smoke test is the one caller that requires `/health/ready`.
+- **Logs:** Pino JSON to stdout → PM2 log files under `~deploy/.pm2/logs/`, rotated by `pm2-logrotate` → ship to the org's sink (Loki/ELK/CloudWatch). Datastore container logs are capped by `/etc/docker/daemon.json`. `requestId` on every line; redaction enforced (`authorization`, `cookie`, `*.password`, `*.refreshToken`, `*.windowTitle`, raw bytes) — verify redaction in prod config.
+- **Alerts:** `.github/workflows/monitor.yml` probes twice a day (00:00 and 12:00 UTC) from OUTSIDE the box (a watchdog on the VM cannot report the VM being gone) and opens a labelled GitHub issue on failure, closing it on recovery. At that cadence an outage can go unnoticed for up to 12 hours — it is a cheap daily health sweep, not an uptime monitor. It covers `/health/ready` and each dependency it names, disk usage, backup freshness and size, worker liveness (PM2 status), datastore container health and per-queue backlog/failure depth (via `sudo timetrack-status`). Not yet covered: partition-provision and retention job outcomes, and a tracking-gap check (no activity samples during work hours) — that one needs holiday/quiet-day tuning before it would be trustworthy.
 - **Rate limiting:** `@nestjs/throttler` on auth + batch ingest (already wired) — confirm limits for the deployment size.
 
 ---
@@ -350,7 +332,7 @@ The client is outside the pnpm graph and ships separately (`PRD §7.1.6`).
 
 - [ ] TLS everywhere; HSTS at the proxy; backend not directly exposed (VPN/auth gate).
 - [ ] MinIO buckets private; presigned URLs only; short TTL.
-- [ ] Strong, rotated secrets; none in the repo or images; `.env.prod` 600.
+- [ ] Strong, rotated secrets; none in the repo; `shared/.env` and `datastores.env` 600.
 - [ ] Data encrypted at rest (PG volume + MinIO).
 - [ ] Deny-by-default guards live; resource-level authorization verified (the 403 tests pass).
 - [ ] Redaction verified in prod logs (no passwords/tokens/window titles/bytes).

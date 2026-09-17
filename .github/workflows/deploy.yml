@@ -1,19 +1,20 @@
 name: Deploy
 
-# CI green on main → build & push the three images to GHCR → migrate → roll the stack.
+# CI green on main → build a release tarball → copy it to the VPS → write shared/.env →
+# remote-deploy.sh (datastores up, migrate, atomic symlink flip, PM2 reload, smoke test, rollback).
 #
-# This does NOT do first-deploy work (NSG rules, DNS, Docker install, the deploy user, the
-# GitHub secrets, the `seed` one-shot). See docs/deployment.md §5 — the workflow takes over
-# only once the host is prepared and the first deploy has been done by hand.
+# Topology (docs/deployment.md): api, worker and dashboard run under PM2 as the `deploy` user,
+# next to the other apps on the same box; Postgres, Redis and MinIO run in Docker under a
+# root-owned systemd unit; the host's Caddy is the only public entrypoint. There are no
+# container images for the apps any more, so nothing here touches a registry.
+#
+# First-deploy work that this does NOT do (docs/vm-setup.md): installing Docker, the datastores
+# unit, sudoers rule and status script under /opt/timetrack, the Caddy site block, and the
+# one-time admin seed.
 
-# Triggered by CI *completing* on main, not by the push itself. The old `gate` job here
-# re-ran lint/typecheck/test/build on a commit CI was verifying at that very moment — a
-# second billed job for work already in flight. Keying off the CI run instead means the
-# verification still gates the deploy, but is paid for once.
-#
-# Waiting for CI from inside a job was the obvious alternative and is worse: a job that
-# sleeps is billed for every minute it sleeps, and CI's suite runs ~5 minutes. workflow_run
-# starts this workflow only once CI has already concluded, so nothing waits.
+# Triggered by CI *completing* on main, not by the push itself, so the suite gates the deploy but
+# is paid for once. workflow_dispatch is the manual path: re-deploy, roll back to an older SHA by
+# dispatching at that ref, or rehearse a branch.
 on:
   workflow_run:
     workflows: [CI]
@@ -21,162 +22,122 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
-# Never run two deploys at the same host at once — concurrent `migrate` runs would race.
+# Never run two deploys at the host at once — concurrent migrations would race. Shared with
+# ops-trim-runaway.yml, which rewrites the same tables.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
 env:
-  # Under workflow_run, `github.sha` is the default branch's head when the event fired, NOT
-  # the commit CI actually verified — they differ whenever a second merge lands during a run,
-  # which would tag and deploy an unverified commit. head_sha is the verified one. The
-  # fallback covers workflow_dispatch, where there is no triggering run.
+  # Under workflow_run, `github.sha` is the default branch's head when the event fired, NOT the
+  # commit CI verified — they differ whenever a second merge lands during a run. head_sha is the
+  # verified one. The fallback covers workflow_dispatch.
   DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
-  # ── 1. Build the three images and push to GHCR (the artifacts) ──────────────
-  build-and-push:
-    # A failed, cancelled or timed-out CI run must not deploy. `deploy` needs this job, so
-    # skipping here skips the whole workflow. workflow_dispatch stays a manual override.
+  deploy:
+    # A failed, cancelled or timed-out CI run must not deploy.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
-      packages: write
-    # ONE job with three build steps, not a matrix. The three Dockerfiles share a
-    # byte-identical build stage (node:24-alpine → COPY . . → pnpm install && pnpm build)
-    # which is nearly the whole cost, so the only question is how the other two get to
-    # reuse it. Measured on this repo:
-    #
-    #   matrix, parallel, scope per service   5m02s wall  14m03s billable  (nothing shared)
-    #   matrix, max-parallel: 1, one scope    7m01s wall   7m01s billable
-    #   one job, three steps                     ↓ both — this
-    #
-    # A matrix pays per-service job setup (checkout, buildx, GHCR login, then pulling the
-    # shared stage back out of the gha cache) before it can reuse anything: the replaying
-    # services still took ~1m25s each. In one job that setup happens once and steps 2-3 hit
-    # the builder's LOCAL cache, with no export/import round-trip between them.
     steps:
-      # GHCR supports nested paths, so the three images live under one repo namespace — but
-      # Docker rejects an image reference whose namespace has capitals ("repository name must
-      # be lowercase") at PARSE time, before it ever reaches the registry.
-      # `github.repository_owner` preserves the account's case and Actions expressions have no
-      # lower(), so fold it here. This was invisible while the owner was all-lowercase and
-      # broke the moment the repo moved to one that is not.
-      - name: Resolve the GHCR namespace (Docker requires it lowercase)
-        # `tr`, not bash's ${VAR,,}: that needs bash 4+ and macOS ships 3.2, which would
-        # break this the moment it runs on a self-hosted Mac runner.
-        run: echo "IMAGE_PREFIX=ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/timetrack" >> "$GITHUB_ENV"
-        env:
-          OWNER: ${{ github.repository_owner }}
-
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.DEPLOY_SHA }}
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v6
+      # Node 24 to match the VPS runtime: argon2 and sharp load native binaries keyed to the
+      # Node ABI and to glibc, and this runner (Ubuntu, glibc, x64) matches the host. A bundle
+      # built on another major crashes at require time.
+      - uses: actions/setup-node@v7
+        with: { node-version-file: .nvmrc, cache: pnpm }
 
-      # Build context is the repo root for all three (see infra/*.Dockerfile).
-      #
-      # Only this first step writes the gha cache. It builds the shared stage from cold, so
-      # its export already contains what every later run needs; having all three export the
-      # same layers under `mode=max` would just pay the export three times. `workspace` is
-      # the scope images.yml writes too — its header always claimed the two workflows shared
-      # a scope, which only became true when deploy stopped using scope=<service>.
-      - name: api
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: infra/api.Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/api:latest
-            ${{ env.IMAGE_PREFIX }}/api:${{ env.DEPLOY_SHA }}
-          cache-from: type=gha,scope=workspace
-          cache-to: type=gha,mode=max,scope=workspace
-
-      # No cache-to below: the build stage is already in this builder's local cache from the
-      # step above, and each runtime stage is a COPY plus a CMD — cheap enough that exporting
-      # it costs more than rebuilding it.
-      - name: worker
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: infra/worker.Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/worker:latest
-            ${{ env.IMAGE_PREFIX }}/worker:${{ env.DEPLOY_SHA }}
-          cache-from: type=gha,scope=workspace
-
-      - name: dashboard
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: infra/dashboard.Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/dashboard:latest
-            ${{ env.IMAGE_PREFIX }}/dashboard:${{ env.DEPLOY_SHA }}
-          cache-from: type=gha,scope=workspace
-
-  # ── 2. Deploy ───────────────────────────────────────────────────────────────
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      # GHCR supports nested paths, so the three images live under one repo namespace — but
-      # Docker rejects an image reference whose namespace has capitals ("repository name must
-      # be lowercase") at PARSE time, before it ever reaches the registry.
-      # `github.repository_owner` preserves the account's case and Actions expressions have no
-      # lower(), so fold it here. This was invisible while the owner was all-lowercase and
-      # broke the moment the repo moved to one that is not.
-      - name: Resolve the GHCR namespace (Docker requires it lowercase)
-        # `tr`, not bash's ${VAR,,}: that needs bash 4+ and macOS ships 3.2, which would
-        # break this the moment it runs on a self-hosted Mac runner.
-        run: echo "IMAGE_PREFIX=ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/timetrack" >> "$GITHUB_ENV"
+      - name: Install
+        run: pnpm install --frozen-lockfile
         env:
-          OWNER: ${{ github.repository_owner }}
+          HUSKY: '0'
 
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ env.DEPLOY_SHA }}
-
-      # The compose file resolves `env_file: ['../.env.prod']` relative to itself and mounts
-      # './Caddyfile', so both must land in <DEPLOY_PATH>/infra/ with .env.prod one level up.
-      # scp-action keeps the source path structure, so target is DEPLOY_PATH itself.
-      - name: Copy compose + Caddyfile to the host
-        uses: appleboy/scp-action@v1.0.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          source: 'infra/docker-compose.prod.yml,infra/Caddyfile,infra/backup.sh,infra/systemd/timetrack-backup.service,infra/systemd/timetrack-backup.timer'
-          target: ${{ secrets.DEPLOY_PATH }}
-
-      # Render .env.prod from secrets. Values arrive via `envs:` so they are masked in logs
-      # and never appear as literal text in this YAML. Written with umask 077 to a tmp file
-      # then mv'd, so a reader never sees a partial or world-readable file.
-      #
-      # CRITICAL: only REQUIRED vars are written unconditionally. packages/config treats an
-      # empty string as SET, not absent — `OIDC_ISSUER=` fails z.url() and the API refuses to
-      # boot, and an empty SES var makes the all-or-nothing refinement report four confusing
-      # errors. So every optional group is emitted only when its secret is non-empty.
-      - name: Render .env.prod from secrets
-        uses: appleboy/ssh-action@v1
+      - name: Build
+        run: pnpm build
         env:
-          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
-          IMAGE_TAG: ${{ env.DEPLOY_SHA }}
+          # prisma generate (in @timetrack/db's build) loads prisma.config.ts, which resolves
+          # env('DATABASE_URL'). It never connects; the var only has to resolve.
+          DATABASE_URL: postgresql://build:build@localhost:5432/build?schema=public
+
+      - name: Assemble release
+        run: |
+          set -euo pipefail
+          rm -rf release && mkdir -p release
+
+          # `--legacy`: pnpm 10's default deploy requires inject-workspace-packages, which this
+          # repo does not set. --prod drops devDependencies; the Prisma CLI and tsx still ship
+          # because @timetrack/db depends on them, for on-box migrations and the admin seed.
+          pnpm --filter @timetrack/api deploy --prod --legacy release/api
+          pnpm --filter @timetrack/worker deploy --prod --legacy release/worker
+
+          # Next standalone traces from the repo root, so server.js is at apps/dashboard/.
+          # `cp -a`, never `cp -r`: the standalone tree is held together by pnpm symlinks, and
+          # dereferencing them breaks module resolution at boot. .next/static is not part of
+          # the standalone output and must be carried over (there is no public/ dir).
+          cp -a apps/dashboard/.next/standalone release/dashboard
+          mkdir -p release/dashboard/apps/dashboard/.next
+          cp -a apps/dashboard/.next/static release/dashboard/apps/dashboard/.next/static
+
+          mkdir -p release/pm2
+          cp infra/pm2/ecosystem.config.cjs infra/pm2/env-file.cjs infra/pm2/with-env.cjs release/pm2/
+          echo "$DEPLOY_SHA" > release/VERSION
+
+          # Check the shape here, before it ever reaches the VPS. remote-deploy.sh re-checks.
+          test -f release/api/dist/main.js
+          test -f release/worker/dist/main.js
+          test -f release/worker/dist/scripts/trim-runaway-entries.js
+          test -f release/dashboard/apps/dashboard/server.js
+          test -d release/dashboard/apps/dashboard/.next/static
+          test -f release/api/node_modules/@timetrack/db/prisma/schema.prisma
+          test -d release/api/node_modules/@timetrack/db/prisma/migrations
+          test -e release/api/node_modules/@timetrack/db/node_modules/.bin/prisma
+          test -e release/api/node_modules/@timetrack/db/node_modules/.bin/tsx
+
+          # tar, preserving symlinks: the pnpm-deployed node_modules is full of them.
+          tar -czpf release.tar.gz -C release .
+          ls -lh release.tar.gz
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${SSH_PORT:-22}" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          cat >> ~/.ssh/config <<EOF
+          Host deploy-target
+            HostName $SSH_HOST
+            Port ${SSH_PORT:-22}
+            User $SSH_USER
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+          EOF
+
+      # Rendered here and piped over stdin — never argv, which any user on the box can read via
+      # `ps`. The host writes it with umask 077 to a temp file, then renames, so nothing ever
+      # reads a partial or world-readable file.
+      #
+      # CRITICAL: only REQUIRED vars are written unconditionally. packages/config treats an empty
+      # string as SET, not absent — `OIDC_ISSUER=` fails z.url() and the API refuses to boot. So
+      # every optional group is emitted only when its secret is non-empty.
+      - name: Write shared/.env on the VPS
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
@@ -192,7 +153,6 @@ jobs:
           APP_URL: ${{ secrets.APP_URL }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
           PUBLIC_DOMAIN: ${{ secrets.PUBLIC_DOMAIN }}
-          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
           DASHBOARD_SESSION_SECRET: ${{ secrets.DASHBOARD_SESSION_SECRET }}
           INVITE_TTL_DAYS: ${{ secrets.INVITE_TTL_DAYS }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
@@ -200,8 +160,6 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
-          SEED_ADMIN_EMAIL: ${{ secrets.SEED_ADMIN_EMAIL }}
-          SEED_ADMIN_PASSWORD: ${{ secrets.SEED_ADMIN_PASSWORD }}
           OIDC_ISSUER: ${{ secrets.OIDC_ISSUER }}
           OIDC_CLIENT_ID: ${{ secrets.OIDC_CLIENT_ID }}
           OIDC_CLIENT_SECRET: ${{ secrets.OIDC_CLIENT_SECRET }}
@@ -212,187 +170,126 @@ jobs:
           BACKUP_S3_ACCESS_KEY: ${{ secrets.BACKUP_S3_ACCESS_KEY }}
           BACKUP_S3_SECRET_KEY: ${{ secrets.BACKUP_S3_SECRET_KEY }}
           BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          envs: IMAGE_PREFIX,IMAGE_TAG,POSTGRES_USER,POSTGRES_PASSWORD,POSTGRES_DB,DATABASE_URL,JWT_ACCESS_SECRET,JWT_REFRESH_SECRET,MINIO_ROOT_USER,MINIO_ROOT_PASSWORD,S3_BUCKET,S3_ACCESS_KEY,S3_SECRET_KEY,API_URL,APP_URL,CORS_ORIGINS,PUBLIC_DOMAIN,ACME_EMAIL,DASHBOARD_SESSION_SECRET,INVITE_TTL_DAYS,SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASS,MAIL_FROM,SEED_ADMIN_EMAIL,SEED_ADMIN_PASSWORD,OIDC_ISSUER,OIDC_CLIENT_ID,OIDC_CLIENT_SECRET,OIDC_REDIRECT_URI,OIDC_DEFAULT_TEAM_ID,BACKUP_S3_BUCKET,BACKUP_S3_REGION,BACKUP_S3_ACCESS_KEY,BACKUP_S3_SECRET_KEY,BACKUP_S3_ENDPOINT
-          script: |
-            set -euo pipefail
-            cd "${{ secrets.DEPLOY_PATH }}"
-            umask 077
+        run: |
+          set -euo pipefail
 
-            # NODE_ENV is hardcoded, never a secret. The schema DEFAULTS to development, and
-            # under development the API returns the raw invite token in the API response
-            # (users.service.ts) and the APP_URL production guard never fires.
-            cat > .env.prod.tmp <<EOF
-            NODE_ENV=production
-            LOG_LEVEL=info
+          # The DATABASE_URL secret names the host the old container network used (`postgres`).
+          # The apps now run on the host and reach Postgres over loopback, so re-point the host
+          # and keep everything else — credentials, database, query — exactly as given.
+          LOCAL_DATABASE_URL="$(node -e '
+            const u = new URL(process.env.DATABASE_URL);
+            u.hostname = "127.0.0.1"; u.port = "5432";
+            process.stdout.write(u.toString());
+          ')"
 
-            # Pinned to this commit so a rollback is "re-run the older workflow".
-            IMAGE_PREFIX=${IMAGE_PREFIX}
-            TAG=${IMAGE_TAG}
+          {
+            # NODE_ENV is never a secret. The schema DEFAULTS to development, and under
+            # development the API returns the raw invite token and the APP_URL guard never fires.
+            echo "NODE_ENV=production"
+            echo "LOG_LEVEL=info"
 
-            POSTGRES_USER=${POSTGRES_USER}
-            POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-            POSTGRES_DB=${POSTGRES_DB}
-            DATABASE_URL=${DATABASE_URL}
+            echo "POSTGRES_USER=$POSTGRES_USER"
+            echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
+            echo "POSTGRES_DB=$POSTGRES_DB"
+            echo "DATABASE_URL=$LOCAL_DATABASE_URL"
 
-            # Internal service addresses — fixed by the compose network, not secrets.
-            REDIS_URL=redis://redis:6379
-            S3_ENDPOINT=http://minio:9000
-            S3_REGION=us-east-1
-            # Browser-facing origin for presigned screenshot URLs — deliberately NOT
-            # S3_ENDPOINT. That is the container-network name, which no browser can resolve,
-            # and SigV4 signs the host, so the URL must be signed for the origin the browser
-            # will actually request. Caddy routes /$S3_BUCKET/* to minio (infra/Caddyfile).
-            S3_PUBLIC_ENDPOINT=https://${PUBLIC_DOMAIN}
+            # Datastore addresses: fixed by infra/datastores (loopback-published), not secrets.
+            echo "REDIS_URL=redis://127.0.0.1:6379"
+            echo "S3_ENDPOINT=http://127.0.0.1:9000"
+            echo "S3_REGION=us-east-1"
+            # Browser-facing origin for presigned screenshot URLs — deliberately NOT S3_ENDPOINT.
+            # SigV4 signs the host, so the URL must be signed for the origin the browser will
+            # request; Caddy routes /$S3_BUCKET/* to MinIO with the Host untouched.
+            echo "S3_PUBLIC_ENDPOINT=https://$PUBLIC_DOMAIN"
 
-            JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
-            JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+            echo "JWT_ACCESS_SECRET=$JWT_ACCESS_SECRET"
+            echo "JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET"
 
-            MINIO_ROOT_USER=${MINIO_ROOT_USER}
-            MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
-            S3_BUCKET=${S3_BUCKET}
-            S3_ACCESS_KEY=${S3_ACCESS_KEY}
-            S3_SECRET_KEY=${S3_SECRET_KEY}
+            echo "MINIO_ROOT_USER=$MINIO_ROOT_USER"
+            echo "MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD"
+            echo "S3_BUCKET=$S3_BUCKET"
+            echo "S3_ACCESS_KEY=$S3_ACCESS_KEY"
+            echo "S3_SECRET_KEY=$S3_SECRET_KEY"
 
-            API_PORT=3001
-            API_URL=${API_URL}
-            APP_URL=${APP_URL}
-            CORS_ORIGINS=${CORS_ORIGINS}
-            PUBLIC_DOMAIN=${PUBLIC_DOMAIN}
-            ACME_EMAIL=${ACME_EMAIL}
-            DASHBOARD_SESSION_SECRET=${DASHBOARD_SESSION_SECRET}
-            EOF
+            echo "API_PORT=3001"
+            echo "API_URL=$API_URL"
+            echo "APP_URL=$APP_URL"
+            echo "CORS_ORIGINS=$CORS_ORIGINS"
+            echo "PUBLIC_DOMAIN=$PUBLIC_DOMAIN"
+            echo "DASHBOARD_SESSION_SECRET=$DASHBOARD_SESSION_SECRET"
 
             # ---- Optional groups: emitted ONLY when set (empty != absent, see above) ----
-            if [ -n "${INVITE_TTL_DAYS:-}" ]; then
-              echo "INVITE_TTL_DAYS=${INVITE_TTL_DAYS}" >> .env.prod.tmp
-            fi
+            # `if`, not `[ -n ] && echo`: a false test as the group's last command would make the
+            # whole group — and so the step — exit non-zero under set -e.
+            if [ -n "${INVITE_TTL_DAYS:-}" ]; then echo "INVITE_TTL_DAYS=$INVITE_TTL_DAYS"; fi
 
             if [ -n "${SMTP_HOST:-}" ]; then
-              cat >> .env.prod.tmp <<EOF
-            SMTP_HOST=${SMTP_HOST}
-            SMTP_PORT=${SMTP_PORT}
-            SMTP_USER=${SMTP_USER}
-            SMTP_PASS=${SMTP_PASS}
-            MAIL_FROM=${MAIL_FROM}
-            EOF
+              echo "SMTP_HOST=$SMTP_HOST"
+              echo "SMTP_PORT=$SMTP_PORT"
+              echo "SMTP_USER=$SMTP_USER"
+              echo "SMTP_PASS=$SMTP_PASS"
+              # Written raw: env-file.cjs takes everything after the first `=` literally, so the
+              # spaces and angle brackets in `TimeTrack <noreply@…>` need no quoting.
+              echo "MAIL_FROM=$MAIL_FROM"
             fi
 
-            if [ -n "${SEED_ADMIN_EMAIL:-}" ]; then
-              cat >> .env.prod.tmp <<EOF
-            SEED_ADMIN_EMAIL=${SEED_ADMIN_EMAIL}
-            SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD}
-            EOF
-            fi
+            # SEED_ADMIN_* are deliberately NOT written: the seed is a one-time manual step
+            # (docs/vm-setup.md), and a standing admin password has no business in the runtime env.
 
             if [ -n "${OIDC_ISSUER:-}" ]; then
-              cat >> .env.prod.tmp <<EOF
-            OIDC_ISSUER=${OIDC_ISSUER}
-            OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
-            OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
-            OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI}
-            OIDC_DEFAULT_TEAM_ID=${OIDC_DEFAULT_TEAM_ID}
-            EOF
+              echo "OIDC_ISSUER=$OIDC_ISSUER"
+              echo "OIDC_CLIENT_ID=$OIDC_CLIENT_ID"
+              echo "OIDC_CLIENT_SECRET=$OIDC_CLIENT_SECRET"
+              echo "OIDC_REDIRECT_URI=$OIDC_REDIRECT_URI"
+              echo "OIDC_DEFAULT_TEAM_ID=$OIDC_DEFAULT_TEAM_ID"
             fi
 
-            # Off-site Postgres dumps (infra/backup.sh, deployment §6). Read by the backup
-            # script on the host, not by the app. BACKUP_S3_ENDPOINT only for a non-AWS store.
+            # Off-site Postgres dumps (infra/backup.sh, deployment §6). Read by the backup script,
+            # not the apps. BACKUP_S3_ENDPOINT only for a non-AWS store.
             if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
-              cat >> .env.prod.tmp <<EOF
-            BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET}
-            BACKUP_S3_REGION=${BACKUP_S3_REGION}
-            BACKUP_S3_ACCESS_KEY=${BACKUP_S3_ACCESS_KEY}
-            BACKUP_S3_SECRET_KEY=${BACKUP_S3_SECRET_KEY}
-            EOF
-              if [ -n "${BACKUP_S3_ENDPOINT:-}" ]; then
-                echo "BACKUP_S3_ENDPOINT=${BACKUP_S3_ENDPOINT}" >> .env.prod.tmp
-              fi
+              echo "BACKUP_S3_BUCKET=$BACKUP_S3_BUCKET"
+              echo "BACKUP_S3_REGION=$BACKUP_S3_REGION"
+              echo "BACKUP_S3_ACCESS_KEY=$BACKUP_S3_ACCESS_KEY"
+              echo "BACKUP_S3_SECRET_KEY=$BACKUP_S3_SECRET_KEY"
+              if [ -n "${BACKUP_S3_ENDPOINT:-}" ]; then echo "BACKUP_S3_ENDPOINT=$BACKUP_S3_ENDPOINT"; fi
             fi
-
-            mv .env.prod.tmp .env.prod
-            chmod 600 .env.prod
-
-      # Migrations are forward-only and must land BEFORE the new code rolls (deployment §4).
-      # `seed` is deliberately NOT here — it is first-deploy-only and stays a manual one-shot.
-      - name: Migrate, then roll the stack
-        uses: appleboy/ssh-action@v1
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
-          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          envs: GHCR_TOKEN,GHCR_USER,IMAGE_PREFIX
-          # The action's default is 10m, and this step spends most of that pulling. The runtime
-          # image is one big layer (`COPY --from=build /repo /repo`), so a code change
-          # invalidates all of it and the host re-downloads ~5.5GB across the three images
-          # every deploy. The #143 and #144 deploys were killed mid-download at exactly 10m.
-          #
-          # 30m is headroom, not a fix. It does not make the pull small (the Dockerfile's job)
-          # and it does not make room for it — #147 pulled fine in 5.7m and then died with
-          # "no space left on device", which is what the reap below addresses.
-          command_timeout: 30m
-          script: |
+          } | ssh deploy-target "
             set -euo pipefail
-            cd "${{ secrets.DEPLOY_PATH }}"
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            umask 077
+            mkdir -p '$DEPLOY_PATH/shared' '$DEPLOY_PATH/releases' '$DEPLOY_PATH/tmp'
+            cat > '$DEPLOY_PATH/shared/.env.tmp'
+            mv '$DEPLOY_PATH/shared/.env.tmp' '$DEPLOY_PATH/shared/.env'
+            chmod 600 '$DEPLOY_PATH/shared/.env'
+          "
 
-            # scp via tar preserves the mode, but re-assert it: a non-executable backup.sh
-            # fails only at 02:30, in a systemd unit nobody is watching.
-            chmod +x infra/backup.sh
+      - name: Upload release
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          scp release.tar.gz "deploy-target:$DEPLOY_PATH/tmp/$DEPLOY_SHA.tar.gz"
+          scp infra/deploy/remote-deploy.sh "deploy-target:$DEPLOY_PATH/tmp/remote-deploy.sh"
 
-            COMPOSE="docker compose --env-file .env.prod -f infra/docker-compose.prod.yml"
+      # The script owns datastores, migrations, the atomic swap, PM2 reload, smoke test and
+      # rollback. A non-zero exit means the previous release is still serving (or, on a first
+      # deploy, that the box needs a look).
+      - name: Deploy, verify, roll back on failure
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          ssh deploy-target "
+            set -euo pipefail
+            chmod +x '$DEPLOY_PATH/tmp/remote-deploy.sh'
+            APP_ROOT='$DEPLOY_PATH' '$DEPLOY_PATH/tmp/remote-deploy.sh' '$DEPLOY_SHA'
+          "
 
-            # Reap superseded images BEFORE pulling, so the headroom exists at the moment it is
-            # needed. Nothing here removed them until now and the host filled up: 183 images,
-            # 112.7GB, on a 123GB disk — the deploy for #147 died with "no space left on device"
-            # extracting a layer. Each deploy lands ~5.5GB that shares NOTHING with what is
-            # already there, because the runtime image is one `COPY --from=build /repo /repo`
-            # whose hash changes on every commit.
-            #
-            # Scoped to our own prefix by reference, NOT a blanket `docker image prune -af`:
-            # this host carries other workloads and their unused images are not ours to delete.
-            # `docker image rm` refuses anything backing a running container, so the generation
-            # currently serving traffic survives untouched and only the ones behind it go —
-            # steady state is two generations, the live one and the one being rolled to.
-            echo "→ disk before: $(df -h / | awk 'NR==2{print $4}') free"
-            before=$(docker image ls -q --filter "reference=${IMAGE_PREFIX}/*" | sort -u | wc -l | tr -d '[:space:]')
-            docker image ls --filter "reference=${IMAGE_PREFIX}/*" --format '{{.Repository}}:{{.Tag}}' \
-              | xargs -r -n1 docker image rm >/dev/null 2>&1 || true
-            after=$(docker image ls -q --filter "reference=${IMAGE_PREFIX}/*" | sort -u | wc -l | tr -d '[:space:]')
-            echo "→ reaped $((before - after)) superseded image(s), $after still in use"
-            echo "→ disk after:  $(df -h / | awk 'NR==2{print $4}') free"
-
-            # --quiet: without it a slow pull emits a progress line per layer per refresh tick
-            # (there is no TTY), which buried the real output under ~10k lines and made the
-            # failing deploy hard to read. Errors still surface. The timings around it are what
-            # tell you whether a future failure was slow or stuck.
-            echo "→ pull start $(date -u +%H:%M:%S)"
-            $COMPOSE pull --quiet
-            echo "→ pull done  $(date -u +%H:%M:%S)"
-            $COMPOSE --profile setup run --rm migrate
-            $COMPOSE up -d --remove-orphans
-            docker logout ghcr.io
-
-            # Liveness, so a failed roll fails the workflow instead of waiting for someone
-            # to notice. Probe the api container directly rather than through the proxy:
-            # Caddy 308-redirects http://localhost to HTTPS and curl treats a 3xx as success,
-            # which would go green without the API being up at all. 127.0.0.1 rather than
-            # localhost: the API binds IPv4-only, and localhost may resolve to ::1 first.
-            for i in $(seq 1 30); do
-              if $COMPOSE exec -T api wget -qO- http://127.0.0.1:3001/health > /dev/null 2>&1; then
-                echo "✓ api /health responding"; exit 0
-              fi
-              sleep 5
-            done
-            echo "✖ api /health did not come up within 150s"
-            $COMPOSE ps
-            $COMPOSE logs --tail=50 api
-            exit 1
+      - name: Report
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "### Deployed \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Deploy failed — the previous release should still be serving" >> "$GITHUB_STEP_SUMMARY"
+            echo "On the VPS as deploy: \`pm2 logs timetrack-api\`, \`sudo timetrack-status\`." >> "$GITHUB_STEP_SUMMARY"
+          fi
