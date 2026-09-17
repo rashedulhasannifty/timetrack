@@ -10,21 +10,21 @@
  * suite exercises. This file is only wiring and printing.
  *
  * It lives under `src/` — unusually for a script, and the one place `console.log` is deliberate
- * outside `scripts/` — because it has to be RUNNABLE IN PRODUCTION. The worker runtime image
- * carries `dist`, `node_modules` and `package.json` and nothing else: a `.ts` file under
+ * outside `scripts/` — because it has to be RUNNABLE IN PRODUCTION. The worker release carries
+ * `dist`, `node_modules` and `package.json` and nothing else: a `.ts` file under
  * `apps/worker/scripts/` never reaches the host, so it could only ever be run against a database
- * someone had already exposed. Compiled into `dist/scripts/` it runs as the `trim-runaway`
- * one-shot in `docker-compose.prod.yml`, alongside `migrate` and `seed`.
+ * someone had already exposed. Compiled into `dist/scripts/` it ships with every worker release.
  *
  * DRY RUN BY DEFAULT. It rewrites people's recorded hours, so it prints exactly what it would do
  * and changes nothing until `--apply` is passed. Read the report first — in particular the
  * "removes" figure per entry, which is time somebody will otherwise be paid for.
  *
- * On the host, via the compose one-shot (`--` separates compose's flags from the script's):
+ * In production, through the "Ops — trim runaway entries" workflow (it leaves an audit trail),
+ * which runs on the host as the deploy user:
  *
- *   docker compose -f docker-compose.prod.yml --profile ops run --rm trim-runaway
- *   docker compose -f docker-compose.prod.yml --profile ops run --rm trim-runaway --min-hours 8
- *   docker compose -f docker-compose.prod.yml --profile ops run --rm trim-runaway --apply
+ *   cd /srv/timetrack/current/worker
+ *   node /srv/timetrack/shared/with-env.cjs /srv/timetrack/shared/.env \
+ *     node dist/scripts/trim-runaway-entries.js --min-hours 8 [--apply]
  *
  * Or locally against a database you can reach:
  *
