@@ -1,0 +1,9 @@
+# TimeTrack — installed as /etc/sudoers.d/timetrack (mode 440, validate with `visudo -cf`).
+#
+# The deploy user runs the apps under PM2 and is deliberately NOT in the docker group, which is
+# root-equivalent (and its SSH key is a GitHub secret). These are the only two things it needs
+# from root. Exact commands, and `""` forbids arguments, so neither can be widened.
+#
+#   - start the datastores unit (a no-op when already running) at the top of every deploy
+#   - read container state + queue depths (the monitor workflow and `sudo timetrack-status`)
+deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start timetrack-datastores.service, /usr/local/bin/timetrack-status ""

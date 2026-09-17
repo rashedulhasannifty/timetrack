@@ -1,0 +1,93 @@
+# TimeTrack — production datastores. See docs/deployment.md.
+#
+# Only the STATEFUL services run in Docker. api, worker and dashboard run under PM2 on the host
+# (infra/pm2/ecosystem.config.cjs), so they reach these over loopback — which is why every port
+# below is published on 127.0.0.1 and nothing else. Docker-published ports bypass UFW entirely,
+# so a bare '5432:5432' here would put Postgres on the public internet regardless of the firewall.
+#
+# Root-owned on the host at /opt/timetrack/, driven by the timetrack-datastores systemd unit —
+# NOT by the deploy user, who has no Docker access (the docker group is root-equivalent). The
+# unit renders datastores.env from the deploy's shared/.env (datastores-env.sh), so the
+# credentials here always match the DATABASE_URL / S3_* the apps are given.
+#
+# Manual use, as root:
+#   docker compose --env-file /opt/timetrack/datastores.env \
+#     -f /opt/timetrack/docker-compose.datastores.yml ps
+
+# Own project name → own volume namespace (timetrack_*), isolated from the dev stack
+# (infra/docker-compose.yml, project `infra`). A `down -v` on one must never touch the other.
+name: timetrack
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports: ['127.0.0.1:5432:5432']
+    # PG18 images expect the mount at /var/lib/postgresql (data lands in a versioned
+    # subdir); /var/lib/postgresql/data fails on boot. Matches the dev compose.
+    volumes: ['pgdata:/var/lib/postgresql']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    # appendonly so a restart doesn't drop in-flight BullMQ jobs. Not part of backups —
+    # jobs are idempotent and retried (deployment §6).
+    command: ['redis-server', '--appendonly', 'yes']
+    ports: ['127.0.0.1:6379:6379']
+    volumes: ['redisdata:/data']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: quay.io/minio/minio:latest # Docker Hub's minio/minio is gone
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    # S3 API only; the console (9001) is not published. The bucket is never public: browsers
+    # reach it through Caddy with short-lived presigned URLs, which MinIO verifies.
+    ports: ['127.0.0.1:9000:9000']
+    volumes: ['miniodata:/data']
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: create the screenshots bucket. Idempotent. Profile-gated so `up --wait` never
+  # sees an exited container; the systemd unit runs it after the stores are healthy. Without it
+  # the first screenshot upload fails with NoSuchBucket on a fresh volume.
+  createbuckets:
+    image: quay.io/minio/mc:latest # Docker Hub's minio/mc is gone
+    profiles: ['setup']
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null &&
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+    restart: 'no'
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
