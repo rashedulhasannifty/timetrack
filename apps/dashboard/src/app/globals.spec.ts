@@ -80,6 +80,9 @@ describe('globals.css token parity', () => {
 
 describe('globals.css depth recipes', () => {
   it('defines every recipe class the primitives rely on', () => {
+    // Every recipe declares its own base block (the ':' fallback this used to accept meant
+    // `.row-3d:hover` alone satisfied `.row-3d`, so the base rule — which carries the
+    // transition — could be deleted without this test noticing).
     for (const cls of [
       '.btn-3d',
       '.input-3d',
@@ -88,7 +91,7 @@ describe('globals.css depth recipes', () => {
       '.seg-track',
       '.seg-tab',
     ]) {
-      expect(css.includes(`${cls} {`) || css.includes(`${cls}:`), `${cls} missing`).toBe(true);
+      expect(css.includes(`${cls} {`), `${cls} missing its base rule`).toBe(true);
     }
   });
 

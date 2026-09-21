@@ -19,10 +19,17 @@ describe('buttonClasses', () => {
   });
 
   /** .btn-3d reads --b-edge off the element; a variant that forgets it renders
-   *  with an invisible edge and silently loses its depth. */
+   *  with an invisible edge and silently loses its depth. Assert the actual mapping, not
+   *  just that some edge is set — a variant wired to the wrong token would still pass a
+   *  bare "[--b-edge:" substring check. */
   it('gives every pressable variant its own edge colour', () => {
+    const EDGE: Record<'primary' | 'secondary' | 'destructive', string> = {
+      primary: 'var(--tt-accent-edge)',
+      secondary: 'var(--tt-border-strong)',
+      destructive: 'var(--tt-destructive-edge)',
+    };
     for (const v of ['primary', 'secondary', 'destructive'] as const) {
-      expect(buttonClasses(v, 'md'), v).toContain('[--b-edge:');
+      expect(buttonClasses(v, 'md'), v).toContain(`[--b-edge:${EDGE[v]}]`);
     }
   });
 
