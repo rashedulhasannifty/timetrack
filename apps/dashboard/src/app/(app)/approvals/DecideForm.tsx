@@ -83,7 +83,7 @@ export function DecideForm({ approvalId }: { approvalId: string }) {
           // FIXED, not absolute: the approvals table sits in a Card with `overflow-hidden`, which
           // cropped an absolutely positioned popover on the last (or only) row — there is no card
           // left below those rows for it to open into. See decide-placement.ts.
-          className={`bg-surface-raised border-separator shadow-e2 fixed z-50 flex w-[220px] flex-col gap-2 rounded-[10px] border p-2 ${
+          className={`bg-surface-raised border-separator shadow-e2 fixed z-50 flex w-[220px] flex-col gap-2 rounded-md border p-2 ${
             placement ? '' : 'invisible'
           }`}
         >

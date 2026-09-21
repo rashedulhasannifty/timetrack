@@ -41,7 +41,7 @@ export function AccountMenu({ name, email, role }: { name: string; email: string
         aria-label="Account"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="hover:bg-surface-raised flex w-full items-center gap-2.5 rounded-[11px] px-1.5 py-1.5 text-left transition-colors"
+        className="hover:bg-surface-raised flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors"
       >
         <Avatar name={name} size={32} />
         <span className="flex min-w-0 flex-col">
@@ -55,7 +55,7 @@ export function AccountMenu({ name, email, role }: { name: string; email: string
         </span>
       </button>
       {open ? (
-        <div className="bg-surface-raised border-separator shadow-e2 absolute bottom-[46px] left-0 z-40 w-[210px] rounded-[14px] border p-2.5">
+        <div className="bg-surface-raised border-separator shadow-e2 absolute bottom-[46px] left-0 z-40 w-[210px] rounded-lg border p-2.5">
           <div className="text-label font-bold">{name}</div>
           <div className="text-caption text-text-secondary truncate">{email}</div>
           <div className="bg-separator -mx-2.5 my-2 h-px" />

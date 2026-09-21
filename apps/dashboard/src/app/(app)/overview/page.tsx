@@ -346,7 +346,7 @@ export default async function OverviewPage({
 function EmptyOverview() {
   return (
     <div className="flex flex-col items-center gap-3.5 px-10 py-[110px] text-center">
-      <span className="bg-tint inline-flex h-14 w-14 items-center justify-center rounded-[18px]">
+      <span className="bg-tint inline-flex h-14 w-14 items-center justify-center rounded-lg">
         <IconClock width={26} height={26} className="text-accent" />
       </span>
       <span className="text-h2 font-extrabold tracking-[-0.02em]">No time tracked yet</span>

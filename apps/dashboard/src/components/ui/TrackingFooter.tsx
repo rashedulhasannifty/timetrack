@@ -21,7 +21,7 @@ export async function TrackingFooter({ token }: { token: string }) {
   const rest = count - Math.min(count, 3);
 
   return (
-    <div className="bg-surface-raised border-separator shadow-e1 flex flex-col gap-2 rounded-[14px] border p-3.5">
+    <div className="bg-surface-raised border-separator shadow-e1 flex flex-col gap-2 rounded-lg border p-3.5">
       <span className="text-caption flex items-center gap-[7px] font-bold">
         <span
           className={`bg-accent h-[7px] w-[7px] flex-none rounded-full ${count > 0 ? 'tt-pulse' : 'opacity-40'}`}

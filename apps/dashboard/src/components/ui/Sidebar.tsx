@@ -74,7 +74,7 @@ function NavLink({
       href={item.href}
       aria-current={active ? 'page' : undefined}
       onClick={onNavigate}
-      className={`text-label flex items-center gap-[11px] rounded-[11px] border px-[11px] py-[9px] font-semibold transition-colors ${
+      className={`text-label flex items-center gap-[11px] rounded-md border px-[11px] py-[9px] font-semibold transition-colors ${
         active
           ? 'bg-surface-raised border-separator text-text shadow-e1'
           : 'text-text-secondary hover:text-text border-transparent'

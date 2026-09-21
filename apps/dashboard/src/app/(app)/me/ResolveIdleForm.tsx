@@ -53,7 +53,7 @@ export function ResolveIdleForm({ row }: { row: IdleRow }) {
       {open ? (
         <form
           action={formAction}
-          className="bg-surface-raised border-separator shadow-e2 absolute right-0 z-40 mt-2 flex w-[260px] flex-col gap-2 rounded-[14px] border p-2.5"
+          className="bg-surface-raised border-separator shadow-e2 absolute right-0 z-40 mt-2 flex w-[260px] flex-col gap-2 rounded-lg border p-2.5"
         >
           <input type="hidden" name="id" value={row.id} />
           <input type="hidden" name="startTime" value={row.startTime} />

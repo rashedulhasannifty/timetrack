@@ -42,7 +42,7 @@ export function BrandMark({ size = 18, ...props }: { size?: number } & SVGProps<
 export function BrandChip({ size = 28 }: { size?: number }) {
   return (
     <span
-      className="bg-hero text-hero-text inline-flex flex-none items-center justify-center rounded-[9px]"
+      className="bg-hero text-hero-text inline-flex flex-none items-center justify-center rounded-md"
       style={{ width: size, height: size }}
     >
       <BrandMark size={Math.round(size * 0.57)} />
