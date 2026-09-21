@@ -97,19 +97,34 @@ fi
 # ── MinIO ───────────────────────────────────────────────────────────────────────────────
 # Screenshots are retention-bounded (30d by default), so mirroring stays cheap. --remove
 # keeps the mirror faithful rather than growing forever with objects retention deleted.
-S3_BUCKET="$(env_value S3_BUCKET)"
-MINIO_USER="$(env_value MINIO_ROOT_USER)"
-MINIO_PASS="$(env_value MINIO_ROOT_PASSWORD)"
-NETWORK="$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' \
-  "$("${COMPOSE[@]}" ps -q minio)")"
+#
+# Only while screenshots live in the bundled MinIO. On external S3 (deployment §5) the bucket is
+# off this box already and S3_BUCKET names the S3 bucket — a MinIO bucket of that name would be
+# empty, and --remove would then delete the mirror's contents rather than refresh them.
+# `|| true` because env_value's grep exits 1 on a missing key, which set -e would treat as fatal.
+S3_ENDPOINT_CFG="$(env_value S3_ENDPOINT || true)"
+case "$S3_ENDPOINT_CFG" in
+  '' | http://127.0.0.1:9000* | http://localhost:9000* | http://minio:9000*) MIRROR_MINIO=1 ;;
+  *) MIRROR_MINIO='' ;;
+esac
 
-echo "→ minio bucket '${S3_BUCKET}' → ${BACKUP_DIR}/minio"
-docker run --rm --network "$NETWORK" \
-  -v "$BACKUP_DIR/minio:/backup" \
-  -e MC_HOST_local="http://${MINIO_USER}:${MINIO_PASS}@minio:9000" \
-  quay.io/minio/mc:latest \
-  mirror --overwrite --remove "local/${S3_BUCKET}" /backup
-echo "  ✓ $(du -sh "$BACKUP_DIR/minio" | cut -f1) mirrored"
+if [[ -z "$MIRROR_MINIO" ]]; then
+  echo "→ screenshots are on external S3 (${S3_ENDPOINT_CFG}) — no MinIO mirror"
+else
+  S3_BUCKET="$(env_value S3_BUCKET)"
+  MINIO_USER="$(env_value MINIO_ROOT_USER)"
+  MINIO_PASS="$(env_value MINIO_ROOT_PASSWORD)"
+  NETWORK="$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' \
+    "$("${COMPOSE[@]}" ps -q minio)")"
+
+  echo "→ minio bucket '${S3_BUCKET}' → ${BACKUP_DIR}/minio"
+  docker run --rm --network "$NETWORK" \
+    -v "$BACKUP_DIR/minio:/backup" \
+    -e MC_HOST_local="http://${MINIO_USER}:${MINIO_PASS}@minio:9000" \
+    quay.io/minio/mc:latest \
+    mirror --overwrite --remove "local/${S3_BUCKET}" /backup
+  echo "  ✓ $(du -sh "$BACKUP_DIR/minio" | cut -f1) mirrored"
+fi
 
 # ── Retention ───────────────────────────────────────────────────────────────────────────
 # Only prunes dumps. The MinIO mirror is a mirror, not a history — it is pruned by --remove.

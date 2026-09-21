@@ -124,6 +124,46 @@ the secret afterwards does **not** rotate them — it makes the apps fail to aut
 - `INVITE_TTL_DAYS` (default 7) is stamped on each invite at create time; changing it never
   extends invites already sent.
 
+### Screenshots on external S3 (AWS)
+
+By default screenshots live in the bundled MinIO (§2) — on the VPS's own disk, mirrored nightly
+by `backup.sh`. Setting `S3_ENDPOINT` moves them to a real S3 bucket instead: the disk stops
+growing, and the objects are off the box without a mirror. Set these five secrets **together**
+and redeploy:
+
+| Secret          | Value                                                                              |
+| --------------- | ---------------------------------------------------------------------------------- |
+| `S3_ENDPOINT`   | `https://s3.<region>.amazonaws.com`                                                |
+| `S3_REGION`     | the bucket's region — required with `S3_ENDPOINT`, and the deploy fails without it |
+| `S3_BUCKET`     | the S3 bucket name (**overwrites** the MinIO bucket name)                          |
+| `S3_ACCESS_KEY` | the bucket's access key (**overwrites** MinIO's)                                   |
+| `S3_SECRET_KEY` | the bucket's secret key (**overwrites** MinIO's)                                   |
+
+All five, because the last three are one set of credentials with two possible targets — adding
+only the endpoint points the API at AWS while still holding MinIO's key, and `HeadBucket` fails
+at boot. Leave `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` in place: the datastores stack still runs
+MinIO, it simply stops receiving writes.
+
+The deploy omits `S3_PUBLIC_ENDPOINT` in this mode, deliberately. A presigned URL is signed for
+the bucket's own host, which the browser reaches directly; overriding the origin would break the
+signature. Caddy's `/<S3_BUCKET>/*` route to MinIO goes unused.
+
+Bucket settings — the opposite of the backup bucket in §6:
+
+- **No versioning and no Object Lock.** Retention (default 30d) and employee erasure must really
+  delete; a locked bucket would keep a copy of every screenshot an employee asked to be removed.
+- Block Public Access on, default encryption SSE-S3.
+- Lifecycle, if you want one: Standard-IA or Glacier **Instant** Retrieval only. Never Glacier
+  Flexible Retrieval or Deep Archive — those require a restore before any GET, so the dashboard's
+  presigned URL returns an error instead of an image.
+- The key needs `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` and `s3:ListBucket`.
+  `ListBucket` is not optional: the API calls `HeadBucket` in `onModuleInit` and will not boot
+  without it.
+
+`backup.sh` skips the MinIO mirror once `S3_ENDPOINT` points elsewhere (§6). **Rollback:** delete
+the `S3_ENDPOINT` and `S3_REGION` secrets, restore the three `S3_*` to their MinIO values, and
+redeploy; screenshots written to S3 in the meantime stay there and their rows will 404.
+
 ---
 
 ## 4. Database migrations on deploy
@@ -198,7 +238,7 @@ readlink -f /srv/timetrack/current       # live release
 ## 6. Backups & DR
 
 - **Postgres:** nightly `pg_dump` (or WAL archiving/`pgBackRest` for PITR) to off-box storage; test restores quarterly. Time entries are the payroll record — never on a short retention.
-- **MinIO:** replicate the bucket (MinIO mirror/`mc mirror`) or snapshot the volume; screenshots are retention-bounded (default 30d) so backup windows can be short.
+- **MinIO:** replicate the bucket (MinIO mirror/`mc mirror`) or snapshot the volume; screenshots are retention-bounded (default 30d) so backup windows can be short. On external S3 (§3) the bucket is already off the box, and `backup.sh` skips the mirror.
 - **Redis:** ephemeral (BullMQ queues) — no backup needed; jobs are idempotent and retried.
 - Document RPO/RTO with the customer; encrypt backups at rest and in transit.
 
