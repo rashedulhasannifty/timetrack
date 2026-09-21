@@ -34,7 +34,7 @@ export default async function AcceptInvitePage({
 
   return (
     <main className="flex min-h-screen items-center justify-center p-8">
-      <div className="bg-surface-raised border-separator w-full max-w-sm rounded-2xl border p-7 shadow-e2">
+      <div className="bg-surface-raised border-separator w-full max-w-sm rounded-lg border p-7 shadow-e2">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <BrandMark size={34} />
           <div>
