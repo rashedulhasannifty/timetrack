@@ -14,7 +14,7 @@ export function ProjectArchiveToggle({ id, archived }: { id: string; archived: b
       <button
         type="submit"
         disabled={pending}
-        className="border-separator text-text hover:bg-surface rounded-md border px-2.5 py-1 text-label font-medium transition-colors disabled:opacity-50"
+        className="border-separator text-text hover:bg-hover rounded-md border px-2.5 py-1 text-label font-medium transition-colors disabled:opacity-50"
       >
         {archived ? 'Unarchive' : 'Archive'}
       </button>

@@ -15,7 +15,7 @@ export function ProjectRecolor({ id, color }: { id: string; color: string | null
       <button
         type="submit"
         disabled={pending}
-        className="border-separator text-text hover:bg-surface rounded-md border px-2.5 py-1 text-label font-medium transition-colors disabled:opacity-50"
+        className="border-separator text-text hover:bg-hover rounded-md border px-2.5 py-1 text-label font-medium transition-colors disabled:opacity-50"
       >
         {pending ? 'Saving…' : 'Save color'}
       </button>

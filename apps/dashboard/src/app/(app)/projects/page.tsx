@@ -142,7 +142,7 @@ export default async function ProjectsPage({
                 {view.rows.map((row) => (
                   <li
                     key={row.projectId}
-                    className="border-separator hover:bg-surface flex flex-wrap items-center gap-3.5 border-b px-[26px] py-4 transition-colors"
+                    className="border-separator hover:bg-hover flex flex-wrap items-center gap-3.5 border-b px-[26px] py-4 transition-colors"
                   >
                     <span
                       className="inline-block h-[9px] w-[9px] shrink-0 rounded-full"

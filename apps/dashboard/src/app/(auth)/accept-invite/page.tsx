@@ -94,7 +94,7 @@ export default async function AcceptInvitePage({
         ) : (
           <a
             href="/login"
-            className="border-separator text-text hover:bg-surface text-body flex w-full items-center justify-center rounded-md border px-3 py-2.5 font-medium transition-colors"
+            className="border-separator text-text hover:bg-hover text-body flex w-full items-center justify-center rounded-md border px-3 py-2.5 font-medium transition-colors"
           >
             Go to sign in
           </a>

@@ -73,14 +73,14 @@ export function DayHeader({
           >
             <Link
               href={`?date=${prevDate}`}
-              className="text-text hover:bg-surface text-caption rounded-full px-2.5 py-1 font-semibold"
+              className="text-text hover:bg-hover text-caption rounded-full px-2.5 py-1 font-semibold"
               aria-label="Previous day"
             >
               ‹
             </Link>
             <Link
               href={`?date=${today}`}
-              className="text-text hover:bg-surface text-caption rounded-full px-2.5 py-1 font-semibold"
+              className="text-text hover:bg-hover text-caption rounded-full px-2.5 py-1 font-semibold"
             >
               Today
             </Link>
@@ -95,7 +95,7 @@ export function DayHeader({
             ) : (
               <Link
                 href={`?date=${nextDate}`}
-                className="text-text hover:bg-surface text-caption rounded-full px-2.5 py-1 font-semibold"
+                className="text-text hover:bg-hover text-caption rounded-full px-2.5 py-1 font-semibold"
                 aria-label="Next day"
               >
                 ›

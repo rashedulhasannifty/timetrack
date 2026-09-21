@@ -23,7 +23,7 @@ export function TaskArchiveToggle({
       <button
         type="submit"
         disabled={pending}
-        className="border-separator text-text-secondary hover:bg-surface hover:text-text rounded-md border px-2 py-0.5 text-caption font-medium transition-colors disabled:opacity-50"
+        className="border-separator text-text-secondary hover:bg-hover hover:text-text rounded-md border px-2 py-0.5 text-caption font-medium transition-colors disabled:opacity-50"
       >
         {archived ? 'Unarchive' : 'Archive'}
       </button>

@@ -87,7 +87,7 @@ export function UserRowActions({
                 setOpen(false);
                 setReason('');
               }}
-              className="border-separator text-text hover:bg-surface text-caption rounded-full border px-3 py-1.5 font-semibold transition-colors disabled:opacity-50"
+              className="border-separator text-text hover:bg-hover text-caption rounded-full border px-3 py-1.5 font-semibold transition-colors disabled:opacity-50"
             >
               Cancel
             </button>

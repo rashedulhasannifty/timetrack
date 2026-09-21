@@ -30,7 +30,7 @@ export function Tr({
   interactive?: boolean;
   className?: string;
 } & HTMLAttributes<HTMLTableRowElement>) {
-  const hover = interactive ? 'hover:bg-surface cursor-pointer' : '';
+  const hover = interactive ? 'hover:bg-hover cursor-pointer' : '';
   return (
     <tr className={`border-separator border-t ${hover} ${className}`.trim()} {...rest}>
       {children}
