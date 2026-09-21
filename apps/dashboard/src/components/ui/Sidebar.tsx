@@ -15,11 +15,16 @@ import {
 import { BrandChip } from './BrandMark';
 import { AccountMenu } from './AccountMenu';
 
+// One hue per nav section (globals.css --tt-nav-*): the icon carries it, the label stays
+// neutral. Kept as a suffix rather than the full var() so NavLink builds the var() once.
+type NavHue = 'overview' | 'projects' | 'reports' | 'approvals' | 'admin' | 'me' | 'install';
+
 type Item = {
   href: string;
   label: string;
   Icon: ComponentType<SVGProps<SVGSVGElement>>;
   exact?: boolean;
+  hue: NavHue;
 };
 
 type SidebarProps = {
@@ -33,19 +38,19 @@ type SidebarProps = {
 };
 
 const PRIMARY: Item[] = [
-  { href: '/overview', label: 'Overview', Icon: IconTeam, exact: true },
-  { href: '/projects', label: 'Projects', Icon: IconProjects },
-  { href: '/reports', label: 'Reports', Icon: IconReports },
-  { href: '/approvals', label: 'Approvals', Icon: IconApprovals },
-  { href: '/admin/settings', label: 'Admin', Icon: IconAdmin },
+  { href: '/overview', label: 'Overview', Icon: IconTeam, exact: true, hue: 'overview' },
+  { href: '/projects', label: 'Projects', Icon: IconProjects, hue: 'projects' },
+  { href: '/reports', label: 'Reports', Icon: IconReports, hue: 'reports' },
+  { href: '/approvals', label: 'Approvals', Icon: IconApprovals, hue: 'approvals' },
+  { href: '/admin/settings', label: 'Admin', Icon: IconAdmin, hue: 'admin' },
 ];
 
 // /install is a public page outside the app shell, but installing the client is a
 // per-person action, so it belongs beside "My time" rather than under Admin. Following it
 // leaves the shell; the marketing nav there offers "Open dashboard" as the way back.
 const SECONDARY: Item[] = [
-  { href: '/me', label: 'My time', Icon: IconClock },
-  { href: '/install', label: 'Install the app', Icon: IconDownload },
+  { href: '/me', label: 'My time', Icon: IconClock, hue: 'me' },
+  { href: '/install', label: 'Install the app', Icon: IconDownload, hue: 'install' },
 ];
 
 function isActive(pathname: string, item: Item): boolean {
@@ -69,18 +74,24 @@ function NavLink({
   onNavigate: () => void;
 }) {
   const { Icon } = item;
+  const hueVar = `var(--tt-nav-${item.hue})`;
   return (
     <Link
       href={item.href}
       aria-current={active ? 'page' : undefined}
       onClick={onNavigate}
-      className={`text-label flex items-center gap-[11px] rounded-md border px-[11px] py-[9px] font-semibold transition-colors ${
-        active
-          ? 'bg-surface-raised border-separator text-text shadow-e1'
-          : 'text-text-secondary hover:text-text border-transparent'
+      className={`text-label flex items-center gap-[11px] rounded-md border border-transparent px-[11px] py-[9px] font-semibold transition-colors ${
+        active ? 'text-text' : 'text-text-secondary hover:text-text'
       }`}
+      style={
+        active
+          ? {
+              backgroundColor: `color-mix(in srgb, ${hueVar} var(--tt-nav-active-mix), transparent)`,
+            }
+          : undefined
+      }
     >
-      <Icon width={18} height={18} className="flex-none" />
+      <Icon width={18} height={18} className="flex-none" style={{ color: hueVar }} />
       <span className="flex-1">{item.label}</span>
     </Link>
   );
