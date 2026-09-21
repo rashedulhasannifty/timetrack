@@ -124,8 +124,11 @@
 
   /* Dark gains depth in this redesign. The previous handoff dropped card shadows
      entirely in dark and leaned on the raised surface; the 3D language cannot
-     survive that, so the edge goes black and the ambient layer deepens. */
-  --tt-elevation-1: 0 3px 0 0 #000000, 0 9px 22px rgba(0, 0, 0, 0.6);
+     survive that, so the ambient layer deepens. The edge itself is a light rim
+     (--tt-border-strong), not black: against the near-black --tt-surface ground
+     a black edge sits at ~1.1:1 and is invisible, so dark-mode depth has to come
+     from something lighter than the card, the way a real bevel catches light. */
+  --tt-elevation-1: 0 3px 0 0 var(--tt-border-strong), 0 9px 22px rgba(0, 0, 0, 0.6);
   --tt-elevation-2: 0 8px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
   --tt-hairline: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 
@@ -380,7 +383,7 @@ body {
 }
 .dark .card-3d-interactive:hover {
   box-shadow:
-    0 6px 0 0 #000000,
+    0 6px 0 0 var(--tt-border-strong),
     0 20px 36px rgba(0, 0, 0, 0.65);
 }
 
@@ -403,7 +406,7 @@ body {
 .dark .row-3d:hover {
   box-shadow:
     0 6px 18px rgba(0, 0, 0, 0.65),
-    0 2px 0 0 #000000;
+    0 2px 0 0 var(--tt-border-strong);
 }
 
 /* ── 3D · segmented tabs ─────────────────────────────────────────────────────
@@ -439,7 +442,7 @@ body {
 .dark .seg-tab[aria-selected='true'],
 .dark .seg-tab[aria-pressed='true'] {
   box-shadow:
-    0 2px 0 0 #000000,
+    0 2px 0 0 var(--tt-border-strong),
     0 4px 10px rgba(0, 0, 0, 0.55);
 }
 
