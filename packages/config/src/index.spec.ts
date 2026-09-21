@@ -79,3 +79,44 @@ describe('SMTP config is all-or-nothing', () => {
     expect(() => loadEnv({ ...base, ...partial })).toThrow(/MAIL_FROM/);
   });
 });
+
+/**
+ * A deploy that switches modes stops emitting a key — MinIO→S3 drops S3_PUBLIC_ENDPOINT,
+ * SSO being turned off drops OIDC_*. PM2's reload overrides the vars it is given but never
+ * DELETES one that vanished, so the old value stays live in the process. The deploy therefore
+ * writes every optional key on every run, empty when unused, and an empty value must mean
+ * "not set" — not "set to an invalid empty string".
+ *
+ * This is the 2026-09-21 screenshot outage: S3_PUBLIC_ENDPOINT survived the cutover to AWS,
+ * so uploads went to S3 while presigned URLs were still signed for the MinIO public origin.
+ */
+describe('empty values mean absent', () => {
+  it('treats an empty optional URL as unset rather than rejecting it', () => {
+    expect(loadEnv({ ...base, S3_PUBLIC_ENDPOINT: '' }).S3_PUBLIC_ENDPOINT).toBeUndefined();
+  });
+
+  it('treats an empty optional group as unset (SSO off, mail off)', () => {
+    const env = loadEnv({
+      ...base,
+      OIDC_ISSUER: '',
+      OIDC_CLIENT_ID: '',
+      OIDC_CLIENT_SECRET: '',
+      OIDC_REDIRECT_URI: '',
+      OIDC_DEFAULT_TEAM_ID: '',
+      SMTP_HOST: '',
+      MAIL_FROM: '',
+    });
+    expect(env.OIDC_ISSUER).toBeUndefined();
+    expect(env.OIDC_DEFAULT_TEAM_ID).toBeUndefined();
+    expect(env.SMTP_HOST).toBeUndefined();
+    expect(smtpConfig(env)).toBeNull();
+  });
+
+  it('still applies a default when the key is present but empty', () => {
+    expect(loadEnv({ ...base, INVITE_TTL_DAYS: '' }).INVITE_TTL_DAYS).toBe(7);
+  });
+
+  it('does not silently accept an empty REQUIRED key', () => {
+    expect(() => loadEnv({ ...base, S3_BUCKET: '' })).toThrow(/S3_BUCKET/);
+  });
+});

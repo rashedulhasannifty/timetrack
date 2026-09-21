@@ -251,7 +251,18 @@ export function smtpConfig(env: Env): SmtpConfig | null {
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   loadDotEnvOnce();
-  const parsed = EnvSchema.safeParse(source);
+  // An empty value means ABSENT, not "an invalid empty string".
+  //
+  // A deploy that switches modes stops emitting a key — MinIO→S3 drops S3_PUBLIC_ENDPOINT,
+  // SSO off drops OIDC_*. PM2's reload overrides the variables it is handed but never deletes
+  // one that vanished, so the stale value stays live in the process. The deploy therefore
+  // writes every optional key on every run, blank when unused, and blank has to parse as unset
+  // for that to work. (2026-09-21: a surviving S3_PUBLIC_ENDPOINT sent every presigned URL to
+  // the MinIO origin while uploads went to S3 — objects present, every thumbnail broken.)
+  //
+  // A REQUIRED key left blank still fails, now as "Required" rather than a length error.
+  const present = Object.fromEntries(Object.entries(source).filter(([, value]) => value !== ''));
+  const parsed = EnvSchema.safeParse(present);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `  ${i.path.join('.')}: ${i.message}`).join('\n');
     throw new Error(`Invalid environment:\n${issues}`);

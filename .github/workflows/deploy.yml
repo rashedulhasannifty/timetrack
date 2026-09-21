@@ -132,9 +132,11 @@ jobs:
       # `ps`. The host writes it with umask 077 to a temp file, then renames, so nothing ever
       # reads a partial or world-readable file.
       #
-      # CRITICAL: only REQUIRED vars are written unconditionally. packages/config treats an empty
-      # string as SET, not absent — `OIDC_ISSUER=` fails z.url() and the API refuses to boot. So
-      # every optional group is emitted only when its secret is non-empty.
+      # CRITICAL: EVERY key is written on every run, blank when unused. PM2's reload overrides
+      # the variables it is handed but never deletes one that stopped being written, so omitting
+      # a key leaves its previous value live in the process — how the MinIO→S3 cutover kept a
+      # stale S3_PUBLIC_ENDPOINT and broke every screenshot (2026-09-21, deployment §3).
+      # packages/config parses a blank value as absent, which is what makes writing blanks safe.
       - name: Write shared/.env on the VPS
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
@@ -240,41 +242,40 @@ jobs:
             echo "PUBLIC_DOMAIN=$PUBLIC_DOMAIN"
             echo "DASHBOARD_SESSION_SECRET=$DASHBOARD_SESSION_SECRET"
 
-            # ---- Optional groups: emitted ONLY when set (empty != absent, see above) ----
-            # `if`, not `[ -n ] && echo`: a false test as the group's last command would make the
-            # whole group — and so the step — exit non-zero under set -e.
-            if [ -n "${INVITE_TTL_DAYS:-}" ]; then echo "INVITE_TTL_DAYS=$INVITE_TTL_DAYS"; fi
+            # ---- Optional keys: ALWAYS emitted, blank when unused ----
+            # Never `if [ -n ... ]`. PM2's reload overrides the variables it is handed but never
+            # DELETES one that disappeared from this file, so a key that stops being written
+            # keeps its previous value in the live process. Omitting S3_PUBLIC_ENDPOINT on the
+            # MinIO→S3 cutover is what broke every screenshot on 2026-09-21: uploads went to S3
+            # while presigned URLs were still signed for the MinIO public origin.
+            #
+            # packages/config treats a blank value as absent, which is what makes this safe.
+            echo "INVITE_TTL_DAYS=${INVITE_TTL_DAYS:-}"
 
-            if [ -n "${SMTP_HOST:-}" ]; then
-              echo "SMTP_HOST=$SMTP_HOST"
-              echo "SMTP_PORT=$SMTP_PORT"
-              echo "SMTP_USER=$SMTP_USER"
-              echo "SMTP_PASS=$SMTP_PASS"
-              # Written raw: env-file.cjs takes everything after the first `=` literally, so the
-              # spaces and angle brackets in `TimeTrack <noreply@…>` need no quoting.
-              echo "MAIL_FROM=$MAIL_FROM"
-            fi
+            echo "SMTP_HOST=${SMTP_HOST:-}"
+            echo "SMTP_PORT=${SMTP_PORT:-}"
+            echo "SMTP_USER=${SMTP_USER:-}"
+            echo "SMTP_PASS=${SMTP_PASS:-}"
+            # Written raw: env-file.cjs takes everything after the first `=` literally, so the
+            # spaces and angle brackets in `TimeTrack <noreply@…>` need no quoting.
+            echo "MAIL_FROM=${MAIL_FROM:-}"
 
             # SEED_ADMIN_* are deliberately NOT written: the seed is a one-time manual step
             # (docs/vm-setup.md), and a standing admin password has no business in the runtime env.
 
-            if [ -n "${OIDC_ISSUER:-}" ]; then
-              echo "OIDC_ISSUER=$OIDC_ISSUER"
-              echo "OIDC_CLIENT_ID=$OIDC_CLIENT_ID"
-              echo "OIDC_CLIENT_SECRET=$OIDC_CLIENT_SECRET"
-              echo "OIDC_REDIRECT_URI=$OIDC_REDIRECT_URI"
-              echo "OIDC_DEFAULT_TEAM_ID=$OIDC_DEFAULT_TEAM_ID"
-            fi
+            echo "OIDC_ISSUER=${OIDC_ISSUER:-}"
+            echo "OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}"
+            echo "OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}"
+            echo "OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-}"
+            echo "OIDC_DEFAULT_TEAM_ID=${OIDC_DEFAULT_TEAM_ID:-}"
 
             # Off-site Postgres dumps (infra/backup.sh, deployment §6). Read by the backup script,
             # not the apps. BACKUP_S3_ENDPOINT only for a non-AWS store.
-            if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
-              echo "BACKUP_S3_BUCKET=$BACKUP_S3_BUCKET"
-              echo "BACKUP_S3_REGION=$BACKUP_S3_REGION"
-              echo "BACKUP_S3_ACCESS_KEY=$BACKUP_S3_ACCESS_KEY"
-              echo "BACKUP_S3_SECRET_KEY=$BACKUP_S3_SECRET_KEY"
-              if [ -n "${BACKUP_S3_ENDPOINT:-}" ]; then echo "BACKUP_S3_ENDPOINT=$BACKUP_S3_ENDPOINT"; fi
-            fi
+            echo "BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}"
+            echo "BACKUP_S3_REGION=${BACKUP_S3_REGION:-}"
+            echo "BACKUP_S3_ACCESS_KEY=${BACKUP_S3_ACCESS_KEY:-}"
+            echo "BACKUP_S3_SECRET_KEY=${BACKUP_S3_SECRET_KEY:-}"
+            echo "BACKUP_S3_ENDPOINT=${BACKUP_S3_ENDPOINT:-}"
           } | ssh deploy-target "
             set -euo pipefail
             umask 077
