@@ -103,12 +103,18 @@ export async function POST(
     if (typeof tokenVal !== 'string' || tokenVal.length === 0) {
       return redirect(req, '/accept-invite?error=invalid');
     }
-    // Keep the token on every error redirect so the invitee can retry without re-opening
-    // the email. It is a URL parameter they already hold.
-    const back = (code: string): NextResponse =>
-      redirect(req, `/accept-invite?token=${encodeURIComponent(tokenVal)}&error=${code}`);
-
     const name = typeof nameVal === 'string' ? nameVal.trim() : '';
+
+    // Keep the token on every error redirect so the invitee can retry without re-opening
+    // the email. It is a URL parameter they already hold. The name they typed rides along
+    // too, so a password slip does not make them type their name again. Passwords never do.
+    const back = (code: string): NextResponse =>
+      redirect(
+        req,
+        `/accept-invite?token=${encodeURIComponent(tokenVal)}&error=${code}` +
+          (name.length > 0 && name.length <= 200 ? `&name=${encodeURIComponent(name)}` : ''),
+      );
+
     if (name.length === 0 || name.length > 200) return back('name');
     if (typeof passwordVal !== 'string' || passwordVal.length < 8) return back('weak');
     if (passwordVal !== confirmVal) return back('mismatch');

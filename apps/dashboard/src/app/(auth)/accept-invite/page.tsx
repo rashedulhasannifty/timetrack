@@ -11,9 +11,9 @@ import { PasswordField } from '../../../components/ui/PasswordField';
 export default async function AcceptInvitePage({
   searchParams,
 }: {
-  searchParams: Promise<{ token?: string; error?: string }>;
+  searchParams: Promise<{ token?: string; error?: string; name?: string }>;
 }) {
-  const { token, error } = await searchParams;
+  const { token, error, name } = await searchParams;
 
   const inputClass =
     'bg-surface border-separator text-text placeholder:text-text-secondary focus:border-accent rounded-md border px-3 py-2.5 text-body outline-none transition-colors';
@@ -65,6 +65,7 @@ export default async function AcceptInvitePage({
               maxLength={200}
               required
               placeholder="Your full name"
+              defaultValue={typeof name === 'string' ? name : ''}
               className={inputClass}
             />
             <PasswordField
