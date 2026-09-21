@@ -205,9 +205,11 @@ redeploy needs a **new commit** — the box refuses to re-deploy the SHA that is
    dependencies), the dashboard's Next `standalone` output + `.next/static` (`cp -a` — the tree is
    held together by pnpm symlinks), and `infra/pm2/*.cjs`. The shape is asserted before upload.
 3. **Render `shared/.env`** from secrets, piped over SSH stdin (never argv), written via temp file
-   - rename with umask 077. Required vars always; optional groups (`INVITE_TTL_DAYS`, SMTP, OIDC,
-     `BACKUP_S3_*`) only when set — `packages/config` treats an empty string as present, so
-     `OIDC_ISSUER=` would fail `z.url()` and the API would refuse to boot. `DATABASE_URL`'s host is
+   - rename with umask 077. **Every** key is written on every run, blank when unused —
+     `packages/config` parses a blank value as absent. Omitting a key instead is what broke the
+     2026-09-21 cutover: PM2's reload overrides the variables it is given but never deletes one
+     that stopped being written, so a dropped `S3_PUBLIC_ENDPOINT` stayed live in the process
+     and every presigned URL kept pointing at MinIO (§3). `DATABASE_URL`'s host is
      rewritten to `127.0.0.1:5432`; `REDIS_URL`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `NODE_ENV`
      and `API_PORT` are hardcoded. `SEED_ADMIN_*` is never written.
 4. **Upload** the tarball and `infra/deploy/remote-deploy.sh`, then run the script as deploy:
