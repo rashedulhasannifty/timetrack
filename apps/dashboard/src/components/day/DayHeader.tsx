@@ -68,7 +68,7 @@ export function DayHeader({
           ) : null}
           <DayPicker date={date} today={today} />
           <nav
-            className="border-separator bg-surface-raised shadow-e1 flex items-center gap-1 rounded-full border p-0.5"
+            className="border-separator bg-surface-raised flex items-center gap-1 rounded-full border p-0.5"
             aria-label="Day navigation"
           >
             <Link

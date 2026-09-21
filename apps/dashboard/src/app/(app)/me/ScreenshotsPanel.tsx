@@ -169,7 +169,7 @@ function Lightbox({
         src={shot.fullUrl}
         alt={`Screenshot at ${shotDescription(shot)}`}
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[80vh] max-w-5xl rounded-lg object-contain shadow-e1"
+        className="max-h-[80vh] max-w-5xl rounded-lg object-contain"
       />
       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
         <button
