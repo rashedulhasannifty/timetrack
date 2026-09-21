@@ -160,9 +160,27 @@ Bucket settings — the opposite of the backup bucket in §6:
   `ListBucket` is not optional: the API calls `HeadBucket` in `onModuleInit` and will not boot
   without it.
 
+**Verify the key before you deploy.** A wrong or mismatched credential is not a degraded
+deploy, it is an outage: `HeadBucket` throws in `onModuleInit`, the API dies before it listens,
+and the deploy's automatic rollback _cannot_ save you — `shared/.env` is written by the workflow
+**before** `remote-deploy.sh` runs, so the previous release boots against the same bad env and
+fails too ("ROLLBACK ALSO FAILED"). Prove the credential first, from anywhere with the AWS CLI:
+
+```sh
+aws s3api head-bucket --bucket "$S3_BUCKET" --endpoint-url "$S3_ENDPOINT"    # boot check
+aws s3api list-objects-v2 --bucket "$S3_BUCKET" --max-items 1                # s3:ListBucket
+echo probe | aws s3 cp - "s3://$S3_BUCKET/_healthcheck.txt"                  # upload path
+aws s3 rm "s3://$S3_BUCKET/_healthcheck.txt"                                 # retention/erasure
+```
+
+`SignatureDoesNotMatch` on any of these means the id and secret are not a pair — an access key's
+secret is shown once at creation and cannot be recovered, so issue a new key rather than hunting
+for the old secret.
+
 `backup.sh` skips the MinIO mirror once `S3_ENDPOINT` points elsewhere (§6). **Rollback:** delete
 the `S3_ENDPOINT` and `S3_REGION` secrets, restore the three `S3_*` to their MinIO values, and
-redeploy; screenshots written to S3 in the meantime stay there and their rows will 404.
+redeploy; screenshots written to S3 in the meantime stay there and their rows will 404. Note the
+redeploy needs a **new commit** — the box refuses to re-deploy the SHA that is already live.
 
 ---
 
