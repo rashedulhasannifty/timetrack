@@ -19,7 +19,7 @@ import type { QueueService } from '../../infra/queue/queue.module.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 
 const admin: SessionUser = { id: 'admin1', role: 'ADMIN', teamId: 'team1' };
-const dto = { email: 'new@ex.co', name: 'New Hire', role: 'EMPLOYEE' as const, teamId: 'team1' };
+const dto = { email: 'new@ex.co', role: 'EMPLOYEE' as const, teamId: 'team1' };
 
 function makeService(repo: Partial<InvitesRepository> = {}) {
   const fullRepo = {
@@ -81,6 +81,14 @@ describe('InvitesService.create', () => {
     );
   });
 
+  it('stores no name on the invite — there is none until the invitee accepts', () => {
+    const { svc, repo, queue } = makeService();
+    return svc.create(dto, admin).then(() => {
+      expect(vi.mocked(repo.createInvite).mock.calls[0]![0]).not.toHaveProperty('name');
+      expect(vi.mocked(queue.enqueue).mock.calls[0]![2]).not.toHaveProperty('name');
+    });
+  });
+
   it('expires the invite INVITE_TTL_DAYS after creation', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-10T00:00:00Z'));
@@ -100,11 +108,22 @@ describe('InvitesService.accept', () => {
   it('returns the created identity on a valid token', async () => {
     const identity = { userId: 'u1', role: 'EMPLOYEE' as const, teamId: 'team1' };
     const { svc } = makeService({ acceptInTransaction: vi.fn().mockResolvedValue(identity) });
-    await expect(svc.accept('tok', 'password123')).resolves.toEqual(identity);
+    await expect(svc.accept('tok', 'password123', 'Ada Lovelace')).resolves.toEqual(identity);
+  });
+
+  it('passes the invitee-supplied name through to the transaction', async () => {
+    const identity = { userId: 'u1', role: 'EMPLOYEE' as const, teamId: 'team1' };
+    const acceptInTransaction = vi.fn().mockResolvedValue(identity);
+    const { svc } = makeService({ acceptInTransaction });
+    await svc.accept('tok', 'password123', 'Ada Lovelace');
+    // Trimming/length is AcceptInviteSchema's job at the boundary, not the service's.
+    expect(acceptInTransaction.mock.calls[0]![2]).toBe('Ada Lovelace');
   });
 
   it('throws 401 when the invite is invalid/expired/used (repo returns null)', async () => {
     const { svc } = makeService({ acceptInTransaction: vi.fn().mockResolvedValue(null) });
-    await expect(svc.accept('tok', 'password123')).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(svc.accept('tok', 'password123', 'Ada')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 });

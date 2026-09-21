@@ -33,7 +33,6 @@ describe('api.inviteUser', () => {
     expect(
       await api.inviteUser('tok', {
         email: 'ada@example.com',
-        name: 'Ada',
         role: 'EMPLOYEE',
         teamId: USER.teamId,
       }),
@@ -53,7 +52,6 @@ describe('api.inviteUser', () => {
     await expect(
       api.inviteUser('tok', {
         email: 'ada@example.com',
-        name: 'Ada',
         role: 'EMPLOYEE',
         teamId: USER.teamId,
       }),

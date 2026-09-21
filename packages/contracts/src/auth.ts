@@ -35,10 +35,16 @@ export const JwtClaimsSchema = z.object({
 /**
  * PRD §6.8 — an invited user sets their own password with the one-time token from
  * their invite email. Password bounds mirror LoginSchema. Accept auto-logs-in (TokenPair).
+ *
+ * `name` is supplied HERE rather than at invite time: the invite carries only an address,
+ * a role and a team, so this is the one and only point where the new user's display name
+ * enters the system. It is required — User.name is NOT NULL and there is nothing to fall
+ * back to.
  */
 export const AcceptInviteSchema = z.object({
   token: z.string().min(1),
   password: z.string().min(8).max(200),
+  name: z.string().trim().min(1).max(200),
 });
 
 export type Login = z.infer<typeof LoginSchema>;

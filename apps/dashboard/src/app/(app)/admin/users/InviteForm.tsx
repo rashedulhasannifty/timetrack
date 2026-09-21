@@ -14,6 +14,9 @@ const INITIAL: InviteState = { ok: false };
  *
  * The team is picked here rather than assumed: a team is a manager's group, so choosing it at
  * invite time is what puts a new hire under the right manager from day one.
+ *
+ * There is no Name field: the invitee types their own name on the accept page, so the
+ * directory shows what people call themselves rather than what an admin guessed.
  */
 export function InviteForm({ teams }: { teams: Team[] }) {
   const [state, formAction, pending] = useActionState(inviteUserAction, INITIAL);
@@ -23,15 +26,6 @@ export function InviteForm({ teams }: { teams: Team[] }) {
       action={formAction}
       className="bg-surface-raised border-separator mb-6 flex flex-col gap-3 rounded-lg border p-4 shadow-e1 sm:flex-row sm:items-end"
     >
-      <label className="text-body flex flex-col gap-1">
-        <span className="text-text-secondary">Name</span>
-        <input
-          name="name"
-          required
-          placeholder="Ada Lovelace"
-          className="bg-surface border-separator text-text focus:border-accent rounded-md border px-3 py-2 outline-none transition-colors"
-        />
-      </label>
       <label className="text-body flex flex-col gap-1">
         <span className="text-text-secondary">Email</span>
         <input

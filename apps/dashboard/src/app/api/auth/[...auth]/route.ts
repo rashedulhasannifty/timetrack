@@ -98,6 +98,8 @@ export async function POST(
     const tokenVal = form.get('token');
     const passwordVal = form.get('password');
     const confirmVal = form.get('confirm');
+    // The invitee names themselves here — nobody supplied one at invite time.
+    const nameVal = form.get('name');
     if (typeof tokenVal !== 'string' || tokenVal.length === 0) {
       return redirect(req, '/accept-invite?error=invalid');
     }
@@ -106,10 +108,12 @@ export async function POST(
     const back = (code: string): NextResponse =>
       redirect(req, `/accept-invite?token=${encodeURIComponent(tokenVal)}&error=${code}`);
 
+    const name = typeof nameVal === 'string' ? nameVal.trim() : '';
+    if (name.length === 0 || name.length > 200) return back('name');
     if (typeof passwordVal !== 'string' || passwordVal.length < 8) return back('weak');
     if (passwordVal !== confirmVal) return back('mismatch');
 
-    const tokens = await api.acceptInvite(tokenVal, passwordVal);
+    const tokens = await api.acceptInvite(tokenVal, passwordVal, name);
     // 401 → the token is invalid, expired, or already used. Re-showing the form would just
     // fail again, so send them to /login without the token.
     if (!tokens) return redirect(req, '/accept-invite?error=invalid');

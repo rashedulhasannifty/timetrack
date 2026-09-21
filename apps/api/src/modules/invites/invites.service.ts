@@ -68,7 +68,6 @@ export class InvitesService {
     const expiresAt = new Date(Date.now() + this.ttlDays * 24 * 60 * 60 * 1000);
     const created = await this.repo.createInvite({
       email: dto.email,
-      name: dto.name,
       role: dto.role,
       teamId: dto.teamId,
       tokenHash: this.hashToken(token),
@@ -79,7 +78,6 @@ export class InvitesService {
     // the request (design decision) rather than silently dropping the invite email.
     await this.queue.enqueue(QUEUES.email, 'invite', {
       email: dto.email,
-      name: dto.name,
       inviteToken: token,
       expiresAt: created.expiresAt.toISOString(),
     });
@@ -96,11 +94,16 @@ export class InvitesService {
     };
   }
 
-  async accept(token: string, password: string): Promise<AcceptedInvite> {
+  /**
+   * `name` comes from the invitee, not the admin — it is the display name the new User row is
+   * created with. AcceptInviteSchema has already trimmed and bounded it at the controller.
+   */
+  async accept(token: string, password: string, name: string): Promise<AcceptedInvite> {
     const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
     const accepted = await this.repo.acceptInTransaction(
       this.hashToken(token),
       passwordHash,
+      name,
       new Date(),
     );
     if (!accepted) {

@@ -44,12 +44,12 @@ function sentTo(mailer: Mailer): string[] {
   return vi.mocked(mailer.send).mock.calls.map((c) => c[0].to);
 }
 
+// No `name`: the API stopped sending one when the invitee began supplying their own.
 const inviteJob = {
   id: 'j1',
   name: 'invite',
   data: {
     email: 'new@ex.co',
-    name: 'New Hire',
     inviteToken: 'tok-123',
     expiresAt: '2026-08-17T00:00:00.000Z',
   },
@@ -101,6 +101,17 @@ describe('EmailProcessor invite job', () => {
     expect(sent?.subject).toBe(`You have been invited to ${PRODUCT_NAME}`);
     expect(sent?.text).toContain('https://timer.niftyitsolution.com/accept-invite?token=tok-123');
     expect(sent?.html).toContain('https://timer.niftyitsolution.com/accept-invite?token=tok-123');
+  });
+
+  it('accepts a payload with no name rather than rejecting it as malformed', async () => {
+    // The guard used to require `name`. Had it stayed, every invite email after this change
+    // would have been silently dropped as a producer bug.
+    const logger = makeLogger();
+    const mailer = makeMailer();
+    await makeProcessor(logger, mailer).process(inviteJob);
+
+    expect(mailer.send).toHaveBeenCalledOnce();
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
   it('propagates a send failure so BullMQ retries', async () => {

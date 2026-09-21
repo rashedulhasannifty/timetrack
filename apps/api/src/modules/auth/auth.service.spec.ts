@@ -418,8 +418,13 @@ describe('AuthService.acceptInvite', () => {
       {},
       { accept: vi.fn().mockResolvedValue({ userId: 'u9', role: 'EMPLOYEE', teamId: 't1' }) },
     );
-    const pair = await svc.acceptInvite({ token: 'tok', password: 'password123' });
-    expect(invites.accept).toHaveBeenCalledWith('tok', 'password123');
+    const pair = await svc.acceptInvite({
+      token: 'tok',
+      password: 'password123',
+      name: 'Ada Lovelace',
+    });
+    // The invitee's own name reaches the invite service; nothing else supplies one.
+    expect(invites.accept).toHaveBeenCalledWith('tok', 'password123', 'Ada Lovelace');
     expect(pair.accessToken).toBe('access.jwt.token');
     expect(repo.createRefreshToken).toHaveBeenCalledOnce();
   });
