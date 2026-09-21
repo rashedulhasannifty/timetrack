@@ -44,7 +44,7 @@ export function StatCard({
             {icon}
           </span>
         ) : null}
-        <div className="tt-eyebrow text-neutral flex-1 self-center">{label}</div>
+        <div className="tt-eyebrow text-text-secondary flex-1 self-center">{label}</div>
         {info ? (
           <IconInfo
             width={13}
