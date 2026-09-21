@@ -3,17 +3,20 @@ import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'reac
 export type ButtonVariant = 'primary' | 'secondary' | 'destructive' | 'ghost';
 export type ButtonSize = 'xs' | 'sm' | 'md';
 
-// Every control in the redesign is a pill. `secondary` sits on the raised surface with a
-// hairline and the standard card shadow, so it reads as a control even on the page ground.
+// The redesign's controls are tightened from pills to the 8px radius step and sit on a
+// pressable edge. `ghost` stays flat: a borderless text control with a 3D edge reads as a
+// floating artefact rather than a button.
 const BASE =
-  'inline-flex items-center justify-center gap-2 rounded-full font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-50 disabled:pointer-events-none';
+  'inline-flex items-center justify-center gap-2 rounded-md font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-50 disabled:pointer-events-none';
+
+// .btn-3d reads these three per-element; without --b-edge the depth is invisible.
+const GLOW = '[--b-glow:var(--tt-glow)] [--b-glow-strong:var(--tt-glow-strong)]';
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-accent text-white hover:bg-accent-hover',
-  secondary:
-    'bg-surface-raised border-separator text-text-secondary hover:text-text hover:border-text-secondary border shadow-e1',
-  destructive: 'bg-destructive text-white hover:opacity-90',
-  ghost: 'text-text-secondary hover:text-text hover:bg-surface',
+  primary: `bg-accent text-white hover:bg-accent-hover btn-3d [--b-edge:var(--tt-accent-edge)] ${GLOW}`,
+  secondary: `bg-surface-raised border-separator text-text-secondary hover:text-text hover:border-text-secondary border btn-3d [--b-edge:var(--tt-border-strong)] ${GLOW}`,
+  destructive: `bg-destructive text-white hover:opacity-90 btn-3d [--b-edge:var(--tt-destructive-edge)] ${GLOW}`,
+  ghost: 'text-text-secondary hover:text-text hover:bg-hover',
 };
 
 const SIZES: Record<ButtonSize, string> = {
