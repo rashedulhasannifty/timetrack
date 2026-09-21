@@ -424,18 +424,20 @@ body {
     background 100ms,
     color 100ms;
 }
-.seg-tab:not([aria-current='page']):not([aria-selected='true']):active {
+.seg-tab:not([aria-current='page']):not([aria-selected='true']):not([aria-pressed='true']):active {
   transform: translateY(1px);
 }
 .seg-tab[aria-current='page'],
-.seg-tab[aria-selected='true'] {
+.seg-tab[aria-selected='true'],
+.seg-tab[aria-pressed='true'] {
   transform: translateY(-1px);
   box-shadow:
     0 2px 0 0 var(--tt-border-strong),
     0 4px 8px rgba(25, 25, 23, 0.16);
 }
 .dark .seg-tab[aria-current='page'],
-.dark .seg-tab[aria-selected='true'] {
+.dark .seg-tab[aria-selected='true'],
+.dark .seg-tab[aria-pressed='true'] {
   box-shadow:
     0 2px 0 0 #000000,
     0 4px 10px rgba(0, 0, 0, 0.55);

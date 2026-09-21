@@ -38,7 +38,7 @@ export function AppUsageTabs({ lists }: { lists: Lists }) {
               key={k}
               type="button"
               onClick={() => setTab(k)}
-              aria-selected={tab === k}
+              aria-pressed={tab === k}
               className={tabPillClasses(tab === k)}
             >
               {k}
