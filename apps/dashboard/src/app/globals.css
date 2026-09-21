@@ -65,7 +65,7 @@
   --tt-mark-remaining: #3f7a72;
   --tt-mark-elapsed: #7fd6c9;
 
-  --tt-elevation-1: 0 1px 2px rgba(25, 25, 23, 0.04), 0 4px 16px -8px rgba(25, 25, 23, 0.06);
+  --tt-elevation-1: 0 3px 0 0 var(--tt-border-strong), 0 9px 20px rgba(25, 25, 23, 0.13);
   --tt-elevation-2: 0 8px 24px -8px rgba(25, 25, 23, 0.18), 0 2px 6px rgba(25, 25, 23, 0.06);
   --tt-hairline: inset 0 0 0 1px rgba(25, 25, 23, 0.04);
 
@@ -117,10 +117,10 @@
   --tt-neutral: #676762;
   --tt-tint: #1d2725;
 
-  /* The mockup drops card shadows entirely in dark and leans on the raised
-     surface + separator for depth. e2 is kept for the off-canvas drawer, which
-     has nothing behind it to read against. */
-  --tt-elevation-1: none;
+  /* Dark gains depth in this redesign. The previous handoff dropped card shadows
+     entirely in dark and leaned on the raised surface; the 3D language cannot
+     survive that, so the edge goes black and the ambient layer deepens. */
+  --tt-elevation-1: 0 3px 0 0 #000000, 0 9px 22px rgba(0, 0, 0, 0.6);
   --tt-elevation-2: 0 8px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
   --tt-hairline: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 
@@ -235,6 +235,30 @@ body {
   a:hover {
     color: var(--tt-accent-hover);
   }
+
+  /* Text fields are recessed to match the pressable buttons. This lives in @layer base,
+     applied to the elements directly, because the dashboard has no shared Field primitive
+     to hang a class on — 28 files declare their own inputs. Checkboxes, radios and colour
+     swatches are excluded: they are not wells, and an inset shadow on them reads as damage.
+     A Tailwind utility at a call site still wins, since utilities are a later layer. */
+  input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='range']),
+  select,
+  textarea {
+    box-shadow:
+      inset 0 2px 4px rgba(25, 25, 23, 0.16),
+      inset 0 1px 1px rgba(25, 25, 23, 0.1);
+    transition:
+      box-shadow 120ms,
+      border-color 120ms;
+  }
+
+  .dark input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='range']),
+  .dark select,
+  .dark textarea {
+    box-shadow:
+      inset 0 2px 4px rgba(0, 0, 0, 0.55),
+      inset 0 1px 1px rgba(0, 0, 0, 0.4);
+  }
 }
 
 /* The numeric role: durations, %, timestamps, date ranges — tabular so digits
@@ -269,6 +293,136 @@ body {
 
 .tt-pulse {
   animation: tt-pulse 1.8s ease-in-out infinite;
+}
+
+/* ── 3D · pressable buttons ──────────────────────────────────────────────────
+   The face sits on a darker bottom "edge" (shadow #1) lifted by a soft glow
+   (#2). Hover raises it 2px, pressing sinks it 3px onto its edge. Per-variant
+   colours arrive as --b-edge / --b-glow / --b-glow-strong from Button.tsx, so
+   one class serves every variant.
+
+   Unlike clickup-sync, no :focus-visible re-statement is needed: our focus ring
+   is an outline (see below), which does not clobber box-shadow. */
+.btn-3d {
+  transform: translateY(0);
+  box-shadow:
+    0 4px 0 0 var(--b-edge),
+    0 7px 12px var(--b-glow);
+  transition:
+    transform 90ms ease,
+    box-shadow 90ms ease,
+    background 100ms;
+}
+.btn-3d:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 6px 0 0 var(--b-edge),
+    0 13px 22px var(--b-glow-strong);
+}
+.btn-3d:not(:disabled):active {
+  transform: translateY(3px);
+  box-shadow:
+    0 1px 0 0 var(--b-edge),
+    0 2px 5px var(--b-glow);
+}
+/* Keep the resting depth while disabled, dimmed by the component's own opacity. */
+.btn-3d:disabled {
+  box-shadow:
+    0 4px 0 0 var(--b-edge),
+    0 7px 12px var(--b-glow);
+}
+
+/* ── 3D · inset fields ───────────────────────────────────────────────────────
+   The counterpart to .btn-3d: where buttons pop out, inputs press in. */
+.input-3d {
+  box-shadow:
+    inset 0 2px 4px rgba(25, 25, 23, 0.16),
+    inset 0 1px 1px rgba(25, 25, 23, 0.1);
+  transition:
+    box-shadow 120ms,
+    border-color 120ms;
+}
+.dark .input-3d {
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.55),
+    inset 0 1px 1px rgba(0, 0, 0, 0.4);
+}
+
+/* ── 3D · interactive cards ──────────────────────────────────────────────────
+   Static cards get their depth from --tt-elevation-1 via `shadow-e1`; this adds
+   only the hover lift for cards that are themselves clickable. */
+.card-3d-interactive {
+  transition:
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+.card-3d-interactive:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 6px 0 0 var(--tt-border-strong),
+    0 18px 32px rgba(25, 25, 23, 0.18);
+}
+.dark .card-3d-interactive:hover {
+  box-shadow:
+    0 6px 0 0 #000000,
+    0 20px 36px rgba(0, 0, 0, 0.65);
+}
+
+/* ── 3D · liftable rows ──────────────────────────────────────────────────────
+   Deliberately NO transform: a transformed <tr> becomes the containing block for
+   its position:sticky cells and breaks frozen columns. position:relative +
+   z-index lets the shadow paint over adjacent rows. */
+.row-3d {
+  transition:
+    box-shadow 120ms,
+    background 120ms;
+}
+.row-3d:hover {
+  position: relative;
+  z-index: 1;
+  box-shadow:
+    0 5px 16px rgba(25, 25, 23, 0.22),
+    0 2px 0 0 var(--tt-border-strong);
+}
+.dark .row-3d:hover {
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.65),
+    0 2px 0 0 #000000;
+}
+
+/* ── 3D · segmented tabs ─────────────────────────────────────────────────────
+   A recessed track with the selected tab raised out of it. Our tabs are <a>
+   elements carrying aria-current="page" (they map to URLs), so the selected
+   rule keys on BOTH aria-current and aria-selected — clickup-sync only needed
+   the latter because its tabs are buttons. */
+.seg-track {
+  box-shadow: inset 0 1px 3px rgba(25, 25, 23, 0.13);
+}
+.dark .seg-track {
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.seg-tab {
+  transition:
+    transform 90ms ease,
+    box-shadow 90ms ease,
+    background 100ms,
+    color 100ms;
+}
+.seg-tab:not([aria-current='page']):not([aria-selected='true']):active {
+  transform: translateY(1px);
+}
+.seg-tab[aria-current='page'],
+.seg-tab[aria-selected='true'] {
+  transform: translateY(-1px);
+  box-shadow:
+    0 2px 0 0 var(--tt-border-strong),
+    0 4px 8px rgba(25, 25, 23, 0.16);
+}
+.dark .seg-tab[aria-current='page'],
+.dark .seg-tab[aria-selected='true'] {
+  box-shadow:
+    0 2px 0 0 #000000,
+    0 4px 10px rgba(0, 0, 0, 0.55);
 }
 
 :focus-visible {

@@ -73,3 +73,45 @@ describe('globals.css token parity', () => {
     expect(css).toMatch(/--radius-lg:\s*12px/);
   });
 });
+
+describe('globals.css depth recipes', () => {
+  it('defines every recipe class the primitives rely on', () => {
+    for (const cls of [
+      '.btn-3d',
+      '.input-3d',
+      '.card-3d-interactive',
+      '.row-3d',
+      '.seg-track',
+      '.seg-tab',
+    ]) {
+      expect(css.includes(`${cls} {`) || css.includes(`${cls}:`), `${cls} missing`).toBe(true);
+    }
+  });
+
+  /**
+   * The light recipes use warm-ink shadows that vanish on a near-black ground, so each
+   * depth class that hardcodes an ink shadow needs a .dark override. Dark deliberately
+   * gains depth here — it previously set --tt-elevation-1: none.
+   */
+  it('overrides the ink-shadow recipes under .dark', () => {
+    for (const cls of ['.input-3d', '.row-3d', '.seg-track']) {
+      expect(css.includes(`.dark ${cls}`), `${cls} has no .dark override`).toBe(true);
+    }
+  });
+
+  it('no longer disables elevation in dark', () => {
+    expect(block('.dark')).not.toMatch(/--tt-elevation-1:\s*none/);
+  });
+
+  /**
+   * There is no shared Field primitive — 28 files declare their own inputs — so the recess
+   * is applied to the elements in @layer base. Checkboxes and radios must stay excluded: an
+   * inset shadow on a checkbox reads as damage, not depth.
+   */
+  it('recesses text fields globally while sparing checkboxes and radios', () => {
+    expect(css).toMatch(/input:not\(\[type='checkbox'\]\)/);
+    expect(css).toContain('textarea');
+    const rule = css.slice(css.indexOf("input:not([type='checkbox'])"));
+    expect(rule.slice(0, 400)).toContain('inset');
+  });
+});
