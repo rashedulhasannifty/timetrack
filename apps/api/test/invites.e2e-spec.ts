@@ -31,34 +31,50 @@ describe.runIf(RUN_E2E)('invites accept — real Postgres', () => {
     return new InvitesService(repo, queue);
   }
 
+  it('creates the user with the name the INVITEE typed, not one chosen at invite time', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
+    const { token } = await svc().create(
+      { email: 'self@ex.co', role: 'EMPLOYEE', teamId: team.id },
+      { ...admin, teamId: team.id },
+    );
+    // Nothing on the invite row holds a name to fall back to.
+    const row = await db.prisma.invite.findFirst({ where: { email: 'self@ex.co' } });
+    expect(row?.name).toBeNull();
+
+    await svc().accept(token, 'password123', 'Ada Lovelace');
+
+    const user = await db.prisma.user.findUnique({ where: { email: 'self@ex.co' } });
+    expect(user?.name).toBe('Ada Lovelace');
+  });
+
   it('accepts a valid invite once (creating the user); a replay is rejected', async () => {
     const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
     const { token } = await svc().create(
-      { email: 'new@ex.co', name: 'New', role: 'EMPLOYEE', teamId: team.id },
+      { email: 'new@ex.co', role: 'EMPLOYEE', teamId: team.id },
       { ...admin, teamId: team.id },
     );
 
-    const accepted = await svc().accept(token, 'password123');
+    const accepted = await svc().accept(token, 'password123', 'New Hire');
     expect(accepted.role).toBe('EMPLOYEE');
     const user = await db.prisma.user.findUnique({ where: { email: 'new@ex.co' } });
     expect(user).not.toBeNull();
 
-    await expect(svc().accept(token, 'password123')).rejects.toThrow();
+    await expect(svc().accept(token, 'password123', 'New Hire')).rejects.toThrow();
   });
 
   it('rejects an expired invite', async () => {
     const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
     const { token } = await svc().create(
-      { email: 'late@ex.co', name: 'Late', role: 'EMPLOYEE', teamId: team.id },
+      { email: 'late@ex.co', role: 'EMPLOYEE', teamId: team.id },
       { ...admin, teamId: team.id },
     );
     await db.prisma.invite.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
-    await expect(svc().accept(token, 'password123')).rejects.toThrow();
+    await expect(svc().accept(token, 'password123', 'New Hire')).rejects.toThrow();
   });
 
   it('rejects a second pending invite for the same email with 409', async () => {
     const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
-    const invite = { email: 'twice@ex.co', name: 'Twice', role: 'EMPLOYEE' as const, teamId: team.id };
+    const invite = { email: 'twice@ex.co', role: 'EMPLOYEE' as const, teamId: team.id };
     await svc().create(invite, { ...admin, teamId: team.id });
     await expect(svc().create(invite, { ...admin, teamId: team.id })).rejects.toBeInstanceOf(
       ConflictException,
@@ -69,7 +85,7 @@ describe.runIf(RUN_E2E)('invites accept — real Postgres', () => {
     const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
     // One invite via the service...
     const first = await svc().create(
-      { email: 'dup@ex.co', name: 'Dup', role: 'EMPLOYEE', teamId: team.id },
+      { email: 'dup@ex.co', role: 'EMPLOYEE', teamId: team.id },
       { ...admin, teamId: team.id },
     );
     // ...and a second pending invite for the SAME email, inserted directly to simulate a
@@ -77,7 +93,6 @@ describe.runIf(RUN_E2E)('invites accept — real Postgres', () => {
     await db.prisma.invite.create({
       data: {
         email: 'dup@ex.co',
-        name: 'Dup',
         role: 'EMPLOYEE',
         teamId: team.id,
         tokenHash: createHash('sha256').update('second-raw-token').digest('hex'),
@@ -85,11 +100,11 @@ describe.runIf(RUN_E2E)('invites accept — real Postgres', () => {
       },
     });
 
-    await svc().accept(first.token, 'password123'); // creates the user
+    await svc().accept(first.token, 'password123', 'Dup'); // creates the user
     expect(await db.prisma.user.findUnique({ where: { email: 'dup@ex.co' } })).not.toBeNull();
 
     // The second accept hits User.email uniqueness → a clean 401, not a raw Prisma P2002/500.
-    await expect(svc().accept('second-raw-token', 'password123')).rejects.toBeInstanceOf(
+    await expect(svc().accept('second-raw-token', 'password123', 'Dup')).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
   });
@@ -118,7 +133,7 @@ describe.runIf(RUN_E2E)('invites create — real Postgres + Redis', () => {
     const svc = new InvitesService(repo, queueService);
 
     await svc.create(
-      { email: 'q@ex.co', name: 'Q', role: 'EMPLOYEE', teamId: team.id },
+      { email: 'q@ex.co', role: 'EMPLOYEE', teamId: team.id },
       { ...admin, teamId: team.id },
     );
 

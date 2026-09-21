@@ -3,7 +3,6 @@ import { buildAcceptUrl, renderInviteEmail } from './invite-email.js';
 import { PRODUCT_NAME } from './render';
 
 const base = {
-  name: 'New Hire',
   inviteToken: 'tok-123',
   expiresAt: '2026-08-17T00:00:00.000Z',
   appUrl: 'https://timer.niftyitsolution.com',
@@ -48,11 +47,11 @@ describe('renderInviteEmail', () => {
     expect(mail.html).toContain('Mon, 17 Aug 2026');
   });
 
-  it('escapes HTML in the operator-supplied name', () => {
-    const mail = renderInviteEmail({ ...base, name: '<script>alert(1)</script>' });
-    expect(mail.html).not.toContain('<script>');
-    expect(mail.html).toContain('&lt;script&gt;');
-    // The text body is not HTML, so it carries the name verbatim.
-    expect(mail.text).toContain('<script>alert(1)</script>');
+  it('greets the invitee without a name — nobody has supplied one yet', () => {
+    // The admin no longer types a name at invite time; the invitee provides theirs on the
+    // accept form. So there is no name to greet with, and none to escape.
+    const mail = renderInviteEmail(base);
+    expect(mail.text.startsWith('Hi there,')).toBe(true);
+    expect(mail.html).toContain('<p>Hi there,</p>');
   });
 });

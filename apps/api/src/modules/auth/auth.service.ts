@@ -57,7 +57,7 @@ export class AuthService {
   ) {}
 
   async acceptInvite(dto: AcceptInvite): Promise<TokenPair> {
-    const { userId, role, teamId } = await this.invites.accept(dto.token, dto.password);
+    const { userId, role, teamId } = await this.invites.accept(dto.token, dto.password, dto.name);
     return (await this.issueTokens({ id: userId, role, teamId, deactivatedAt: null })).tokens;
   }
 

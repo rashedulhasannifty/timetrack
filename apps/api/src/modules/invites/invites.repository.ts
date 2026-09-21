@@ -5,7 +5,6 @@ import { PrismaService } from '../../infra/prisma/prisma.service.js';
 
 export interface CreateInviteInput {
   email: string;
-  name: string;
   role: Role;
   teamId: string;
   tokenHash: string;
@@ -53,14 +52,18 @@ export class InvitesRepository {
   }
 
   /**
-   * Single-use accept: consume the invite and create the user in ONE transaction. The
-   * conditional update (updateMany WHERE acceptedAt IS NULL, count === 1) makes a replayed
+   * Single-use accept: consume the invite and create the user in ONE transaction. `name` is
+   * supplied by the invitee on the accept form, so it is written here rather than read off
+   * the invite row.
+   *
+   * The conditional update (updateMany WHERE acceptedAt IS NULL, count === 1) makes a replayed
    * token a no-op even under concurrency; the User.email unique index is the final backstop.
    * Returns null when the token is unknown, expired, or already consumed.
    */
   async acceptInTransaction(
     tokenHash: string,
     passwordHash: string,
+    name: string,
     now: Date,
   ): Promise<AcceptedInvite | null> {
     try {
@@ -70,7 +73,6 @@ export class InvitesRepository {
           select: {
             id: true,
             email: true,
-            name: true,
             role: true,
             teamId: true,
             expiresAt: true,
@@ -88,7 +90,8 @@ export class InvitesRepository {
         const user = await tx.user.create({
           data: {
             email: invite.email,
-            name: invite.name,
+            // The invitee's own name, from the accept request — the invite never held it.
+            name,
             role: invite.role,
             teamId: invite.teamId,
             passwordHash,
