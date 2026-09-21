@@ -95,6 +95,11 @@
   --tt-nav-install: #475569;
   /* How much of a row's hue tints it when it is the current page. */
   --tt-nav-active-mix: 16%;
+
+  /* Row metrics. Comfortable is the :root default so tables render correctly
+     during SSR and before the Phase-6 density provider sets [data-density]. */
+  --row-h: 48px;
+  --pad-y: 12px;
 }
 
 /* --- Raw palette: dark (manual .dark class) ------------------------------ */
@@ -142,6 +147,17 @@
   --tt-nav-me: #34d399;
   --tt-nav-install: #94a3b8;
   --tt-nav-active-mix: 26%;
+}
+
+/* --- Density ------------------------------------------------------------- */
+[data-density='compact'] {
+  --row-h: 36px;
+  --pad-y: 8px;
+}
+
+[data-density='comfortable'] {
+  --row-h: 48px;
+  --pad-y: 12px;
 }
 
 /* --- Tailwind theme: map semantic tokens → utilities --------------------- */

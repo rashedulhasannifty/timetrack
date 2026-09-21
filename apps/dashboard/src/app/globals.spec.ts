@@ -21,7 +21,11 @@ function block(selector: string): string {
 }
 
 const declared = (body: string) =>
-  new Set(Array.from(body.matchAll(/(--tt-[a-z0-9-]+)\s*:/g), (m) => m[1]));
+  new Set(
+    Array.from(body.matchAll(/(--tt-[a-z0-9-]+)\s*:/g), (m) => m[1]).filter(
+      (v): v is string => v !== undefined,
+    ),
+  );
 
 /**
  * Tokens that are the same value in both themes ON PURPOSE. The hero family is a fixed
@@ -124,5 +128,23 @@ describe('globals.css depth recipes', () => {
     // The rule applies inset shadows
     const ruleStart = css.indexOf(exclusionChain);
     expect(css.slice(ruleStart, ruleStart + 400)).toContain('inset');
+  });
+});
+
+describe('globals.css density', () => {
+  /**
+   * The attribute is set by a client provider that does not exist until Phase 6, and it
+   * is absent during SSR and in tests. Tables read var(--pad-y) unconditionally, so the
+   * comfortable values MUST be the :root default or every table collapses to zero padding.
+   */
+  it('defaults to comfortable on :root so tables work with no attribute set', () => {
+    const root = block(':root');
+    expect(root).toMatch(/--row-h:\s*48px/);
+    expect(root).toMatch(/--pad-y:\s*12px/);
+  });
+
+  it('defines both density modes', () => {
+    expect(css).toMatch(/\[data-density=['"]compact['"]\]/);
+    expect(css).toMatch(/\[data-density=['"]comfortable['"]\]/);
   });
 });
