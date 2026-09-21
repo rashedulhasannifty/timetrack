@@ -149,6 +149,8 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
           S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_REGION: ${{ secrets.S3_REGION }}
           API_URL: ${{ secrets.API_URL }}
           APP_URL: ${{ secrets.APP_URL }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
@@ -182,6 +184,14 @@ jobs:
             process.stdout.write(u.toString());
           ')"
 
+          # Checked BEFORE the group below, not inside it: that group is piped straight into the
+          # file the host renames into place, so aborting mid-stream would install a truncated
+          # .env. SigV4 signs the region, so a wrong one fails every upload rather than warning.
+          if [ -n "${S3_ENDPOINT:-}" ] && [ -z "${S3_REGION:-}" ]; then
+            echo "✖ S3_REGION must be set alongside S3_ENDPOINT (the bucket's region)" >&2
+            exit 1
+          fi
+
           {
             # NODE_ENV is never a secret. The schema DEFAULTS to development, and under
             # development the API returns the raw invite token and the APP_URL guard never fires.
@@ -195,12 +205,24 @@ jobs:
 
             # Datastore addresses: fixed by infra/datastores (loopback-published), not secrets.
             echo "REDIS_URL=redis://127.0.0.1:6379"
-            echo "S3_ENDPOINT=http://127.0.0.1:9000"
-            echo "S3_REGION=us-east-1"
-            # Browser-facing origin for presigned screenshot URLs — deliberately NOT S3_ENDPOINT.
-            # SigV4 signs the host, so the URL must be signed for the origin the browser will
-            # request; Caddy routes /$S3_BUCKET/* to MinIO with the Host untouched.
-            echo "S3_PUBLIC_ENDPOINT=https://$PUBLIC_DOMAIN"
+
+            # Screenshot storage. With S3_ENDPOINT set, screenshots live in an external S3 bucket
+            # (deployment §5) and S3_BUCKET/S3_ACCESS_KEY/S3_SECRET_KEY must hold that bucket's
+            # values, not MinIO's. Otherwise: the bundled MinIO on loopback.
+            if [ -n "${S3_ENDPOINT:-}" ]; then
+              echo "S3_ENDPOINT=$S3_ENDPOINT"
+              echo "S3_REGION=$S3_REGION"
+              # No S3_PUBLIC_ENDPOINT: the presigned URL is already signed for the bucket's own
+              # host, which the browser can reach directly. Overriding it would break the
+              # signature. The schema has it optional for exactly this case.
+            else
+              echo "S3_ENDPOINT=http://127.0.0.1:9000"
+              echo "S3_REGION=us-east-1"
+              # Browser-facing origin for presigned screenshot URLs — deliberately NOT S3_ENDPOINT.
+              # SigV4 signs the host, so the URL must be signed for the origin the browser will
+              # request; Caddy routes /$S3_BUCKET/* to MinIO with the Host untouched.
+              echo "S3_PUBLIC_ENDPOINT=https://$PUBLIC_DOMAIN"
+            fi
 
             echo "JWT_ACCESS_SECRET=$JWT_ACCESS_SECRET"
             echo "JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET"
