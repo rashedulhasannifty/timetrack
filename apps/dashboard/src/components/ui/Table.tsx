@@ -40,6 +40,9 @@ export function Tr({
 
 const HEAD_ALIGN = { left: 'text-left', right: 'text-right' } as const;
 
+/* Vertical padding is --pad-y so one [data-density] switch retunes every table. Horizontal
+   gutters stay fixed at 26px: density is about row height, not column spacing. */
+
 /**
  * Header cell — the `tt-eyebrow` voice (10.5px, heavy, uppercase, wide). When `sortable`,
  * wraps children in a button and shows a caret from `sortDirection` (↑ asc / ↓ desc / ⇅ inactive);
@@ -60,7 +63,8 @@ export function Th({
   onSortClick?: () => void;
   className?: string;
 }) {
-  const base = `tt-eyebrow text-neutral px-[26px] py-3 ${HEAD_ALIGN[align]} ${className}`.trim();
+  const base =
+    `tt-eyebrow text-neutral px-[26px] py-[var(--pad-y)] ${HEAD_ALIGN[align]} ${className}`.trim();
   if (!sortable) {
     return (
       <th scope="col" className={base}>
@@ -101,7 +105,7 @@ export function Td({
 } & TdHTMLAttributes<HTMLTableCellElement>) {
   const alignCls = align === 'right' ? 'tt-numeric text-right' : 'text-left';
   return (
-    <td className={`px-[26px] py-[13px] ${alignCls} ${className}`.trim()} {...rest}>
+    <td className={`px-[26px] py-[var(--pad-y)] ${alignCls} ${className}`.trim()} {...rest}>
       {children}
     </td>
   );
