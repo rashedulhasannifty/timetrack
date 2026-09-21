@@ -105,13 +105,24 @@ describe('globals.css depth recipes', () => {
 
   /**
    * There is no shared Field primitive — 28 files declare their own inputs — so the recess
-   * is applied to the elements in @layer base. Checkboxes and radios must stay excluded: an
-   * inset shadow on a checkbox reads as damage, not depth.
+   * is applied to the elements in @layer base. Checkboxes, radios, colour swatches and
+   * range inputs must stay excluded: an inset shadow on them reads as damage, not depth.
    */
-  it('recesses text fields globally while sparing checkboxes and radios', () => {
-    expect(css).toMatch(/input:not\(\[type='checkbox'\]\)/);
+  it('recesses text fields globally while sparing checkboxes, radios, colour and range inputs', () => {
+    // Light mode: verify all four exclusions are chained on the input selector
+    const exclusionChain =
+      "input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='range'])";
+    expect(css).toContain(exclusionChain);
+
+    // Dark mode: verify the dark variant also has all four exclusions
+    const darkExclusionChain = `.dark input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='range'])`;
+    expect(css).toContain(darkExclusionChain);
+
+    // Textarea is also recessed
     expect(css).toContain('textarea');
-    const rule = css.slice(css.indexOf("input:not([type='checkbox'])"));
-    expect(rule.slice(0, 400)).toContain('inset');
+
+    // The rule applies inset shadows
+    const ruleStart = css.indexOf(exclusionChain);
+    expect(css.slice(ruleStart, ruleStart + 400)).toContain('inset');
   });
 });
