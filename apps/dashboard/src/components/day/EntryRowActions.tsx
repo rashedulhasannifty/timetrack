@@ -83,7 +83,7 @@ export function EntryRowActions({
       {mode === 'edit' ? (
         <form
           action={editAction}
-          className="bg-surface-raised border-separator flex w-[320px] flex-col gap-2.5 rounded-[14px] border p-3 text-left"
+          className="bg-surface-raised border-separator flex w-[320px] flex-col gap-2.5 rounded-lg border p-3 text-left"
         >
           <input type="hidden" name="id" value={entry.id} />
           {userId ? <input type="hidden" name="userId" value={userId} /> : null}

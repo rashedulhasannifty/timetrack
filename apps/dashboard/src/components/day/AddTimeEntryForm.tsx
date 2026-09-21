@@ -58,7 +58,7 @@ export function AddTimeEntryForm({
       {open ? (
         <form
           action={formAction}
-          className="bg-surface-raised border-separator flex flex-col gap-2.5 rounded-[14px] border p-3"
+          className="bg-surface-raised border-separator flex flex-col gap-2.5 rounded-lg border p-3"
         >
           {userId ? <input type="hidden" name="userId" value={userId} /> : null}
           <EntryFormFields

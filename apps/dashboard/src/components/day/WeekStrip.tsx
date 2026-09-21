@@ -27,7 +27,7 @@ export function WeekStrip({ days }: { days: WeekStripDay[] }) {
             <span className="tt-numeric text-[10px]">{d.num}</span>
           </>
         );
-        const shell = `flex w-[34px] flex-col items-center gap-[3px] rounded-[9px] border py-[5px] ${
+        const shell = `flex w-[34px] flex-col items-center gap-[3px] rounded-md border py-[5px] ${
           d.selected ? 'border-accent bg-tint text-accent' : 'border-separator text-text-secondary'
         }`;
         if (d.future) {
