@@ -543,7 +543,7 @@ textarea {
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `pnpm --filter @timetrack/dashboard test -- globals`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 6: Confirm reduced-motion still disarms the new transitions**
 
@@ -627,7 +627,7 @@ After the `.dark` block, add:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm --filter @timetrack/dashboard test -- globals`
-Expected: PASS, 9 tests.
+Expected: PASS, 10 tests.
 
 - [ ] **Step 5: Run the full gate**
 
