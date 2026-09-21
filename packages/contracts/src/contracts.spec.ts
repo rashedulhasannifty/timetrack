@@ -183,6 +183,29 @@ describe('team-settings + policy', () => {
     expect(TeamSettingsSchema.safeParse({ screenshotRetentionDays: 0 }).success).toBe(false);
   });
 
+  it('keeps screenshots forever only when an admin says so — off by default, and it round-trips', () => {
+    // A legacy row with no such key must resolve to OFF, never to indefinite retention.
+    expect(TeamSettingsSchema.parse({}).keepScreenshotsForever).toBe(false);
+    const on = TeamSettingsSchema.parse({
+      keepScreenshotsForever: true,
+      screenshotRetentionDays: 45,
+    });
+    expect(on.keepScreenshotsForever).toBe(true);
+    // The days survive, unused, for when the flag is turned off again.
+    expect(on.screenshotRetentionDays).toBe(45);
+    expect(TeamSettingsSchema.parse(JSON.parse(JSON.stringify(on)))).toEqual(on);
+    expect(TeamSettingsSchema.safeParse({ keepScreenshotsForever: 'yes' }).success).toBe(false);
+    // Forever is a flag, never a retention value: the 180-day ceiling still holds beside it.
+    expect(
+      TeamSettingsSchema.safeParse({ keepScreenshotsForever: true, screenshotRetentionDays: 181 })
+        .success,
+    ).toBe(false);
+    // The PATCH partial carries the flag alone, with no defaults materialized around it.
+    expect(UpdateSettingsSchema.parse({ keepScreenshotsForever: true })).toEqual({
+      keepScreenshotsForever: true,
+    });
+  });
+
   it('seeds productive defaults, keeps unproductive empty, and ships no blanket wildcards', () => {
     const s = TeamSettingsSchema.parse({});
     expect(s.productiveApps).toContain('Code');

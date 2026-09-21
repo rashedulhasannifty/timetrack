@@ -47,6 +47,7 @@ export async function updateSettingsAction(
     screenshotIntervalMinutes: Number(formData.get('screenshotIntervalMinutes')),
     screenshotBlur: formData.get('screenshotBlur'),
     screenshotRetentionDays: Number(formData.get('screenshotRetentionDays')),
+    keepScreenshotsForever: formData.get('keepScreenshotsForever') === 'on',
     activityRetentionDays: Number(formData.get('activityRetentionDays')),
     idleThresholdMinutes: Number(formData.get('idleThresholdMinutes')),
     captureWindowTitles: formData.get('captureWindowTitles') === 'on',

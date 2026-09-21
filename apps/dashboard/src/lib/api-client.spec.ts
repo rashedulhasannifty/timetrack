@@ -124,6 +124,7 @@ describe('api.updateTeamSettings', () => {
       screenshotIntervalMinutes: 15,
       screenshotBlur: 'NONE',
       screenshotRetentionDays: 30,
+      keepScreenshotsForever: false,
       activityRetentionDays: 90,
       idleThresholdMinutes: 5,
       captureWindowTitles: true,

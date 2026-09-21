@@ -37,6 +37,15 @@ describe('AdminService.updateSettings', () => {
     );
   });
 
+  it('turns keepScreenshotsForever on without touching the retention days it will return to', async () => {
+    const { svc } = makeService({
+      getSettings: vi.fn().mockResolvedValue({ settings: { screenshotRetentionDays: 60 } }),
+    });
+    const result = await svc.updateSettings({ keepScreenshotsForever: true }, actor);
+    expect(result.keepScreenshotsForever).toBe(true);
+    expect(result.screenshotRetentionDays).toBe(60);
+  });
+
   it('rejects an out-of-range value via merged-object validation (never writes)', async () => {
     const { svc, repo } = makeService();
     await expect(
@@ -194,6 +203,17 @@ describe('AdminService.eraseUser guards', () => {
     expect(storage.deleteByPrefix).toHaveBeenCalledWith('raw/u2/');
     expect(storage.deleteByPrefix).toHaveBeenCalledWith('thumb/u2/');
     expect(repo.eraseUser).toHaveBeenCalledWith('u2', 'u2@x.com', 'admin-1', 'GDPR', 6);
+  });
+
+  it('still sweeps screenshots when the user’s team keeps them forever — erasure outranks retention', async () => {
+    // PRD §4.4 vs §10: keepScreenshotsForever only exempts a team from the retention JOB.
+    const { svc, repo, storage } = make({
+      getSettings: vi.fn().mockResolvedValue({ settings: { keepScreenshotsForever: true } }),
+    });
+    await svc.eraseUser('u2', { reason: 'GDPR' }, actor);
+    expect(storage.deleteByPrefix).toHaveBeenCalledWith('raw/u2/');
+    expect(storage.deleteByPrefix).toHaveBeenCalledWith('thumb/u2/');
+    expect(repo.eraseUser).toHaveBeenCalled();
   });
 
   it('aborts without erasing when the object sweep fails', async () => {
