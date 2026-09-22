@@ -1,11 +1,11 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Table, THead, Tbody, Tr, Th, Td } from './Table';
 import { EmptyState } from './EmptyState';
 import { nextSort, sortRows, stickyOffsets, type Sort } from '../../lib/data-table';
 
-export type Column<T> = {
+type ColumnBase<T> = {
   key: string;
   header: string;
   render: (row: T) => ReactNode;
@@ -16,10 +16,17 @@ export type Column<T> = {
    */
   sortBy?: (row: T) => string | number | null;
   align?: 'left' | 'right';
-  /** Required when `sticky` is set: the frozen left offsets are derived from these. */
-  width?: number;
-  sticky?: boolean;
 };
+
+/**
+ * `sticky: true` requires `width` — a discriminated union rather than two independent
+ * optionals — because the frozen left offset is derived from it (`stickyOffsets`) and the
+ * cell is rendered at that width so the offset stays correct while scrolling (see
+ * `lib/data-table.ts`'s `stickyOffsets` doc comment). A sticky column with no width is not a
+ * smaller bug, it is unrepresentable.
+ */
+export type Column<T> = ColumnBase<T> &
+  ({ sticky: true; width: number } | { sticky?: false; width?: number });
 
 /**
  * The data-dense table: sortable headers, optional frozen leading columns, optional row click.
@@ -51,20 +58,21 @@ export function DataTable<T>({
   const [sort, setSort] = useState<Sort | null>(initialSort ?? null);
 
   // Frozen columns are the leading run of `sticky` columns; a sticky column after a
-  // non-sticky one cannot be frozen (there is nothing to pin it against).
-  const frozenCount = useMemo(() => {
-    let n = 0;
+  // non-sticky one cannot be frozen (there is nothing to pin it against). The `break` lets
+  // TypeScript narrow each `c` to the `sticky: true` arm of the union past that point, so
+  // `c.width` is `number` here with no fallback needed.
+  const frozenWidths = useMemo(() => {
+    const widths: number[] = [];
     for (const c of columns) {
       if (!c.sticky) break;
-      n++;
+      widths.push(c.width);
     }
-    return n;
+    return widths;
   }, [columns]);
 
-  const offsets = useMemo(
-    () => stickyOffsets(columns.slice(0, frozenCount).map((c) => c.width ?? 0)),
-    [columns, frozenCount],
-  );
+  const frozenCount = frozenWidths.length;
+
+  const offsets = useMemo(() => stickyOffsets(frozenWidths), [frozenWidths]);
 
   const sorted = useMemo(() => {
     if (!sort) return rows;
@@ -83,15 +91,23 @@ export function DataTable<T>({
     );
   }
 
-  const stickyStyle = (i: number) =>
-    i < frozenCount
-      ? {
-          position: 'sticky' as const,
-          left: offsets[i],
-          zIndex: 1,
-          background: 'var(--tt-surface-raised)',
-        }
-      : undefined;
+  // Merges the frozen-column positioning with the declared width, applied to both the header
+  // and body cell of a column. Applying `width`/`maxWidth` (not just sticky `left`) is what
+  // makes `stickyOffsets`' precondition — that a frozen column renders at the width its
+  // offset was computed from — actually hold, rather than just being documented.
+  const cellStyle = (col: Column<T>, i: number): CSSProperties | undefined => {
+    const sticky =
+      i < frozenCount
+        ? {
+            position: 'sticky' as const,
+            left: offsets[i],
+            zIndex: 1,
+            background: 'var(--tt-surface-raised)',
+          }
+        : undefined;
+    const width = col.width !== undefined ? { width: col.width, maxWidth: col.width } : undefined;
+    return sticky || width ? { ...sticky, ...width } : undefined;
+  };
 
   return (
     <Table>
@@ -106,8 +122,7 @@ export function DataTable<T>({
               {...(col.sortBy
                 ? { onSortClick: () => setSort((cur) => nextSort(cur, col.key)) }
                 : {})}
-              className={stickyStyle(i) ? 'sticky' : ''}
-              style={stickyStyle(i)}
+              style={cellStyle(col, i)}
             >
               {col.header}
             </Th>
@@ -125,7 +140,7 @@ export function DataTable<T>({
               <Td
                 key={col.key}
                 align={col.align ?? 'left'}
-                style={stickyStyle(i)}
+                style={cellStyle(col, i)}
                 {...(col.width !== undefined ? { className: 'truncate' } : {})}
               >
                 {col.render(row)}

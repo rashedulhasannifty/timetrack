@@ -79,6 +79,25 @@ describe('DataTable', () => {
     expect(html).toContain('left:120px');
   });
 
+  /**
+   * The offset math is only correct if the column actually renders at the width it was
+   * computed from — otherwise a frozen column wider than its declared width overlaps its
+   * neighbour while scrolling. `width`/`max-width` must land on the rendered cell, not just
+   * feed `stickyOffsets`.
+   */
+  it('renders a frozen column at its declared width', () => {
+    const frozen: Column<Row>[] = [
+      { key: 'name', header: 'Person', render: (r) => r.name, sticky: true, width: 120 },
+      { key: 'n', header: 'Count', render: (r) => r.n, sticky: true, width: 80 },
+      { key: 'note', header: 'Note', render: () => '—' },
+    ];
+    const html = renderToStaticMarkup(
+      <DataTable columns={frozen} rows={rows} rowKey={(r) => r.id} />,
+    );
+    expect(html).toContain('max-width:120px');
+    expect(html).toContain('max-width:80px');
+  });
+
   it('right-aligns the columns that ask for it', () => {
     expect(render()).toContain('text-right');
   });
