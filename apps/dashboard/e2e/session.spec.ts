@@ -58,7 +58,7 @@ test('login lands on the overview, logout returns to /login', async ({ page }) =
 test('a signed-in person can still read the home and install pages', async ({ page }) => {
   await signIn(page);
 
-  await page.getByRole('link', { name: 'Install the Mac app' }).click();
+  await page.getByRole('link', { name: 'Install the app' }).click();
   await expect(page).toHaveURL(/\/install$/);
   await expect(page.getByRole('heading', { name: 'Installing Nifty Timer' })).toBeVisible();
 
