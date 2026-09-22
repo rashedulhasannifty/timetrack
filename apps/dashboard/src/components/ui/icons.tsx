@@ -126,6 +126,12 @@ export const IconEyeOff = (p: SVGProps<SVGSVGElement>) => (
   </Base>
 );
 
+export const IconClose = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M6 6l12 12M18 6L6 18" />
+  </Base>
+);
+
 export const IconDownload = (p: SVGProps<SVGSVGElement>) => (
   <Base {...p}>
     <path d="M12 3.6v10.2" />
