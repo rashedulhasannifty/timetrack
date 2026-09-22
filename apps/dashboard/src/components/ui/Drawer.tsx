@@ -10,6 +10,14 @@ const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
+ * A modal dialog rendered inside the panel (e.g. the screenshot lightbox), if one is open.
+ * querySelector only searches descendants, so the panel's own aria-modal never matches.
+ */
+function innerModal(panel: HTMLElement | null): HTMLElement | null {
+  return panel?.querySelector<HTMLElement>('[aria-modal="true"]') ?? null;
+}
+
+/**
  * Off-canvas detail panel.
  *
  * Presentational: `open` and `onClose` belong to the caller, so one component serves both a
@@ -36,14 +44,21 @@ export function Drawer({
   const titleId = useId();
   const panelRef = useRef<HTMLElement>(null);
 
-  // Escape closes. Bound on the window so it fires wherever focus happens to sit.
+  // Escape closes. Bound on the window so it fires wherever focus happens to sit — unless a
+  // modal opened INSIDE the panel (the screenshot lightbox in a person's day) is up: that
+  // dialog owns Escape and closes itself, and the drawer must stay put (for a route drawer,
+  // closing would also step the URL back). Registered in the CAPTURE phase so this check
+  // always runs before the inner dialog's own window listener has had a chance to unmount it,
+  // whatever order the two listeners were added in.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      if (innerModal(panelRef.current)) return;
+      onClose();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [open, onClose]);
 
   // Move focus into the panel on open, and return it to whatever had focus before — if that
@@ -52,7 +67,8 @@ export function Drawer({
   useEffect(() => {
     if (!open) return;
     const panel = panelRef.current;
-    const activeElement = document.activeElement as HTMLElement | null;
+    const activeElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const alreadyInside = !!(panel && activeElement && panel.contains(activeElement));
     const previous = alreadyInside ? null : activeElement;
 
@@ -66,18 +82,21 @@ export function Drawer({
   // Tab / Shift+Tab cycle through the panel's own focusable elements — a small hand-rolled
   // trap so focus never leaks to the page (or browser chrome) behind the backdrop. Focusables
   // are queried fresh on each keydown rather than cached, since the panel's content is
-  // caller-supplied and can change while it's open.
+  // caller-supplied and can change while it's open. While a modal opened inside the panel is
+  // up, the trap narrows to THAT dialog, so Tab cycles its controls instead of wandering the
+  // drawer content hidden behind it.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
       const panel = panelRef.current;
       if (!panel) return;
-      const focusables = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+      const scope = innerModal(panel) ?? panel;
+      const focusables = Array.from(scope.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
       const current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       const target = nextFocusTarget(focusables, current, e.shiftKey);
       e.preventDefault();
-      (target ?? panel).focus();
+      (target ?? scope).focus();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
