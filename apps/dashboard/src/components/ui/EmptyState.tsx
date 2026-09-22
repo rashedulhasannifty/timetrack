@@ -24,7 +24,7 @@ export function EmptyState({
           {icon}
         </span>
       ) : null}
-      <span className="text-h3 font-bold">{title}</span>
+      <h2 className="text-h3 font-bold">{title}</h2>
       {body ? <p className="text-text-secondary text-label max-w-[46ch]">{body}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>

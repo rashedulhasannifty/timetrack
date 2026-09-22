@@ -7,6 +7,11 @@ describe('EmptyState', () => {
     expect(renderToStaticMarkup(<EmptyState title="Nothing here" />)).toContain('Nothing here');
   });
 
+  /** A heading, not a styled span, so screen-reader users can jump straight to it. */
+  it('renders the title as a heading', () => {
+    expect(renderToStaticMarkup(<EmptyState title="Nothing here" />)).toContain('<h2');
+  });
+
   it('renders the body when given', () => {
     const html = renderToStaticMarkup(<EmptyState title="t" body="explain why" />);
     expect(html).toContain('explain why');

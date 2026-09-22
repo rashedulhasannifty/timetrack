@@ -25,4 +25,10 @@ describe('SegmentError', () => {
     expect(html).toContain('Try again');
     expect(html).toContain('<button');
   });
+
+  /** A heading, not a styled span, so screen-reader users can jump straight to it. */
+  it('renders the title as a heading', () => {
+    const html = renderToStaticMarkup(<SegmentError error={new Error('boom')} retry={noop} />);
+    expect(html).toContain('<h2');
+  });
 });

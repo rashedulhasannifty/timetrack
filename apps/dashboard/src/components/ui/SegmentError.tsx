@@ -27,7 +27,7 @@ export function SegmentError({
 
   return (
     <div className="flex flex-col items-center gap-3 py-16 text-center">
-      <span className="text-h2 font-bold">Something went wrong</span>
+      <h2 className="text-h2 font-bold">Something went wrong</h2>
       <p className="text-text-secondary text-label max-w-[46ch]">{message}</p>
       <button type="button" onClick={retry} className={`${buttonClasses('primary', 'md')} mt-2`}>
         Try again
