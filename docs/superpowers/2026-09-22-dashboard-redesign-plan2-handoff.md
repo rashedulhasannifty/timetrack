@@ -17,6 +17,7 @@ As with Plan 1, the execution ledger was gitignored; this file holds what it rec
 | Phase 5 — states (Tasks 10–13)         | **complete**                                                                                                                                                                |
 | Phase 6 — drawer/toast/density (14–16) | **complete**                                                                                                                                                                |
 | Phase 7 — intercepting routes (17–19)  | **complete** for the person drawer; the project drawer is descoped (see §4)                                                                                                 |
+| Plan 3 — presentational drawers        | **complete**: approvals, projects and time-entry drawers, action toasts, and Reports → person drawer (see §5)                                                               |
 | Review                                 | every task spec+quality reviewed; a final review for Phases 4–6 and another for Phase 7, each fix wave re-reviewed                                                          |
 | Gate                                   | `pnpm lint && pnpm typecheck && pnpm test && pnpm build` green — dashboard 498, api 316, worker 80                                                                          |
 | E2E                                    | against the local stack: 29 passed, 1 failed (`session.spec.ts:58`, which failed before this branch too). Baseline before Phase 7: 6 failed                                 |
@@ -26,12 +27,14 @@ As with Plan 1, the execution ledger was gitignored; this file holds what it rec
 
 ## 2. Before merging
 
-1. **Expired-session redirect (the one real behaviour change).** The new `loading.tsx` files add a
-   Suspense boundary above every page. A page's `redirect(refreshBackTo(...))` on a 401 used to be a
-   307; it now arrives after the skeleton has streamed, as a meta-refresh with a ~1s delay plus a
-   client-side replace. To check it: keep the refresh cookie, drop the access token, hard-load
-   `/overview` and `/admin/audit`. If the flash is unacceptable, the fix is a 401 probe in the
-   `(app)` layout. That behaviour change was not made here.
+1. **Expired-session redirect: checked, not a problem.** The concern was that a page's
+   `redirect(refreshBackTo(...))` under the new `loading.tsx` would stream as a ~1s meta-refresh.
+   On a hard load the page never gets that far. `getSession()` is null once the access token has
+   expired, and the `(app)` layout redirects before anything streams, because the layout sits above
+   every segment's `loading.tsx`. Checked with curl and a cookie re-encrypted with a past
+   `accessExpiresAt`: `/overview`, `/admin/audit` and `/people/<id>` each returned a real 307 to
+   `/api/auth/refresh`. The page-level redirect only runs on soft navigations, which the client
+   router handles without a meta-refresh.
 2. **Visual checks, never done in a browser:**
    - Overview People row height (the cell's `py-[13px]` gave way to the density variable).
    - Reports "Activity %" alignment.
@@ -66,9 +69,8 @@ Each could be reversed cheaply.
   double-handle that click. The overview hint now says "click a name".
 - **Kept DEFERRABLE Tasks 7–9** (paging, selection, column hiding, expansion) as the earlier
   handoff intended. They have no consumer.
-- **Spec gap, not built:** spec §6.3(a) wants presentational drawers for approvals, projects and
-  the day panels, and the plan never designed them. `Drawer` and `useToast` therefore ship with no
-  caller.
+- **Spec gap, since closed:** spec §6.3(a)'s presentational drawers were designed and built in
+  Plan 3 (§5).
 - **Final-review fixes:**
   - Accessibility: indeterminate select-all, `role="group"` columns panel, `<h2>` titles on empty
     and error states, dismissible toasts with an assertive region for failures.
@@ -146,7 +148,6 @@ Known and left as is:
 - One Escape collapses every open inline row.
 - Next 16.3's dev server keeps stale interception rewrites. Restart it after renaming or removing an
   intercepting route.
-- Reports rows still open the full page; that part was optional.
 
 ### Pre-implementation notes (kept for the record)
 
@@ -171,3 +172,46 @@ Known and left as is:
    - The suite needs the docker stack, a seeded DB, the API and the dashboard all running.
 
    Budget for standing that up; it is the phase's only safety net.
+
+---
+
+## 5. Plan 3 — presentational drawers and toasts
+
+Plan: `docs/superpowers/plans/2026-09-22-dashboard-redesign-presentational-drawers.md`.
+
+- **Toasts:** every form whose success was silent now confirms with a toast. The forms touched are
+  in approvals, the day views, idle, projects, and admin users and teams. Settings and Invite
+  already said so inline and are unchanged.
+  - The toast is pushed from inside the action wrapper (`components/ui/useToastAction.ts`), not
+    from an effect. A first version used an effect and lost exactly the toasts that matter: when
+    approving on Pending, deleting an entry or archiving, the revalidated page unmounts the form
+    in the same commit.
+  - Where the wording depends on which button was pressed, the action's success result carries
+    the choice (`status`, `resolvedAction`, `archived`, `deactivated`).
+- **Approvals drawer** (`approvals/ApprovalsTable.tsx`): opened by clicking the name or the row. It
+  shows tracked vs decided hours and drift, status, decided-at, the note and a link to the week,
+  with the decide controls in the footer. `DecideFields` is shared with the row popover.
+- **Projects quick look** (`components/projects/ProjectsList.tsx`): opened by an icon button or a
+  row click. It shows hours, share and tasks, "Open project", and the archive toggle.
+  `ProjectIndexRow` gained `tasks`.
+- **Time-entry drawer** (`components/day/TimeEntriesDrawerList.tsx`, fed by the server adapter
+  `TimeEntriesList`): `DayEntryRow` gained project and task names, source, and per-entry activity
+  (active %, mix, top five apps). It nests inside the person drawer: one Escape closes it, the next
+  closes the person. `Drawer` now ignores a Tab that an outer drawer has already handled.
+- **Reports → person drawer:** `reports/layout.tsx` has its own `@drawer` slot. Reports'
+  page, loading and error files moved to `reports/(board)/`. Both slots share
+  `components/people/PersonDrawerPage` and its loading/error. Report names are now links, so the
+  rows are keyboard-reachable, and `DataTable`'s row click ignores clicks that start on a link or
+  control.
+- **Shared row-click guard:** `lib/row-click.ts`.
+- **E2E:**
+  - `e2e/presentational-drawers.spec.ts` is new.
+  - `session.spec.ts` now expects the sidebar's "Install the app", renamed in d76535e.
+
+**Left for a human to try:**
+
+- Deciding from the approvals drawer, where the toast should appear and the row leave Pending.
+- Archiving from the projects drawer.
+- Adding, editing or deleting an entry, and resolving idle time, each of which should toast.
+
+None of these is covered by e2e, because they write.

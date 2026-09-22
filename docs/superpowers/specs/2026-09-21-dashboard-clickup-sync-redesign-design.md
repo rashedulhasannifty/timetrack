@@ -184,6 +184,23 @@ Two kinds, deliberately kept apart:
 **(a) Presentational** — row data already loaded on the page. Plain client component, no routing, no
 fetch. Covers approvals, projects and the day panels.
 
+What each shows (built in Plan 3, `plans/2026-09-22-dashboard-redesign-presentational-drawers.md`):
+
+- **Approvals.** The week: tracked hours against the decided snapshot, with any drift since the
+  decision; the status, including "automatically"; when it was decided; the reviewer's note, which
+  the table never showed; and a link to the person's week. The footer holds the decide controls,
+  and a decision raises a toast and closes the drawer.
+- **Projects.** A quick look: hours and share for the range, the task list, "Open project", and the
+  archive toggle. The name still links to the full page.
+- **Day panels.** A time entry: time and duration, project and task, note, whether it was added by
+  hand, and "During this entry" (active %, category mix, top apps by minutes, never window titles).
+  It is read-only, and it nests inside the Overview/Reports person drawer: the inner drawer owns
+  Escape and Tab.
+
+Every form whose success was silent now raises a toast from inside its action wrapper
+(`useToastAction`). It is not raised from an effect, because the revalidated page can unmount the
+form in the same commit.
+
 **(b) Detail, needing its own fetch.** `/people/[userId]` is a real page. It uses Next parallel +
 intercepting routes, and the interception is owned by Overview, not by the `(app)` layout:
 
@@ -204,6 +221,9 @@ Why Overview and not `(app)`: Next decides whether to intercept by matching the 
 and any descendant matches too. An `(app)`-level slot gives `/.*`, so a `?panel=`/`?date=`
 change on a directly loaded `/people/<id>` was intercepted and opened a drawer over the full page.
 Held in `overview/`, the pattern is `/overview(?:/.*)?`.
+
+Reports is the second source, with the same layout under `reports/`, giving the pattern `/reports(?:/.*)?`.
+Both slots render one shared intercepted page.
 
 **The project drawer is descoped.** No file-convention placement gives the Projects index a
 matcher that excludes project pages. Any slot that can sit over `/projects` lives at `/` or
