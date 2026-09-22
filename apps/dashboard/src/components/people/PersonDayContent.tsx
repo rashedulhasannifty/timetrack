@@ -139,8 +139,21 @@ export async function loadPersonDay({
 /**
  * The day view body. `lead` is rendered first inside the day column — the full page passes its
  * "← Back" link there; the drawer passes nothing because it has its own close button.
+ *
+ * `navigation` is how the in-day controls (tabs, day arrows, date picker, week strip) move
+ * between days and panels. The full page pushes, so Back walks the days you visited. The drawer
+ * replaces: it closes with router.back(), and every pushed tab/date change would otherwise be
+ * one more step before Close actually returns to Overview.
  */
-export function PersonDayContent({ day, lead }: { day: PersonDay; lead?: ReactNode }) {
+export function PersonDayContent({
+  day,
+  lead,
+  navigation = 'push',
+}: {
+  day: PersonDay;
+  lead?: ReactNode;
+  navigation?: 'push' | 'replace';
+}) {
   const {
     userId,
     date,
@@ -154,6 +167,7 @@ export function PersonDayContent({ day, lead }: { day: PersonDay; lead?: ReactNo
     trends,
     idle,
   } = day;
+  const replace = navigation === 'replace';
 
   return model === null ? (
     <p className="text-text-secondary text-body">You’re not permitted to view this person.</p>
@@ -168,17 +182,20 @@ export function PersonDayContent({ day, lead }: { day: PersonDay; lead?: ReactNo
         isToday={model.isToday}
         recordingNow={model.recordingNow}
         avatar={<Avatar name={personName} size={40} />}
+        replace={replace}
       />
 
       <DayStats stats={model.stats} />
 
-      <DayTabs panel={panel} date={date} basePath={`/people/${userId}`} />
+      <DayTabs panel={panel} date={date} basePath={`/people/${userId}`} replace={replace} />
 
       <DayPanels
         panel={panel}
         model={model}
         weekStrip={
-          trends ? <WeekStrip days={weekStrip(date, trends.days, dayOf(new Date()))} /> : undefined
+          trends ? (
+            <WeekStrip days={weekStrip(date, trends.days, dayOf(new Date()))} replace={replace} />
+          ) : undefined
         }
         apps={<DayAppUsage usage={appUsage} />}
         screenshots={<ScreenshotsPanel shots={screenshots.map(toScreenshotView)} />}

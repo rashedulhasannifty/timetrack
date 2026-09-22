@@ -22,10 +22,13 @@ export function DayTabs({
   panel,
   date,
   basePath,
+  replace = false,
 }: {
   panel: DayPanel;
   date: string;
   basePath: string;
+  /** Inside a route drawer tab changes replace history, so closing it is one step back. */
+  replace?: boolean;
 }) {
   const href = (p: DayPanel): string => `${basePath}?date=${date}&panel=${p}`;
   const tabs: TabItem[] = [
@@ -34,5 +37,5 @@ export function DayTabs({
     { href: href('screenshots'), label: 'Screenshots' },
     { href: href('idle'), label: 'Idle' },
   ];
-  return <TabPills tabs={tabs} activeHref={href(panel)} ariaLabel="Day panels" />;
+  return <TabPills tabs={tabs} activeHref={href(panel)} ariaLabel="Day panels" replace={replace} />;
 }

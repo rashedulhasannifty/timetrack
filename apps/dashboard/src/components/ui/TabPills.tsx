@@ -48,6 +48,7 @@ export function TabPills({
   raised = true,
   className = '',
   ariaLabel,
+  replace = false,
 }: {
   tabs: ReadonlyArray<TabItem>;
   /** The href of the tab to mark current. Compare on the caller's terms (exact, prefix, query). */
@@ -55,6 +56,8 @@ export function TabPills({
   raised?: boolean;
   className?: string;
   ariaLabel: string;
+  /** Replace the current history entry instead of pushing one (tabs inside a route drawer). */
+  replace?: boolean;
 }) {
   return (
     <nav aria-label={ariaLabel}>
@@ -65,6 +68,7 @@ export function TabPills({
             <Link
               key={tab.href}
               href={tab.href}
+              replace={replace}
               aria-current={active ? 'page' : undefined}
               className={tabPillClasses(active)}
             >

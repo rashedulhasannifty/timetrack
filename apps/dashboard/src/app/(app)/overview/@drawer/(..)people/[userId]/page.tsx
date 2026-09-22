@@ -34,7 +34,7 @@ export default async function InterceptedPersonPage({
 
   return (
     <RouteDrawer title={day.title} size="wide">
-      <PersonDayContent day={day} />
+      <PersonDayContent day={day} navigation="replace" />
     </RouteDrawer>
   );
 }
