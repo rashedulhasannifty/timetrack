@@ -60,7 +60,7 @@ test('a signed-in person can still read the home and install pages', async ({ pa
 
   await page.getByRole('link', { name: 'Install the app' }).click();
   await expect(page).toHaveURL(/\/install$/);
-  await expect(page.getByRole('heading', { name: 'Installing Nifty Timer' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Which machine are you setting up?' })).toBeVisible();
 
   await page.goto('/');
   await expect(page).toHaveURL(/\/$/);
