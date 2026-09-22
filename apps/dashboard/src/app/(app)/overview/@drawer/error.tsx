@@ -16,7 +16,7 @@ export default function DrawerError({
   retry: () => void;
 }) {
   return (
-    <RouteDrawer title="Something went wrong" size="wide">
+    <RouteDrawer title="Couldn’t load this person" size="wide">
       <SegmentError error={error} retry={retry} />
     </RouteDrawer>
   );
