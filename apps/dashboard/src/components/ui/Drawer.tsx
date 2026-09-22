@@ -106,6 +106,10 @@ export function Drawer({
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
+      // A drawer nested in another drawer's panel: both listen on the window, and the outer one
+      // (registered first) already moved focus inside the inner one's scope. Handling the same
+      // key again would advance focus a second time and skip a control.
+      if (e.defaultPrevented) return;
       const panel = panelRef.current;
       if (!panel) return;
       const scope = innerModal(panel) ?? panel;
