@@ -132,6 +132,12 @@ export const IconClose = (p: SVGProps<SVGSVGElement>) => (
   </Base>
 );
 
+export const IconRows = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M4 6h16M4 12h16M4 18h16" />
+  </Base>
+);
+
 export const IconDownload = (p: SVGProps<SVGSVGElement>) => (
   <Base {...p}>
     <path d="M12 3.6v10.2" />

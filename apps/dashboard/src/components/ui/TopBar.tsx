@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { ThemeToggle } from './ThemeToggle';
+import { DensityToggle } from './DensityToggle';
 import { usePageKicker, usePageTitle } from './PageTitleContext';
 import { IconMenu } from './icons';
 
@@ -57,6 +58,7 @@ export function TopBar({
         <h1 className="m-0 truncate text-h1 font-extrabold tracking-[-0.035em]">{title}</h1>
       </div>
       <div className="flex-1" />
+      <DensityToggle />
       <ThemeToggle />
     </header>
   );
