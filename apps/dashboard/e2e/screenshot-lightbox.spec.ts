@@ -21,7 +21,7 @@ async function login(page: import('@playwright/test').Page) {
   await page.fill('input[name="email"]', EMAIL);
   await page.fill('input[name="password"]', PASSWORD);
   await page.click('button[type="submit"]');
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/overview$/);
 }
 
 test.describe('day view — screenshots and date navigation', () => {
