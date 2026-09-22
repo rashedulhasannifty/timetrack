@@ -11,8 +11,8 @@ import {
 import { getSession } from '../../../../lib/session';
 import { formatDuration } from '../../../../lib/format';
 
-// Next 16 — params and searchParams are async. The fetch and the body are shared with the
-// Projects-index drawer that intercepts this URL — see ProjectDetailContent.
+// Next 16 — params and searchParams are async. The fetch and the body live in
+// ProjectDetailContent (see there for why there is no project drawer).
 export default async function ProjectDetailPage({
   params,
   searchParams,

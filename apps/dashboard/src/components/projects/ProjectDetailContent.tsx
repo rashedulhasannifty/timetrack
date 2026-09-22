@@ -19,13 +19,13 @@ import { formatDuration } from '../../lib/format';
 import type { ProjectDetail, Task, ProjectTopApps, TeamListItem } from '@timetrack/contracts';
 
 /**
- * One project's detail, fetched once and rendered by BOTH `projects/[projectId]/page.tsx` (a
- * direct load) and the drawer that intercepts the same URL from the Projects index — so the two
- * can never disagree about what a project shows.
- *
- * Split into a loader and a view rather than one async component because each caller needs the
- * project's name for its own chrome (the page's header title + kicker, the drawer's title bar),
- * and that must come from the same single fetch. Server-only: the token never reaches the
+ * One project's detail: a loader and a view, rendered today only by
+ * `projects/[projectId]/page.tsx`. There is deliberately NO project drawer: Next intercepts on
+ * a `Next-Url` prefix, and any slot that can sit over the Projects index yields
+ * `/projects(?:/.*)?`, which also matches a directly loaded `/projects/<id>` — its own range
+ * picker would then open a drawer over it. The split mirrors PersonDayContent so a future
+ * drawer (from a source outside /projects) can reuse it: each caller needs the project's name
+ * for its own chrome from the same single fetch. Server-only: the token never reaches the
  * browser.
  */
 export type ProjectDetailData = Awaited<ReturnType<typeof loadProjectDetail>>;

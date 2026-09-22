@@ -8,8 +8,8 @@ import { usePathname, useRouter } from 'next/navigation';
  * chrome read as a date filter permanently stuck on today.
  *
  * Navigates by pushing `?date=` (replacing, inside a route drawer), the same URL state the
- * arrows use, so the server component re-renders exactly as it does for a link click. `max` stops the picker offering a future day
- * the arrows already refuse.
+ * arrows use, so the server component re-renders exactly as it does for a link click. `max`
+ * stops the picker offering a future day the arrows already refuse.
  */
 export function DayPicker({
   date,

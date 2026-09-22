@@ -3,6 +3,7 @@
  * content when the new URL has no match in it — so without this, navigating back to Overview
  * (the sidebar link, the page's own range picker) with a person open would leave the drawer
  * showing over it. Matching `/overview` explicitly and rendering nothing closes it.
+ * If an `/overview/<sub>` route is ever added, add a `[...catchAll]/page.tsx` returning null too.
  */
 export default function NoDrawer() {
   return null;
