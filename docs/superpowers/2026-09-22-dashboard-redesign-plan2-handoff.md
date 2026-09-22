@@ -11,15 +11,16 @@ As with Plan 1, the execution ledger was gitignored; this file holds what it rec
 
 ## 1. Status
 
-|                                        |                                                                                                                                                            |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Phase 4 — DataTable (Tasks 1–9)        | **complete**, including the DEFERRABLE Tasks 7–9                                                                                                           |
-| Phase 5 — states (Tasks 10–13)         | **complete**                                                                                                                                               |
-| Phase 6 — drawer/toast/density (14–16) | **complete**                                                                                                                                               |
-| Phase 7 — intercepting routes (17–19)  | **not started** — deliberately; see §4                                                                                                                     |
-| Review                                 | every task spec+quality reviewed; final whole-branch review done, its fix wave re-reviewed                                                                 |
-| Gate                                   | `pnpm lint && pnpm typecheck && pnpm test && pnpm build` green — dashboard 490, api 316, worker 80                                                         |
-| PR                                     | **none yet.** Open it only after #224 merges, then rebase onto `origin/main` (a PR based on another feature branch reports MERGED but never reaches main). |
+|                                        |                                                                                                                                                                             |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phase 4 — DataTable (Tasks 1–9)        | **complete**, including the DEFERRABLE Tasks 7–9                                                                                                                            |
+| Phase 5 — states (Tasks 10–13)         | **complete**                                                                                                                                                                |
+| Phase 6 — drawer/toast/density (14–16) | **complete**                                                                                                                                                                |
+| Phase 7 — intercepting routes (17–19)  | **complete** for the person drawer; the project drawer is descoped (see §4)                                                                                                 |
+| Review                                 | every task spec+quality reviewed; a final review for Phases 4–6 and another for Phase 7, each fix wave re-reviewed                                                          |
+| Gate                                   | `pnpm lint && pnpm typecheck && pnpm test && pnpm build` green — dashboard 498, api 316, worker 80                                                                          |
+| E2E                                    | against the local stack: 29 passed, 1 failed (`session.spec.ts:58`, which failed before this branch too). Baseline before Phase 7: 6 failed                                 |
+| PR                                     | **none yet.** Nothing merges until the whole redesign is done. Then rebase onto `origin/main` (a PR based on another feature branch reports MERGED but never reaches main). |
 
 ---
 
@@ -90,10 +91,64 @@ Known and left as is:
 
 ---
 
-## 4. Phase 7 — settle these before starting it
+## 4. Phase 7 — what was built
 
-The plan says to ship Phase 7 alone, after Phase 6 is merged. Reading the code turned up the
-following:
+- **Clicking a person's name on Overview opens their day view in a drawer**, and the URL becomes
+  `/people/<id>`.
+  - Files: `overview/layout.tsx`, `overview/@drawer/(..)people/[userId]/page.tsx`, plus `page.tsx`,
+    `default.tsx`, `loading.tsx` and `error.tsx` in the slot.
+  - Pasting, refreshing or middle-clicking that URL gives the full page.
+- **Page and drawer render the same code.** Both use `components/people/PersonDayContent.tsx`, so
+  they can't disagree. The project page got the same split (`ProjectDetailContent`).
+- **The drawer can't hijack the full page.** The slot lives under `overview/`, so Next only
+  intercepts navigations that start on `/overview`. Changing the tab or date on a directly loaded
+  `/people/<id>` never opens a drawer.
+- **Close and Escape return to Overview in one step.** Inside the drawer, tab and date changes
+  replace history instead of adding to it. On the full page, Back still steps through days.
+- **Overview's page, loading and error files live in `overview/(board)/`.** Otherwise Next shows
+  Overview's skeleton in the drawer slot as well, and "← Back" showed two skeletons.
+- **Keyboard handling:**
+  - The drawer takes focus when it opens, keeps Tab inside it, and hands focus back when it closes.
+  - An inner dialog owns its own keys: the screenshot lightbox, or any `[aria-modal]` or
+    `dialog[open]`.
+  - So does an open inline form (Add time, Edit or Delete on an entry): Escape collapses the form
+    and leaves the drawer open. Its typed values are still discarded.
+- **Project drawer: not built.** Next matches interception by the `Next-Url` prefix, and every file
+  placement that can sit over `/projects` also matches `/projects/<id>`. That page's range picker
+  soft-navigates, so a drawer would open over the full project page. A `proxy.ts` that strips the
+  header would work, but was declined as too much blast radius for one drawer. Spec §6.3(b) is
+  amended to match.
+- **E2E:**
+  - `e2e/detail-drawer.spec.ts` covers the cases above. It is date- and hydration-proof and skips
+    only when the `E2E_*` env is missing.
+  - `e2e/screenshot-lightbox.spec.ts` now opens the Screenshots tab, waits for hydration, and
+    expects login to land on `/overview`.
+  - To run the suite:
+
+    ```bash
+    # repo root: docker compose -f infra/docker-compose.yml up -d && pnpm dev; then, in apps/dashboard:
+    set -a; . ../../.env; set +a
+    E2E_ADMIN_EMAIL="$SEED_ADMIN_EMAIL" E2E_ADMIN_PASSWORD="$SEED_ADMIN_PASSWORD" \
+      E2E_SHOT_USER_ID=<a user with screenshots> E2E_SHOT_DATE=<YYYY-MM-DD> \
+      ./node_modules/.bin/playwright test --workers=1
+    ```
+
+**Left for a human to try:**
+
+- Save an edit or add an entry inside the drawer: the drawer should stay open and show the change.
+  No e2e test covers this, because it writes to the DB.
+- The expired-token round trip after clicking a person. It lands on the full page, via
+  `refreshBackTo`.
+
+**Known limits:**
+
+- Close or a backdrop click discards a half-filled form.
+- One Escape collapses every open inline row.
+- Next 16.3's dev server keeps stale interception rewrites. Restart it after renaming or removing an
+  intercepting route.
+- Reports rows still open the full page; that part was optional.
+
+### Pre-implementation notes (kept for the record)
 
 1. **Don't copy the pages.** Task 17/18 say to copy the ~170-line person page and the ~240-line
    project page verbatim into the intercepted routes. Instead, extract each page body into a shared
