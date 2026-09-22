@@ -23,12 +23,15 @@ export function Drawer({
   title,
   children,
   footer,
+  size = 'default',
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   footer?: ReactNode;
+  /** `wide` fits a full detail view (a person's day, a project) rather than a settings list. */
+  size?: 'default' | 'wide';
 }) {
   const titleId = useId();
   const panelRef = useRef<HTMLElement>(null);
@@ -108,7 +111,7 @@ export function Drawer({
         // edit) control by default would be worse than landing on the dialog boundary. This also
         // means a screen reader announces the dialog's role and aria-labelledby name on open.
         tabIndex={-1}
-        className="bg-surface-raised shadow-e2 fixed inset-y-0 right-0 z-[90] flex w-full max-w-[520px] flex-col rounded-l-lg"
+        className={`bg-surface-raised shadow-e2 fixed inset-y-0 right-0 z-[90] flex w-full ${size === 'wide' ? 'max-w-[880px]' : 'max-w-[520px]'} flex-col rounded-l-lg`}
       >
         <div className="border-separator flex items-center gap-3 border-b px-[26px] py-[18px]">
           <span id={titleId} className="text-h3 font-bold">
