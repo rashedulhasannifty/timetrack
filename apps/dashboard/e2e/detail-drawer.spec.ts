@@ -98,6 +98,9 @@ test.describe('person detail drawer', () => {
     // The drawer has its own close; the full page's Back link and title are not repeated.
     await expect(dialog.getByRole('link', { name: '← Back' })).toHaveCount(0);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview');
+    // Overview sets its kicker explicitly, so the chrome doesn't fall back to /people's "Day view".
+    await expect(page.getByRole('banner')).toContainText('How the team spent its time');
+    await expect(page.getByRole('banner')).not.toContainText('Day view');
   });
 
   test('the loading shell hands over to the day view without a second dialog', async ({ page }) => {
@@ -214,6 +217,8 @@ test.describe('person detail drawer', () => {
     await expect(page).toHaveURL(/\/overview$/);
     await expect(dialog).toHaveCount(0);
     await expect(link).toBeFocused();
+    // The loading shell and the real drawer each lock body scroll; both must have restored it.
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe('');
   });
 
   test('Tab and Shift+Tab stay inside the drawer', async ({ page }) => {
@@ -253,54 +258,14 @@ test.describe('person detail drawer', () => {
     await expect(dialog).toBeVisible();
     expect(page.url()).toBe(url);
 
-    await page.keyboard.press('Escape');
-    await expect(dialog).toHaveCount(0);
-    await expect(page).toHaveURL(/\/overview$/);
-  });
-
-  test('Escape collapses an open entry edit or delete-confirm without closing the drawer', async ({
-    page,
-  }) => {
-    const { link } = await firstPerson(page);
-    await link.click();
-    await drawerLoaded(page);
-    const dialog = page.getByRole('dialog');
-    const url = page.url();
-    // Nothing is submitted — the forms are only opened and dismissed, so no DB write.
-    const edit = dialog.getByRole('button', { name: 'Edit', exact: true }).first();
-    test.skip((await edit.count()) === 0, 'the first person has no closed entry today');
-
-    await edit.click();
-    await expect(dialog.getByRole('button', { name: 'Save' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(dialog.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    // Still a live drawer — not one a late router.back() is about to tear down.
+    await dialog.getByRole('link', { name: 'Activity' }).click();
+    await expect(page).toHaveURL(/panel=activity/);
     await expect(dialog).toBeVisible();
-    expect(page.url()).toBe(url);
-
-    await dialog.getByRole('button', { name: 'Delete', exact: true }).first().click();
-    await expect(dialog.getByRole('button', { name: 'Yes, delete' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(dialog.getByRole('button', { name: 'Yes, delete' })).toHaveCount(0);
-    await expect(dialog).toBeVisible();
-    expect(page.url()).toBe(url);
 
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
     await expect(page).toHaveURL(/\/overview$/);
-  });
-
-  test('on the full page, Escape collapses an open entry edit', async ({ page }) => {
-    const { href } = await firstPerson(page);
-    await page.goto(href);
-    await hydrated(page);
-    const edit = page.getByRole('button', { name: 'Edit', exact: true }).first();
-    test.skip((await edit.count()) === 0, 'the first person has no closed entry today');
-    await edit.click();
-    await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: 'Save' })).toHaveCount(0);
-    await expect(page).toHaveURL(new RegExp(`${href}$`));
-    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
   test('Escape closes the drawer back to Overview', async ({ page }) => {
@@ -312,6 +277,7 @@ test.describe('person detail drawer', () => {
     await page.keyboard.press('Escape');
     await expect(page).toHaveURL(/\/overview$/);
     await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe('');
   });
 
   test('soft-navigating away with the drawer open closes it', async ({ page }) => {
@@ -342,12 +308,90 @@ test.describe('person detail drawer', () => {
 });
 
 /**
- * A dialog inside the drawer: the person day's screenshot lightbox renders INSIDE the drawer
- * panel, and both listen for keys on the window. Needs a person/day with at least one READY
- * screenshot (same env as screenshot-lightbox.spec.ts), and that person listed on Overview.
+ * The blocks below need a KNOWN person/day: E2E_SHOT_USER_ID / E2E_SHOT_DATE (same env as
+ * screenshot-lightbox.spec.ts) — a person listed on Overview with, that day, at least one READY
+ * screenshot and at least one closed time entry.
  */
 const SHOT_USER_ID = process.env.E2E_SHOT_USER_ID;
 const SHOT_DATE = process.env.E2E_SHOT_DATE;
+const drawer = (page: Page) => page.locator('aside[role="dialog"]');
+
+/** Logs in, opens SHOT_USER_ID's drawer from Overview and moves it (in place) to SHOT_DATE. */
+async function openShotDayInDrawer(page: Page) {
+  await login(page);
+  const link = page.locator(`main a[href="/people/${SHOT_USER_ID}"]`).first();
+  await link.click();
+  await drawerLoaded(page);
+  // When SHOT_DATE is today the picker already holds it: filling the same value fires no
+  // change, so only fill a different day. The controlled input settles on the value after the
+  // server render.
+  const picker = drawer(page).getByLabel('Jump to date');
+  if ((await picker.inputValue()) !== SHOT_DATE) await picker.fill(SHOT_DATE!);
+  await expect(picker).toHaveValue(SHOT_DATE!);
+  return { link };
+}
+
+test.describe('inline forms inside the person drawer', () => {
+  test.skip(
+    !EMAIL || !PASSWORD || !SHOT_USER_ID || !SHOT_DATE,
+    'set E2E_ADMIN_*, and E2E_SHOT_USER_ID / E2E_SHOT_DATE to a day with closed entries',
+  );
+
+  test('Escape collapses an open entry edit or delete-confirm without closing the drawer', async ({
+    page,
+  }) => {
+    await openShotDayInDrawer(page);
+    const dialog = drawer(page);
+    const url = page.url();
+    // A precondition, not a skip: SHOT_DATE must have a closed entry, or this proves nothing.
+    // Nothing is submitted — the forms are only opened and dismissed, so no DB write.
+    const edit = dialog.getByRole('button', { name: 'Edit', exact: true }).first();
+    await expect(edit).toBeVisible();
+
+    await edit.click();
+    await expect(dialog.getByRole('button', { name: 'Save' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    expect(page.url()).toBe(url);
+
+    await dialog.getByRole('button', { name: 'Delete', exact: true }).first().click();
+    await expect(dialog.getByRole('button', { name: 'Yes, delete' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog.getByRole('button', { name: 'Yes, delete' })).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    expect(page.url()).toBe(url);
+
+    // Still a live drawer — not one a late router.back() is about to tear down.
+    await dialog.getByRole('link', { name: 'Activity' }).click();
+    await expect(page).toHaveURL(/panel=activity/);
+    await expect(dialog).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(page).toHaveURL(/\/overview$/);
+  });
+
+  test('on the full page, Escape collapses an open entry edit', async ({ page }) => {
+    await login(page);
+    const href = `/people/${SHOT_USER_ID}?date=${SHOT_DATE}`;
+    await page.goto(href);
+    await hydrated(page);
+    const edit = page.getByRole('button', { name: 'Edit', exact: true }).first();
+    await expect(edit).toBeVisible();
+    await edit.click();
+    await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    expect(page.url()).toContain(href);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+});
+
+/**
+ * A dialog inside the drawer: the person day's screenshot lightbox renders INSIDE the drawer
+ * panel, and both listen for keys on the window.
+ */
 
 test.describe('a dialog inside the person drawer', () => {
   test.skip(
@@ -355,22 +399,11 @@ test.describe('a dialog inside the person drawer', () => {
     'set E2E_ADMIN_*, and E2E_SHOT_USER_ID / E2E_SHOT_DATE to a day with a READY screenshot',
   );
 
-  const drawer = (page: Page) => page.locator('aside[role="dialog"]');
   const lightbox = (page: Page) => page.getByRole('dialog', { name: /^Screenshot at / });
 
-  /** Opens the drawer from Overview, then moves it (in place) to the screenshots of SHOT_DATE. */
+  /** Opens the drawer on SHOT_DATE, then switches it (in place) to the Screenshots panel. */
   async function openShotsInDrawer(page: Page) {
-    await login(page);
-    const link = page.locator(`main a[href="/people/${SHOT_USER_ID}"]`).first();
-    await link.click();
-    await drawerLoaded(page);
-    await expect(drawer(page)).toBeVisible();
-    // When SHOT_DATE is today the picker already holds it: filling the same value fires no
-    // change, so only fill a different day. The controlled input settles on the value after the
-    // server render; the Screenshots tab's href then carries that date.
-    const picker = drawer(page).getByLabel('Jump to date');
-    if ((await picker.inputValue()) !== SHOT_DATE) await picker.fill(SHOT_DATE!);
-    await expect(picker).toHaveValue(SHOT_DATE!);
+    const { link } = await openShotDayInDrawer(page);
     await drawer(page).getByRole('link', { name: 'Screenshots' }).click();
     await expect(page).toHaveURL(/panel=screenshots/);
     await expect(drawer(page)).toBeVisible();
