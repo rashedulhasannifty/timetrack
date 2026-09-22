@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode, TdHTMLAttributes } from 'react';
+import type { CSSProperties, HTMLAttributes, ReactNode, TdHTMLAttributes } from 'react';
 
 /** Full-width table shell; place inside a `<Card padding="none">`. */
 export function Table({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -55,6 +55,7 @@ export function Th({
   sortDirection = null,
   onSortClick,
   className = '',
+  style,
 }: {
   children: ReactNode;
   align?: 'left' | 'right';
@@ -62,12 +63,13 @@ export function Th({
   sortDirection?: 'asc' | 'desc' | null;
   onSortClick?: () => void;
   className?: string;
+  style?: CSSProperties | undefined;
 }) {
   const base =
     `tt-eyebrow text-neutral px-[26px] py-[var(--pad-y)] ${HEAD_ALIGN[align]} ${className}`.trim();
   if (!sortable) {
     return (
-      <th scope="col" className={base}>
+      <th scope="col" className={base} style={style}>
         {children}
       </th>
     );
@@ -77,6 +79,7 @@ export function Th({
     <th
       scope="col"
       className={base}
+      style={style}
       aria-sort={
         sortDirection === 'asc' ? 'ascending' : sortDirection === 'desc' ? 'descending' : 'none'
       }
