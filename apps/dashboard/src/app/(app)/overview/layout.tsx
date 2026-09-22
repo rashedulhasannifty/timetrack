@@ -10,6 +10,10 @@ import type { ReactNode } from 'react';
  * `/people/<id>` page would be intercepted and open a drawer over the full page. Holding the
  * slot here yields `/overview(?:/.*)?`: only a navigation that starts on Overview opens the
  * drawer, and a direct load of `/people/<id>` never mounts this layout at all.
+ *
+ * Overview's own page, loading.tsx and error.tsx live in the `(board)` route group: Next
+ * applies a segment's loading/error files to EVERY slot of its layout, so beside this layout
+ * they rendered a second PageSkeleton in the drawer slot on a soft nav into Overview.
  */
 export default function OverviewLayout({
   children,
