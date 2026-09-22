@@ -1,6 +1,14 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { Table, THead, Tbody, Tr, Th, Td } from './Table';
 import { EmptyState } from './EmptyState';
 import { buttonClasses } from './Button';
@@ -10,6 +18,7 @@ import {
   stickyOffsets,
   paginate,
   pageCount,
+  clampPage,
   toggleKey,
   togglePage,
   type Sort,
@@ -90,6 +99,10 @@ export function DataTable<T>({
   const [hidden, setHidden] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+  // The native checkbox's indeterminate visual has no HTML attribute — it is a DOM-only
+  // property, and `aria-checked="mixed"` is invalid on an <input type="checkbox"> (it is only
+  // valid on role="checkbox"), so it goes through a ref instead of the render output.
+  const selectAllRef = useRef<HTMLInputElement>(null);
 
   // A sort that leaves you on page 3 of a reordered list is disorienting, so re-sorting
   // always returns to page 1.
@@ -186,6 +199,14 @@ export function DataTable<T>({
   const allOnPageSelected = pageKeys.length > 0 && selectedOnPage.length === pageKeys.length;
   const someOnPageSelected = selectedOnPage.length > 0 && !allOnPageSelected;
 
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someOnPageSelected;
+  }, [someOnPageSelected]);
+
+  // A sort/filter can shrink `pages` below an already-advanced `page`; the display value
+  // clamps so the pager and its Prev/Next disabled states can't read "3 of 2".
+  const displayPage = clampPage(page, pages);
+
   // Total rendered cells per row, for the expanded panel's colSpan.
   const columnCount = visibleColumns.length + (hasSelection ? 1 : 0);
 
@@ -205,7 +226,8 @@ export function DataTable<T>({
             </button>
             {menuOpen ? (
               <div
-                role="menu"
+                role="group"
+                aria-label="Visible columns"
                 className="bg-surface-raised border-separator absolute right-0 z-10 mt-1 min-w-[160px] rounded-md border p-2 shadow-lg"
               >
                 {columns.map((col) => (
@@ -229,10 +251,10 @@ export function DataTable<T>({
             {hasSelection ? (
               <Th style={cellStyle(0, SELECT_COLUMN_WIDTH)}>
                 <input
+                  ref={selectAllRef}
                   type="checkbox"
                   aria-label="Select all on this page"
                   checked={allOnPageSelected}
-                  {...(someOnPageSelected ? { 'aria-checked': 'mixed' as const } : {})}
                   onChange={() =>
                     onSelectionChange(togglePage(selectedKeys, pageKeys, !allOnPageSelected))
                   }
@@ -321,18 +343,18 @@ export function DataTable<T>({
           <button
             type="button"
             className={buttonClasses('secondary', 'sm')}
-            disabled={page <= 1}
+            disabled={displayPage <= 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
           >
             Prev
           </button>
           <span className="text-text-secondary text-caption">
-            {page} of {pages}
+            {displayPage} of {pages}
           </span>
           <button
             type="button"
             className={buttonClasses('secondary', 'sm')}
-            disabled={page >= pages}
+            disabled={displayPage >= pages}
             onClick={() => setPage((p) => Math.min(pages, p + 1))}
           >
             Next

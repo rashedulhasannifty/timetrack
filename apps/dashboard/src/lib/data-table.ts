@@ -64,6 +64,13 @@ export function pageCount(total: number, pageSize: number): number {
   return Math.max(1, Math.ceil(total / pageSize));
 }
 
+/** Clamps a page number into `[1, pages]`. A sort or filter can shrink `pages` out from under
+ *  an already-advanced page state; without this the pager label and the Prev/Next disabled
+ *  states can read "3 of 2" instead of snapping back onto the new last page. */
+export function clampPage(page: number, pages: number): number {
+  return Math.min(Math.max(page, 1), pages);
+}
+
 /** Add or remove one key. Selection is held by the caller, because it outlives the table's
  *  visible page — a page's totals and exports have to survive paging. */
 export function toggleKey(keys: readonly string[], key: string): string[] {

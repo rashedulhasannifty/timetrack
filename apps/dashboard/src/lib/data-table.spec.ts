@@ -4,6 +4,7 @@ import {
   sortRows,
   paginate,
   pageCount,
+  clampPage,
   stickyOffsets,
   toggleKey,
   togglePage,
@@ -107,6 +108,25 @@ describe('pageCount', () => {
   /** An empty table still has one (empty) page — zero would break "Page 1 of 0". */
   it('is at least one', () => {
     expect(pageCount(0, 10)).toBe(1);
+  });
+});
+
+describe('clampPage', () => {
+  /**
+   * DataTable's own `page` state can only move by one via Prev/Next, but `pages` can shrink
+   * out from under it the instant a sort or filter drops rows — this is what stops the pager
+   * label and Prev/Next disabled states from reading "3 of 2" in that moment.
+   */
+  it('pulls a page number back onto a shrunken page count', () => {
+    expect(clampPage(3, 2)).toBe(2);
+  });
+
+  it('leaves an in-range page number unchanged', () => {
+    expect(clampPage(2, 5)).toBe(2);
+  });
+
+  it('clamps below one', () => {
+    expect(clampPage(0, 5)).toBe(1);
   });
 });
 

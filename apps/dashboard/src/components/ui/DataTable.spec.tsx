@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { DataTable, type Column } from './DataTable';
 
@@ -148,6 +150,17 @@ describe('DataTable row selection', () => {
     // One header checkbox plus one per row.
     expect(html.match(/type="checkbox"/g)).toHaveLength(rows.length + 1);
   });
+
+  /** `aria-checked="mixed"` is invalid on a native `<input type="checkbox">` (it is only valid
+   *  on `role="checkbox"`); the partial-selection visual is set as the DOM `indeterminate`
+   *  property instead, which is not observable in static markup. */
+  it('never emits aria-checked="mixed" on the native select-all checkbox', () => {
+    const html = render({
+      selectedKeys: ['a'],
+      onSelectionChange: () => {},
+    });
+    expect(html).not.toContain('aria-checked');
+  });
 });
 
 describe('DataTable column visibility', () => {
@@ -157,6 +170,21 @@ describe('DataTable column visibility', () => {
 
   it('renders a columns menu when hideable', () => {
     expect(render({ hideable: true })).toContain('Columns');
+  });
+
+  /**
+   * The columns disclosure panel only renders once `menuOpen` is toggled true, and this suite
+   * has no DOM to click the "Columns" button with — so its role/label are pinned by reading
+   * the source, the same way TabPills.spec.tsx pins a CSS selector it cannot reach by
+   * rendering. Plain checkboxes with no menu keyboard model, so it is a labelled group, not a
+   * menu (role="menu" expects arrow-key navigation between menuitems, which this panel does
+   * not implement).
+   */
+  it('exposes the columns panel as a labelled group, not a menu', () => {
+    const src = readFileSync(join(__dirname, './DataTable.tsx'), 'utf8');
+    expect(src).toContain('role="group"');
+    expect(src).toContain('aria-label="Visible columns"');
+    expect(src).not.toContain('role="menu"');
   });
 });
 
