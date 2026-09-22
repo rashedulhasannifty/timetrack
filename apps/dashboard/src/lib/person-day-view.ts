@@ -1,5 +1,6 @@
 import type { TimeEntry, ActivitySample, Screenshot, Project } from '@timetrack/contracts';
 import { clockOf, dayOf, dayStartInstant, isValidDay, shiftDay } from '@timetrack/contracts';
+import { categoryMix, type CategoryMix } from './idle-view';
 
 export type DayCategory = 'PRODUCTIVE' | 'NEUTRAL' | 'UNPRODUCTIVE';
 
@@ -67,6 +68,26 @@ export interface DayEntryRow {
   projectId: string | null;
   taskId: string | null;
   note: string | null;
+  /** Resolved from `projects`; null when the entry has no id or the id is not in the list. */
+  projectName: string | null;
+  taskName: string | null;
+  source: TimeEntry['source'];
+  /** What the day's samples say about this entry's own span — see `entryActivity`. */
+  activity: EntryActivity;
+}
+
+/** How many apps an entry's detail lists before the rest stop being worth reading. */
+export const ENTRY_TOP_APPS = 5;
+
+export interface EntryActivity {
+  /** Mean `activityPct` of the samples inside the entry, rounded. Null with no samples. */
+  activePct: number | null;
+  mix: CategoryMix;
+  /**
+   * The apps with the most samples inside the entry, one sample standing for about a minute.
+   * App names only — a window title never reaches this row.
+   */
+  topApps: { app: string; minutes: number }[];
 }
 
 export interface PersonDayViewModel {
@@ -219,6 +240,25 @@ function categorySegments(
  * behavior); otherwise name it by its project, appending the task when present ("Project · Task");
  * an entry with neither a note nor a resolvable project stays "Untitled entry".
  */
+/**
+ * Summarise the samples that fall inside one entry. Same semantics as the day-level stats: the
+ * active % is the rounded mean, and the mix is `categoryMix` over every sample (a sample always
+ * carries a category — the contract defaults it to NEUTRAL).
+ */
+function entryActivity(entrySamples: ActivitySample[]): EntryActivity {
+  const activePct =
+    entrySamples.length === 0
+      ? null
+      : Math.round(entrySamples.reduce((sum, s) => sum + s.activityPct, 0) / entrySamples.length);
+  const perApp = new Map<string, number>();
+  for (const s of entrySamples) perApp.set(s.appName, (perApp.get(s.appName) ?? 0) + 1);
+  const topApps = [...perApp]
+    .map(([app, minutes]) => ({ app, minutes }))
+    .sort((a, b) => b.minutes - a.minutes || a.app.localeCompare(b.app))
+    .slice(0, ENTRY_TOP_APPS);
+  return { activePct, mix: categoryMix(entrySamples), topApps };
+}
+
 function entryLabel(
   entry: TimeEntry,
   projectNames: Map<string, string>,
@@ -246,6 +286,13 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
   const dayStartMs = dayStartInstant(date).getTime();
   const dayEndMs = dayStartInstant(shiftDay(date, 1)).getTime();
   const nowMs = now.getTime();
+
+  /** The day's samples inside `[startMs, endMs)`. */
+  const samplesIn = (startMs: number, endMs: number): ActivitySample[] =>
+    samples.filter((s) => {
+      const t = Date.parse(s.timestamp);
+      return t >= startMs && t < endMs;
+    });
 
   // The client's last provable sign of life today. An open entry cannot accrue past this —
   // otherwise a shut-down Mac's entry grows forever and the pill never goes out (spec §4.3).
@@ -398,6 +445,12 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
         projectId: p.entry.projectId,
         taskId: p.entry.taskId,
         note: p.entry.note ?? null,
+        projectName: p.entry.projectId ? (projectNames.get(p.entry.projectId) ?? null) : null,
+        taskName: p.entry.taskId ? (taskNames.get(p.entry.taskId) ?? null) : null,
+        source: p.entry.source,
+        // Windowed on the same `effectiveEnd` as the duration and the ribbon, so an open entry
+        // runs to now while live, and a stale one stops where its duration froze.
+        activity: entryActivity(samplesIn(p.startMs, p.effectiveEnd)),
       };
     })
     .sort((a, b) => a.startMs - b.startMs);
@@ -406,12 +459,10 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
   // so intra-entry category variation shows, instead of one dominant color per entry.
   const trackedBlocks: RibbonBlock[] = parsed
     .flatMap((p) => {
-      const entrySamples = samples
-        .filter((s) => {
-          const t = Date.parse(s.timestamp);
-          return t >= p.startMs && t < p.effectiveEnd;
-        })
-        .map((s) => ({ t: Date.parse(s.timestamp), category: s.category }));
+      const entrySamples = samplesIn(p.startMs, p.effectiveEnd).map((s) => ({
+        t: Date.parse(s.timestamp),
+        category: s.category,
+      }));
       const segments = categorySegments(p.startMs, p.effectiveEnd, entrySamples);
       return segments.map((seg, i) => {
         const startPct = pct(seg.startMs);

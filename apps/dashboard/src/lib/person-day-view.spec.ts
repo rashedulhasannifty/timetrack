@@ -365,6 +365,107 @@ describe('personDayView — entry labels', () => {
   });
 });
 
+describe('personDayView — entry detail', () => {
+  const appSample = (h: number, m: number, app: string, cat = 'NEUTRAL', pct = 50) => ({
+    ...sample(h, m, cat, pct),
+    id: `s${h}${m}${app}`,
+    appName: app,
+  });
+  const projects = [
+    {
+      id: 'p1',
+      teamId: 't1',
+      name: 'Energy Reporting',
+      color: null,
+      archived: false,
+      tasks: [{ id: 'k1', projectId: 'p1', name: 'Fix Lighting Forms', archived: false }],
+    },
+  ] as Project[];
+  const row = (e: TimeEntry, samples: ActivitySample[] = [], now = new Date(iso(20))) =>
+    personDayView({ ...base, now, entries: [e], samples, projects }).entries[0]!;
+
+  it('resolves project and task names, null when absent or unresolved', () => {
+    const e = entry('a', 9, 10);
+    expect(row({ ...e, projectId: 'p1', taskId: 'k1' })).toMatchObject({
+      projectName: 'Energy Reporting',
+      taskName: 'Fix Lighting Forms',
+    });
+    expect(row({ ...e, projectId: 'gone', taskId: 'gone' })).toMatchObject({
+      projectName: null,
+      taskName: null,
+    });
+    expect(row(e)).toMatchObject({ projectName: null, taskName: null });
+  });
+
+  it('passes the entry source through', () => {
+    expect(row(entry('a', 9, 10)).source).toBe('MANUAL');
+    expect(row({ ...entry('a', 9, 10), source: 'AUTO' }).source).toBe('AUTO');
+  });
+
+  it('reports no activity for an entry with no samples', () => {
+    expect(row(entry('a', 9, 10)).activity).toEqual({
+      activePct: null,
+      mix: { productivePct: 0, neutralPct: 0, unproductivePct: 0, sampled: 0 },
+      topApps: [],
+    });
+  });
+
+  it('summarises only the samples inside [start, end)', () => {
+    const r = row(entry('a', 9, 10), [
+      appSample(8, 59, 'Before', 'UNPRODUCTIVE', 0), // before start
+      appSample(9, 0, 'Code', 'PRODUCTIVE', 80), // at start: in
+      appSample(9, 30, 'Code', 'PRODUCTIVE', 61),
+      appSample(9, 45, 'Slack', 'NEUTRAL', 40),
+      appSample(10, 0, 'After', 'UNPRODUCTIVE', 0), // at end: out
+    ]);
+    expect(r.activity.activePct).toBe(60); // round((80 + 61 + 40) / 3) = round(60.33)
+    expect(r.activity.mix).toEqual({
+      productivePct: 67,
+      neutralPct: 33,
+      unproductivePct: 0,
+      sampled: 3,
+    });
+    expect(r.activity.topApps).toEqual([
+      { app: 'Code', minutes: 2 },
+      { app: 'Slack', minutes: 1 },
+    ]);
+  });
+
+  it('runs a live open entry to now', () => {
+    const now = new Date(iso(10));
+    const r = row(
+      entry('a', 9, null),
+      [appSample(9, 10, 'Code', 'PRODUCTIVE', 90), appSample(9, 58, 'Code', 'PRODUCTIVE', 70)],
+      now,
+    );
+    expect(r.running).toBe(true);
+    expect(r.activity.activePct).toBe(80);
+    expect(r.activity.topApps).toEqual([{ app: 'Code', minutes: 2 }]);
+  });
+
+  it('keeps the five busiest apps, breaking ties by name', () => {
+    const samples = [
+      ...['F', 'F', 'F'].map((a, i) => appSample(9, i, a)),
+      ...['E', 'E'].map((a, i) => appSample(9, 10 + i, a)),
+      ...['D', 'C', 'B', 'A', 'G'].map((a, i) => appSample(9, 20 + i, a)),
+    ];
+    expect(row(entry('a', 9, 10), samples).activity.topApps).toEqual([
+      { app: 'F', minutes: 3 },
+      { app: 'E', minutes: 2 },
+      { app: 'A', minutes: 1 },
+      { app: 'B', minutes: 1 },
+      { app: 'C', minutes: 1 },
+    ]);
+  });
+
+  it('never carries a window title', () => {
+    const r = row(entry('a', 9, 10), [
+      { ...appSample(9, 5, 'Safari'), windowTitle: 'Secret plans' },
+    ]);
+    expect(JSON.stringify(r)).not.toContain('Secret plans');
+  });
+});
+
 describe('resolveDayDate', () => {
   // 20:00 UTC on the 13th is already 02:00 Dhaka on the 14th.
   const now = new Date('2026-07-13T20:00:00.000Z');

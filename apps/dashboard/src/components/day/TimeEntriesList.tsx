@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
 import type { DayEntryRow } from '../../lib/person-day-view';
-import { formatDuration, formatTimeRange } from '../../lib/format';
+import { TimeEntriesDrawerList } from './TimeEntriesDrawerList';
 
 /**
- * Upgraded `Timeline`: takes the transform's `DayEntryRow[]` (epoch ms, precomputed duration,
- * a `running` flag) instead of raw `TimeEntry[]`, so it never re-derives open/closed state.
- * The leading dot is a fixed category-neutral color — this list carries no per-entry category
- * (that lives on the ribbon blocks), so it stays a plain marker rather than implying one.
+ * Server adapter for the day's entry list. The list itself (and the entry detail drawer) is the
+ * client `TimeEntriesDrawerList`; this stays a Server Component so `DayPanels` can keep handing
+ * it a per-row render function, which cannot cross the RSC boundary. It pre-renders that slot
+ * for each entry into a record keyed by entry id, which can.
  */
 export function TimeEntriesList({
   entries,
@@ -22,29 +22,8 @@ export function TimeEntriesList({
   // undefined prop into a bare optional one (TS2375).
   rowAction?: ((entry: DayEntryRow) => ReactNode) | undefined;
 }) {
-  if (entries.length === 0) {
-    return <p className="text-text-secondary text-body">No entries in range.</p>;
-  }
-  return (
-    <ul className="flex flex-col">
-      {entries.map((e) => (
-        <li key={e.id} className="border-separator flex items-center gap-3.5 border-b py-3">
-          <span className="tt-numeric w-[132px] flex-none text-[13px] text-text-secondary">
-            {formatTimeRange(
-              new Date(e.startMs).toISOString(),
-              e.endMs === null ? null : new Date(e.endMs).toISOString(),
-            )}
-          </span>
-          <span className="bg-category-neutral h-[9px] w-[9px] flex-none rounded-full" />
-          <div className="min-w-0 flex-1">
-            <div className="text-[13px]">{e.label}</div>
-          </div>
-          <span className="tt-numeric flex-none text-[13px]">
-            {e.running ? 'running' : formatDuration(e.durationSeconds)}
-          </span>
-          {rowAction?.(e)}
-        </li>
-      ))}
-    </ul>
-  );
+  const actions = rowAction
+    ? Object.fromEntries(entries.map((e) => [e.id, rowAction(e)]))
+    : undefined;
+  return <TimeEntriesDrawerList entries={entries} actions={actions} />;
 }
