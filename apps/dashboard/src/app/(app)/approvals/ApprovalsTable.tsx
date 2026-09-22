@@ -10,6 +10,7 @@ import { Drawer } from '../../../components/ui/Drawer';
 import { Table, THead, Tbody, Tr, Th, Td } from '../../../components/ui/Table';
 import { formatHours, statusBadge, wasAutoDecided, weekLabel } from '../../../lib/approvals-view';
 import { toApprovalDetail } from '../../../lib/approvals-drawer-view';
+import { startedOnInteractive } from '../../../lib/row-click';
 import { DecideForm } from './DecideForm';
 import { DrawerDecideForm } from './DrawerDecideForm';
 import type { TimesheetApproval } from '@timetrack/contracts';
@@ -20,19 +21,6 @@ const TONE: Record<'neutral' | 'positive' | 'warning', BadgeTone> = {
   positive: 'good',
   warning: 'warning',
 } as const;
-
-/**
- * True when a row click started on something interactive inside it: the name button (which
- * opens this same drawer, so this mostly guards against double-handling), and the Decide
- * popover's button/form/inputs — `position: fixed`, but still a DOM descendant of the row it's
- * anchored to.
- */
-function startedOnInteractive(target: EventTarget | null): boolean {
-  return !!(
-    target instanceof Element &&
-    target.closest('a,button,input,select,textarea,form,label,[role="dialog"]')
-  );
-}
 
 /**
  * The approvals table, client-side so it can own which row's week drawer is open. Renders the
