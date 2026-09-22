@@ -1,9 +1,17 @@
 'use client';
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Table, THead, Tbody, Tr, Th, Td } from './Table';
 import { EmptyState } from './EmptyState';
-import { nextSort, sortRows, stickyOffsets, type Sort } from '../../lib/data-table';
+import { buttonClasses } from './Button';
+import {
+  nextSort,
+  sortRows,
+  stickyOffsets,
+  paginate,
+  pageCount,
+  type Sort,
+} from '../../lib/data-table';
 
 type ColumnBase<T> = {
   key: string;
@@ -47,6 +55,7 @@ export function DataTable<T>({
   initialSort,
   empty,
   onRowClick,
+  pageSize,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -54,8 +63,17 @@ export function DataTable<T>({
   initialSort?: Sort;
   empty?: { title: string; body?: string; icon?: ReactNode };
   onRowClick?: (row: T) => void;
+  /** Absent = no pagination, all rows render as before. */
+  pageSize?: number;
 }) {
   const [sort, setSort] = useState<Sort | null>(initialSort ?? null);
+  const [page, setPage] = useState(1);
+
+  // A sort that leaves you on page 3 of a reordered list is disorienting, so re-sorting
+  // always returns to page 1.
+  useEffect(() => {
+    setPage(1);
+  }, [sort]);
 
   // Frozen columns are the leading run of `sticky` columns; a sticky column after a
   // non-sticky one cannot be frozen (there is nothing to pin it against). The `break` lets
@@ -80,6 +98,9 @@ export function DataTable<T>({
     if (!col?.sortBy) return rows;
     return sortRows(rows, col.sortBy, sort.dir);
   }, [rows, columns, sort]);
+
+  const visible = pageSize ? paginate(sorted, page, pageSize) : sorted;
+  const pages = pageSize ? pageCount(sorted.length, pageSize) : 1;
 
   if (rows.length === 0) {
     return (
@@ -110,45 +131,70 @@ export function DataTable<T>({
   };
 
   return (
-    <Table>
-      <THead>
-        <tr>
-          {columns.map((col, i) => (
-            <Th
-              key={col.key}
-              align={col.align ?? 'left'}
-              {...(col.sortBy ? { sortable: true } : {})}
-              sortDirection={sort?.key === col.key ? sort.dir : null}
-              {...(col.sortBy
-                ? { onSortClick: () => setSort((cur) => nextSort(cur, col.key)) }
-                : {})}
-              style={cellStyle(col, i)}
-            >
-              {col.header}
-            </Th>
-          ))}
-        </tr>
-      </THead>
-      <Tbody>
-        {sorted.map((row) => (
-          <Tr
-            key={rowKey(row)}
-            className="row-3d"
-            {...(onRowClick ? { interactive: true, onClick: () => onRowClick(row) } : {})}
-          >
+    <>
+      <Table>
+        <THead>
+          <tr>
             {columns.map((col, i) => (
-              <Td
+              <Th
                 key={col.key}
                 align={col.align ?? 'left'}
+                {...(col.sortBy ? { sortable: true } : {})}
+                sortDirection={sort?.key === col.key ? sort.dir : null}
+                {...(col.sortBy
+                  ? { onSortClick: () => setSort((cur) => nextSort(cur, col.key)) }
+                  : {})}
                 style={cellStyle(col, i)}
-                {...(col.width !== undefined ? { className: 'truncate' } : {})}
               >
-                {col.render(row)}
-              </Td>
+                {col.header}
+              </Th>
             ))}
-          </Tr>
-        ))}
-      </Tbody>
-    </Table>
+          </tr>
+        </THead>
+        <Tbody>
+          {visible.map((row) => (
+            <Tr
+              key={rowKey(row)}
+              className="row-3d"
+              {...(onRowClick ? { interactive: true, onClick: () => onRowClick(row) } : {})}
+            >
+              {columns.map((col, i) => (
+                <Td
+                  key={col.key}
+                  align={col.align ?? 'left'}
+                  style={cellStyle(col, i)}
+                  {...(col.width !== undefined ? { className: 'truncate' } : {})}
+                >
+                  {col.render(row)}
+                </Td>
+              ))}
+            </Tr>
+          ))}
+        </Tbody>
+      </Table>
+      {pageSize && pages > 1 ? (
+        <div className="flex items-center justify-between px-[26px] py-3">
+          <button
+            type="button"
+            className={buttonClasses('secondary', 'sm')}
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            Prev
+          </button>
+          <span className="text-text-secondary text-caption">
+            {page} of {pages}
+          </span>
+          <button
+            type="button"
+            className={buttonClasses('secondary', 'sm')}
+            disabled={page >= pages}
+            onClick={() => setPage((p) => Math.min(pages, p + 1))}
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
+    </>
   );
 }

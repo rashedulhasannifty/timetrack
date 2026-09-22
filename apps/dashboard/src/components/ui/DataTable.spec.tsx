@@ -102,3 +102,34 @@ describe('DataTable', () => {
     expect(render()).toContain('text-right');
   });
 });
+
+describe('DataTable pagination', () => {
+  const many: Row[] = Array.from({ length: 5 }, (_, i) => ({
+    id: `r${i}`,
+    name: `P${i}`,
+    n: i,
+  }));
+
+  it('renders only the first page when a page size is set', () => {
+    const html = renderToStaticMarkup(
+      <DataTable columns={columns} rows={many} rowKey={(r) => r.id} pageSize={2} />,
+    );
+    expect(html).toContain('P0');
+    expect(html).toContain('P1');
+    expect(html).not.toContain('P2');
+  });
+
+  it('reports the page count', () => {
+    const html = renderToStaticMarkup(
+      <DataTable columns={columns} rows={many} rowKey={(r) => r.id} pageSize={2} />,
+    );
+    expect(html).toContain('1 of 3');
+  });
+
+  it('renders no pager when every row fits on one page', () => {
+    const html = renderToStaticMarkup(
+      <DataTable columns={columns} rows={many} rowKey={(r) => r.id} pageSize={50} />,
+    );
+    expect(html).not.toContain(' of ');
+  });
+});
