@@ -1,5 +1,7 @@
 /** Row-height preference. Persisted in localStorage['tt-density'] and applied as the
- *  [data-density] attribute on <html>, which globals.css keys --row-h / --pad-y off. */
+ *  [data-density] attribute on <html>, which globals.css keys --pad-y off (tables consume it
+ *  for their vertical padding). --row-h is also defined per density there but not yet
+ *  consumed by anything. */
 export type Density = 'compact' | 'comfortable';
 
 const VALID: readonly Density[] = ['compact', 'comfortable'];
