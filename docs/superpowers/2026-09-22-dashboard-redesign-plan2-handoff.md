@@ -81,6 +81,9 @@ Known and left as is:
   adopter uses it yet.
 - Report rows are only reachable through `<tr onClick>`, not by keyboard (pre-existing).
 - `--row-h` is defined but unused.
+- Three specs pin state-gated markup by reading the component source (`readFileSync`), because
+  node-env vitest can't open the columns panel or push a toast. They prove the string exists, not
+  that it is wired to the right branch. Each was checked by hand; don't extend the pattern.
 - The plan's Done-when greps trip on:
   - `TableSkeleton`'s aria-hidden table, which the plan itself mandates;
   - pre-existing co-located client components under `src/app`.
