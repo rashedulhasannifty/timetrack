@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button } from '../../../components/ui/Button';
 import { useToastAction } from '../../../components/ui/useToastAction';
 import { decideAction, type DecideState } from './actions';
 import { decidePlacement, type Placement } from './decide-placement';
 import { decideToastMessage } from './decide-toast';
+import { DecideFields } from './DecideFields';
 
 const INITIAL: DecideState = { ok: false };
 
@@ -89,39 +89,7 @@ export function DecideForm({ approvalId }: { approvalId: string }) {
             placement ? '' : 'invisible'
           }`}
         >
-          <input type="hidden" name="id" value={approvalId} />
-          <input
-            type="text"
-            name="note"
-            placeholder="Note (optional)"
-            maxLength={2000}
-            className="bg-surface border-separator text-text focus:border-accent w-full rounded-md border px-2 py-1 text-caption outline-none"
-          />
-          <div className="flex gap-2">
-            <Button
-              type="submit"
-              name="status"
-              value="APPROVED"
-              variant="primary"
-              size="sm"
-              disabled={pending}
-            >
-              Approve
-            </Button>
-            <Button
-              type="submit"
-              name="status"
-              value="FLAGGED"
-              variant="secondary"
-              size="sm"
-              disabled={pending}
-            >
-              Flag for payroll
-            </Button>
-          </div>
-          {state.message ? (
-            <span className="text-destructive text-caption">{state.message}</span>
-          ) : null}
+          <DecideFields approvalId={approvalId} pending={pending} message={state.message} />
         </form>
       ) : null}
     </div>
