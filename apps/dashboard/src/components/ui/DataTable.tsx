@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Table, THead, Tbody, Tr, Th, Td } from './Table';
 import { EmptyState } from './EmptyState';
 import { buttonClasses } from './Button';
@@ -64,6 +64,8 @@ export function DataTable<T>({
   pageSize,
   selectedKeys,
   onSelectionChange,
+  hideable,
+  renderExpanded,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -76,9 +78,18 @@ export function DataTable<T>({
   /** Supply both or neither — together they turn on the leading checkbox column. */
   selectedKeys?: string[];
   onSelectionChange?: (keys: string[]) => void;
+  /** Renders a "Columns" disclosure so the viewer can hide/show columns. At least one column
+   *  stays visible always. */
+  hideable?: boolean;
+  /** Renders a chevron in the first cell that expands a full-width panel beneath the row.
+   *  Rows stop being clickable when this is set — expanding and navigating is not one gesture. */
+  renderExpanded?: (row: T) => ReactNode;
 }) {
   const [sort, setSort] = useState<Sort | null>(initialSort ?? null);
   const [page, setPage] = useState(1);
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
 
   // A sort that leaves you on page 3 of a reordered list is disorienting, so re-sorting
   // always returns to page 1.
@@ -88,19 +99,40 @@ export function DataTable<T>({
 
   const hasSelection = selectedKeys !== undefined && onSelectionChange !== undefined;
 
+  // Hiding all columns would leave nothing to show, so at least one always stays visible
+  // (enforced in toggleColumnHidden below, not just here).
+  const visibleColumns = useMemo(
+    () => columns.filter((c) => !hidden.includes(c.key)),
+    [columns, hidden],
+  );
+
+  const toggleColumnHidden = (key: string) => {
+    setHidden((cur) => {
+      if (cur.includes(key)) return cur.filter((k) => k !== key);
+      if (columns.length - cur.length <= 1) return cur; // keep at least one visible
+      return [...cur, key];
+    });
+  };
+
+  const toggleExpanded = (key: string) => {
+    setExpandedKeys((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]));
+  };
+
   // Frozen columns are the leading run of `sticky` columns; a sticky column after a
   // non-sticky one cannot be frozen (there is nothing to pin it against). The `break` lets
   // TypeScript narrow each `c` to the `sticky: true` arm of the union past that point, so
   // `c.width` is `number` here with no fallback needed. The injected selection column, when
   // present, is always frozen first — it must stay pinned alongside whatever else is frozen.
+  // Iterating `visibleColumns` (not `columns`) keeps the offsets correct when a frozen column
+  // is hidden.
   const frozenWidths = useMemo(() => {
     const widths: number[] = hasSelection ? [SELECT_COLUMN_WIDTH] : [];
-    for (const c of columns) {
+    for (const c of visibleColumns) {
       if (!c.sticky) break;
       widths.push(c.width);
     }
     return widths;
-  }, [columns, hasSelection]);
+  }, [visibleColumns, hasSelection]);
 
   const frozenCount = frozenWidths.length;
 
@@ -154,8 +186,43 @@ export function DataTable<T>({
   const allOnPageSelected = pageKeys.length > 0 && selectedOnPage.length === pageKeys.length;
   const someOnPageSelected = selectedOnPage.length > 0 && !allOnPageSelected;
 
+  // Total rendered cells per row, for the expanded panel's colSpan.
+  const columnCount = visibleColumns.length + (hasSelection ? 1 : 0);
+
   return (
     <>
+      {hideable ? (
+        <div className="flex justify-end px-[26px] py-2">
+          <div className="relative inline-block">
+            <button
+              type="button"
+              aria-expanded={menuOpen}
+              aria-label="Choose visible columns"
+              onClick={() => setMenuOpen((o) => !o)}
+              className={buttonClasses('secondary', 'sm')}
+            >
+              Columns <span aria-hidden="true">▾</span>
+            </button>
+            {menuOpen ? (
+              <div
+                role="menu"
+                className="bg-surface-raised border-separator absolute right-0 z-10 mt-1 min-w-[160px] rounded-md border p-2 shadow-lg"
+              >
+                {columns.map((col) => (
+                  <label key={col.key} className="text-caption flex items-center gap-2 px-2 py-1">
+                    <input
+                      type="checkbox"
+                      checked={!hidden.includes(col.key)}
+                      onChange={() => toggleColumnHidden(col.key)}
+                    />
+                    {col.header}
+                  </label>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <Table>
         <THead>
           <tr>
@@ -172,7 +239,7 @@ export function DataTable<T>({
                 />
               </Th>
             ) : null}
-            {columns.map((col, i) => (
+            {visibleColumns.map((col, i) => (
               <Th
                 key={col.key}
                 align={col.align ?? 'left'}
@@ -189,35 +256,64 @@ export function DataTable<T>({
           </tr>
         </THead>
         <Tbody>
-          {visible.map((row) => (
-            <Tr
-              key={rowKey(row)}
-              className="row-3d"
-              {...(onRowClick ? { interactive: true, onClick: () => onRowClick(row) } : {})}
-            >
-              {hasSelection ? (
-                <Td style={cellStyle(0, SELECT_COLUMN_WIDTH)}>
-                  <input
-                    type="checkbox"
-                    aria-label="Select row"
-                    checked={selectedSet.has(rowKey(row))}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={() => onSelectionChange(toggleKey(selectedKeys, rowKey(row)))}
-                  />
-                </Td>
-              ) : null}
-              {columns.map((col, i) => (
-                <Td
-                  key={col.key}
-                  align={col.align ?? 'left'}
-                  style={cellStyle(hasSelection ? i + 1 : i, col.width)}
-                  {...(col.width !== undefined ? { className: 'truncate' } : {})}
+          {visible.map((row) => {
+            const key = rowKey(row);
+            const rowExpanded = expandedKeys.includes(key);
+            return (
+              <Fragment key={key}>
+                <Tr
+                  className="row-3d"
+                  {...(onRowClick && !renderExpanded
+                    ? { interactive: true, onClick: () => onRowClick(row) }
+                    : {})}
                 >
-                  {col.render(row)}
-                </Td>
-              ))}
-            </Tr>
-          ))}
+                  {hasSelection ? (
+                    <Td style={cellStyle(0, SELECT_COLUMN_WIDTH)}>
+                      <input
+                        type="checkbox"
+                        aria-label="Select row"
+                        checked={selectedSet.has(key)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => onSelectionChange(toggleKey(selectedKeys, key))}
+                      />
+                    </Td>
+                  ) : null}
+                  {visibleColumns.map((col, i) => (
+                    <Td
+                      key={col.key}
+                      align={col.align ?? 'left'}
+                      style={cellStyle(hasSelection ? i + 1 : i, col.width)}
+                      {...(col.width !== undefined ? { className: 'truncate' } : {})}
+                    >
+                      {renderExpanded && i === 0 ? (
+                        <span className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            aria-expanded={rowExpanded}
+                            aria-label={rowExpanded ? 'Collapse row' : 'Expand row'}
+                            onClick={() => toggleExpanded(key)}
+                            className="text-neutral hover:text-text"
+                          >
+                            <span aria-hidden="true">{rowExpanded ? '▾' : '▸'}</span>
+                          </button>
+                          {col.render(row)}
+                        </span>
+                      ) : (
+                        col.render(row)
+                      )}
+                    </Td>
+                  ))}
+                </Tr>
+                {renderExpanded && rowExpanded ? (
+                  <Tr>
+                    <Td colSpan={columnCount} className="bg-surface-raised">
+                      {renderExpanded(row)}
+                    </Td>
+                  </Tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
         </Tbody>
       </Table>
       {pageSize && pages > 1 ? (

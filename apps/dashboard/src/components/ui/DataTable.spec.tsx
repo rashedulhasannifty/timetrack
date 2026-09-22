@@ -149,3 +149,36 @@ describe('DataTable row selection', () => {
     expect(html.match(/type="checkbox"/g)).toHaveLength(rows.length + 1);
   });
 });
+
+describe('DataTable column visibility', () => {
+  it('renders no columns menu by default', () => {
+    expect(render()).not.toContain('Columns');
+  });
+
+  it('renders a columns menu when hideable', () => {
+    expect(render({ hideable: true })).toContain('Columns');
+  });
+});
+
+describe('DataTable expandable rows', () => {
+  it('renders no expander by default', () => {
+    expect(render()).not.toContain('aria-expanded');
+  });
+
+  it('renders an expander per row when given a panel renderer', () => {
+    const html = render({ renderExpanded: (r: Row) => <div>detail {r.name}</div> });
+    expect(html.match(/aria-expanded/g)).toHaveLength(2);
+  });
+
+  /**
+   * A row that both expands and navigates has no unambiguous click, so expansion wins and
+   * onRowClick is ignored. Row-level actions belong inside the expanded panel.
+   */
+  it('ignores onRowClick when rows expand', () => {
+    const html = render({
+      renderExpanded: () => <div>d</div>,
+      onRowClick: () => {},
+    });
+    expect(html).not.toContain('cursor-pointer');
+  });
+});
