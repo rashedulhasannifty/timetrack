@@ -42,4 +42,11 @@ describe('Drawer', () => {
   it('renders a close control', () => {
     expect(render()).toMatch(/aria-label="Close/);
   });
+
+  /** The panel is focusable (not just its descendants) so initial focus can land on the
+   *  dialog boundary itself — see the tabIndex comment on the <aside> for why. Focus behaviour
+   *  itself needs a real DOM and is exercised in the browser, not here (vitest is node-env). */
+  it('is a focusable panel', () => {
+    expect(render()).toContain('tabindex="-1"');
+  });
 });
