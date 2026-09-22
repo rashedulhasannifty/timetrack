@@ -2,6 +2,7 @@ import { Forbidden } from '../../../../components/ui/Forbidden';
 import { redirect } from 'next/navigation';
 import { refreshBackTo } from '../../../../lib/redirect';
 import { Card } from '../../../../components/ui/Card';
+import { EmptyState } from '../../../../components/ui/EmptyState';
 import { Button } from '../../../../components/ui/Button';
 import { Table, THead, Tbody, Tr, Th, Td } from '../../../../components/ui/Table';
 import { AdminTabs } from '../../../../components/ui/AdminTabs';
@@ -120,7 +121,12 @@ export default async function AdminAuditPage({
             Something went wrong loading the audit log.
           </p>
         ) : page.items.length === 0 ? (
-          <p className="text-text-secondary text-body">No audit entries in this filter.</p>
+          <Card padding="none">
+            <EmptyState
+              title="No audit entries in this filter"
+              body="Widen the date range or clear the target filters to see more."
+            />
+          </Card>
         ) : (
           <>
             <Card padding="none" className="overflow-hidden">
@@ -136,7 +142,7 @@ export default async function AdminAuditPage({
                 </THead>
                 <Tbody>
                   {page.items.map((item) => (
-                    <Tr key={item.id}>
+                    <Tr key={item.id} className="row-3d">
                       <Td className="tt-numeric whitespace-nowrap">{item.timestamp}</Td>
                       <Td>{actorLabel(item)}</Td>
                       <Td className="text-caption font-mono">{item.action}</Td>
