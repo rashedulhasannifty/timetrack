@@ -33,6 +33,8 @@ test.describe('day view — screenshots and date navigation', () => {
   test.beforeEach(async ({ page }) => {
     await login(page);
     await page.goto(`/people/${USER_ID}?date=${DATE}&panel=screenshots`);
+    // Until hydration the date picker has no onChange attached, so a fill would go nowhere.
+    await page.waitForLoadState('networkidle');
   });
 
   test('thumbnails actually load — a presigned URL the browser can reach', async ({ page }) => {
