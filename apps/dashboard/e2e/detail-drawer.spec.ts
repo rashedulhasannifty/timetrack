@@ -90,6 +90,28 @@ test.describe('person detail drawer', () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Overview');
   });
 
+  test('the loading shell hands over to the day view without a second dialog', async ({ page }) => {
+    // Count dialogs on every DOM change: loading.tsx renders its own RouteDrawer, and the real
+    // one must REPLACE it (one Suspense boundary), never stack on top of it.
+    await page.evaluate(() => {
+      const w = window as unknown as { __maxDialogs: number };
+      w.__maxDialogs = 0;
+      new MutationObserver(() => {
+        const n = document.querySelectorAll('[role="dialog"]').length;
+        w.__maxDialogs = Math.max(w.__maxDialogs, n);
+      }).observe(document.body, { subtree: true, childList: true });
+    });
+    const { link } = await firstPerson(page);
+    // The link holds the avatar initials and the name; the name is its last line.
+    const name = (await link.innerText()).trim().split('\n').pop()!.trim();
+    await link.click();
+    await expect(page.getByRole('dialog', { name })).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    expect(
+      await page.evaluate(() => (window as unknown as { __maxDialogs: number }).__maxDialogs),
+    ).toBe(1);
+  });
+
   test('tabs and dates inside the drawer keep the drawer', async ({ page }) => {
     const { link, href } = await firstPerson(page);
     await link.click();
