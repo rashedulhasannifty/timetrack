@@ -1,8 +1,8 @@
 'use client';
 
-import { useActionState, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '../../../components/ui/Button';
-import { useResultToast } from '../../../components/ui/useResultToast';
+import { useToastAction } from '../../../components/ui/useToastAction';
 import { decideAction, type DecideState } from './actions';
 import { decidePlacement, type Placement } from './decide-placement';
 import { decideToastMessage } from './decide-toast';
@@ -16,8 +16,7 @@ const INITIAL: DecideState = { ok: false };
  * no token ever reaches this component.
  */
 export function DecideForm({ approvalId }: { approvalId: string }) {
-  const [state, formAction, pending] = useActionState(decideAction, INITIAL);
-  useResultToast(state, decideToastMessage);
+  const [state, formAction, pending] = useToastAction(decideAction, INITIAL, decideToastMessage);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);

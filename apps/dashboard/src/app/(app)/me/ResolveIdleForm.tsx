@@ -1,8 +1,8 @@
 'use client';
 
-import { useActionState, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../../components/ui/Button';
-import { useResultToast } from '../../../components/ui/useResultToast';
+import { useToastAction } from '../../../components/ui/useToastAction';
 import { resolveIdleAction, type ResolveIdleState } from './actions';
 import { resolveIdleToastMessage } from './resolve-idle-toast';
 import type { IdleRow } from '../../../lib/idle-view';
@@ -18,8 +18,11 @@ const INITIAL: ResolveIdleState = { ok: false };
  * the Server Action.
  */
 export function ResolveIdleForm({ row }: { row: IdleRow }) {
-  const [state, formAction, pending] = useActionState(resolveIdleAction, INITIAL);
-  useResultToast(state, resolveIdleToastMessage);
+  const [state, formAction, pending] = useToastAction(
+    resolveIdleAction,
+    INITIAL,
+    resolveIdleToastMessage,
+  );
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 

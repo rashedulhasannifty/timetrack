@@ -1,9 +1,9 @@
 'use client';
 
-import { useActionState, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Project } from '@timetrack/contracts';
 import { Button } from '../ui/Button';
-import { useResultToast } from '../ui/useResultToast';
+import { useToastAction } from '../ui/useToastAction';
 import { EntryFormFields } from './EntryFormFields';
 import { createManualEntryAction, type EntryFormState } from '../../app/(app)/me/actions';
 
@@ -28,8 +28,11 @@ export function AddTimeEntryForm({
   /** Whose day this is. Omitted on /me — the API attributes an absent userId to the caller. */
   userId?: string;
 }) {
-  const [state, formAction, pending] = useActionState(createManualEntryAction, INITIAL);
-  useResultToast(state, 'Time entry added');
+  const [state, formAction, pending] = useToastAction(
+    createManualEntryAction,
+    INITIAL,
+    'Time entry added',
+  );
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 

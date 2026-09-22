@@ -1,8 +1,7 @@
 'use client';
 
-import { useActionState } from 'react';
 import type { Role } from '@timetrack/contracts';
-import { useResultToast } from '../../../../components/ui/useResultToast';
+import { useToastAction } from '../../../../components/ui/useToastAction';
 import { setUserRoleAction, type RowState } from './actions';
 
 const INITIAL: RowState = { ok: false };
@@ -13,8 +12,7 @@ const INITIAL: RowState = { ok: false };
  * Submits on change; on error the DB is unchanged and the message surfaces inline.
  */
 export function RoleSelect({ userId, role }: { userId: string; role: Role }) {
-  const [state, formAction, pending] = useActionState(setUserRoleAction, INITIAL);
-  useResultToast(state, 'Role updated');
+  const [state, formAction, pending] = useToastAction(setUserRoleAction, INITIAL, 'Role updated');
 
   return (
     <form action={formAction} className="flex flex-col gap-1">

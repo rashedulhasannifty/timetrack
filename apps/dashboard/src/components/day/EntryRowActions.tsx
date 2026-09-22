@@ -1,9 +1,9 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Project } from '@timetrack/contracts';
 import { Button } from '../ui/Button';
-import { useResultToast } from '../ui/useResultToast';
+import { useToastAction } from '../ui/useToastAction';
 import { EntryFormFields } from './EntryFormFields';
 import {
   deleteEntryAction,
@@ -37,10 +37,16 @@ export function EntryRowActions({
   userId?: string;
 }) {
   const [mode, setMode] = useState<'closed' | 'edit' | 'confirm-delete'>('closed');
-  const [editState, editAction, editPending] = useActionState(updateEntryAction, INITIAL);
-  const [deleteState, deleteFormAction, deletePending] = useActionState(deleteEntryAction, INITIAL);
-  useResultToast(editState, 'Time entry updated');
-  useResultToast(deleteState, 'Time entry deleted');
+  const [editState, editAction, editPending] = useToastAction(
+    updateEntryAction,
+    INITIAL,
+    'Time entry updated',
+  );
+  const [deleteState, deleteFormAction, deletePending] = useToastAction(
+    deleteEntryAction,
+    INITIAL,
+    'Time entry deleted',
+  );
 
   useEffect(() => {
     if (editState.ok) setMode('closed');

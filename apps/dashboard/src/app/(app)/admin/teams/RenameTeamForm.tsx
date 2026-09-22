@@ -1,8 +1,8 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '../../../../components/ui/Button';
-import { useResultToast } from '../../../../components/ui/useResultToast';
+import { useToastAction } from '../../../../components/ui/useToastAction';
 import { renameTeamAction, type TeamState } from './actions';
 
 const INITIAL: TeamState = { ok: false };
@@ -13,8 +13,7 @@ const INITIAL: TeamState = { ok: false };
  * change what a team is called.
  */
 export function RenameTeamForm({ teamId, name }: { teamId: string; name: string }) {
-  const [state, formAction, pending] = useActionState(renameTeamAction, INITIAL);
-  useResultToast(state, 'Team renamed');
+  const [state, formAction, pending] = useToastAction(renameTeamAction, INITIAL, 'Team renamed');
   const [editing, setEditing] = useState(false);
 
   // Collapse once the server sends back a different name — i.e. the rename landed and the row

@@ -1,7 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
-import { useResultToast } from '../ui/useResultToast';
+import { useToastAction } from '../ui/useToastAction';
 import { createProjectAction, type ProjectActionState } from '../../app/(app)/projects/actions';
 import { ProjectColorPicker } from './ProjectColorPicker';
 
@@ -14,8 +13,11 @@ const INITIAL: ProjectActionState = { ok: false };
  * destination was invisible, so it is stated rather than implied.
  */
 export function NewProjectForm({ teamId, teamName }: { teamId: string; teamName: string | null }) {
-  const [state, formAction, pending] = useActionState(createProjectAction, INITIAL);
-  useResultToast(state, 'Project created');
+  const [state, formAction, pending] = useToastAction(
+    createProjectAction,
+    INITIAL,
+    'Project created',
+  );
   return (
     <form
       action={formAction}

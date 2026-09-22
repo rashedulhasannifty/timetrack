@@ -1,8 +1,8 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '../../../../components/ui/Button';
-import { useResultToast } from '../../../../components/ui/useResultToast';
+import { useToastAction } from '../../../../components/ui/useToastAction';
 import { setUserActiveAction, eraseUserAction, type RowState } from './actions';
 
 const INITIAL: RowState = { ok: false };
@@ -21,10 +21,14 @@ export function UserRowActions({
   name: string;
   deactivated: boolean;
 }) {
-  const [state, formAction, pending] = useActionState(setUserActiveAction, INITIAL);
-  const [eraseState, eraseAction, erasing] = useActionState(eraseUserAction, INITIAL);
-  useResultToast(state, (s) => (s.deactivated ? 'User deactivated' : 'User reactivated'));
-  useResultToast(eraseState, 'User erased');
+  const [state, formAction, pending] = useToastAction(setUserActiveAction, INITIAL, (s) =>
+    s.deactivated ? 'User deactivated' : 'User reactivated',
+  );
+  const [eraseState, eraseAction, erasing] = useToastAction(
+    eraseUserAction,
+    INITIAL,
+    'User erased',
+  );
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
 

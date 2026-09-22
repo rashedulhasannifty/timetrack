@@ -1,15 +1,17 @@
 'use client';
 
-import { useActionState } from 'react';
-import { useResultToast } from '../ui/useResultToast';
+import { useToastAction } from '../ui/useToastAction';
 import { recolorProjectAction, type ProjectActionState } from '../../app/(app)/projects/actions';
 import { ProjectColorPicker } from './ProjectColorPicker';
 
 const INITIAL: ProjectActionState = { ok: false };
 
 export function ProjectRecolor({ id, color }: { id: string; color: string | null }) {
-  const [state, formAction, pending] = useActionState(recolorProjectAction, INITIAL);
-  useResultToast(state, 'Colour updated');
+  const [state, formAction, pending] = useToastAction(
+    recolorProjectAction,
+    INITIAL,
+    'Colour updated',
+  );
   return (
     <form action={formAction} className="flex items-center gap-3">
       <input type="hidden" name="id" value={id} />
