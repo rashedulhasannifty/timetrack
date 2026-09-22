@@ -1,11 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
- * Person and project detail open in a drawer when you click through from the page that lists
- * them (Next parallel + intercepting routes), while a DIRECT load of the same URL renders the
- * full page. Intercepting routes silently break the second half, so it is pinned here — along
- * with the case that bit us in design: navigating WITHIN a hard-loaded detail page (a tab, a
- * date, a range) must not suddenly open a drawer over it.
+ * A person's day opens in a drawer when you click through from Overview (Next parallel +
+ * intercepting routes), while a DIRECT load of the same URL renders the full page. Intercepting
+ * routes silently break the second half, so it is pinned here — along with the case that bit us
+ * in design: navigating WITHIN a hard-loaded person page (a tab, a date) must not suddenly open
+ * a drawer over it. Project detail has no drawer (Next's Next-Url prefix match cannot tell the
+ * Projects index from a project page — see ProjectDetailContent); a test below pins that a
+ * project click is a plain navigation.
  *
  * Prerequisites (same harness as session.spec.ts): seeded DB with at least one person on
  * Overview and one project on the Projects index; API + dashboard running;
@@ -20,6 +22,16 @@ async function login(page: Page) {
   await page.fill('input[name="password"]', PASSWORD!);
   await page.click('button[type="submit"]');
   await expect(page).toHaveURL(/\/overview$/);
+  await hydrated(page);
+}
+
+/**
+ * Wait until the client router has taken over. A Link clicked before hydration is a plain
+ * browser navigation — a HARD load — which renders the full page instead of the drawer, and
+ * would make the "directly loaded page" tests pass for the wrong reason.
+ */
+async function hydrated(page: Page) {
+  await page.waitForLoadState('networkidle');
 }
 
 /** The first person link on Overview — its href and visible name. */
@@ -40,6 +52,8 @@ test.describe('person detail drawer', () => {
   test('a direct load renders the full page, not a drawer', async ({ page }) => {
     const { href } = await firstPerson(page);
     await page.goto(href);
+
+    await hydrated(page);
     await expect(page.getByRole('link', { name: '← Back' })).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Day navigation' })).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -48,6 +62,8 @@ test.describe('person detail drawer', () => {
   test('tabs and dates on a directly loaded page never open a drawer over it', async ({ page }) => {
     const { href } = await firstPerson(page);
     await page.goto(href);
+
+    await hydrated(page);
     await expect(page.getByRole('link', { name: '← Back' })).toBeVisible();
 
     await page.getByRole('link', { name: 'Activity' }).click();
@@ -115,6 +131,8 @@ test.describe('person detail drawer', () => {
   test('tabs and dates on the full page still push history', async ({ page }) => {
     const { href } = await firstPerson(page);
     await page.goto(href);
+
+    await hydrated(page);
     await page.getByRole('link', { name: 'Activity' }).click();
     await expect(page).toHaveURL(/panel=activity/);
     await page.goBack();
@@ -211,8 +229,12 @@ test.describe('a dialog inside the person drawer', () => {
     const link = page.locator(`main a[href="/people/${SHOT_USER_ID}"]`).first();
     await link.click();
     await expect(drawer(page)).toBeVisible();
-    await drawer(page).getByLabel('Jump to date').fill(SHOT_DATE!);
-    await expect(page).toHaveURL(new RegExp(`date=${SHOT_DATE}`));
+    // When SHOT_DATE is today the picker already holds it: filling the same value fires no
+    // change, so only fill a different day. The controlled input settles on the value after the
+    // server render; the Screenshots tab's href then carries that date.
+    const picker = drawer(page).getByLabel('Jump to date');
+    if ((await picker.inputValue()) !== SHOT_DATE) await picker.fill(SHOT_DATE!);
+    await expect(picker).toHaveValue(SHOT_DATE!);
     await drawer(page).getByRole('link', { name: 'Screenshots' }).click();
     await expect(page).toHaveURL(/panel=screenshots/);
     await expect(drawer(page)).toBeVisible();
@@ -287,6 +309,8 @@ test.describe('project detail', () => {
   test('clicking a project on the index opens the full page, not a drawer', async ({ page }) => {
     await login(page);
     await page.goto('/projects');
+
+    await hydrated(page);
     const link = page.locator('main a[href^="/projects/"]').first();
     await expect(link).toBeVisible();
     const href = (await link.getAttribute('href'))!;
