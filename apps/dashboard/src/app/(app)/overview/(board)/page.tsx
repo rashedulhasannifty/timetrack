@@ -160,7 +160,7 @@ export default async function OverviewPage({
 
   return (
     <>
-      <SetPageTitle title="Overview" />
+      <SetPageTitle title="Overview" kicker="How the team spent its time" />
       {forbidden ? (
         <p className="text-text-secondary text-body">
           You’re not permitted to view the team overview.
