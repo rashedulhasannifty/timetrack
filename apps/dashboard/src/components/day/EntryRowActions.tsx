@@ -55,9 +55,9 @@ export function EntryRowActions({
   if (entry.running) return null;
 
   return (
-    // While open, Escape belongs to this row (it collapses the form). The marker tells an
-    // enclosing Drawer to leave that Escape alone rather than also closing — which, in a route
-    // drawer, would navigate away and throw a half-edited entry away.
+    // While open, Escape belongs to this row: it collapses the edit / delete-confirm (discarding
+    // any unsaved edit). The marker tells an enclosing Drawer to leave that Escape alone, so the
+    // drawer — and, for a route drawer, its URL — stays put instead of closing as well.
     <div
       className="flex flex-none flex-col items-end gap-1.5"
       data-owns-escape={open ? '' : undefined}

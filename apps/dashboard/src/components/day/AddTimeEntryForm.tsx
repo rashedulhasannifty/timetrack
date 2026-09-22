@@ -44,9 +44,9 @@ export function AddTimeEntryForm({
   }, [open]);
 
   return (
-    // While open, Escape belongs to this form (it collapses it). The marker tells an enclosing
-    // Drawer to leave that Escape alone rather than also closing — which, in a route drawer,
-    // would navigate away and throw the half-filled entry away.
+    // While open, Escape belongs to this form: it collapses it (discarding what was typed, as
+    // it always has). The marker tells an enclosing Drawer to leave that Escape alone, so the
+    // drawer — and, for a route drawer, its URL — stays put instead of closing as well.
     <div ref={ref} className="flex flex-col gap-2" data-owns-escape={open ? '' : undefined}>
       <div className="flex justify-end">
         <button
