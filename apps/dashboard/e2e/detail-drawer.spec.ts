@@ -171,6 +171,28 @@ test.describe('person detail drawer', () => {
     }
   });
 
+  test('Escape collapses an open Add time form without closing the drawer', async ({ page }) => {
+    const { link } = await firstPerson(page);
+    await link.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    const url = page.url();
+
+    // Nothing is submitted — the form is only opened and dismissed, so no DB write.
+    await dialog.getByRole('button', { name: 'Add time' }).click();
+    await expect(dialog.getByRole('button', { name: 'Add entry' })).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(dialog.getByRole('button', { name: 'Add entry' })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Add time' })).toBeVisible();
+    await expect(dialog).toBeVisible();
+    expect(page.url()).toBe(url);
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(page).toHaveURL(/\/overview$/);
+  });
+
   test('Escape closes the drawer back to Overview', async ({ page }) => {
     const { link } = await firstPerson(page);
     await link.click();

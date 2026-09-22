@@ -18,6 +18,15 @@ function innerModal(panel: HTMLElement | null): HTMLElement | null {
 }
 
 /**
+ * Whether something inside the panel has claimed Escape: an inner modal, or an open inline
+ * disclosure that collapses on Escape and marks itself `data-owns-escape` (Add time). Either
+ * handles the key itself; the drawer closing as well would discard what it holds.
+ */
+function escapeClaimed(panel: HTMLElement | null): boolean {
+  return !!panel?.querySelector('[aria-modal="true"], [data-owns-escape]');
+}
+
+/**
  * Off-canvas detail panel.
  *
  * Presentational: `open` and `onClose` belong to the caller, so one component serves both a
@@ -44,17 +53,17 @@ export function Drawer({
   const titleId = useId();
   const panelRef = useRef<HTMLElement>(null);
 
-  // Escape closes. Bound on the window so it fires wherever focus happens to sit — unless a
-  // modal opened INSIDE the panel (the screenshot lightbox in a person's day) is up: that
-  // dialog owns Escape and closes itself, and the drawer must stay put (for a route drawer,
-  // closing would also step the URL back). Registered in the CAPTURE phase so this check
-  // always runs before the inner dialog's own window listener has had a chance to unmount it,
-  // whatever order the two listeners were added in.
+  // Escape closes. Bound on the window so it fires wherever focus happens to sit — unless
+  // something INSIDE the panel has claimed Escape (see escapeClaimed: the screenshot lightbox,
+  // an open Add time form). That element closes itself, and the drawer must stay put (for a
+  // route drawer, closing would also step the URL back). Registered in the CAPTURE phase so
+  // this check always runs before the inner element's own listener has had a chance to unmount
+  // it, whatever order the listeners were added in.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (innerModal(panelRef.current)) return;
+      if (escapeClaimed(panelRef.current)) return;
       onClose();
     };
     window.addEventListener('keydown', onKey, true);
