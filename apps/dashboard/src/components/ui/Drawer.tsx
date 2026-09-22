@@ -19,8 +19,9 @@ function innerModal(panel: HTMLElement | null): HTMLElement | null {
 
 /**
  * Whether something inside the panel has claimed Escape: an inner modal, or an open inline
- * disclosure that collapses on Escape and marks itself `data-owns-escape` (Add time). Either
- * handles the key itself; the drawer closing as well would discard what it holds.
+ * disclosure that collapses on Escape and marks itself `data-owns-escape` (Add time, an
+ * entry's Edit / Delete confirm). Either handles the key itself; the drawer closing as well
+ * would discard what it holds.
  */
 function escapeClaimed(panel: HTMLElement | null): boolean {
   return !!panel?.querySelector('[aria-modal="true"], [data-owns-escape]');

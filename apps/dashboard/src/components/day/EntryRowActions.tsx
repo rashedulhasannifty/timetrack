@@ -43,10 +43,25 @@ export function EntryRowActions({
     if (editState.ok) setMode('closed');
   }, [editState.ok]);
 
+  // Escape collapses an open edit or delete-confirm, as it does AddTimeEntryForm.
+  const open = mode !== 'closed';
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMode('closed');
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
   if (entry.running) return null;
 
   return (
-    <div className="flex flex-none flex-col items-end gap-1.5">
+    // While open, Escape belongs to this row (it collapses the form). The marker tells an
+    // enclosing Drawer to leave that Escape alone rather than also closing — which, in a route
+    // drawer, would navigate away and throw a half-edited entry away.
+    <div
+      className="flex flex-none flex-col items-end gap-1.5"
+      data-owns-escape={open ? '' : undefined}
+    >
       <div className="flex gap-1.5">
         <button
           type="button"

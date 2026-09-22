@@ -230,6 +230,51 @@ test.describe('person detail drawer', () => {
     await expect(page).toHaveURL(/\/overview$/);
   });
 
+  test('Escape collapses an open entry edit or delete-confirm without closing the drawer', async ({
+    page,
+  }) => {
+    const { link } = await firstPerson(page);
+    await link.click();
+    await drawerLoaded(page);
+    const dialog = page.getByRole('dialog');
+    const url = page.url();
+    // Nothing is submitted — the forms are only opened and dismissed, so no DB write.
+    const edit = dialog.getByRole('button', { name: 'Edit', exact: true }).first();
+    test.skip((await edit.count()) === 0, 'the first person has no closed entry today');
+
+    await edit.click();
+    await expect(dialog.getByRole('button', { name: 'Save' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    expect(page.url()).toBe(url);
+
+    await dialog.getByRole('button', { name: 'Delete', exact: true }).first().click();
+    await expect(dialog.getByRole('button', { name: 'Yes, delete' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog.getByRole('button', { name: 'Yes, delete' })).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    expect(page.url()).toBe(url);
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(page).toHaveURL(/\/overview$/);
+  });
+
+  test('on the full page, Escape collapses an open entry edit', async ({ page }) => {
+    const { href } = await firstPerson(page);
+    await page.goto(href);
+    await hydrated(page);
+    const edit = page.getByRole('button', { name: 'Edit', exact: true }).first();
+    test.skip((await edit.count()) === 0, 'the first person has no closed entry today');
+    await edit.click();
+    await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`${href}$`));
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
   test('Escape closes the drawer back to Overview', async ({ page }) => {
     const { link } = await firstPerson(page);
     await link.click();
