@@ -64,6 +64,22 @@ export function pageCount(total: number, pageSize: number): number {
   return Math.max(1, Math.ceil(total / pageSize));
 }
 
+/** Add or remove one key. Selection is held by the caller, because it outlives the table's
+ *  visible page — a page's totals and exports have to survive paging. */
+export function toggleKey(keys: readonly string[], key: string): string[] {
+  return keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
+}
+
+/** Select or clear a whole page without touching selections from other pages. */
+export function togglePage(
+  keys: readonly string[],
+  pageKeys: readonly string[],
+  select: boolean,
+): string[] {
+  if (!select) return keys.filter((k) => !pageKeys.includes(k));
+  return [...keys, ...pageKeys.filter((k) => !keys.includes(k))];
+}
+
 /**
  * `left` offset for each frozen column, derived from the declared widths of the frozen columns
  * before it. Frozen columns MUST therefore declare a numeric width and render at it (pin long

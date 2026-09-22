@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { nextSort, sortRows, paginate, pageCount, stickyOffsets } from './data-table';
+import {
+  nextSort,
+  sortRows,
+  paginate,
+  pageCount,
+  stickyOffsets,
+  toggleKey,
+  togglePage,
+} from './data-table';
 
 describe('nextSort', () => {
   /** A fresh column starts descending: for every sortable column here (tracked time,
@@ -115,5 +123,32 @@ describe('stickyOffsets', () => {
 
   it('handles none', () => {
     expect(stickyOffsets([])).toEqual([]);
+  });
+});
+
+describe('toggleKey', () => {
+  it('adds a missing key', () => {
+    expect(toggleKey(['a'], 'b')).toEqual(['a', 'b']);
+  });
+  it('removes a present key', () => {
+    expect(toggleKey(['a', 'b'], 'a')).toEqual(['b']);
+  });
+  it('does not mutate the input', () => {
+    const keys = ['a'];
+    toggleKey(keys, 'b');
+    expect(keys).toEqual(['a']);
+  });
+});
+
+describe('togglePage', () => {
+  /** Selection outlives the visible page — selecting page 2 must not clear page 1. */
+  it('adds the page without dropping off-page selections', () => {
+    expect(togglePage(['x'], ['a', 'b'], true).sort()).toEqual(['a', 'b', 'x']);
+  });
+  it('removes only the page', () => {
+    expect(togglePage(['x', 'a', 'b'], ['a', 'b'], false)).toEqual(['x']);
+  });
+  it('does not duplicate already-selected rows', () => {
+    expect(togglePage(['a'], ['a', 'b'], true).sort()).toEqual(['a', 'b']);
   });
 });

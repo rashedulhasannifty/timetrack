@@ -10,8 +10,14 @@ import {
   stickyOffsets,
   paginate,
   pageCount,
+  toggleKey,
+  togglePage,
   type Sort,
 } from '../../lib/data-table';
+
+// Fixed width for the injected selection checkbox column, so it can join the frozen offsets
+// the same way a declared `sticky` column does.
+const SELECT_COLUMN_WIDTH = 40;
 
 type ColumnBase<T> = {
   key: string;
@@ -56,6 +62,8 @@ export function DataTable<T>({
   empty,
   onRowClick,
   pageSize,
+  selectedKeys,
+  onSelectionChange,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -65,6 +73,9 @@ export function DataTable<T>({
   onRowClick?: (row: T) => void;
   /** Absent = no pagination, all rows render as before. */
   pageSize?: number;
+  /** Supply both or neither — together they turn on the leading checkbox column. */
+  selectedKeys?: string[];
+  onSelectionChange?: (keys: string[]) => void;
 }) {
   const [sort, setSort] = useState<Sort | null>(initialSort ?? null);
   const [page, setPage] = useState(1);
@@ -75,18 +86,21 @@ export function DataTable<T>({
     setPage(1);
   }, [sort]);
 
+  const hasSelection = selectedKeys !== undefined && onSelectionChange !== undefined;
+
   // Frozen columns are the leading run of `sticky` columns; a sticky column after a
   // non-sticky one cannot be frozen (there is nothing to pin it against). The `break` lets
   // TypeScript narrow each `c` to the `sticky: true` arm of the union past that point, so
-  // `c.width` is `number` here with no fallback needed.
+  // `c.width` is `number` here with no fallback needed. The injected selection column, when
+  // present, is always frozen first — it must stay pinned alongside whatever else is frozen.
   const frozenWidths = useMemo(() => {
-    const widths: number[] = [];
+    const widths: number[] = hasSelection ? [SELECT_COLUMN_WIDTH] : [];
     for (const c of columns) {
       if (!c.sticky) break;
       widths.push(c.width);
     }
     return widths;
-  }, [columns]);
+  }, [columns, hasSelection]);
 
   const frozenCount = frozenWidths.length;
 
@@ -115,8 +129,10 @@ export function DataTable<T>({
   // Merges the frozen-column positioning with the declared width, applied to both the header
   // and body cell of a column. Applying `width`/`maxWidth` (not just sticky `left`) is what
   // makes `stickyOffsets`' precondition — that a frozen column renders at the width its
-  // offset was computed from — actually hold, rather than just being documented.
-  const cellStyle = (col: Column<T>, i: number): CSSProperties | undefined => {
+  // offset was computed from — actually hold, rather than just being documented. `i` is the
+  // rendered position, counting the injected selection column when present, so it lines up
+  // with `frozenWidths`/`offsets` above.
+  const cellStyle = (i: number, width: number | undefined): CSSProperties | undefined => {
     const sticky =
       i < frozenCount
         ? {
@@ -126,15 +142,36 @@ export function DataTable<T>({
             background: 'var(--tt-surface-raised)',
           }
         : undefined;
-    const width = col.width !== undefined ? { width: col.width, maxWidth: col.width } : undefined;
-    return sticky || width ? { ...sticky, ...width } : undefined;
+    const w = width !== undefined ? { width, maxWidth: width } : undefined;
+    return sticky || w ? { ...sticky, ...w } : undefined;
   };
+
+  // Selection is scoped to the currently visible page — selecting "all" only selects what is
+  // on screen, and stale off-page selections are left untouched (see `togglePage`).
+  const pageKeys = hasSelection ? visible.map(rowKey) : [];
+  const selectedSet = new Set(selectedKeys ?? []);
+  const selectedOnPage = pageKeys.filter((k) => selectedSet.has(k));
+  const allOnPageSelected = pageKeys.length > 0 && selectedOnPage.length === pageKeys.length;
+  const someOnPageSelected = selectedOnPage.length > 0 && !allOnPageSelected;
 
   return (
     <>
       <Table>
         <THead>
           <tr>
+            {hasSelection ? (
+              <Th style={cellStyle(0, SELECT_COLUMN_WIDTH)}>
+                <input
+                  type="checkbox"
+                  aria-label="Select all on this page"
+                  checked={allOnPageSelected}
+                  {...(someOnPageSelected ? { 'aria-checked': 'mixed' as const } : {})}
+                  onChange={() =>
+                    onSelectionChange(togglePage(selectedKeys, pageKeys, !allOnPageSelected))
+                  }
+                />
+              </Th>
+            ) : null}
             {columns.map((col, i) => (
               <Th
                 key={col.key}
@@ -144,7 +181,7 @@ export function DataTable<T>({
                 {...(col.sortBy
                   ? { onSortClick: () => setSort((cur) => nextSort(cur, col.key)) }
                   : {})}
-                style={cellStyle(col, i)}
+                style={cellStyle(hasSelection ? i + 1 : i, col.width)}
               >
                 {col.header}
               </Th>
@@ -158,11 +195,22 @@ export function DataTable<T>({
               className="row-3d"
               {...(onRowClick ? { interactive: true, onClick: () => onRowClick(row) } : {})}
             >
+              {hasSelection ? (
+                <Td style={cellStyle(0, SELECT_COLUMN_WIDTH)}>
+                  <input
+                    type="checkbox"
+                    aria-label="Select row"
+                    checked={selectedSet.has(rowKey(row))}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={() => onSelectionChange(toggleKey(selectedKeys, rowKey(row)))}
+                  />
+                </Td>
+              ) : null}
               {columns.map((col, i) => (
                 <Td
                   key={col.key}
                   align={col.align ?? 'left'}
-                  style={cellStyle(col, i)}
+                  style={cellStyle(hasSelection ? i + 1 : i, col.width)}
                   {...(col.width !== undefined ? { className: 'truncate' } : {})}
                 >
                   {col.render(row)}

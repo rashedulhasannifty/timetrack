@@ -133,3 +133,19 @@ describe('DataTable pagination', () => {
     expect(html).not.toContain(' of ');
   });
 });
+
+describe('DataTable row selection', () => {
+  it('renders no checkbox column by default', () => {
+    expect(render()).not.toContain('type="checkbox"');
+  });
+
+  it('renders no checkbox column when only one of the two props is given', () => {
+    expect(render({ selectedKeys: [] })).not.toContain('type="checkbox"');
+  });
+
+  it('renders a checkbox column when both selection props are given', () => {
+    const html = render({ selectedKeys: [], onSelectionChange: () => {} });
+    // One header checkbox plus one per row.
+    expect(html.match(/type="checkbox"/g)).toHaveLength(rows.length + 1);
+  });
+});
