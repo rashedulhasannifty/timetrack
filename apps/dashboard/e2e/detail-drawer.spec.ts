@@ -122,6 +122,34 @@ test.describe('person detail drawer', () => {
     ).toBe(1);
   });
 
+  test('returning to Overview shows one loading skeleton, not one per slot', async ({ page }) => {
+    // overview/loading.tsx used to sit beside the @drawer slot, and Next applies a segment's
+    // loading/error files to EVERY slot of its layout — so a soft nav into Overview stacked two
+    // PageSkeletons. They now live in overview/(board)/, scoped to the children slot alone.
+    const { href } = await firstPerson(page);
+    await page.goto(href);
+    await hydrated(page);
+    // Slow the RSC responses so the loading state is actually rendered.
+    await page.route('**/*', async (route) => {
+      if (route.request().headers()['rsc']) await new Promise((r) => setTimeout(r, 1200));
+      await route.continue();
+    });
+    await page.evaluate(() => {
+      const w = window as unknown as { __maxSkeletons: number };
+      w.__maxSkeletons = 0;
+      new MutationObserver(() => {
+        const n = document.querySelectorAll('table[aria-hidden="true"]').length;
+        w.__maxSkeletons = Math.max(w.__maxSkeletons, n);
+      }).observe(document.body, { subtree: true, childList: true });
+    });
+    await page.getByRole('link', { name: '← Back' }).click();
+    await expect(page).toHaveURL(/\/overview$/);
+    await expect(page.locator('main a[href^="/people/"]').first()).toBeVisible({ timeout: 15000 });
+    expect(
+      await page.evaluate(() => (window as unknown as { __maxSkeletons: number }).__maxSkeletons),
+    ).toBe(1);
+  });
+
   test('tabs and dates inside the drawer keep the drawer', async ({ page }) => {
     const { link, href } = await firstPerson(page);
     await link.click();

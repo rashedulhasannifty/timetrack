@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { refreshBackTo } from '../../../lib/redirect';
+import { refreshBackTo } from '../../../../lib/redirect';
 import type {
   ProjectSummary,
   TeamActivity,
@@ -8,26 +8,26 @@ import type {
   TeamSummary,
   TeamTrends,
 } from '@timetrack/contracts';
-import { SetPageTitle } from '../../../components/ui/PageTitleContext';
-import { StatCard } from '../../../components/ui/StatCard';
-import { Card, CardHeader, CardTitle } from '../../../components/ui/Card';
-import { HeroPanel, HeroDelta } from '../../../components/ui/HeroPanel';
-import { Button } from '../../../components/ui/Button';
-import { StackedDayBars } from '../../../components/charts/StackedDayBars';
-import { ReportRangePicker } from '../../../components/reports/ReportRangePicker';
-import { DayColumnsChart } from '../../../components/overview/DayColumnsChart';
-import { AttentionPanel } from '../../../components/overview/AttentionPanel';
-import { PeopleTable } from '../../../components/overview/PeopleTable';
-import { ProjectShareList } from '../../../components/overview/ProjectShareList';
-import { AppUsageTabs } from '../../../components/overview/AppUsageTabs';
-import { WidgetVisibilityProvider } from '../../../components/overview/WidgetVisibilityProvider';
-import { Widget } from '../../../components/overview/Widget';
-import { WidgetsDrawer, type WidgetGroup } from '../../../components/overview/WidgetsDrawer';
-import { IconApprovals, IconClock, IconTeam } from '../../../components/ui/icons';
-import { getSession } from '../../../lib/session';
-import { api, ApiError } from '../../../lib/api-client';
-import { defaultReportRange } from '../../../lib/reports-view';
-import { formatDuration } from '../../../lib/format';
+import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
+import { StatCard } from '../../../../components/ui/StatCard';
+import { Card, CardHeader, CardTitle } from '../../../../components/ui/Card';
+import { HeroPanel, HeroDelta } from '../../../../components/ui/HeroPanel';
+import { Button } from '../../../../components/ui/Button';
+import { StackedDayBars } from '../../../../components/charts/StackedDayBars';
+import { ReportRangePicker } from '../../../../components/reports/ReportRangePicker';
+import { DayColumnsChart } from '../../../../components/overview/DayColumnsChart';
+import { AttentionPanel } from '../../../../components/overview/AttentionPanel';
+import { PeopleTable } from '../../../../components/overview/PeopleTable';
+import { ProjectShareList } from '../../../../components/overview/ProjectShareList';
+import { AppUsageTabs } from '../../../../components/overview/AppUsageTabs';
+import { WidgetVisibilityProvider } from '../../../../components/overview/WidgetVisibilityProvider';
+import { Widget } from '../../../../components/overview/Widget';
+import { WidgetsDrawer, type WidgetGroup } from '../../../../components/overview/WidgetsDrawer';
+import { IconApprovals, IconClock, IconTeam } from '../../../../components/ui/icons';
+import { getSession } from '../../../../lib/session';
+import { api, ApiError } from '../../../../lib/api-client';
+import { defaultReportRange } from '../../../../lib/reports-view';
+import { formatDuration } from '../../../../lib/format';
 import {
   appUsageByCategory,
   attentionItems,
@@ -40,7 +40,7 @@ import {
   teamIdleKpi,
   trendsToDayColumns,
   trendsToProductivityBars,
-} from '../../../lib/overview-view';
+} from '../../../../lib/overview-view';
 
 // Widget ids are persisted per user in localStorage['tt-widgets'] as a hidden-map. The
 // redesign retired `havent`, `apps-used`, `apps-unproductive`, `apps-unrated` and the five
