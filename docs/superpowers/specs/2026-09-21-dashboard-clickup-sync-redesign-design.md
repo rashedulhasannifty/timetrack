@@ -70,7 +70,8 @@ can.
 - **The token layer carries most of the restyle.** All 21 shadow uses go through `shadow-e1`/`e2`
   and 116 radii through `rounded-lg/md/full`, against only 40 hardcoded `rounded-[Npx]`. Redefining
   `--radius-*` and `--tt-elevation-*` moves the bulk of the app from one file — which is what makes
-  an inside-out sequence viable and Phase 1 a single-file revert.
+  an inside-out sequence viable. (Phase 1 was also expected to be a single-file revert; that
+  stopped being true once Phase 2 landed — see §10 risk 1.)
 
 - **`DataTable` is added alongside the compound `Table`, not in place of it.** The 2026-07-31 reskin
   spec §3 rejected a config-driven table because "a `columns`/`rows` config table would force
@@ -256,7 +257,11 @@ Toast,DensityProvider,Sparkline}.tsx`, `src/components/admin/AuditTable.tsx`,
 ## 10. Risks / open items
 
 1. **No visual-regression net.** Phase 1 moves 116 radii and 21 shadows from one file and nothing
-   verifies it but eyes on all 17 pages. Mitigated by Phase 1 being a single-file revert. Playwright
+   verifies it but eyes on all 17 pages. **This mitigation is stale as of commit 213a755.** The
+   plan assumed Phase 1 could be reverted on its own, but Phase 2's primitives now depend on
+   `bg-muted-bg`, `bg-hover` and `--pad-y` existing, so reverting `globals.css` alone breaks
+   `Button`, `TabPills` and `Table`. Phases 1–3 are therefore all-or-nothing, which makes the
+   pending human visual pass more load-bearing than originally planned. Playwright
    screenshot baselines would be a proper net — **open item**, new scope, not currently in the plan.
 2. **Dark mode gains depth**, reversing the documented `globals.css:76` decision (§3).
 3. **Intercepting routes are new machinery** in this codebase; isolated to Phase 7 for that reason.
