@@ -184,20 +184,37 @@ Two kinds, deliberately kept apart:
 **(a) Presentational** — row data already loaded on the page. Plain client component, no routing, no
 fetch. Covers approvals, projects and the day panels.
 
-**(b) Detail, needing its own fetch** — `/people/[userId]` and `/projects/[projectId]`, which are
-real pages. These use Next parallel + intercepting routes:
+**(b) Detail, needing its own fetch.** `/people/[userId]` is a real page. It uses Next parallel +
+intercepting routes, and the interception is owned by Overview, not by the `(app)` layout:
 
 ```
-app/(app)/@drawer/(.)people/[userId]/page.tsx   intercepted → drawer slot
-app/(app)/people/[userId]/page.tsx              hard load → full page, unchanged
-app/(app)/@drawer/default.tsx                   empty slot
+app/(app)/overview/layout.tsx                          owns the @drawer slot
+app/(app)/overview/(board)/page.tsx                    Overview itself (+ its loading/error)
+app/(app)/overview/@drawer/(..)people/[userId]/page.tsx intercepted → drawer slot
+app/(app)/overview/@drawer/{page,default,loading,error}.tsx
+app/(app)/people/[userId]/page.tsx                     hard load → full page
 ```
 
 The URL still changes, so links stay shareable, and a fresh paste gives the full page. Fetching
-stays server-side.
+stays server-side, and the page and the drawer render the same `PersonDayContent`. Inside the drawer,
+day and tab navigation replaces history, so closing it (router.back) is one step.
 
-(b) ships as its own PR after (a). Nothing in the codebase uses parallel or intercepting routes
-today, and the `@drawer` slot has to be threaded through `(app)/layout.tsx` beside `children`.
+Why Overview and not `(app)`: Next decides whether to intercept by matching the `Next-Url` header
+(the path being navigated FROM) against the path of the segment holding the interception marker,
+and any descendant matches too. An `(app)`-level slot gives `/.*`, so a `?panel=`/`?date=`
+change on a directly loaded `/people/<id>` was intercepted and opened a drawer over the full page.
+Held in `overview/`, the pattern is `/overview(?:/.*)?`.
+
+**The project drawer is descoped.** No file-convention placement gives the Projects index a
+matcher that excludes project pages. Any slot that can sit over `/projects` lives at `/` or
+`/projects` (route groups are normalised away), so its pattern also matches `/projects/<id>`.
+The detail page's own range picker soft-navigates from that path and would open a drawer over
+it. A `proxy.ts` that strips `Next-Url` for project-detail referrers would work, but was declined
+because it adds request-level middleware for one drawer. Project detail stays a full page, and
+`ProjectDetailContent` keeps the loader/view split so a future drawer from another source can reuse it.
+
+(b) ships as its own PR after (a). Nothing in the codebase used parallel or intercepting routes
+before it, and the `@drawer` slot is threaded through `overview/layout.tsx` beside `children`.
 
 ### 6.4 Toasts and density
 
