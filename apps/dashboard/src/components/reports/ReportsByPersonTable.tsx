@@ -33,7 +33,7 @@ const columns: Column<TeamSummaryRow>[] = [
     align: 'right',
     sortBy: (r) => r.activityPct,
     render: (r) => (
-      <span className="flex items-center gap-2.5 w-[220px]">
+      <span className="ml-auto flex items-center gap-2.5 w-[220px]">
         <Meter pct={r.activityPct} label={`${r.name} activity`} />
         <span className="tt-numeric text-text-secondary w-9 text-right">{r.activityPct}%</span>
       </span>

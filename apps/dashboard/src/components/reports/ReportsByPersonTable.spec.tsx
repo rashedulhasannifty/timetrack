@@ -38,4 +38,11 @@ describe('ReportsByPersonTable', () => {
       'No tracked time in this range',
     );
   });
+
+  /** The activity cell's inner flex span is a block element in a text-right column, so without
+   *  ml-auto it hugs the left edge under the right-aligned header instead of lining up with it. */
+  it('right-aligns the activity meter under its right-aligned header', () => {
+    const html = renderToStaticMarkup(<ReportsByPersonTable rows={[row({})]} />);
+    expect(html).toContain('ml-auto flex items-center');
+  });
 });
