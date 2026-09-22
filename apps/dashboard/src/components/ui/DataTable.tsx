@@ -7,11 +7,13 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent,
   type ReactNode,
 } from 'react';
 import { Table, THead, Tbody, Tr, Th, Td } from './Table';
 import { EmptyState } from './EmptyState';
 import { buttonClasses } from './Button';
+import { startedOnInteractive } from '../../lib/row-click';
 import {
   nextSort,
   sortRows,
@@ -286,7 +288,14 @@ export function DataTable<T>({
                 <Tr
                   className="row-3d"
                   {...(onRowClick && !renderExpanded
-                    ? { interactive: true, onClick: () => onRowClick(row) }
+                    ? {
+                        interactive: true,
+                        // A link or control inside the row handles its own click; firing the
+                        // row's too would act twice (e.g. push the same URL on top of a link).
+                        onClick: (e: MouseEvent<HTMLTableRowElement>) => {
+                          if (!startedOnInteractive(e.target)) onRowClick(row);
+                        },
+                      }
                     : {})}
                 >
                   {hasSelection ? (

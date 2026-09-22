@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { TeamSummaryRow } from '@timetrack/contracts';
 import { Card } from '../ui/Card';
@@ -16,7 +17,10 @@ const columns: Column<TeamSummaryRow>[] = [
     render: (r) => (
       <span className="inline-flex items-center gap-2.5">
         <Avatar name={r.name} size={28} />
-        <span className="font-bold">{r.name}</span>
+        {/* A real link so the row is reachable by keyboard; the row click is the mouse shortcut. */}
+        <Link href={`/people/${r.userId}`} className="text-text hover:text-accent font-bold">
+          {r.name}
+        </Link>
       </span>
     ),
   },
