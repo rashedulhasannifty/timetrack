@@ -1,7 +1,9 @@
 'use client';
 
 import { useActionState } from 'react';
+import { useResultToast } from '../ui/useResultToast';
 import { archiveTaskAction, type ProjectActionState } from '../../app/(app)/projects/actions';
+import { archiveToastMessage } from '../../app/(app)/projects/archive-toast';
 
 const INITIAL: ProjectActionState = { ok: false };
 
@@ -15,6 +17,7 @@ export function TaskArchiveToggle({
   archived: boolean;
 }) {
   const [state, formAction, pending] = useActionState(archiveTaskAction, INITIAL);
+  useResultToast(state, (s) => archiveToastMessage('Task', s));
   return (
     <form action={formAction} className="inline-flex items-center gap-2">
       <input type="hidden" name="id" value={id} />

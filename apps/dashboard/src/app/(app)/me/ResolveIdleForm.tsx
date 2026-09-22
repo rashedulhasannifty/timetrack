@@ -2,7 +2,9 @@
 
 import { useActionState, useEffect, useRef, useState } from 'react';
 import { Button } from '../../../components/ui/Button';
+import { useResultToast } from '../../../components/ui/useResultToast';
 import { resolveIdleAction, type ResolveIdleState } from './actions';
+import { resolveIdleToastMessage } from './resolve-idle-toast';
 import type { IdleRow } from '../../../lib/idle-view';
 
 const INITIAL: ResolveIdleState = { ok: false };
@@ -17,6 +19,7 @@ const INITIAL: ResolveIdleState = { ok: false };
  */
 export function ResolveIdleForm({ row }: { row: IdleRow }) {
   const [state, formAction, pending] = useActionState(resolveIdleAction, INITIAL);
+  useResultToast(state, resolveIdleToastMessage);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 

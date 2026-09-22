@@ -13,6 +13,8 @@ import { api, ApiError } from '../../../lib/api-client';
 export interface ProjectActionState {
   ok: boolean;
   message?: string;
+  /** Set on success only, by the archive/restore toggles — the toast text depends on it. */
+  archived?: boolean;
 }
 
 // NOTE: a 'use server' module may export ONLY async functions (and types, which are erased).
@@ -76,7 +78,7 @@ export async function archiveProjectAction(
     await api.archiveProject(session.accessToken, id, archived);
     revalidatePath('/projects');
     revalidatePath(`/projects/${id}`);
-    return { ok: true };
+    return { ok: true, archived };
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
   }
@@ -174,7 +176,7 @@ export async function archiveTaskAction(
   try {
     await api.archiveTask(session.accessToken, id, archived);
     if (projectId) revalidatePath(`/projects/${projectId}`);
-    return { ok: true };
+    return { ok: true, archived };
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
   }

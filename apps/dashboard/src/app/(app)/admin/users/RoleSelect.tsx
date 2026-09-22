@@ -2,6 +2,7 @@
 
 import { useActionState } from 'react';
 import type { Role } from '@timetrack/contracts';
+import { useResultToast } from '../../../../components/ui/useResultToast';
 import { setUserRoleAction, type RowState } from './actions';
 
 const INITIAL: RowState = { ok: false };
@@ -13,6 +14,7 @@ const INITIAL: RowState = { ok: false };
  */
 export function RoleSelect({ userId, role }: { userId: string; role: Role }) {
   const [state, formAction, pending] = useActionState(setUserRoleAction, INITIAL);
+  useResultToast(state, 'Role updated');
 
   return (
     <form action={formAction} className="flex flex-col gap-1">

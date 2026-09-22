@@ -2,6 +2,7 @@
 
 import { useActionState } from 'react';
 import { Button } from '../../../../components/ui/Button';
+import { useResultToast } from '../../../../components/ui/useResultToast';
 import { createTeamAction, type TeamState } from './actions';
 
 const INITIAL: TeamState = { ok: false };
@@ -13,6 +14,7 @@ const INITIAL: TeamState = { ok: false };
  */
 export function CreateTeamForm() {
   const [state, formAction, pending] = useActionState(createTeamAction, INITIAL);
+  useResultToast(state, 'Team created');
 
   return (
     <form action={formAction} className="flex flex-wrap items-end gap-3">

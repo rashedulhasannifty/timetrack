@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState } from 'react';
 import type { Project } from '@timetrack/contracts';
 import { Button } from '../ui/Button';
+import { useResultToast } from '../ui/useResultToast';
 import { EntryFormFields } from './EntryFormFields';
 import {
   deleteEntryAction,
@@ -38,6 +39,8 @@ export function EntryRowActions({
   const [mode, setMode] = useState<'closed' | 'edit' | 'confirm-delete'>('closed');
   const [editState, editAction, editPending] = useActionState(updateEntryAction, INITIAL);
   const [deleteState, deleteFormAction, deletePending] = useActionState(deleteEntryAction, INITIAL);
+  useResultToast(editState, 'Time entry updated');
+  useResultToast(deleteState, 'Time entry deleted');
 
   useEffect(() => {
     if (editState.ok) setMode('closed');

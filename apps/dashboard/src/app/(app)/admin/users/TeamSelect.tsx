@@ -3,6 +3,7 @@
 import { useActionState, useRef, useState } from 'react';
 import type { TeamListItem } from '@timetrack/contracts';
 import { ConfirmDialog, splitConfirmText } from '../../../../components/ui/ConfirmDialog';
+import { useResultToast } from '../../../../components/ui/useResultToast';
 import { setUserTeamAction, type RowState } from './actions';
 
 const INITIAL: RowState = { ok: false };
@@ -30,6 +31,7 @@ export function TeamSelect({
   teams: TeamListItem[];
 }) {
   const [state, formAction, pending] = useActionState(setUserTeamAction, INITIAL);
+  useResultToast(state, 'Team updated');
   // The last team we know is committed. `defaultValue` can't restore the control after a
   // cancel (React leaves an uncontrolled select where the user put it), so a cancel writes
   // this value back by hand — otherwise the dropdown would show a move that never happened.

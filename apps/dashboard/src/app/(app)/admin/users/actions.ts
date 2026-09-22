@@ -17,6 +17,8 @@ export interface InviteState {
 export interface RowState {
   ok: boolean;
   message?: string;
+  /** Set on success only, by setUserActiveAction — the toast text depends on it. */
+  deactivated?: boolean;
 }
 
 /**
@@ -77,7 +79,7 @@ export async function setUserActiveAction(_prev: RowState, formData: FormData): 
   try {
     await api.setUserActive(session.accessToken, id, deactivated);
     revalidatePath('/admin/users');
-    return { ok: true };
+    return { ok: true, deactivated };
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
   }

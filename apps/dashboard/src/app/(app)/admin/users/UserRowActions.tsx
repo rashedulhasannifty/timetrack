@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from 'react';
 import { Button } from '../../../../components/ui/Button';
+import { useResultToast } from '../../../../components/ui/useResultToast';
 import { setUserActiveAction, eraseUserAction, type RowState } from './actions';
 
 const INITIAL: RowState = { ok: false };
@@ -22,6 +23,8 @@ export function UserRowActions({
 }) {
   const [state, formAction, pending] = useActionState(setUserActiveAction, INITIAL);
   const [eraseState, eraseAction, erasing] = useActionState(eraseUserAction, INITIAL);
+  useResultToast(state, (s) => (s.deactivated ? 'User deactivated' : 'User reactivated'));
+  useResultToast(eraseState, 'User erased');
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
 
