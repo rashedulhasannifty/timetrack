@@ -32,7 +32,7 @@ import type {
 
 /**
  * One person's day, fetched once and rendered by BOTH `people/[userId]/page.tsx` (a direct
- * load) and the drawer that intercepts the same URL from Overview — so the two can never
+ * load) and the drawer that intercepts the same URL from Overview or Reports — so the two can never
  * disagree about what a person's day shows.
  *
  * Split into a loader and a view rather than one async component because each caller needs
