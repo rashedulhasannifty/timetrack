@@ -286,7 +286,7 @@ export default async function OverviewPage({
               <Card padding="none" className="overflow-hidden">
                 <CardHeader
                   title="People"
-                  note="click a row for the day view"
+                  note="click a name for the day view"
                   action={
                     <Button href="/reports" variant="secondary" size="sm">
                       Full report
