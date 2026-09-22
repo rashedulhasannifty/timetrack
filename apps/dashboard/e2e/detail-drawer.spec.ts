@@ -34,6 +34,16 @@ async function hydrated(page: Page) {
   await page.waitForLoadState('networkidle');
 }
 
+/**
+ * Wait for the drawer's real content, not loading.tsx's shell — that is also a dialog, and a
+ * key pressed while the shell is being swapped for the day view lands wherever focus is then.
+ */
+async function drawerLoaded(page: Page) {
+  await expect(
+    page.getByRole('dialog').getByRole('navigation', { name: 'Day navigation' }),
+  ).toBeVisible();
+}
+
 /** The first person link on Overview — its href and visible name. */
 async function firstPerson(page: Page) {
   const link = page.locator('main a[href^="/people/"]').first();
@@ -115,6 +125,7 @@ test.describe('person detail drawer', () => {
   test('tabs and dates inside the drawer keep the drawer', async ({ page }) => {
     const { link, href } = await firstPerson(page);
     await link.click();
+    await drawerLoaded(page);
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 
@@ -133,6 +144,7 @@ test.describe('person detail drawer', () => {
   }) => {
     const { link } = await firstPerson(page);
     await link.click();
+    await drawerLoaded(page);
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 
@@ -166,6 +178,7 @@ test.describe('person detail drawer', () => {
   }) => {
     const { link } = await firstPerson(page);
     await link.click();
+    await drawerLoaded(page);
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 
@@ -178,6 +191,7 @@ test.describe('person detail drawer', () => {
   test('Tab and Shift+Tab stay inside the drawer', async ({ page }) => {
     const { link } = await firstPerson(page);
     await link.click();
+    await drawerLoaded(page);
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     await expect(dialog).toBeFocused();
@@ -196,6 +210,7 @@ test.describe('person detail drawer', () => {
   test('Escape collapses an open Add time form without closing the drawer', async ({ page }) => {
     const { link } = await firstPerson(page);
     await link.click();
+    await drawerLoaded(page);
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     const url = page.url();
@@ -218,6 +233,7 @@ test.describe('person detail drawer', () => {
   test('Escape closes the drawer back to Overview', async ({ page }) => {
     const { link } = await firstPerson(page);
     await link.click();
+    await drawerLoaded(page);
     await expect(page.getByRole('dialog')).toBeVisible();
 
     await page.keyboard.press('Escape');
@@ -228,6 +244,7 @@ test.describe('person detail drawer', () => {
   test('soft-navigating away with the drawer open closes it', async ({ page }) => {
     const { link } = await firstPerson(page);
     await link.click();
+    await drawerLoaded(page);
     await expect(page.getByRole('dialog')).toBeVisible();
 
     // The backdrop covers the sidebar, so a pointer can't reach it; dispatch the click on the
@@ -240,6 +257,7 @@ test.describe('person detail drawer', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
 
     await link.click();
+    await drawerLoaded(page);
     await expect(page.getByRole('dialog')).toBeVisible();
     await page
       .locator('aside a[href="/projects"], nav a[href="/projects"]')
@@ -272,6 +290,7 @@ test.describe('a dialog inside the person drawer', () => {
     await login(page);
     const link = page.locator(`main a[href="/people/${SHOT_USER_ID}"]`).first();
     await link.click();
+    await drawerLoaded(page);
     await expect(drawer(page)).toBeVisible();
     // When SHOT_DATE is today the picker already holds it: filling the same value fires no
     // change, so only fill a different day. The controlled input settles on the value after the
