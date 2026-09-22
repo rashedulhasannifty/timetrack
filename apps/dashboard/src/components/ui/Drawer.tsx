@@ -10,21 +10,28 @@ const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
- * A modal dialog rendered inside the panel (e.g. the screenshot lightbox), if one is open.
- * querySelector only searches descendants, so the panel's own aria-modal never matches.
+ * What counts as a modal opened inside the panel: an ARIA modal (the screenshot lightbox) or a
+ * native `<dialog>` opened with showModal() (ConfirmDialog), which carries no aria-modal. One
+ * selector, so the Tab trap and the Escape check can never disagree about it.
+ */
+const INNER_MODAL_SELECTOR = '[aria-modal="true"], dialog[open]';
+
+/**
+ * A modal dialog rendered inside the panel, if one is open. querySelector only searches
+ * descendants, so the panel's own aria-modal never matches.
  */
 function innerModal(panel: HTMLElement | null): HTMLElement | null {
-  return panel?.querySelector<HTMLElement>('[aria-modal="true"]') ?? null;
+  return panel?.querySelector<HTMLElement>(INNER_MODAL_SELECTOR) ?? null;
 }
 
 /**
  * Whether something inside the panel has claimed Escape: an inner modal, or an open inline
  * disclosure that collapses on Escape and marks itself `data-owns-escape` (Add time, an
- * entry's Edit / Delete confirm). Either handles the key itself; the drawer closing as well
- * would discard what it holds.
+ * entry's Edit / Delete confirm). Either handles the key itself; the drawer must not ALSO
+ * close, which for a route drawer would step the URL back and leave the person's day.
  */
 function escapeClaimed(panel: HTMLElement | null): boolean {
-  return !!panel?.querySelector('[aria-modal="true"], [data-owns-escape]');
+  return !!panel?.querySelector(`${INNER_MODAL_SELECTOR}, [data-owns-escape]`);
 }
 
 /**
