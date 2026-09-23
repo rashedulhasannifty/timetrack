@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { api } from '../../lib/api-client';
+import { platformBreakdown } from '../../lib/tracking-breakdown';
 
 /**
  * Async server slot: who is tracking right now. Rendered inside <Suspense fallback={null}>.
@@ -14,25 +15,24 @@ import { api } from '../../lib/api-client';
  * to an anchor: `Widget` renders `data-widget`, not an `id`, and the people widget can be
  * toggled off in the drawer, so `#people` would be a link to nothing.
  *
- * Deliberately platform-neutral. `tracking` is an EXISTS on an open, heartbeating `time_entries`
- * row (reports.repository.ts) with no OS filter, and the Windows client publishes and heartbeats
- * open entries exactly as the Mac one does — so this counts both. The copy here used to name the
- * Mac app, which read as "Windows is not tracked" when nothing was running. Nothing in the
- * schema records a client platform (no Device row; `RefreshToken` carries no OS column), so
- * there is no per-platform count to show even if we wanted one — do not reintroduce one here.
+ * ONE card with a platform line, not a Mac card and a Windows card. `platform` is null for any
+ * client too old to report one, so a two-card split would need a home for that third state —
+ * and "Windows 0" beside someone visibly tracking is a lie the line cannot tell. See
+ * `platformBreakdown`, which omits itself until there is something true to say.
  */
 export async function TrackingFooter({ token }: { token: string }) {
-  let names: string[];
+  let rows: Awaited<ReturnType<typeof api.teamOverview>>['rows'];
   try {
-    const overview = await api.teamOverview(token);
-    names = overview.rows.filter((r) => r.tracking).map((r) => r.name);
+    rows = (await api.teamOverview(token)).rows;
   } catch {
     return null; // employees (403) or any failure → no footer
   }
 
+  const names = rows.filter((r) => r.tracking).map((r) => r.name);
   const count = names.length;
   const listed = names.slice(0, 3).join(', ');
   const rest = count - Math.min(count, 3);
+  const breakdown = platformBreakdown(rows);
 
   return (
     <div className="bg-surface-raised border-separator shadow-e1 flex flex-col gap-2 rounded-lg border p-3.5">
@@ -63,6 +63,9 @@ export async function TrackingFooter({ token }: { token: string }) {
           Nobody is tracking right now.
         </span>
       )}
+      {breakdown ? (
+        <span className="text-text-secondary text-micro opacity-80">{breakdown}</span>
+      ) : null}
     </div>
   );
 }

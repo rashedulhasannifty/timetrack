@@ -1,16 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { TeamOverviewRow } from '@timetrack/contracts';
+import type { Platform, TeamOverviewRow } from '@timetrack/contracts';
 
 const { teamOverview } = vi.hoisted(() => ({ teamOverview: vi.fn() }));
 vi.mock('../../lib/api-client', () => ({ api: { teamOverview } }));
 
 import { TrackingFooter } from './TrackingFooter';
 
-const row = (name: string, tracking: boolean): TeamOverviewRow => ({
+const row = (
+  name: string,
+  tracking: boolean,
+  platform: Platform | null = null,
+): TeamOverviewRow => ({
   userId: `u-${name}`,
   name,
   tracking,
+  platform,
   trackedSecondsToday: 3600,
 });
 
@@ -64,6 +69,29 @@ describe('TrackingFooter', () => {
     expect(html).toContain('Ada, Bea, Cy');
     expect(html).not.toContain('more');
     expect(html).not.toContain('href=');
+  });
+
+  it('shows the platform breakdown under the names', async () => {
+    const html = await render([
+      row('Ada', true, 'MACOS'),
+      row('Bea', true, 'WINDOWS'),
+      row('Cy', true, null),
+    ]);
+    expect(html).toContain('3 tracking now');
+    expect(html).toContain('1 on Mac · 1 on Windows · 1 unknown');
+  });
+
+  /**
+   * Regression guard for the whole design: while no client reports a platform the card must look
+   * exactly as it did before the field existed — no empty line, and above all no "0 on Windows"
+   * beside someone who is visibly tracking.
+   */
+  it('shows no breakdown, and never a zero, while every client is silent', async () => {
+    const html = await render([row('Ada', true), row('Bea', true)]);
+    expect(html).toContain('2 tracking now');
+    expect(html).not.toContain('on Mac');
+    expect(html).not.toContain('on Windows');
+    expect(html).not.toContain('unknown');
   });
 
   /** Employees get a 403 from team-overview; the shell must render without a footer, not crash. */
