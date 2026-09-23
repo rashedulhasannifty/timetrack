@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Button } from '../../../components/ui/Button';
+import { Button, buttonClasses } from '../../../components/ui/Button';
 import { useToastAction } from '../../../components/ui/useToastAction';
 import { resolveIdleAction, type ResolveIdleState } from './actions';
 import { resolveIdleToastMessage } from './resolve-idle-toast';
@@ -48,11 +48,7 @@ export function ResolveIdleForm({ row }: { row: IdleRow }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className={
-          unresolved
-            ? 'bg-accent text-caption cursor-pointer rounded-full px-[14px] py-[5px] font-bold text-white'
-            : 'border-separator text-text-secondary hover:text-text text-caption cursor-pointer rounded-full border px-[14px] py-[5px] font-bold'
-        }
+        className={unresolved ? buttonClasses('primary', 'xs') : buttonClasses('secondary', 'xs')}
       >
         {unresolved ? 'Resolve' : 'Change'}
       </button>

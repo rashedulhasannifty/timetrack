@@ -37,6 +37,16 @@ export function buttonClasses(
   return `${BASE} ${VARIANTS[variant]} ${SIZES[size]}`;
 }
 
+/**
+ * A square icon-only control in the same language: the secondary variant's surface and pressable
+ * edge, sized to its glyph instead of to text. The chrome toggles and small row affordances use
+ * this so an icon button is visibly the same kind of thing as a labelled one.
+ */
+export function iconButtonClasses(size: 'sm' | 'md' = 'md'): string {
+  const box = size === 'sm' ? 'h-7 w-7' : 'h-9 w-9';
+  return `${BASE} ${VARIANTS.secondary} ${box} flex-none p-0`;
+}
+
 type CommonProps = {
   variant?: ButtonVariant;
   size?: ButtonSize;

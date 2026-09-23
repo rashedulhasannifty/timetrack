@@ -3,7 +3,7 @@
 import { useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { Badge } from '../ui/Badge';
-import { buttonClasses } from '../ui/Button';
+import { buttonClasses, iconButtonClasses } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Drawer } from '../ui/Drawer';
 import { Meter } from '../ui/Meter';
@@ -87,7 +87,7 @@ export function ProjectsList({
                   type="button"
                   onClick={() => setOpenId(row.projectId)}
                   aria-label={`Quick look at ${row.name}`}
-                  className="text-text-secondary hover:text-text grid h-7 w-7 flex-none place-items-center rounded-md"
+                  className={iconButtonClasses('sm')}
                 >
                   <IconInfo width={16} height={16} />
                 </button>

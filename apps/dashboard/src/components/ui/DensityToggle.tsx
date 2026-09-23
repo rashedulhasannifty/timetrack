@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { IconRows } from './icons';
+import { iconButtonClasses } from './Button';
 import { normalizeDensity, nextDensity, type Density } from '../../lib/density';
 
 /**
@@ -32,7 +33,7 @@ export function DensityToggle() {
       type="button"
       onClick={toggle}
       aria-label={density === 'compact' ? 'Switch to comfortable rows' : 'Switch to compact rows'}
-      className="border-separator bg-surface-raised text-text-secondary hover:text-text mb-1 grid h-9 w-9 flex-none place-items-center rounded-full border transition-colors"
+      className={`${iconButtonClasses()} mb-1`}
     >
       <IconRows width={16} height={16} />
     </button>

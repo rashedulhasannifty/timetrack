@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button } from '../../../../components/ui/Button';
+import { Button, buttonClasses } from '../../../../components/ui/Button';
 import { useToastAction } from '../../../../components/ui/useToastAction';
 import { setUserActiveAction, eraseUserAction, type RowState } from './actions';
 
@@ -49,7 +49,7 @@ export function UserRowActions({
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="border-destructive/30 text-destructive hover:bg-destructive/10 text-caption rounded-full border px-3 py-1.5 font-semibold transition-colors"
+            className={`${buttonClasses('secondary', 'xs')} text-destructive hover:text-destructive`}
           >
             Erase…
           </button>
@@ -94,7 +94,7 @@ export function UserRowActions({
                 setOpen(false);
                 setReason('');
               }}
-              className="border-separator text-text hover:bg-hover text-caption rounded-full border px-3 py-1.5 font-semibold transition-colors disabled:opacity-50"
+              className={buttonClasses('secondary', 'xs')}
             >
               Cancel
             </button>

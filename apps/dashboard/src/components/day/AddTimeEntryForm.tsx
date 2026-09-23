@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Project } from '@timetrack/contracts';
-import { Button } from '../ui/Button';
+import { Button, buttonClasses } from '../ui/Button';
 import { useToastAction } from '../ui/useToastAction';
 import { EntryFormFields } from './EntryFormFields';
 import { createManualEntryAction, type EntryFormState } from '../../app/(app)/me/actions';
@@ -58,7 +58,7 @@ export function AddTimeEntryForm({
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="border-separator text-text-secondary hover:text-text text-caption cursor-pointer rounded-full border px-[14px] py-[5px] font-bold"
+          className={buttonClasses('secondary', 'xs')}
         >
           {open ? 'Cancel' : 'Add time'}
         </button>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Project } from '@timetrack/contracts';
-import { Button } from '../ui/Button';
+import { Button, buttonClasses } from '../ui/Button';
 import { useToastAction } from '../ui/useToastAction';
 import { EntryFormFields } from './EntryFormFields';
 import {
@@ -76,7 +76,7 @@ export function EntryRowActions({
           type="button"
           onClick={() => setMode((m) => (m === 'edit' ? 'closed' : 'edit'))}
           aria-expanded={mode === 'edit'}
-          className="border-separator text-text-secondary hover:text-text text-caption cursor-pointer rounded-full border px-3 py-[3px] font-bold"
+          className={buttonClasses('secondary', 'xs')}
         >
           Edit
         </button>
@@ -84,7 +84,7 @@ export function EntryRowActions({
           type="button"
           onClick={() => setMode((m) => (m === 'confirm-delete' ? 'closed' : 'confirm-delete'))}
           aria-expanded={mode === 'confirm-delete'}
-          className="border-separator text-text-secondary hover:text-destructive text-caption cursor-pointer rounded-full border px-3 py-[3px] font-bold"
+          className={`${buttonClasses('secondary', 'xs')} hover:text-destructive`}
         >
           Delete
         </button>

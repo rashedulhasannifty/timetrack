@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { buttonClasses } from '../../../components/ui/Button';
 import { useToastAction } from '../../../components/ui/useToastAction';
 import { decideAction, type DecideState } from './actions';
 import { decidePlacement, type Placement } from './decide-placement';
@@ -73,7 +74,7 @@ export function DecideForm({ approvalId }: { approvalId: string }) {
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="bg-surface-raised border-separator text-accent text-caption cursor-pointer rounded-full border px-[13px] py-[5px] font-bold"
+        className={`${buttonClasses('secondary', 'xs')} text-accent`}
       >
         Decide
       </button>
