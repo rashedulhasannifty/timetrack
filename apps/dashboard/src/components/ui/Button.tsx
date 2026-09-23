@@ -14,7 +14,11 @@ const GLOW = '[--b-glow:var(--tt-glow)] [--b-glow-strong:var(--tt-glow-strong)]'
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary: `bg-accent text-white hover:bg-accent-hover btn-3d [--b-edge:var(--tt-accent-edge)] ${GLOW}`,
-  secondary: `bg-surface-raised border-separator text-text-secondary hover:text-text hover:border-text-secondary border btn-3d [--b-edge:var(--tt-border-strong)] ${GLOW}`,
+  // Hover deepens the surface and keeps the border in the depth family (--tt-border-strong, the
+  // same colour as the button's own edge). It used to swap the border to --tt-text-secondary,
+  // which is near-black in light mode: against the near-white resting border that read as a hard
+  // outline drawn around the button rather than a lift.
+  secondary: `bg-surface-raised border-separator text-text-secondary hover:text-text hover:border-border-strong hover:bg-hover border btn-3d [--b-edge:var(--tt-border-strong)] ${GLOW}`,
   destructive: `bg-destructive text-white hover:opacity-90 btn-3d [--b-edge:var(--tt-destructive-edge)] ${GLOW}`,
   ghost: 'text-text-secondary hover:text-text hover:bg-hover',
 };
