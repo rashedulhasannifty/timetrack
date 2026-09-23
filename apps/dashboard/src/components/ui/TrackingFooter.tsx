@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { api } from '../../lib/api-client';
 
 /**
@@ -6,6 +7,19 @@ import { api } from '../../lib/api-client';
  * The names come from the same `teamOverview` rows as the count, so the card never claims more
  * people than it can name. What each person is *tracking against* is not on this endpoint —
  * the row carries a user and a seconds total, not a project — so the card lists people only.
+ *
+ * Three names fit the sidebar's width; the rest are reachable through the "+N more" link rather
+ * than expanded in place, because Overview's people table already lists every member with the
+ * same live indicator and sorts by the columns you would want. It links to `/overview` and not
+ * to an anchor: `Widget` renders `data-widget`, not an `id`, and the people widget can be
+ * toggled off in the drawer, so `#people` would be a link to nothing.
+ *
+ * Deliberately platform-neutral. `tracking` is an EXISTS on an open, heartbeating `time_entries`
+ * row (reports.repository.ts) with no OS filter, and the Windows client publishes and heartbeats
+ * open entries exactly as the Mac one does — so this counts both. The copy here used to name the
+ * Mac app, which read as "Windows is not tracked" when nothing was running. Nothing in the
+ * schema records a client platform (no Device row; `RefreshToken` carries no OS column), so
+ * there is no per-platform count to show even if we wanted one — do not reintroduce one here.
  */
 export async function TrackingFooter({ token }: { token: string }) {
   let names: string[];
@@ -31,11 +45,22 @@ export async function TrackingFooter({ token }: { token: string }) {
       {count > 0 ? (
         <span className="text-micro text-text-secondary leading-relaxed">
           {listed}
-          {rest > 0 ? ` +${rest} more` : ''}
+          {rest > 0 ? (
+            <>
+              {' '}
+              <Link
+                href="/overview"
+                className="text-accent font-semibold hover:underline"
+                aria-label={`See all ${count} people tracking now`}
+              >
+                +{rest} more
+              </Link>
+            </>
+          ) : null}
         </span>
       ) : (
         <span className="text-micro text-text-secondary leading-relaxed">
-          Nobody has the Mac app running.
+          Nobody is tracking right now.
         </span>
       )}
     </div>
