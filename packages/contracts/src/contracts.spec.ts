@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   LoginSchema,
   CreateTimeEntrySchema,
+  CreateManualTimeEntrySchema,
+  UpdateTimeEntrySchema,
   TimeEntrySchema,
   ListTimeEntriesQuerySchema,
   ActivityBatchSchema,
@@ -67,6 +69,95 @@ describe('time-entry round-trip', () => {
   it('parses a create payload and rejects a bad uuid', () => {
     expect(CreateTimeEntrySchema.parse(entry)).toMatchObject({ id: UUID });
     expect(CreateTimeEntrySchema.safeParse({ ...entry, id: 'not-a-uuid' }).success).toBe(false);
+  });
+
+  /**
+   * `platform` is additive to /v1. The shipped clients omit it entirely, and a client that
+   * knows about it may send a value or an explicit null. All three must parse, or the strict
+   * pipe answers 422 — which the clients classify as permanent and DROP rather than retry.
+   */
+  it('accepts a platform, an explicit null, and its absence', () => {
+    expect(CreateTimeEntrySchema.parse(entry).platform).toBeUndefined();
+    expect(CreateTimeEntrySchema.parse({ ...entry, platform: 'WINDOWS' }).platform).toBe('WINDOWS');
+    expect(CreateTimeEntrySchema.parse({ ...entry, platform: null }).platform).toBeNull();
+    expect(CreateTimeEntrySchema.safeParse({ ...entry, platform: 'LINUX' }).success).toBe(false);
+  });
+
+  /**
+   * Platform describes the device that reported a span, so it must not be reachable from the
+   * routes where a human asserts or corrects time — a PATCH must not rewrite which client
+   * observed a span, and a hand-typed entry has no client at all.
+   *
+   * Asserted as "not in the parsed shape" rather than as a rejection, because strict mode is
+   * applied by `ZodValidationPipe`, not baked into the schema: a bare `.parse()` strips an
+   * unknown key instead of refusing it. Absence from the shape is what makes the pipe answer
+   * 422 in the API, so this is the property that actually guards the route.
+   */
+  it('keeps platform out of the manual-create and patch bodies', () => {
+    expect(CreateTimeEntrySchema.parse({ ...entry, platform: 'MACOS' })).toHaveProperty('platform');
+
+    expect(UpdateTimeEntrySchema.parse({ platform: 'MACOS' })).not.toHaveProperty('platform');
+    const manual = CreateManualTimeEntrySchema.parse({
+      id: UUID,
+      projectId: null,
+      taskId: null,
+      startTime: '2026-07-12T09:00:00.000Z',
+      endTime: '2026-07-12T10:00:00.000Z',
+      platform: 'MACOS',
+    });
+    expect(manual).not.toHaveProperty('platform');
+  });
+
+  /**
+   * The temporal rule, which had no test at all: every schema's rejection path was uncovered.
+   *
+   * Zero-length is load-bearing, not an edge case — the client's interrupted-time recovery
+   * writes `end == start` on Discard to release the one-running-per-user slot. A `>` here
+   * instead of `<` would reject that legitimate close and strand the entry open forever, and
+   * nothing in the suite would have noticed.
+   */
+  describe('endTime vs startTime', () => {
+    const T0 = '2026-07-12T09:00:00.000Z';
+    const T1 = '2026-07-12T10:00:00.000Z';
+
+    it('accepts a zero-length entry but refuses an inverted one', () => {
+      expect(
+        CreateTimeEntrySchema.safeParse({ ...entry, startTime: T0, endTime: T0 }).success,
+      ).toBe(true);
+
+      const bad = CreateTimeEntrySchema.safeParse({ ...entry, startTime: T1, endTime: T0 });
+      expect(bad.success).toBe(false);
+      expect(bad.error?.issues[0]?.path).toEqual(['endTime']);
+      expect(bad.error?.issues[0]?.message).toBe('endTime must not be before startTime');
+    });
+
+    it('leaves an open entry alone — a null endTime is not inverted', () => {
+      expect(
+        CreateTimeEntrySchema.safeParse({ ...entry, startTime: T1, endTime: null }).success,
+      ).toBe(true);
+    });
+
+    /** A patch can only be checked when it carries BOTH edges; one edge is merged server-side. */
+    it('checks the patch pair only when the patch supplies both edges', () => {
+      expect(UpdateTimeEntrySchema.safeParse({ startTime: T1, endTime: T0 }).success).toBe(false);
+      expect(UpdateTimeEntrySchema.safeParse({ startTime: T0, endTime: T1 }).success).toBe(true);
+      expect(UpdateTimeEntrySchema.safeParse({ endTime: T0 }).success).toBe(true);
+      expect(UpdateTimeEntrySchema.safeParse({ startTime: T1 }).success).toBe(true);
+    });
+
+    /** Manual entry is stricter: a human asserting a zero-length span is a mistake, not a Discard. */
+    it('refuses a zero-length manual entry, unlike the sync upsert', () => {
+      const manual = { id: UUID, projectId: null, taskId: null };
+      expect(
+        CreateManualTimeEntrySchema.safeParse({ ...manual, startTime: T0, endTime: T0 }).success,
+      ).toBe(false);
+      expect(
+        CreateManualTimeEntrySchema.safeParse({ ...manual, startTime: T1, endTime: T0 }).success,
+      ).toBe(false);
+      expect(
+        CreateManualTimeEntrySchema.safeParse({ ...manual, startTime: T0, endTime: T1 }).success,
+      ).toBe(true);
+    });
   });
 
   it('round-trips the full entity through its own schema', () => {
@@ -451,6 +542,7 @@ describe('TeamOverview contracts', () => {
           userId: '019797a0-0000-7000-8000-0000000000aa',
           name: 'Ada',
           tracking: true,
+          platform: 'MACOS',
           trackedSecondsToday: 3600,
         },
       ],

@@ -136,7 +136,7 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
 
     const rows = await repo().overviewForTeam(team.id, DAY_START, DAY_END, WINDOW);
     expect(rows).toEqual([
-      { userId: user.id, name: 'Ada', tracking: false, trackedSecondsToday: 5400 },
+      { userId: user.id, name: 'Ada', tracking: false, platform: null, trackedSecondsToday: 5400 },
     ]);
   });
 
@@ -211,7 +211,7 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     void a;
     const rows = await repo().overviewForTeam(team.id, DAY_START, DAY_END, WINDOW);
     const bea = rows.find((r) => r.name === 'Bea');
-    expect(bea).toEqual({ userId: b.id, name: 'Bea', tracking: false, trackedSecondsToday: 0 });
+    expect(bea).toEqual({ userId: b.id, name: 'Bea', tracking: false, platform: null, trackedSecondsToday: 0 });
   });
 
   it('overviewForSelf returns only that user', async () => {
@@ -240,7 +240,7 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     const rows = await repo().overviewForTeam(team.id, DAY_START, DAY_END, WINDOW);
     expect(rows.map((r) => r.name)).toEqual(['Ada']);
     expect(rows).toEqual([
-      { userId: active.id, name: 'Ada', tracking: false, trackedSecondsToday: 0 },
+      { userId: active.id, name: 'Ada', tracking: false, platform: null, trackedSecondsToday: 0 },
     ]);
   });
 
@@ -261,6 +261,70 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     await seedSample(user.id, new Date()); // now
     const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
     expect(row.tracking).toBe(true);
+  });
+
+  /**
+   * The platform rides on the open entry, so it must appear only while that entry is the one
+   * making `tracking` true — and must never be inferred. A client too old to report one leaves
+   * null, which a reader must not read as "the other platform".
+   */
+  it('reports the open entry’s platform, and null when it reported none', async () => {
+    const team = await seedTeam();
+    const dayStart = new Date(Date.now() - 3_600_000);
+    const dayEnd = new Date(Date.now() + 3_600_000);
+
+    const win = await seedUser(team.id, 'Ada', 'ada@example.com');
+    const legacy = await seedUser(team.id, 'Bea', 'bea@example.com');
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000210',
+        userId: win.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 60_000),
+        endTime: null,
+        heartbeatAt: new Date(),
+        platform: 'WINDOWS',
+      },
+    });
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000211',
+        userId: legacy.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 60_000),
+        endTime: null,
+        heartbeatAt: new Date(),
+      },
+    });
+
+    const rows = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
+    const ada = rows.find((r) => r.name === 'Ada');
+    const bea = rows.find((r) => r.name === 'Bea');
+
+    expect(ada).toMatchObject({ tracking: true, platform: 'WINDOWS' });
+    expect(bea).toMatchObject({ tracking: true, platform: null });
+  });
+
+  /** Not tracking means no platform, even though the closed entry recorded one. */
+  it('reports platform=null once the entry that carried it is closed', async () => {
+    const team = await seedTeam();
+    const user = await seedUser(team.id, 'Ada', 'ada@example.com');
+    const dayStart = new Date(Date.now() - 3_600_000);
+    const dayEnd = new Date(Date.now() + 3_600_000);
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-000000000212',
+        userId: user.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 3_000_000),
+        endTime: new Date(Date.now() - 60_000),
+        heartbeatAt: new Date(),
+        platform: 'MACOS',
+      },
+    });
+
+    const [row] = await repo().overviewForTeam(team.id, dayStart, dayEnd, WINDOW);
+    expect(row).toMatchObject({ tracking: false, platform: null });
   });
 
   it('open entry + STALE heartbeat → tracking=false (regression)', async () => {

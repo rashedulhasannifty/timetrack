@@ -6,6 +6,10 @@ import type { ReportsRepository, OverviewRow } from './reports.repository.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import type { ResourceAccessService } from '../../common/authz/resource-access.service.js';
 
+// TeamOverviewRowSchema requires a real uuid, so these cannot be the 'u1'-style ids above.
+const UUID_A = '019797a0-0000-7000-8000-0000000000aa';
+const UUID_B = '019797a0-0000-7000-8000-0000000000bb';
+
 const employee: SessionUser = { id: 'u1', role: 'EMPLOYEE', teamId: 't1' };
 const manager: SessionUser = { id: 'm1', role: 'MANAGER', teamId: 't1' };
 const admin: SessionUser = { id: 'a1', role: 'ADMIN', teamId: 't1' };
@@ -40,6 +44,26 @@ function makeReports() {
 const range = { from: '2026-07-01T00:00:00.000Z', to: '2026-07-08T00:00:00.000Z' };
 
 describe('ReportsService.overview', () => {
+  /**
+   * The other cases here mock an EMPTY row list, so nothing ever exercises the response schema
+   * against a real row — and `overview` ends in `TeamOverviewSchema.parse`, which throws (500)
+   * on a row whose shape drifted from the contract. Both platform states go through it.
+   */
+  it('passes a populated row, with and without a platform, through the response schema', async () => {
+    const rows: OverviewRow[] = [
+      { userId: UUID_A, name: 'Ada', tracking: true, platform: 'WINDOWS', trackedSecondsToday: 60 },
+      { userId: UUID_B, name: 'Bea', tracking: false, platform: null, trackedSecondsToday: 0 },
+    ];
+    const repo = {
+      overviewForTeam: vi.fn().mockResolvedValue(rows),
+      overviewForSelf: vi.fn().mockResolvedValue(rows),
+    } as unknown as ReportsRepository;
+    const svc = new ReportsService(repo, {} as unknown as ResourceAccessService, 300);
+
+    const out = await svc.overview({ date: '2026-07-12' }, manager);
+    expect(out).toEqual({ date: '2026-07-12', rows });
+  });
+
   it('scopes a MANAGER to their own team, windowed on the Dhaka day', async () => {
     const { svc, repo } = make();
     await svc.overview({ date: '2026-07-12' }, manager);

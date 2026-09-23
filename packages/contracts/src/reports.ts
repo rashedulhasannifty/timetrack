@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Category } from './enums.js';
+import { Category, Platform } from './enums.js';
 
 export const ReportRangeQuerySchema = z.object({
   from: z.iso.datetime(),
@@ -34,6 +34,15 @@ export const TeamOverviewRowSchema = z.object({
   userId: z.uuid(),
   name: z.string(),
   tracking: z.boolean(),
+  /**
+   * The platform of the open entry behind `tracking`, when it reported one.
+   *
+   * Null in three different situations that readers must not conflate: the person is not
+   * tracking, they are tracking from a client too old to send a platform, or the row predates
+   * the field. A UI therefore cannot treat "not Windows" as "Mac" — it must degrade to an
+   * unattributed count. Always null when `tracking` is false.
+   */
+  platform: Platform.nullable(),
   trackedSecondsToday: z.number().int().nonnegative(),
 });
 

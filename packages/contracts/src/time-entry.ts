@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { EntrySource } from './enums.js';
+import { EntrySource, Platform } from './enums.js';
 
 /**
  * PRD §7.5 — `id` is minted on the client (UUIDv7) and used as the idempotency key.
@@ -41,7 +41,22 @@ function isInverted(startTime: string, endTime: string | null | undefined): bool
  * `ZodObject`, and `ZodValidationPipe` only applies strict mode (the mass-assignment guard)
  * to `ZodObject`. Refining here would silently switch strict parsing off for this body.
  */
-export const CreateTimeEntrySchema = TimeEntryBase.check((ctx) => {
+export const CreateTimeEntrySchema = TimeEntryBase.extend({
+  /**
+   * Which client wrote this entry, for the per-platform split in "who is tracking now".
+   *
+   * Added HERE and not to `timeEntryShape` on purpose. That shape also feeds
+   * `UpdateTimeEntrySchema` and the manual-create route, and platform belongs to neither: a
+   * dashboard entry a human typed has no platform, and a PATCH must never be able to rewrite
+   * the device that reported a span. It is an observation, not an editable field.
+   *
+   * Optional + nullable and additive to /v1, exactly like `bundleId` on the activity sample:
+   * the shipped clients omit it and keep working. Bodies parse in strict mode, so an unknown
+   * field is a 422 — and the clients classify 422 as permanent and DROP the batch rather than
+   * retry it. **Deploy the API that accepts this before releasing any client that sends it.**
+   */
+  platform: Platform.nullable().optional(),
+}).check((ctx) => {
   if (isInverted(ctx.value.startTime, ctx.value.endTime)) {
     ctx.issues.push({
       code: 'custom',
