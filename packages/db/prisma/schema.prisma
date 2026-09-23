@@ -38,6 +38,13 @@ enum ApprovalStatus {
   FLAGGED
 }
 
+/// Which client wrote a row. No UNKNOWN member — absence is a null column, which is what
+/// every pre-existing row and every not-yet-updated client carries.
+enum Platform {
+  MACOS
+  WINDOWS
+}
+
 model User {
   id              String    @id @default(uuid(7))
   email           String    @unique
@@ -161,6 +168,10 @@ model TimeEntry {
   /// has stopped heartbeating stops accruing duration (spec §4.3). Null on rows written before
   /// this column existed — readers fall back to `startTime`.
   heartbeatAt DateTime?
+  /// Which client reported this span, for the per-platform split in "who is tracking now".
+  /// Null for every row written before this column existed and for any client too old to
+  /// send it, so a reader must never treat "not WINDOWS" as "MACOS".
+  platform   Platform?
   user       User        @relation(fields: [userId], references: [id])
 
   @@index([userId, startTime])
