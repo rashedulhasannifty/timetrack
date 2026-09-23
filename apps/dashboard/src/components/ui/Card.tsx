@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 /**
- * The raised surface of the design system: rounded-lg (20px), hairline separator border,
+ * The raised surface of the design system: rounded-lg (12px), hairline separator border,
  * elevation-1 shadow, surface-raised background. `padding='md'` applies the standard panel
  * padding; `padding='none'` (default) preserves the existing behavior where callers pass their
  * own — which is what tables and any card with a full-bleed header row need.
@@ -10,15 +10,21 @@ export function Card({
   children,
   className = '',
   padding = 'none',
+  interactive = false,
 }: {
   children: ReactNode;
   className?: string;
   padding?: 'none' | 'md';
+  /** Adds the hover lift. Set this when the card itself is clickable — it is a visual
+   *  affordance only; the click handler stays with the caller, which keeps Card
+   *  function-prop-free and therefore usable from Server Components. */
+  interactive?: boolean;
 }) {
   const pad = padding === 'md' ? 'px-[26px] py-[22px]' : '';
+  const lift = interactive ? 'card-3d-interactive' : '';
   return (
     <div
-      className={`bg-surface-raised border-separator shadow-e1 rounded-lg border ${pad} ${className}`}
+      className={`bg-surface-raised border-separator shadow-e1 rounded-lg border ${pad} ${lift} ${className}`.trim()}
     >
       {children}
     </div>

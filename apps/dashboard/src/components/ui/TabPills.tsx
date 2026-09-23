@@ -2,17 +2,21 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 /**
- * The redesign's tab control: a pill track holding one pill per option, the active one filled
- * with the accent tint. Used for Admin sections, Approvals status, the My-time panels and the
- * Apps category switch.
+ * The redesign's tab control: a recessed track with the selected tab raised out of it.
+ * Used for Admin sections, Approvals status, the My-time panels and the Apps category switch.
  *
  * Link-based by default so tab state survives a reload and stays shareable — these all map to a
  * URL today (`?status=`, `/admin/*`). `TabPillTrack` + `tabPillClasses` are exported for the one
  * case that cannot be a link (a purely client-side switch with no URL to point at).
  */
+/**
+ * One segment. The selected state is raised out of the track by the `.seg-tab` rule in
+ * globals.css, which keys on `aria-current="page"` (these tabs are links) as well as
+ * `aria-selected`. The classes here only supply colour and metrics.
+ */
 export function tabPillClasses(active: boolean): string {
-  return `rounded-full px-[13px] py-[5px] text-caption font-bold transition-colors ${
-    active ? 'bg-tint text-accent' : 'text-text-secondary hover:text-text'
+  return `seg-tab rounded-md px-[13px] py-[5px] text-caption font-bold ${
+    active ? 'bg-surface-raised text-accent' : 'text-text-secondary hover:text-text'
   }`;
 }
 
@@ -22,13 +26,15 @@ export function TabPillTrack({
   className = '',
 }: {
   children: ReactNode;
-  /** Raised = the bordered card-like track (page-level tabs). Sunken = inside a card header. */
+  /** Raised = the bordered, recessed track (page-level tabs). Sunken = inside a card header. */
   raised?: boolean;
   className?: string;
 }) {
-  const shell = raised ? 'bg-surface-raised border-separator border shadow-e1' : 'bg-surface';
+  const shell = raised ? 'bg-muted-bg border-separator border' : 'bg-muted-bg';
   return (
-    <div className={`inline-flex gap-0.5 rounded-full p-[3px] ${shell} ${className}`.trim()}>
+    <div
+      className={`seg-track inline-flex gap-0.5 rounded-md p-[3px] ${shell} ${className}`.trim()}
+    >
       {children}
     </div>
   );
@@ -42,6 +48,7 @@ export function TabPills({
   raised = true,
   className = '',
   ariaLabel,
+  replace = false,
 }: {
   tabs: ReadonlyArray<TabItem>;
   /** The href of the tab to mark current. Compare on the caller's terms (exact, prefix, query). */
@@ -49,6 +56,8 @@ export function TabPills({
   raised?: boolean;
   className?: string;
   ariaLabel: string;
+  /** Replace the current history entry instead of pushing one (tabs inside a route drawer). */
+  replace?: boolean;
 }) {
   return (
     <nav aria-label={ariaLabel}>
@@ -59,6 +68,7 @@ export function TabPills({
             <Link
               key={tab.href}
               href={tab.href}
+              replace={replace}
               aria-current={active ? 'page' : undefined}
               className={tabPillClasses(active)}
             >

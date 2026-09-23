@@ -1,9 +1,10 @@
 'use client';
 
-import { useActionState, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { TeamListItem } from '@timetrack/contracts';
 import { moveProjectAction, type ProjectActionState } from '../../app/(app)/projects/actions';
 import { ConfirmDialog, splitConfirmText } from '../ui/ConfirmDialog';
+import { useToastAction } from '../ui/useToastAction';
 
 const INITIAL: ProjectActionState = { ok: false };
 
@@ -25,7 +26,7 @@ export function ProjectTeamMove({
   teamId: string;
   teams: TeamListItem[];
 }) {
-  const [state, formAction, pending] = useActionState(moveProjectAction, INITIAL);
+  const [state, formAction, pending] = useToastAction(moveProjectAction, INITIAL, 'Project moved');
   // `defaultValue` can't restore an uncontrolled select after a cancel, so the committed team is
   // written back by hand — otherwise the dropdown would show a move that never happened.
   const committed = useRef(teamId);

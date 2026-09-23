@@ -7,7 +7,10 @@ export type ProjectIndexRow = {
   archived: boolean;
   trackedSeconds: number;
   color: string;
-  /** Non-archived tasks on the project, from the nested `tasks` the list endpoint returns. */
+  /** Non-archived tasks on the project, from the nested `tasks` the list endpoint returns, in
+   * list order. */
+  tasks: { id: string; name: string }[];
+  /** Always equals `tasks.length`. */
   taskCount: number;
   /** Share of the range's total tracked time, 0–100. */
   sharePct: number;
@@ -59,13 +62,17 @@ export function toProjectIndexRows(
 
   const rows: ProjectIndexRow[] = projects.map((p) => {
     const trackedSeconds = secondsById.get(p.id) ?? 0;
+    const tasks = (p.tasks ?? [])
+      .filter((t) => !t.archived)
+      .map((t) => ({ id: t.id, name: t.name }));
     return {
       projectId: p.id,
       name: p.name,
       archived: p.archived,
       trackedSeconds,
       color: p.color ?? projectColor(p.id),
-      taskCount: p.tasks?.length ?? 0,
+      tasks,
+      taskCount: tasks.length,
       sharePct: share(trackedSeconds),
     };
   });

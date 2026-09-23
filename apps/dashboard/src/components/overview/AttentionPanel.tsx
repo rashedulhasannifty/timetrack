@@ -23,7 +23,7 @@ export function AttentionPanel({ items }: { items: AttentionItem[] }) {
         <li key={item.id} className="border-separator border-t">
           <Link
             href={item.href}
-            className="text-text hover:bg-surface -mx-2 flex items-start gap-[11px] rounded-[11px] px-2 py-3 transition-colors"
+            className="text-text hover:bg-hover -mx-2 flex items-start gap-[11px] rounded-md px-2 py-3 transition-colors"
           >
             <span
               aria-hidden="true"

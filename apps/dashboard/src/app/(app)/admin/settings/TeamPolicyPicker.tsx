@@ -31,7 +31,7 @@ export function TeamPolicyPicker({
             className={`text-caption rounded-full border px-3 py-1.5 font-semibold transition-colors ${
               active
                 ? 'border-accent bg-accent/10 text-text font-medium'
-                : 'border-separator text-text-secondary hover:border-text-secondary hover:text-text'
+                : 'border-separator text-text-secondary hover:border-border-strong hover:text-text hover:bg-hover'
             }`}
           >
             {team.name}

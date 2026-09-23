@@ -1,8 +1,9 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Project } from '@timetrack/contracts';
-import { Button } from '../ui/Button';
+import { Button, buttonClasses } from '../ui/Button';
+import { useToastAction } from '../ui/useToastAction';
 import { EntryFormFields } from './EntryFormFields';
 import {
   deleteEntryAction,
@@ -36,23 +37,46 @@ export function EntryRowActions({
   userId?: string;
 }) {
   const [mode, setMode] = useState<'closed' | 'edit' | 'confirm-delete'>('closed');
-  const [editState, editAction, editPending] = useActionState(updateEntryAction, INITIAL);
-  const [deleteState, deleteFormAction, deletePending] = useActionState(deleteEntryAction, INITIAL);
+  const [editState, editAction, editPending] = useToastAction(
+    updateEntryAction,
+    INITIAL,
+    'Time entry updated',
+  );
+  const [deleteState, deleteFormAction, deletePending] = useToastAction(
+    deleteEntryAction,
+    INITIAL,
+    'Time entry deleted',
+  );
 
   useEffect(() => {
     if (editState.ok) setMode('closed');
   }, [editState.ok]);
 
+  // Escape collapses an open edit or delete-confirm, as it does AddTimeEntryForm.
+  const open = mode !== 'closed';
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMode('closed');
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
   if (entry.running) return null;
 
   return (
-    <div className="flex flex-none flex-col items-end gap-1.5">
+    // While open, Escape belongs to this row: it collapses the edit / delete-confirm (discarding
+    // any unsaved edit). The marker tells an enclosing Drawer to leave that Escape alone, so the
+    // drawer — and, for a route drawer, its URL — stays put instead of closing as well.
+    <div
+      className="flex flex-none flex-col items-end gap-1.5"
+      data-owns-escape={open ? '' : undefined}
+    >
       <div className="flex gap-1.5">
         <button
           type="button"
           onClick={() => setMode((m) => (m === 'edit' ? 'closed' : 'edit'))}
           aria-expanded={mode === 'edit'}
-          className="border-separator text-text-secondary hover:text-text text-caption cursor-pointer rounded-full border px-3 py-[3px] font-bold"
+          className={buttonClasses('secondary', 'xs')}
         >
           Edit
         </button>
@@ -60,7 +84,7 @@ export function EntryRowActions({
           type="button"
           onClick={() => setMode((m) => (m === 'confirm-delete' ? 'closed' : 'confirm-delete'))}
           aria-expanded={mode === 'confirm-delete'}
-          className="border-separator text-text-secondary hover:text-destructive text-caption cursor-pointer rounded-full border px-3 py-[3px] font-bold"
+          className={`${buttonClasses('secondary', 'xs')} hover:text-destructive`}
         >
           Delete
         </button>
@@ -83,7 +107,7 @@ export function EntryRowActions({
       {mode === 'edit' ? (
         <form
           action={editAction}
-          className="bg-surface-raised border-separator flex w-[320px] flex-col gap-2.5 rounded-[14px] border p-3 text-left"
+          className="bg-surface-raised border-separator flex w-[320px] flex-col gap-2.5 rounded-lg border p-3 text-left"
         >
           <input type="hidden" name="id" value={entry.id} />
           {userId ? <input type="hidden" name="userId" value={userId} /> : null}

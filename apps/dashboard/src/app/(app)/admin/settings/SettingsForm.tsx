@@ -3,7 +3,7 @@
 import { useActionState, useState } from 'react';
 import type { TeamSettings, ObservedApp } from '@timetrack/contracts';
 import { Card } from '../../../../components/ui/Card';
-import { Button } from '../../../../components/ui/Button';
+import { Button, buttonClasses } from '../../../../components/ui/Button';
 import {
   flaggedTerms,
   availableSuggestions,
@@ -140,7 +140,7 @@ function ListField({
               type="button"
               title={s.bundleId ?? undefined}
               onClick={() => onValueChange(appendTerm(value, appRuleToken(s)))}
-              className="border-separator text-text-secondary hover:border-accent hover:text-text rounded-full border px-2 py-0.5 text-[12px] transition-colors"
+              className={buttonClasses('secondary', 'xs')}
             >
               {s.name}
             </button>

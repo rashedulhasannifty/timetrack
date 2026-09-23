@@ -61,13 +61,13 @@ export default async function HomePage() {
             </Link>
             <a
               href={DOWNLOAD_URL}
-              className="border-separator bg-surface-raised hover:border-text-secondary shadow-e1 rounded-full border px-5 py-2.5 text-[0.9375rem] font-semibold transition-colors"
+              className="border-separator bg-surface-raised hover:border-text-secondary rounded-full border px-5 py-2.5 text-[0.9375rem] font-semibold transition-colors"
             >
               Download for Mac
             </a>
             <a
               href={WINDOWS_DOWNLOAD_URL}
-              className="border-separator bg-surface-raised hover:border-text-secondary shadow-e1 rounded-full border px-5 py-2.5 text-[0.9375rem] font-semibold transition-colors"
+              className="border-separator bg-surface-raised hover:border-text-secondary rounded-full border px-5 py-2.5 text-[0.9375rem] font-semibold transition-colors"
             >
               Download for Windows
             </a>

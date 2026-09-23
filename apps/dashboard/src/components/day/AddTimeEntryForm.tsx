@@ -1,8 +1,9 @@
 'use client';
 
-import { useActionState, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Project } from '@timetrack/contracts';
-import { Button } from '../ui/Button';
+import { Button, buttonClasses } from '../ui/Button';
+import { useToastAction } from '../ui/useToastAction';
 import { EntryFormFields } from './EntryFormFields';
 import { createManualEntryAction, type EntryFormState } from '../../app/(app)/me/actions';
 
@@ -27,7 +28,11 @@ export function AddTimeEntryForm({
   /** Whose day this is. Omitted on /me — the API attributes an absent userId to the caller. */
   userId?: string;
 }) {
-  const [state, formAction, pending] = useActionState(createManualEntryAction, INITIAL);
+  const [state, formAction, pending] = useToastAction(
+    createManualEntryAction,
+    INITIAL,
+    'Time entry added',
+  );
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -44,13 +49,16 @@ export function AddTimeEntryForm({
   }, [open]);
 
   return (
-    <div ref={ref} className="flex flex-col gap-2">
+    // While open, Escape belongs to this form: it collapses it (discarding what was typed, as
+    // it always has). The marker tells an enclosing Drawer to leave that Escape alone, so the
+    // drawer — and, for a route drawer, its URL — stays put instead of closing as well.
+    <div ref={ref} className="flex flex-col gap-2" data-owns-escape={open ? '' : undefined}>
       <div className="flex justify-end">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="border-separator text-text-secondary hover:text-text text-caption cursor-pointer rounded-full border px-[14px] py-[5px] font-bold"
+          className={buttonClasses('secondary', 'xs')}
         >
           {open ? 'Cancel' : 'Add time'}
         </button>
@@ -58,7 +66,7 @@ export function AddTimeEntryForm({
       {open ? (
         <form
           action={formAction}
-          className="bg-surface-raised border-separator flex flex-col gap-2.5 rounded-[14px] border p-3"
+          className="bg-surface-raised border-separator flex flex-col gap-2.5 rounded-lg border p-3"
         >
           {userId ? <input type="hidden" name="userId" value={userId} /> : null}
           <EntryFormFields

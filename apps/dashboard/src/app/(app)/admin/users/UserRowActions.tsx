@@ -1,7 +1,8 @@
 'use client';
 
-import { useActionState, useState } from 'react';
-import { Button } from '../../../../components/ui/Button';
+import { useState } from 'react';
+import { Button, buttonClasses } from '../../../../components/ui/Button';
+import { useToastAction } from '../../../../components/ui/useToastAction';
 import { setUserActiveAction, eraseUserAction, type RowState } from './actions';
 
 const INITIAL: RowState = { ok: false };
@@ -20,8 +21,14 @@ export function UserRowActions({
   name: string;
   deactivated: boolean;
 }) {
-  const [state, formAction, pending] = useActionState(setUserActiveAction, INITIAL);
-  const [eraseState, eraseAction, erasing] = useActionState(eraseUserAction, INITIAL);
+  const [state, formAction, pending] = useToastAction(setUserActiveAction, INITIAL, (s) =>
+    s.deactivated ? 'User deactivated' : 'User reactivated',
+  );
+  const [eraseState, eraseAction, erasing] = useToastAction(
+    eraseUserAction,
+    INITIAL,
+    'User erased',
+  );
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -42,7 +49,7 @@ export function UserRowActions({
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="border-destructive/30 text-destructive hover:bg-destructive/10 text-caption rounded-full border px-3 py-1.5 font-semibold transition-colors"
+            className={`${buttonClasses('secondary', 'xs')} text-destructive hover:text-destructive`}
           >
             Erase…
           </button>
@@ -87,7 +94,7 @@ export function UserRowActions({
                 setOpen(false);
                 setReason('');
               }}
-              className="border-separator text-text hover:bg-surface text-caption rounded-full border px-3 py-1.5 font-semibold transition-colors disabled:opacity-50"
+              className={buttonClasses('secondary', 'xs')}
             >
               Cancel
             </button>

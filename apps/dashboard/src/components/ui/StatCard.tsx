@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Card } from './Card';
 import { IconInfo } from './icons';
+import { Sparkline } from './Sparkline';
 
 type Bar = { pct: number; color: string; caption: string; href?: string };
 
@@ -16,6 +17,7 @@ export function StatCard({
   icon,
   delta,
   bar,
+  trend,
 }: {
   label: string;
   value: string;
@@ -25,6 +27,8 @@ export function StatCard({
   /** Comparison line under the value, e.g. "+2 pts vs prev". */
   delta?: { text: string; tone?: 'up' | 'down' | 'flat' };
   bar?: Bar;
+  /** Optional trend line rendered beside the delta. */
+  trend?: number[];
 }) {
   const deltaTone =
     delta?.tone === 'up'
@@ -40,7 +44,7 @@ export function StatCard({
             {icon}
           </span>
         ) : null}
-        <div className="text-label text-text-secondary flex-1 self-center">{label}</div>
+        <div className="tt-eyebrow text-text-secondary flex-1 self-center">{label}</div>
         {info ? (
           <IconInfo
             width={13}
@@ -52,9 +56,16 @@ export function StatCard({
       <div className="tt-numeric mt-3 text-[32px] font-extrabold leading-none tracking-[-0.04em]">
         {value}
       </div>
-      {delta ? (
-        <div className={`tt-numeric text-caption mt-1.5 font-semibold ${deltaTone}`}>
-          {delta.text}
+      {delta || trend ? (
+        <div className="mt-1.5 flex items-center justify-between gap-2">
+          {delta ? (
+            <span className={`tt-numeric text-caption font-semibold ${deltaTone}`}>
+              {delta.text}
+            </span>
+          ) : (
+            <span />
+          )}
+          {trend ? <Sparkline data={trend} /> : null}
         </div>
       ) : null}
       {bar ? (

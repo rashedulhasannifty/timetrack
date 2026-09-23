@@ -1,15 +1,26 @@
 /* ============================================================================
    Nifty Timer — dashboard design tokens (Tailwind CSS v4).
-   Ported from the "Nifty Timer Redesign" Claude Design handoff. Semantic names
-   are unchanged from the previous handoff — only the VALUES moved — so every
-   component keeps reading the same roles. Dark uses the CLASS strategy (.dark on
-   <html>) so the manual toggle wins in both directions; the root-layout inline
-   script seeds .dark from the stored preference (falling back to the OS setting)
-   before first paint.
 
-   NOTE: these values now differ from the macOS client's TimeTrackTokens.swift.
-   The two surfaces were previously value-identical; restyling the client is a
-   separate pass and was deliberately left out of this change.
+   Colour, type and the type scale come from the "Nifty Timer Redesign" Claude
+   Design handoff: teal accent, Schibsted Grotesk / IBM Plex Mono. Structure and
+   depth — the radius scale, the pressable/recessed recipes, density and the nav
+   hues — are adopted from the sibling clickup-sync dashboard so the two read as
+   one family. Ink is #191917 throughout, not clickup-sync's slate, so the depth
+   stays warm.
+
+   Semantic names are unchanged: --tt-accent, --tt-recording and
+   --tt-category-productive are deliberately the same teal, and the two mark arcs
+   are theme-invariant because icon.svg / apple-icon.png cannot follow a theme.
+
+   Dark uses the CLASS strategy (.dark on <html>) so the manual toggle wins in
+   both directions; the root-layout inline script seeds .dark from the stored
+   preference before first paint.
+
+   NOTE: these values differ from the macOS client's TimeTrackTokens.swift and
+   from the Windows client. Restyling the clients is a separate, later pass and
+   is deliberately out of scope here.
+
+   See docs/superpowers/specs/2026-09-21-dashboard-clickup-sync-redesign-design.md
    ============================================================================ */
 
 @import 'tailwindcss';
@@ -54,9 +65,41 @@
   --tt-mark-remaining: #3f7a72;
   --tt-mark-elapsed: #7fd6c9;
 
-  --tt-elevation-1: 0 1px 2px rgba(25, 25, 23, 0.04), 0 4px 16px -8px rgba(25, 25, 23, 0.06);
+  --tt-elevation-1: 0 3px 0 0 var(--tt-border-strong), 0 9px 20px rgba(25, 25, 23, 0.13);
   --tt-elevation-2: 0 8px 24px -8px rgba(25, 25, 23, 0.18), 0 2px 6px rgba(25, 25, 23, 0.06);
   --tt-hairline: inset 0 0 0 1px rgba(25, 25, 23, 0.04);
+
+  /* --- Structure adopted from clickup-sync ------------------------------
+     Ink here is timetrack's #191917, not clickup-sync's slate #0f172a, so the
+     depth reads warm against our surfaces instead of blue. */
+  --tt-border-strong: #d8d7d2;
+  --tt-muted-bg: #efeeea;
+  --tt-hover: rgba(25, 25, 23, 0.04);
+
+  /* Pressable-button depth. --b-edge is set per variant by Button.tsx; these
+     are the shared glow layers under it. */
+  --tt-glow: rgba(25, 25, 23, 0.12);
+  --tt-glow-strong: rgba(25, 25, 23, 0.2);
+  --tt-accent-edge: #0a544e;
+  --tt-destructive-edge: #8a1717;
+
+  /* One hue per sidebar destination: the icon carries it, the label stays
+     neutral. Light values are 600-weight steps — the 500s sit near 2:1 on the
+     sidebar ground, under the 3:1 wanted for meaningful graphics. */
+  --tt-nav-overview: #0f766e;
+  --tt-nav-projects: #2563eb;
+  --tt-nav-reports: #7c3aed;
+  --tt-nav-approvals: #d97706;
+  --tt-nav-admin: #0891b2;
+  --tt-nav-me: #059669;
+  --tt-nav-install: #475569;
+  /* How much of a row's hue tints it when it is the current page. */
+  --tt-nav-active-mix: 16%;
+
+  /* Row metrics. Comfortable is the :root default so tables render correctly
+     during SSR and before the Phase-6 density provider sets [data-density]. */
+  --row-h: 48px;
+  --pad-y: 12px;
 }
 
 /* --- Raw palette: dark (manual .dark class) ------------------------------ */
@@ -79,12 +122,45 @@
   --tt-neutral: #676762;
   --tt-tint: #1d2725;
 
-  /* The mockup drops card shadows entirely in dark and leans on the raised
-     surface + separator for depth. e2 is kept for the off-canvas drawer, which
-     has nothing behind it to read against. */
-  --tt-elevation-1: none;
+  /* Dark gains depth in this redesign. The previous handoff dropped card shadows
+     entirely in dark and leaned on the raised surface; the 3D language cannot
+     survive that, so the ambient layer deepens. The edge itself is a light rim
+     (--tt-border-strong), not black: against the near-black --tt-surface ground
+     a black edge sits at ~1.1:1 and is invisible, so dark-mode depth has to come
+     from something lighter than the card, the way a real bevel catches light. */
+  --tt-elevation-1: 0 3px 0 0 var(--tt-border-strong), 0 9px 22px rgba(0, 0, 0, 0.6);
   --tt-elevation-2: 0 8px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
   --tt-hairline: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+
+  --tt-border-strong: #3a3a40;
+  --tt-muted-bg: #232327;
+  --tt-hover: rgba(255, 255, 255, 0.04);
+
+  --tt-glow: rgba(0, 0, 0, 0.45);
+  --tt-glow-strong: rgba(0, 0, 0, 0.6);
+  --tt-accent-edge: #2b7f74;
+  --tt-destructive-edge: #a83c3c;
+
+  /* Lighter steps against the near-black rail. */
+  --tt-nav-overview: #43c0af;
+  --tt-nav-projects: #60a5fa;
+  --tt-nav-reports: #c4b5fd;
+  --tt-nav-approvals: #fbbf24;
+  --tt-nav-admin: #22d3ee;
+  --tt-nav-me: #34d399;
+  --tt-nav-install: #94a3b8;
+  --tt-nav-active-mix: 26%;
+}
+
+/* --- Density ------------------------------------------------------------- */
+[data-density='compact'] {
+  --row-h: 36px;
+  --pad-y: 8px;
+}
+
+[data-density='comfortable'] {
+  --row-h: 48px;
+  --pad-y: 12px;
 }
 
 /* --- Tailwind theme: map semantic tokens → utilities --------------------- */
@@ -112,6 +188,9 @@
   --color-hero-dim: var(--tt-hero-dim);
   --color-mark-remaining: var(--tt-mark-remaining);
   --color-mark-elapsed: var(--tt-mark-elapsed);
+  --color-muted-bg: var(--tt-muted-bg);
+  --color-border-strong: var(--tt-border-strong);
+  --color-hover: var(--tt-hover);
 
   /* Type — Schibsted Grotesk for everything, IBM Plex Mono for the few places
      that need a machine voice (timestamps, action names, app lists). Both are
@@ -143,9 +222,9 @@
   /* Spacing (4pt base), radii, elevation. Cards are the 20px "pebble" of the
      redesign; `full` pills carry every button, tab and status chip. */
   --spacing: 4px;
-  --radius-sm: 6px;
-  --radius-md: 11px;
-  --radius-lg: 20px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
   --shadow-e1: var(--tt-elevation-1);
   --shadow-e2: var(--tt-elevation-2);
 }
@@ -174,6 +253,30 @@ body {
   }
   a:hover {
     color: var(--tt-accent-hover);
+  }
+
+  /* Text fields are recessed to match the pressable buttons. This lives in @layer base,
+     applied to the elements directly, because the dashboard has no shared Field primitive
+     to hang a class on — 28 files declare their own inputs. Checkboxes, radios and colour
+     swatches are excluded: they are not wells, and an inset shadow on them reads as damage.
+     A Tailwind utility at a call site still wins, since utilities are a later layer. */
+  input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='range']),
+  select,
+  textarea {
+    box-shadow:
+      inset 0 2px 4px rgba(25, 25, 23, 0.16),
+      inset 0 1px 1px rgba(25, 25, 23, 0.1);
+    transition:
+      box-shadow 120ms,
+      border-color 120ms;
+  }
+
+  .dark input:not([type='checkbox']):not([type='radio']):not([type='color']):not([type='range']),
+  .dark select,
+  .dark textarea {
+    box-shadow:
+      inset 0 2px 4px rgba(0, 0, 0, 0.55),
+      inset 0 1px 1px rgba(0, 0, 0, 0.4);
   }
 }
 
@@ -211,6 +314,138 @@ body {
   animation: tt-pulse 1.8s ease-in-out infinite;
 }
 
+/* ── 3D · pressable buttons ──────────────────────────────────────────────────
+   The face sits on a darker bottom "edge" (shadow #1) lifted by a soft glow
+   (#2). Hover raises it 2px, pressing sinks it 3px onto its edge. Per-variant
+   colours arrive as --b-edge / --b-glow / --b-glow-strong from Button.tsx, so
+   one class serves every variant.
+
+   Unlike clickup-sync, no :focus-visible re-statement is needed: our focus ring
+   is an outline (see below), which does not clobber box-shadow. */
+.btn-3d {
+  transform: translateY(0);
+  box-shadow:
+    0 4px 0 0 var(--b-edge),
+    0 7px 12px var(--b-glow);
+  transition:
+    transform 90ms ease,
+    box-shadow 90ms ease,
+    background 100ms;
+}
+.btn-3d:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 6px 0 0 var(--b-edge),
+    0 13px 22px var(--b-glow-strong);
+}
+.btn-3d:not(:disabled):active {
+  transform: translateY(3px);
+  box-shadow:
+    0 1px 0 0 var(--b-edge),
+    0 2px 5px var(--b-glow);
+}
+/* Keep the resting depth while disabled, dimmed by the component's own opacity. */
+.btn-3d:disabled {
+  box-shadow:
+    0 4px 0 0 var(--b-edge),
+    0 7px 12px var(--b-glow);
+}
+
+/* ── 3D · inset fields ───────────────────────────────────────────────────────
+   The counterpart to .btn-3d: where buttons pop out, inputs press in. */
+.input-3d {
+  box-shadow:
+    inset 0 2px 4px rgba(25, 25, 23, 0.16),
+    inset 0 1px 1px rgba(25, 25, 23, 0.1);
+  transition:
+    box-shadow 120ms,
+    border-color 120ms;
+}
+.dark .input-3d {
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.55),
+    inset 0 1px 1px rgba(0, 0, 0, 0.4);
+}
+
+/* ── 3D · interactive cards ──────────────────────────────────────────────────
+   Static cards get their depth from --tt-elevation-1 via `shadow-e1`; this adds
+   only the hover lift for cards that are themselves clickable. */
+.card-3d-interactive {
+  transition:
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+.card-3d-interactive:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 6px 0 0 var(--tt-border-strong),
+    0 18px 32px rgba(25, 25, 23, 0.18);
+}
+.dark .card-3d-interactive:hover {
+  box-shadow:
+    0 6px 0 0 var(--tt-border-strong),
+    0 20px 36px rgba(0, 0, 0, 0.65);
+}
+
+/* ── 3D · liftable rows ──────────────────────────────────────────────────────
+   Deliberately NO transform: a transformed <tr> becomes the containing block for
+   its position:sticky cells and breaks frozen columns. position:relative +
+   z-index lets the shadow paint over adjacent rows. */
+.row-3d {
+  transition:
+    box-shadow 120ms,
+    background 120ms;
+}
+.row-3d:hover {
+  position: relative;
+  z-index: 1;
+  box-shadow:
+    0 5px 16px rgba(25, 25, 23, 0.22),
+    0 2px 0 0 var(--tt-border-strong);
+}
+.dark .row-3d:hover {
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.65),
+    0 2px 0 0 var(--tt-border-strong);
+}
+
+/* ── 3D · segmented tabs ─────────────────────────────────────────────────────
+   A recessed track with the selected tab raised out of it. Our tabs are <a>
+   elements carrying aria-current="page" (they map to URLs), so the selected
+   rule keys on BOTH aria-current and aria-selected — clickup-sync only needed
+   the latter because its tabs are buttons. */
+.seg-track {
+  box-shadow: inset 0 1px 3px rgba(25, 25, 23, 0.13);
+}
+.dark .seg-track {
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.seg-tab {
+  transition:
+    transform 90ms ease,
+    box-shadow 90ms ease,
+    background 100ms,
+    color 100ms;
+}
+.seg-tab:not([aria-current='page']):not([aria-selected='true']):not([aria-pressed='true']):active {
+  transform: translateY(1px);
+}
+.seg-tab[aria-current='page'],
+.seg-tab[aria-selected='true'],
+.seg-tab[aria-pressed='true'] {
+  transform: translateY(-1px);
+  box-shadow:
+    0 2px 0 0 var(--tt-border-strong),
+    0 4px 8px rgba(25, 25, 23, 0.16);
+}
+.dark .seg-tab[aria-current='page'],
+.dark .seg-tab[aria-selected='true'],
+.dark .seg-tab[aria-pressed='true'] {
+  box-shadow:
+    0 2px 0 0 var(--tt-border-strong),
+    0 4px 10px rgba(0, 0, 0, 0.55);
+}
+
 :focus-visible {
   outline: 2px solid var(--tt-accent);
   outline-offset: 2px;
@@ -223,5 +458,6 @@ body {
   *::after {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
+    transform: none !important;
   }
 }

@@ -8,7 +8,14 @@ import type { WeekStripDay } from '../../lib/person-day-view';
  * A future day is rendered as inert text rather than a link: it can't have data, and offering
  * it as a destination invites a click that lands on an empty day.
  */
-export function WeekStrip({ days }: { days: WeekStripDay[] }) {
+export function WeekStrip({
+  days,
+  replace = false,
+}: {
+  days: WeekStripDay[];
+  /** Inside a route drawer a day change replaces history, so closing it is one step back. */
+  replace?: boolean;
+}) {
   return (
     <div className="flex gap-1" role="group" aria-label="Week">
       {days.map((d) => {
@@ -27,7 +34,7 @@ export function WeekStrip({ days }: { days: WeekStripDay[] }) {
             <span className="tt-numeric text-[10px]">{d.num}</span>
           </>
         );
-        const shell = `flex w-[34px] flex-col items-center gap-[3px] rounded-[9px] border py-[5px] ${
+        const shell = `flex w-[34px] flex-col items-center gap-[3px] rounded-md border py-[5px] ${
           d.selected ? 'border-accent bg-tint text-accent' : 'border-separator text-text-secondary'
         }`;
         if (d.future) {
@@ -41,6 +48,7 @@ export function WeekStrip({ days }: { days: WeekStripDay[] }) {
           <Link
             key={d.date}
             href={`?date=${d.date}`}
+            replace={replace}
             aria-current={d.selected ? 'date' : undefined}
             aria-label={`${d.date} — ${d.hours}h tracked`}
             className={`${shell} hover:border-text-secondary transition-colors`}
