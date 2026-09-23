@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
 import { APP_TIMEZONE } from '@timetrack/contracts';
-import type { TeamTrendDay, TeamActivityRow, TeamAppUsageRow } from '@timetrack/contracts';
+import type {
+  TeamTrendDay,
+  TeamActivityRow,
+  TeamAppUsageRow,
+  Platform,
+} from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import type { CsvEntryRow } from './csv-writer.js';
 
@@ -9,6 +14,9 @@ export interface OverviewRow {
   userId: string;
   name: string;
   tracking: boolean;
+  /** Of the open entry behind `tracking`. Null when not tracking, or when that client is too
+   *  old to report one — so "not WINDOWS" never implies MACOS. */
+  platform: Platform | null;
   trackedSecondsToday: number;
 }
 
@@ -132,34 +140,50 @@ export class ReportsRepository {
     freshnessSeconds: number,
   ): Promise<OverviewRow[]> {
     const rows = await this.prisma.$queryRaw<
-      Array<{ userId: string; name: string; tracking: boolean; trackedSeconds: number | bigint }>
+      Array<{
+        userId: string;
+        name: string;
+        tracking: boolean;
+        platform: Platform | null;
+        trackedSeconds: number | bigint;
+      }>
     >`
       SELECT
         u.id AS "userId",
         u.name AS "name",
-        EXISTS (
-          SELECT 1 FROM time_entries t
-          WHERE t."userId" = u.id
-            AND t."endTime" IS NULL
-            AND COALESCE(t."heartbeatAt", t."startTime")
-                > now() - make_interval(secs => ${freshnessSeconds})
-        ) AS "tracking",
+        live."id" IS NOT NULL AS "tracking",
+        live."platform"::text AS "platform",
         FLOOR(${MERGED_SECONDS(
           Prisma.sql`range_agg(${CLIPPED_SPAN(Prisma.sql`${dayStart}::timestamptz`, Prisma.sql`${dayEnd}::timestamptz`, freshnessSeconds)}) FILTER (WHERE te.id IS NOT NULL)`,
         )})::int AS "trackedSeconds"
       FROM users u
+      -- The open, still-heartbeating entry itself rather than an EXISTS, so the tracking flag
+      -- and the platform come from ONE row and cannot describe two different entries. LIMIT 1
+      -- on the freshest: the one-running-per-user rule makes a second row unreachable, but a
+      -- lateral that silently multiplied the user's row would corrupt the seconds total.
+      LEFT JOIN LATERAL (
+        SELECT t."id", t."platform"
+        FROM time_entries t
+        WHERE t."userId" = u.id
+          AND t."endTime" IS NULL
+          AND COALESCE(t."heartbeatAt", t."startTime")
+              > now() - make_interval(secs => ${freshnessSeconds})
+        ORDER BY COALESCE(t."heartbeatAt", t."startTime") DESC
+        LIMIT 1
+      ) live ON TRUE
       LEFT JOIN time_entries te
         ON te."userId" = u.id
         AND te."startTime" < ${dayEnd}::timestamptz
         AND ${ENTRY_END(freshnessSeconds)} > ${dayStart}::timestamptz
       WHERE (${scope}) AND u."deactivatedAt" IS NULL
-      GROUP BY u.id, u.name
+      GROUP BY u.id, u.name, live."id", live."platform"
       ORDER BY u.name ASC
     `;
     return rows.map((r) => ({
       userId: r.userId,
       name: r.name,
       tracking: r.tracking,
+      platform: r.platform,
       trackedSecondsToday: Number(r.trackedSeconds),
     }));
   }

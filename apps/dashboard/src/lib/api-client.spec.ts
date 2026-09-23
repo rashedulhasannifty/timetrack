@@ -220,6 +220,7 @@ describe('api.teamOverview', () => {
           userId: '019797a0-0000-7000-8000-0000000000aa',
           name: 'Ada',
           tracking: true,
+          platform: 'MACOS',
           trackedSecondsToday: 3600,
         },
       ],

@@ -16,9 +16,9 @@ const team: TeamSummaryRow[] = [
 ];
 
 const overview: TeamOverviewRow[] = [
-  { userId: '1', name: 'Alice', tracking: true, trackedSecondsToday: 1800 },
-  { userId: '2', name: 'Bob', tracking: false, trackedSecondsToday: 0 },
-  { userId: '3', name: 'Charlie', tracking: true, trackedSecondsToday: 0 },
+  { userId: '1', name: 'Alice', tracking: true, platform: null, trackedSecondsToday: 1800 },
+  { userId: '2', name: 'Bob', tracking: false, platform: null, trackedSecondsToday: 0 },
+  { userId: '3', name: 'Charlie', tracking: true, platform: null, trackedSecondsToday: 0 },
 ];
 
 describe('overviewKpis', () => {
@@ -96,7 +96,7 @@ describe('haventTracked', () => {
 
   it('returns [] when everyone has tracked', () => {
     const allTracked: TeamOverviewRow[] = [
-      { userId: '1', name: 'Alice', tracking: true, trackedSecondsToday: 100 },
+      { userId: '1', name: 'Alice', tracking: true, platform: null, trackedSecondsToday: 100 },
     ];
     expect(haventTracked(allTracked)).toEqual([]);
   });
@@ -578,7 +578,9 @@ describe('attentionItems', () => {
   it('returns nothing when there is nothing to do', () => {
     expect(
       attentionItems({
-        overview: [{ userId: '1', name: 'Alice', tracking: true, trackedSecondsToday: 60 }],
+        overview: [
+          { userId: '1', name: 'Alice', tracking: true, platform: null, trackedSecondsToday: 60 },
+        ],
         activity: { from: '', to: '', rows: [] },
         apps: { from: '', to: '', rows: [] },
         pendingApprovals: 0,
