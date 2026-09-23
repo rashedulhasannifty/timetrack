@@ -1,8 +1,10 @@
 'use client';
 
-import { useActionState, useEffect, useRef, useState } from 'react';
-import { Button } from '../../../components/ui/Button';
+import { useEffect, useRef, useState } from 'react';
+import { Button, buttonClasses } from '../../../components/ui/Button';
+import { useToastAction } from '../../../components/ui/useToastAction';
 import { resolveIdleAction, type ResolveIdleState } from './actions';
+import { resolveIdleToastMessage } from './resolve-idle-toast';
 import type { IdleRow } from '../../../lib/idle-view';
 
 const INITIAL: ResolveIdleState = { ok: false };
@@ -16,7 +18,11 @@ const INITIAL: ResolveIdleState = { ok: false };
  * the Server Action.
  */
 export function ResolveIdleForm({ row }: { row: IdleRow }) {
-  const [state, formAction, pending] = useActionState(resolveIdleAction, INITIAL);
+  const [state, formAction, pending] = useToastAction(
+    resolveIdleAction,
+    INITIAL,
+    resolveIdleToastMessage,
+  );
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -42,18 +48,14 @@ export function ResolveIdleForm({ row }: { row: IdleRow }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className={
-          unresolved
-            ? 'bg-accent text-caption cursor-pointer rounded-full px-[14px] py-[5px] font-bold text-white'
-            : 'border-separator text-text-secondary hover:text-text text-caption cursor-pointer rounded-full border px-[14px] py-[5px] font-bold'
-        }
+        className={unresolved ? buttonClasses('primary', 'xs') : buttonClasses('secondary', 'xs')}
       >
         {unresolved ? 'Resolve' : 'Change'}
       </button>
       {open ? (
         <form
           action={formAction}
-          className="bg-surface-raised border-separator shadow-e2 absolute right-0 z-40 mt-2 flex w-[260px] flex-col gap-2 rounded-[14px] border p-2.5"
+          className="bg-surface-raised border-separator shadow-e2 absolute right-0 z-40 mt-2 flex w-[260px] flex-col gap-2 rounded-lg border p-2.5"
         >
           <input type="hidden" name="id" value={row.id} />
           <input type="hidden" name="startTime" value={row.startTime} />

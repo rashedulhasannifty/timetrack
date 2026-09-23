@@ -80,8 +80,8 @@ jobs:
             'bash -s' > host.txt 2>&1 <<'REMOTE' || echo "SSH_UNREACHABLE" >> host.txt
           set +e -o pipefail
           echo "DISK_PCT=$(df -P / | awk 'NR==2{gsub(/%/,"",$5); print $5}')"
-          # The backup dir belongs to the deploy user; fall back to sudo if this user is not it.
-          BK=/home/deploy/timetrack/backups/postgres
+          # infra/backup.sh writes here. It runs as root, so fall back to sudo if unreadable.
+          BK=/srv/timetrack/backups/postgres
           if [ -r "$BK" ]; then SUDO=""; else SUDO="sudo -n"; fi
           newest=$($SUDO ls -t "$BK"/*.sql.gz 2>/dev/null | head -1)
           if [ -z "$newest" ]; then
@@ -97,12 +97,16 @@ jobs:
           else
             echo "OFFSITE=NONE"
           fi
-          echo "WORKER_STATE=$(docker inspect timetrack-prod-worker-1 --format '{{.State.Status}}' 2>/dev/null || echo missing)"
-          # A worker that is "up" but not consuming is invisible without this: the container has
-          # no healthcheck, so a wedged queue consumer looks identical to a healthy one.
-          for q in $(docker exec timetrack-prod-redis-1 redis-cli --scan --pattern 'bull:*:meta' 2>/dev/null | sed 's/^bull://; s/:meta$//' | sort -u); do
-            echo "QUEUE=$q wait=$(docker exec timetrack-prod-redis-1 redis-cli LLEN "bull:$q:wait" 2>/dev/null) failed=$(docker exec timetrack-prod-redis-1 redis-cli ZCARD "bull:$q:failed" 2>/dev/null)"
-          done
+          # The worker runs under PM2 as this user; PM2 reports "online" for a live process.
+          echo "WORKER_STATE=$(pm2 jlist 2>/dev/null | node -e '
+            const p = JSON.parse(require("fs").readFileSync(0, "utf8")).find((x) => x.name === "timetrack-worker");
+            process.stdout.write(p ? p.pm2_env.status : "missing");
+          ' 2>/dev/null || echo missing)"
+          # A worker that is "online" but not consuming is invisible without queue depths. The
+          # deploy user has no Docker access; this root-owned, argument-less script is its one
+          # sudo-allowed window onto the datastores (infra/datastores/sudoers). It also reports
+          # each datastore container's health.
+          sudo -n /usr/local/bin/timetrack-status 2>/dev/null || echo "STATUS_UNAVAILABLE"
           REMOTE
           rm -f key
           cat host.txt
@@ -134,7 +138,17 @@ jobs:
             fi
 
             w=$(val WORKER_STATE)
-            [ "$w" != "running" ] && echo "- **Worker container is \`${w:-unknown}\`**, not running." >> findings.txt
+            [ "$w" != "online" ] && echo "- **Worker is \`${w:-unknown}\` in PM2**, not online." >> findings.txt
+
+            if grep -q '^STATUS_UNAVAILABLE' host.txt; then
+              echo "- **Datastore status unavailable** — \`sudo timetrack-status\` failed on the host." >> findings.txt
+            fi
+            while read -r c state health; do
+              cn=${c#*=}; sv=${state#*=}; hv=${health#*=}
+              if [ "$sv" != "running" ] || { [ "$hv" != "healthy" ] && [ "$hv" != "none" ]; }; then
+                echo "- **Datastore \`$cn\` is \`$sv\`/\`$hv\`**." >> findings.txt
+              fi
+            done < <(grep '^CONTAINER=' host.txt)
 
             while read -r _ q wait failed; do
               qn=${q#*=}; wv=${wait#*=}; fv=${failed#*=}

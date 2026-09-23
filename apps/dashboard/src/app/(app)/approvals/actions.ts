@@ -9,6 +9,8 @@ import { api, ApiError } from '../../../lib/api-client';
 export interface DecideState {
   ok: boolean;
   message?: string;
+  /** Set on success only. Which button was pressed — the toast text depends on it. */
+  status?: 'APPROVED' | 'FLAGGED';
 }
 
 /**
@@ -33,7 +35,7 @@ export async function decideAction(_prev: DecideState, formData: FormData): Prom
   try {
     await api.decideApproval(session.accessToken, id, parsed.data);
     revalidatePath('/approvals');
-    return { ok: true };
+    return { ok: true, status: parsed.data.status };
   } catch (e) {
     return {
       ok: false,

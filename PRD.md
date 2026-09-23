@@ -178,10 +178,11 @@ timetrack/
 │   ├── logger/              Pino config + redaction rules
 │   └── config/              Zod-validated env loading
 ├── infra/
-│   ├── docker-compose.yml   postgres · redis · minio
-│   ├── api.Dockerfile
-│   ├── worker.Dockerfile
-│   └── dashboard.Dockerfile
+│   ├── docker-compose.yml   postgres · redis · minio (dev)
+│   ├── datastores/          prod postgres · redis · minio (Docker, systemd unit)
+│   ├── pm2/                 prod process definitions for api · worker · dashboard
+│   ├── deploy/              on-host release script (unpack, migrate, flip, reload, rollback)
+│   └── caddy/               prod reverse-proxy site block
 ├── .github/workflows/ci.yml
 ├── CLAUDE.md
 ├── PRD.md
@@ -540,7 +541,8 @@ Where the implementation refines this spec:
 ## 10. Data Retention
 
 - Defaults: screenshots **30 days**, activity samples **90 days**, time entries **indefinite** (payroll record).
-- Configurable per team, with a hard admin-side floor to stop anyone setting screenshots to "forever" by accident.
+- Configurable per team, with a hard admin-side ceiling (180 days) so nobody sets screenshots to "forever" by accident.
+- Keeping screenshots indefinitely is allowed only as an explicit per-team admin choice (`keepScreenshotsForever`) — never by accident and never by default. It is off unless an admin turns it on, and the change is audited like every settings write. Employee erasure (§4.4) still deletes that team's screenshots. Because partitions are shared across teams, while any team keeps forever the job drops no screenshot partition and deletes other teams' expired screenshots row by row instead.
 - Nightly BullMQ job drops expired partitions and hard-deletes stragglers. Every run writes an `audit_log` entry with counts.
 
 ---

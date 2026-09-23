@@ -17,10 +17,13 @@ export interface InviteState {
 export interface RowState {
   ok: boolean;
   message?: string;
+  /** Set on success only, by setUserActiveAction — the toast text depends on it. */
+  deactivated?: boolean;
 }
 
 /**
- * Invite a user into a chosen team. The token stays server-side (getSession). The team comes
+ * Invite a user into a chosen team. No name is collected here — the invitee supplies their
+ * own on the accept page. The token stays server-side (getSession). The team comes
  * from the form now: teams are the unit of management, so hiring straight into a manager's team
  * is the normal case — the alternative was inviting into the admin's own team and immediately
  * moving the person out. Falls back to the admin's own team if the field is absent. The API
@@ -40,12 +43,11 @@ export async function inviteUserAction(
       : (await api.getCurrentTeam(session.accessToken)).id;
   const parsed = InviteUserSchema.safeParse({
     email: formData.get('email'),
-    name: formData.get('name'),
     role: formData.get('role'),
     teamId,
   });
   if (!parsed.success) {
-    return { ok: false, message: 'Enter a name, a valid email, a role, and a team.' };
+    return { ok: false, message: 'Enter a valid email, a role, and a team.' };
   }
 
   try {
@@ -77,7 +79,7 @@ export async function setUserActiveAction(_prev: RowState, formData: FormData): 
   try {
     await api.setUserActive(session.accessToken, id, deactivated);
     revalidatePath('/admin/users');
-    return { ok: true };
+    return { ok: true, deactivated };
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
   }

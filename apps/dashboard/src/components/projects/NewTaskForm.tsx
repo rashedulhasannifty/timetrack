@@ -1,12 +1,12 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useToastAction } from '../ui/useToastAction';
 import { createTaskAction, type ProjectActionState } from '../../app/(app)/projects/actions';
 
 const INITIAL: ProjectActionState = { ok: false };
 
 export function NewTaskForm({ projectId }: { projectId: string }) {
-  const [state, formAction, pending] = useActionState(createTaskAction, INITIAL);
+  const [state, formAction, pending] = useToastAction(createTaskAction, INITIAL, 'Task added');
   return (
     <form action={formAction} className="flex flex-wrap items-center gap-2">
       <input type="hidden" name="projectId" value={projectId} />

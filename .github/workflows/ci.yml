@@ -118,7 +118,8 @@ jobs:
       - name: Container probes must use 127.0.0.1, never localhost
         run: |
           if grep -nE '(wget|curl)[^|]*http://localhost' \
-               infra/docker-compose.prod.yml infra/docker-compose.yml .github/workflows/deploy.yml; then
+               infra/datastores/docker-compose.datastores.yml infra/docker-compose.yml \
+               infra/deploy/remote-deploy.sh .github/workflows/deploy.yml; then
             echo "✖ Use 127.0.0.1 — the apps bind 0.0.0.0 (IPv4 only) and localhost may resolve to ::1 first."
             exit 1
           fi

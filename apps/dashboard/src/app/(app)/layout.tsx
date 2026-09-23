@@ -4,6 +4,7 @@ import { getSession } from '../../lib/session';
 import { api, ApiError } from '../../lib/api-client';
 import { AppShell } from '../../components/ui/AppShell';
 import { TrackingFooter } from '../../components/ui/TrackingFooter';
+import { ToastProvider } from '../../components/ui/Toast';
 
 /**
  * The authenticated app shell. Server Component (PRD §7.6) — the session is resolved
@@ -30,19 +31,21 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const canSeeTracking = me.role === 'MANAGER' || me.role === 'ADMIN';
 
   return (
-    <AppShell
-      role={me.role}
-      name={me.name}
-      email={me.email}
-      footer={
-        canSeeTracking ? (
-          <Suspense fallback={null}>
-            <TrackingFooter token={session.accessToken} />
-          </Suspense>
-        ) : undefined
-      }
-    >
-      {children}
-    </AppShell>
+    <ToastProvider>
+      <AppShell
+        role={me.role}
+        name={me.name}
+        email={me.email}
+        footer={
+          canSeeTracking ? (
+            <Suspense fallback={null}>
+              <TrackingFooter token={session.accessToken} />
+            </Suspense>
+          ) : undefined
+        }
+      >
+        {children}
+      </AppShell>
+    </ToastProvider>
   );
 }

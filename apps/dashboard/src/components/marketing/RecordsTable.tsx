@@ -53,7 +53,7 @@ function Heading({ children, tone }: { children: string; tone: 'good' | 'destruc
 /** Hero panel: both halves in one plate, divided by a rule. */
 export function LimitsLedger() {
   return (
-    <div className="border-separator bg-surface-raised divide-separator divide-y overflow-hidden rounded-xl border">
+    <div className="border-separator bg-surface-raised divide-separator divide-y overflow-hidden rounded-lg border">
       <div className="p-6">
         <Heading tone="good">Records</Heading>
         <List items={RECORDS} tone="good" />

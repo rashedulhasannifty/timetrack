@@ -9,17 +9,25 @@ import {
   retentionCutoff,
   partitionBounds,
   isDroppable,
+  planRetention,
   PARTITION_NAME_RE,
 } from './retention.util.js';
 
 interface TableRetention {
   parent: 'screenshots' | 'activity_samples';
   field: 'screenshotRetentionDays' | 'activityRetentionDays';
+  /** The team flag that exempts a team from this table's retention entirely, if any. */
+  keepForeverField?: 'keepScreenshotsForever';
   hasObjects: boolean;
 }
 
 const TABLES: TableRetention[] = [
-  { parent: 'screenshots', field: 'screenshotRetentionDays', hasObjects: true },
+  {
+    parent: 'screenshots',
+    field: 'screenshotRetentionDays',
+    keepForeverField: 'keepScreenshotsForever',
+    hasObjects: true,
+  },
   { parent: 'activity_samples', field: 'activityRetentionDays', hasObjects: false },
 ];
 
@@ -28,14 +36,18 @@ type TableReport = {
   deletedRows: number;
   deletedObjects: number;
   deferred: { unit: string; reason: string }[];
+  /** Teams exempted this run. Non-empty means no partition of this table was dropped. */
+  keptForever: string[];
 };
 
 /**
  * PRD §10 — retention enforced by THIS JOB. Global monthly partitions + per-team retention:
- * DROP a partition only when it is entirely past the LONGEST team's retention; a bounded
- * per-team DELETE clears stragglers above each team's own cutoff in still-live partitions.
- * Screenshot objects are deleted BEFORE their rows; any S3 failure defers that unit to the
- * next run (abort-and-retry) so a row is never dropped while its object survives.
+ * DROP a partition only when it is entirely past the LONGEST team's retention; a per-team
+ * DELETE clears each team's rows past its own cutoff, in every partition. A team that keeps
+ * screenshots forever is never swept, and because partitions are shared its flag also holds
+ * back every screenshot partition DROP — the other teams' expired rows then go by the per-team
+ * DELETE instead. Screenshot objects are deleted BEFORE their rows; any S3 failure defers that
+ * unit to the next run (abort-and-retry) so a row is never dropped while its object survives.
  */
 @Injectable()
 @Processor('retention')
@@ -101,38 +113,48 @@ export class RetentionCleanupProcessor extends WorkerHost {
     teams: { id: string; settings: TeamSettings }[],
     now: Date,
   ): Promise<TableReport> {
+    const plan = planRetention(
+      teams.map((t) => ({
+        id: t.id,
+        days: t.settings[table.field],
+        forever: table.keepForeverField ? t.settings[table.keepForeverField] : false,
+      })),
+    );
     const report: TableReport = {
       droppedPartitions: [],
       deletedRows: 0,
       deletedObjects: 0,
       deferred: [],
+      keptForever: teams.filter((t) => !plan.sweep.some((s) => s.id === t.id)).map((t) => t.id),
     };
-    const maxDays = Math.max(...teams.map((t) => t.settings[table.field]));
-    const cutoffMax = retentionCutoff(now, maxDays);
 
-    // 1) DROP whole partitions entirely past the longest retention.
-    const partitions = await this.listPartitions(table.parent);
-    for (const name of partitions) {
-      if (!PARTITION_NAME_RE.test(name)) continue; // skip default/non-conforming
-      if (!isDroppable(partitionBounds(name), cutoffMax)) continue;
-      try {
-        if (table.hasObjects) report.deletedObjects += await this.deletePartitionObjects(name);
-        const droppedRows = await this.countPartitionRows(name);
-        await this.prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${name}"`);
-        report.droppedPartitions.push(name);
-        report.deletedRows += droppedRows;
-      } catch (err) {
-        report.deferred.push({ unit: name, reason: (err as Error).message });
-        this.logger.log(
-          { partition: name, err: (err as Error).message },
-          'retention drop deferred',
-        );
+    // 1) DROP whole partitions entirely past the longest retention — none at all while any
+    //    team keeps this table forever (see planRetention).
+    if (plan.dropAfterDays !== null) {
+      const cutoffMax = retentionCutoff(now, plan.dropAfterDays);
+      for (const name of await this.listPartitions(table.parent)) {
+        if (!PARTITION_NAME_RE.test(name)) continue; // skip default/non-conforming
+        if (!isDroppable(partitionBounds(name), cutoffMax)) continue;
+        try {
+          if (table.hasObjects) report.deletedObjects += await this.deletePartitionObjects(name);
+          const droppedRows = await this.countPartitionRows(name);
+          await this.prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${name}"`);
+          report.droppedPartitions.push(name);
+          report.deletedRows += droppedRows;
+        } catch (err) {
+          report.deferred.push({ unit: name, reason: (err as Error).message });
+          this.logger.log(
+            { partition: name, err: (err as Error).message },
+            'retention drop deferred',
+          );
+        }
       }
     }
 
-    // 2) Bounded per-team straggler DELETE above each team's own cutoff (live partitions).
-    for (const team of teams) {
-      const cutoff = retentionCutoff(now, team.settings[table.field]);
+    // 2) Per-team straggler DELETE past each team's own cutoff. It targets the parent table, so
+    //    it reaches every partition — including old ones a held DROP left in place.
+    for (const team of plan.sweep) {
+      const cutoff = retentionCutoff(now, team.days);
       try {
         if (table.hasObjects) {
           report.deletedObjects += await this.deleteTeamStragglerObjects(team.id, cutoff);

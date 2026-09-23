@@ -1,226 +1,155 @@
-# First deploy — provisioning a VM from scratch
+# First deploy — provisioning a VPS from scratch
 
-Everything needed to take a brand-new Linux VM to a running TimeTrack deployment, in order,
-with the commands. Written from an actual Azure provisioning run, so the traps called out here
-are ones that really bit, not hypotheticals.
+Everything needed to take a Linux VPS to a running TimeTrack deployment, in order, with the
+commands. Written from the actual provisioning of the production VPS, which also hosts other
+PM2 apps behind its own Caddy — so every step here is written to leave those untouched.
 
 `docs/deployment.md` is the reference for the architecture, the release flow and day-2
-operations. **This file is the one-time setup.** After it, deploys are automatic on push to
-`main` (`.github/workflows/deploy.yml`).
+operations. **This file is the one-time setup.** After it, deploys are automatic on CI success
+on `main` (`.github/workflows/deploy.yml`).
 
 Substitute throughout:
 
-| Placeholder      | Example used here              |
+| Placeholder      | Value in production            |
 | ---------------- | ------------------------------ |
-| `<VM_IP>`        | `20.6.73.106`                  |
+| `<VM_IP>`        | `144.79.124.51`                |
 | `<DOMAIN>`       | `timer.niftyitsolution.com`    |
 | `<DEPLOY_USER>`  | `deploy`                       |
-| `<DEPLOY_PATH>`  | `/home/deploy/timetrack`       |
+| `<DEPLOY_PATH>`  | `/srv/timetrack`               |
 | `<OWNER>/<REPO>` | `rashedulhasannifty/timetrack` |
+
+Commands marked **root** run as root on the VPS; everything else as `deploy`.
 
 ---
 
 ## 0. What you need first
 
-- A VM with a **public IP**, 2 vCPU / 4 GB RAM, 30 GB+ disk. Ubuntu 24.04 LTS.
-  4 GB is comfortable because images are built in CI, not on the box — see §6.
-- A **domain** you control, pointing at the VM.
-- Admin on the GitHub repo (to add secrets).
-- If sending invitation email: SMTP credentials whose `MAIL_FROM` identity is verified with
-  the provider.
+- A VPS with a public, static IP. Ubuntu 24.04 LTS, 2 vCPU / 4 GB RAM minimum (production has
+  4 / 8 GB and shares it). ~1 GB of disk per retained release (3 are kept) plus the datastores.
+- **Node.js 24** and **PM2** installed system-wide, with a `pm2-<user>` systemd unit so PM2
+  resurrects on boot (`pm2 startup systemd -u deploy --hp /home/deploy`, then `pm2 save`).
+  Node must be the same major the release is built with (`.nvmrc`): argon2 and sharp ship
+  native binaries keyed to the Node ABI.
+- **Caddy** installed from its apt repo, running as the `caddy` systemd service.
+- UFW allowing only 22, 80 and 443.
+- A domain you control, pointing at the VPS.
+- Push access to the repo (enough to set Actions secrets with `gh`).
 
-> **Sizing note.** Images come from GHCR, so the VM never runs `pnpm install`/`pnpm build`.
-> It needs room for the datastores and three pulled images — not the ~13 GB of build headroom
-> a from-source build would need.
-
----
-
-## 1. Network: open 80 and 443
-
-A fresh cloud VM allows **SSH only**. Caddy's Let's Encrypt HTTP-01 challenge needs inbound
-**80**, so this is the single most common reason a deployment ends up "healthy but no TLS".
-
-Azure portal → VM → **Networking** → Add inbound port rule, twice:
-
-| Priority | Port | Protocol | Name        |
-| -------- | ---- | -------- | ----------- |
-| 310      | 80   | TCP      | Allow-HTTP  |
-| 320      | 443  | TCP      | Allow-HTTPS |
-
-Or with the CLI:
-
-```bash
-az network nsg rule create -g <RG> --nsg-name <NSG> -n Allow-HTTP \
-  --priority 310 --destination-port-ranges 80  --access Allow --protocol Tcp
-az network nsg rule create -g <RG> --nsg-name <NSG> -n Allow-HTTPS \
-  --priority 320 --destination-port-ranges 443 --access Allow --protocol Tcp
-```
-
-**Check for two NSGs.** One can be attached to the NIC and another to the subnet; either one
-blocking is enough. The NSG blade says which — "Impacts N subnets, N network interfaces".
-
-The `443/udp` (HTTP/3) rule in the compose file is optional. TCP 443 is sufficient.
-
-### Verify — and read the failure mode correctly
-
-```bash
-for p in 22 80 443; do nc -z -G 8 -v <VM_IP> $p; done
-```
-
-Before the stack is running you want **`Connection refused` within ~100ms** on 80 and 443.
-That means the packet reached the host and the host rejected it because nothing is listening
-yet — the NSG is open. A **timeout** (~8s, no response) means the NSG is still blocking.
-These look similar in a browser and are completely different problems.
-
-### Static IP
-
-```bash
-az network public-ip show -g <RG> -n <IP_NAME> --query publicIPAllocationMethod   # want "Static"
-```
-
-A dynamic IP that changes on reboot breaks TLS renewal _and_ every shipped Mac client, which
-pins the hostname.
+Images are **not** built anywhere: Actions builds a release tarball and the VPS only unpacks it.
 
 ---
 
-## 2. DNS
+## 1. DNS
 
-Create an **A record** for `<DOMAIN>` → `<VM_IP>`, then confirm it resolves before starting
-the stack — Caddy cannot get a certificate for a name that doesn't point at it:
+Create an **A record** for `<DOMAIN>` → `<VM_IP>` and confirm it resolves before adding the
+Caddy block (§7) — Caddy cannot get a certificate for a name that doesn't point at it, and
+repeated failed attempts count against Let's Encrypt's rate limit:
 
 ```bash
-dig +short <DOMAIN>       # must print <VM_IP>
+dig +short <DOMAIN>       # must print <VM_IP> (or Cloudflare IPs if proxied)
 ```
 
-Allow for propagation. If you are moving an existing domain to a new VM, this is the step
-people forget: the old IP will keep answering until TTL expires.
+If the record is **proxied through Cloudflare**, the zone's SSL/TLS mode must be **Full** or
+**Full (strict)** — Flexible sends plain HTTP to Caddy, which redirects to HTTPS, forever.
+Screenshot responses carry `Cache-Control: private, no-store`, so Cloudflare will not cache them.
 
 ---
 
-## 3. Docker
+## 2. Docker (root)
 
-Use the **official Docker repo**. Ubuntu's `docker.io` ships Compose v1, which cannot parse
-this project's compose file (`name:` and `--profile` are v2 features).
+For the datastores only. Use the **official Docker repo** — Ubuntu's `docker.io` ships Compose
+v1, which cannot parse `name:` or `--profile`.
 
 ```bash
-sudo apt-get update && sudo apt-get install -y ca-certificates curl git
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
+apt-get update && apt-get install -y ca-certificates curl
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
 https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io \
-  docker-buildx-plugin docker-compose-plugin
+  > /etc/apt/sources.list.d/docker.list
 
-docker compose version    # must report v2.x
+# Cap container logs before the first container exists — the default json-file log is unbounded.
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<'EOF'
+{ "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "5" } }
+EOF
+
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+docker compose version    # must report v2+
+```
+
+**Do not add `deploy` to the `docker` group.** It is root-equivalent, and `deploy`'s SSH key is
+a GitHub secret. §4 gives it the two things it actually needs through sudo instead.
+
+> Docker-published ports bypass UFW. That is why the datastores compose file publishes on
+> `127.0.0.1` only — never change a port there to a bare `'5432:5432'`.
+
+---
+
+## 3. The deploy user and directory
+
+If the VPS doesn't already have one (production does, for the other PM2 apps):
+
+```bash
+adduser --disabled-password --gecos "" deploy     # root; key-only login
+```
+
+The deploy root (root creates it, `deploy` owns it; `shared/` holds the env file):
+
+```bash
+install -d -m 755 -o deploy -g deploy /srv/timetrack /srv/timetrack/releases /srv/timetrack/tmp
+install -d -m 700 -o deploy -g deploy /srv/timetrack/shared
 ```
 
 ---
 
-## 4. The deploy user
+## 4. Datastores unit, status script, sudoers (root)
 
-CI logs in as this user. Give it its own account: the `SSH_KEY` secret grants a shell on
-production to anyone who can write to the repo, so it must never be your personal key.
+From a checkout of the repo, copy these to the VPS (e.g. `scp -r infra root@<VM_IP>:/tmp/`), then:
 
 ```bash
-sudo adduser --disabled-password --gecos "" deploy
-sudo usermod -aG docker deploy          # so it can talk to the Docker daemon
-sudo mkdir -p /home/deploy/.ssh && sudo chmod 700 /home/deploy/.ssh
+cd /tmp/infra
+install -d -m 755 /opt/timetrack
+install -m 644 datastores/docker-compose.datastores.yml /opt/timetrack/
+install -m 700 datastores/datastores-env.sh             /opt/timetrack/
+install -m 700 backup.sh                                /opt/timetrack/
+install -m 755 datastores/timetrack-status.sh           /usr/local/bin/timetrack-status
+install -m 644 systemd/timetrack-datastores.service     /etc/systemd/system/
+
+visudo -cf datastores/sudoers && install -m 440 datastores/sudoers /etc/sudoers.d/timetrack
+
+systemctl daemon-reload
+systemctl enable timetrack-datastores.service    # enable only — do NOT start yet
 ```
 
-`--disabled-password` means key-only login — there is no password to brute-force.
+Don't start it: it renders its credentials from `/srv/timetrack/shared/.env`, which the first
+deploy writes. The deploy then starts it through sudo.
 
-### The deploy directory
-
-The workflow scp's `docker-compose.prod.yml` and `Caddyfile` into `<DEPLOY_PATH>/infra/`, and
-renders `.env.prod` one level up at `<DEPLOY_PATH>/.env.prod`. That layout is required: the
-compose file references `env_file: ['../.env.prod']` and mounts `./Caddyfile`, both relative
-to itself.
+Pre-pulling the images makes the first deploy faster (optional):
 
 ```bash
-sudo -u deploy mkdir -p /home/deploy/timetrack/infra
-```
-
-The workflow does **not** create this. A missing directory fails the scp step.
-
----
-
-## 5. SSH key for CI
-
-Generate it on the machine that will enter the secrets (your laptop), so the private half
-never has to travel.
-
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/timetrack_deploy -N "" -C "timetrack-deploy"
-cat ~/.ssh/timetrack_deploy.pub
-```
-
-Install the **public** half on the VM:
-
-```bash
-sudo tee -a /home/deploy/.ssh/authorized_keys <<< "<paste the ssh-ed25519 ... line>"
-sudo chmod 600 /home/deploy/.ssh/authorized_keys
-sudo chown -R deploy:deploy /home/deploy/.ssh
-```
-
-Verify from your laptop before going further — both outputs matter:
-
-```bash
-ssh -i ~/.ssh/timetrack_deploy deploy@<VM_IP> 'whoami && docker compose version && id'
-```
-
-Expect `deploy`, a Compose **v2** version, and `docker` in the group list. If `docker` is
-missing, the group change hasn't applied — log out and back in, or re-run `usermod`.
-
-> If you generate the key somewhere other than your laptop, copy it with `scp`; do not paste
-> a private key through a terminal, which mangles the line breaks.
-
----
-
-## 6. Do you need a git deploy key? Usually not
-
-**No, for the normal path.** Images are built in GitHub Actions and pushed to GHCR; the VM
-only pulls them, authenticating with the workflow's own `GITHUB_TOKEN`. It never sees the
-source, so it needs no repo access at all.
-
-**Yes, if you plan to build on the VM** — the fallback when Actions is unavailable (out of
-minutes, an outage). Then the VM needs a checkout:
-
-```bash
-# On the VM, as deploy:
-ssh-keygen -t ed25519 -C "timetrack-vm" -f ~/.ssh/id_ed25519 -N ""
-cat ~/.ssh/id_ed25519.pub
-```
-
-Add that to GitHub → repo → **Settings → Deploy keys → Add deploy key**, **read-only**. Then:
-
-```bash
-ssh -T git@github.com          # expect a "successfully authenticated" greeting
-git clone git@github.com:<OWNER>/<REPO>.git ~/timetrack
-```
-
-> Use `git@github.com`. If your laptop's `~/.ssh/config` defines aliases like
-> `github.com-personal`, those exist only there — on the VM they resolve to nothing.
-
-Building on the VM also wants swap on a 4 GB box:
-
-```bash
-sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
-sudo mkswap /swapfile && sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+for i in postgres:18-alpine redis:8-alpine quay.io/minio/minio:latest quay.io/minio/mc:latest; do docker pull -q $i; done
 ```
 
 ---
 
-## 7. GitHub Actions secrets
+## 5. SSH key for CI and the Actions secrets
 
-29 secrets. GitHub → repo → **Settings → Secrets and variables → Actions → New repository
-secret**. `GITHUB_TOKEN` is automatic — do not create it.
+A dedicated key for this repo's deploys — never a personal key, and never shared with another
+app's pipeline:
 
-Generate the random values first. **Hex, not base64, for anything embedded in a URL** — a `/`
-inside `DATABASE_URL`'s userinfo breaks parsing and surfaces as an opaque Prisma error:
+```bash
+ssh-keygen -t ed25519 -f ./timetrack_deploy -N "" -C "timetrack-github-actions-deploy"
+cat timetrack_deploy.pub >> /home/deploy/.ssh/authorized_keys     # on the VPS, as deploy
+ssh -i ./timetrack_deploy -o IdentitiesOnly=yes deploy@<VM_IP> whoami   # from your machine: "deploy"
+gh secret set SSH_KEY -R <OWNER>/<REPO> < ./timetrack_deploy
+rm ./timetrack_deploy        # the secret is now the only copy; rotate by repeating this section
+```
+
+Generate random values first. **Hex, not base64, for anything embedded in a URL** — a `/` inside
+`DATABASE_URL`'s userinfo breaks parsing and surfaces as an opaque Prisma error:
 
 ```bash
 openssl rand -hex 32      # POSTGRES_PASSWORD
@@ -230,183 +159,137 @@ openssl rand -base64 48   # JWT_REFRESH_SECRET   (must differ)
 openssl rand -base64 48   # DASHBOARD_SESSION_SECRET
 ```
 
-### Host access (5)
+Set each with `printf '%s' '<value>' | gh secret set <NAME> -R <OWNER>/<REPO>`.
 
-| Secret        | Value                                                                  |
-| ------------- | ---------------------------------------------------------------------- |
-| `SSH_HOST`    | `<VM_IP>`                                                              |
-| `SSH_USER`    | `deploy`                                                               |
-| `SSH_KEY`     | the **whole** private key file, `-----BEGIN…` to `-----END…` inclusive |
-| `SSH_PORT`    | `22`                                                                   |
-| `DEPLOY_PATH` | `/home/deploy/timetrack` — no trailing slash                           |
+| Group    | Secret                                                                | Value                                                                          |
+| -------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Host     | `SSH_HOST`                                                            | `<VM_IP>`                                                                      |
+|          | `SSH_USER`                                                            | `deploy`                                                                       |
+|          | `SSH_PORT`                                                            | `22`                                                                           |
+|          | `DEPLOY_PATH`                                                         | `/srv/timetrack` — no trailing slash                                           |
+| Postgres | `POSTGRES_USER`, `POSTGRES_DB`                                        | `timetrack`                                                                    |
+|          | `POSTGRES_PASSWORD`                                                   | the hex value                                                                  |
+|          | `DATABASE_URL`                                                        | `postgresql://timetrack:<same hex>@postgres:5432/timetrack?schema=public`      |
+| Auth     | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `DASHBOARD_SESSION_SECRET` | the base64 values                                                              |
+| Storage  | `MINIO_ROOT_USER`, `S3_ACCESS_KEY`                                    | `timetrack` (identical)                                                        |
+|          | `MINIO_ROOT_PASSWORD`, `S3_SECRET_KEY`                                | the same hex value (identical)                                                 |
+|          | `S3_BUCKET`                                                           | `timetrack-screenshots` — must match the path in `infra/caddy/timetrack.caddy` |
+| URLs     | `API_URL`, `APP_URL`, `CORS_ORIGINS`                                  | `https://<DOMAIN>`                                                             |
+|          | `PUBLIC_DOMAIN`                                                       | `<DOMAIN>` — **no scheme**                                                     |
 
-For `SSH_KEY`, pipe from the file rather than pasting: `gh secret set SSH_KEY < ~/.ssh/timetrack_deploy`.
-If pasting in the browser, press Enter once after the `-----END-----` line; a missing trailing
-newline reads as an invalid key.
+`DATABASE_URL`'s host is rewritten to `127.0.0.1:5432` when the deploy renders the env file, so
+whatever host the secret names (`postgres` historically) is fine; credentials and database are
+kept exactly as given.
 
-### Postgres (4)
+`APP_URL` is the base of every invitation accept link. The API **refuses to boot** if it is still
+the localhost default under `NODE_ENV=production`.
 
-| Secret              | Value                                                                     |
-| ------------------- | ------------------------------------------------------------------------- |
-| `POSTGRES_USER`     | `timetrack`                                                               |
-| `POSTGRES_PASSWORD` | the hex value                                                             |
-| `POSTGRES_DB`       | `timetrack`                                                               |
-| `DATABASE_URL`      | `postgresql://timetrack:<same hex>@postgres:5432/timetrack?schema=public` |
+**Email — SMTP (5, all-or-nothing):** `SMTP_HOST`, `SMTP_PORT` (587 STARTTLS / 465 TLS),
+`SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` (`Time Tracker <noreply@example.com>`, **no quotes** —
+GitHub stores values literally). With AWS SES, `SMTP_PASS` is the SES **SMTP password**, not the
+IAM secret. Skip the group to deploy without email: invites are then created but never delivered.
 
-Host is `postgres` — the compose service name, not `localhost`.
+**Do not create** `INVITE_TTL_DAYS` (unset = 7) or the five `OIDC_*` (unset = SSO off) unless you
+mean it — a **partial** group is what breaks the boot; the workflow omits a group whose secrets
+are empty. Also not secrets, hardcoded by the workflow: `NODE_ENV`, `LOG_LEVEL`, `REDIS_URL`,
+`S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_REGION`, `API_PORT`. `ACME_EMAIL` and `SEED_ADMIN_*` are
+no longer read by the deploy.
 
-### Auth (3)
+---
 
-`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `DASHBOARD_SESSION_SECRET` — the base64 values.
+## 6. First deploy
 
-### Storage (5)
-
-`S3_*` must equal the `MINIO_ROOT_*` pair; that is how the app authenticates to MinIO.
-
-| Secret                                 | Value                          |
-| -------------------------------------- | ------------------------------ |
-| `MINIO_ROOT_USER`, `S3_ACCESS_KEY`     | `timetrack` (identical)        |
-| `MINIO_ROOT_PASSWORD`, `S3_SECRET_KEY` | the same hex value (identical) |
-| `S3_BUCKET`                            | `timetrack-screenshots`        |
-
-### URLs (5)
-
-| Secret          | Value                      |
-| --------------- | -------------------------- |
-| `API_URL`       | `https://<DOMAIN>`         |
-| `APP_URL`       | `https://<DOMAIN>`         |
-| `CORS_ORIGINS`  | `https://<DOMAIN>`         |
-| `PUBLIC_DOMAIN` | `<DOMAIN>` — **no scheme** |
-| `ACME_EMAIL`    | your ops email             |
-
-`APP_URL` is the base of every invitation accept link. The API **refuses to boot** if it is
-still the localhost default under `NODE_ENV=production` — deliberately, because the
-alternative is silently mailing employees unreachable links.
-
-### Bootstrap admin (2)
-
-`SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` (min 8 chars). Set these **before** the first
-deploy: the seed step in §9 reads them from the rendered `.env.prod`, and without them there
-is no account to log in with. You can delete them after first login.
-
-### Email — SMTP (5, all-or-nothing)
-
-| Secret      | Value                                                |
-| ----------- | ---------------------------------------------------- |
-| `SMTP_HOST` | e.g. `email-smtp.ap-southeast-1.amazonaws.com`       |
-| `SMTP_PORT` | `587` (STARTTLS) or `465` (implicit TLS)             |
-| `SMTP_USER` | SMTP username                                        |
-| `SMTP_PASS` | SMTP password                                        |
-| `MAIL_FROM` | `Time Tracker <noreply@example.com>` — **no quotes** |
-
-Set all five or none. With AWS SES, `SMTP_PASS` is the SES **SMTP password**, which is derived
-from an IAM secret key and is not the same string. Values go in unquoted: GitHub stores them
-literally, unlike a `.env` file, so quotes would become part of the value.
-
-Skip the group entirely to deploy without email — invitations are then created but never
-delivered, and the worker logs an error.
-
-### Do not create
-
-`INVITE_TTL_DAYS` (unset = 7) and the five `OIDC_*` (unset = SSO off). A **partial** group is
-what breaks the boot; the workflow omits a group entirely when its secrets are empty.
-
-Also not secrets — the workflow hardcodes them: `NODE_ENV`, `LOG_LEVEL`, `REDIS_URL`,
-`S3_ENDPOINT`, `S3_REGION`, `API_PORT`. `NODE_ENV=production` especially: the schema defaults
-to `development`, where the API returns raw invite tokens in its responses.
-
-### Verify
+Trigger it by hand (or merge to `main` and let CI trigger it):
 
 ```bash
-gh secret list --repo <OWNER>/<REPO> | wc -l    # 29 (24 without the SMTP group)
+gh workflow run deploy.yml -R <OWNER>/<REPO> --ref main
+gh run watch -R <OWNER>/<REPO>
+```
+
+The workflow: install + build → assemble the release tarball → write `shared/.env` (mode 600) →
+upload → `remote-deploy.sh`: start the datastores unit (first run initialises the volumes from
+the env) → `prisma migrate deploy` → flip `current` → `pm2 startOrReload` → smoke test
+`/health/ready`, the dashboard, and that every PM2 app is online on the new release.
+
+Then confirm, as deploy on the VPS:
+
+```bash
+pm2 ls                      # timetrack-api, -worker, -dashboard online, next to the other apps
+sudo timetrack-status       # postgres/redis/minio healthy, BullMQ queues listed
 ```
 
 ---
 
-## 8. First deploy
+## 7. Caddy site block (root)
 
-Push to `main`, or trigger it by hand:
-
-```bash
-gh workflow run deploy.yml
-gh run watch
-```
-
-The workflow: quality gate → build the three images and push to GHCR → scp compose +
-Caddyfile → render `.env.prod` (mode 600) → `prisma migrate deploy` → `up -d` → probe the
-API's `/health`.
-
-Watch Caddy obtain the certificate:
+Only once DNS resolves (§1). The host's Caddyfile is shared with other sites, so append, validate
+the **combined** file before installing it, and reload (graceful — other sites keep serving):
 
 ```bash
-ssh -i ~/.ssh/timetrack_deploy deploy@<VM_IP>
-cd <DEPLOY_PATH>
-docker compose --env-file .env.prod -f infra/docker-compose.prod.yml logs -f proxy
+cp -p /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak-$(date -u +%Y%m%d-%H%M%S)
+cat /etc/caddy/Caddyfile <(echo) /tmp/infra/caddy/timetrack.caddy > /tmp/Caddyfile.new
+caddy validate --config /tmp/Caddyfile.new --adapter caddyfile
+install -m 644 /tmp/Caddyfile.new /etc/caddy/Caddyfile
+systemctl reload caddy
+journalctl -u caddy -f | grep -i certificate     # expect "certificate obtained successfully"
 ```
 
 ---
 
-## 9. Seed the first admin
+## 8. Seed the first admin
 
-The workflow runs migrations but **deliberately not the seed** — it is first-deploy-only.
+The deploy deliberately does not seed — it is first-deploy-only. As deploy, with the credentials
+passed through the environment (never on a command line):
 
 ```bash
-cd <DEPLOY_PATH>
-docker compose --env-file .env.prod -f infra/docker-compose.prod.yml \
-  --profile setup run --rm seed
+read -r  -p 'admin email: '    SEED_ADMIN_EMAIL
+read -rs -p 'admin password: ' SEED_ADMIN_PASSWORD; echo
+export SEED_ADMIN_EMAIL SEED_ADMIN_PASSWORD
+cd /srv/timetrack/current/api/node_modules/@timetrack/db
+node /srv/timetrack/shared/with-env.cjs /srv/timetrack/shared/.env node_modules/.bin/tsx prisma/seed.ts
+unset SEED_ADMIN_PASSWORD
 ```
-
-> Corepack may prompt `Do you want to continue? [Y/n]` on first run. Answer `y`. In a
-> non-interactive context set `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`.
 
 Expect `seeded team …` and `seeded admin …`.
 
 ---
 
-## 10. Verify
+## 9. Verify
 
 ```bash
 curl -sS https://<DOMAIN>/health            # {"status":"ok"}
 curl -sS https://<DOMAIN>/health/ready      # database + redis + storage all "up"
-curl -sSI https://<DOMAIN>/api/auth/refresh | grep -i location   # want: /login (relative)
-curl -sSL -o /dev/null -w '%{url_effective}\n' https://<DOMAIN>/   # want: https://<DOMAIN>/login
+curl -sSI https://<DOMAIN>/api/auth/refresh | grep -i location    # want: /login (relative)
+curl -s -o /dev/null -w '%{http_code}\n' https://<DOMAIN>/<S3_BUCKET>/    # want: 403 (private)
+for p in 3001 3100 5432 6379 9000; do nc -z -G 5 <VM_IP> $p && echo "EXPOSED $p"; done   # want: nothing
 ```
 
-Then in a browser: sign in as `SEED_ADMIN_EMAIL`, **rotate that password immediately**, and
-invite a real address. That last step is the only thing that exercises the SMTP credential —
-every automated test mocks the transport.
-
-If the invite doesn't arrive, `docker compose … logs worker` distinguishes an auth failure
-from an unverified `MAIL_FROM` identity.
+Then in a browser: sign in as the seeded admin, **rotate that password immediately**, and invite
+a real address. That is the only thing that exercises the SMTP credential — every automated test
+mocks the transport. If the invite doesn't arrive, `pm2 logs timetrack-worker` distinguishes an
+auth failure from an unverified `MAIL_FROM` identity.
 
 ---
 
-## 11. Backups
+## 10. Backups
 
-Not automatic. Install the timer (details in `docs/deployment.md` §6):
-
-The deploy copies `infra/backup.sh` and the systemd units to `<DEPLOY_PATH>/infra/` and marks
-the script executable, so they are on the host after any successful deploy. Installing the
-timer is manual:
+Not automatic. `backup.sh` and the unit files are already under `/opt/timetrack/` from §4
+(details in `docs/deployment.md` §6). As root:
 
 ```bash
-cd <DEPLOY_PATH>
-./infra/backup.sh                       # run once by hand — do not wait for 02:30 to find out
-sudo cp infra/systemd/timetrack-backup.{service,timer} /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now timetrack-backup.timer
+/opt/timetrack/backup.sh                     # run once by hand — do not wait for 02:30 to find out
+cp /tmp/infra/systemd/timetrack-backup.{service,timer} /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now timetrack-backup.timer
 systemctl list-timers timetrack-backup.timer
 ```
 
-The unit file assumes user `deploy` and `/home/deploy/timetrack`; edit it if yours differ.
-
-Those dumps stay on this VM's disk until you set the `BACKUP_S3_*` secrets, which make each
-run also upload the dump to an S3 bucket. The bucket and its upload-only IAM key are a one-time
-setup in `docs/deployment.md` §6. Without it, losing the VM loses the backups too.
+Dumps stay on this VPS's disk until the `BACKUP_S3_*` secrets are set. Without them, losing the
+VPS loses the backups too.
 
 ---
 
-## 12. The macOS client
+## 11. The macOS client
 
 Packaged separately, and only once the API is confirmed up:
 
@@ -415,43 +298,48 @@ cd apps/client-macos && ./scripts/package-app.sh
 ```
 
 It defaults to the production deployment. Then sign and notarize per `SIGNING.md`. A client
-already installed on someone's Mac keeps whatever URL it was packaged with — this does not
-retarget an existing fleet.
+already installed keeps whatever URL it was packaged with — clients pin the hostname, which is
+why a server move keeps `<DOMAIN>`.
 
 ---
 
 ## Troubleshooting
 
-| Symptom                                                                                | Cause                                                                                                                                           |
-| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| scp step: `can't connect without a private SSH key or password`                        | `SSH_KEY` empty or not set. Actions omits empty inputs, so the step logs no `host:`/`key:` at all.                                              |
-| Deploy: `dependency failed to start: container … is unhealthy`                         | The API failed its healthcheck. Check `logs api` — if it shows `Nest application successfully started`, the app is fine and the probe is wrong. |
-| Browser lands on `localhost:3000`                                                      | A redirect built its origin from `req.url`. Redirects must emit a relative `Location`.                                                          |
-| Image build: `PrismaConfigEnvError: Cannot resolve environment variable: DATABASE_URL` | `prisma generate` loads `prisma.config.ts` at build time. The Dockerfiles set a throwaway build-stage value; don't remove it.                   |
-| TLS never issues                                                                       | Port 80 blocked, or DNS not pointing here yet. Both must be true before Caddy starts.                                                           |
-| `/health/ready` 503                                                                    | One of Postgres/Redis/MinIO is unreachable; the body names which.                                                                               |
+| Symptom                                                      | Cause                                                                                                                                       |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deploy: `sudo: a password is required`                       | `/etc/sudoers.d/timetrack` missing or the unit path differs (§4). The rule allows exactly `systemctl start timetrack-datastores.service`.   |
+| Deploy: `datastores-env.sh: … missing or empty`              | A required secret (`POSTGRES_*`, `MINIO_ROOT_*`, `S3_BUCKET`) is unset.                                                                     |
+| Migrations: `P1000` authentication failed                    | The Postgres volume was initialised with a different password. The password lives in the volume; editing the secret does not change it.     |
+| Smoke test: `a PM2 app is not online on <sha>`               | `pm2 logs timetrack-<app> --lines 80`. A Zod env error at boot names the variable. The previous release was restored.                       |
+| Build: `PrismaConfigEnvError: Cannot resolve … DATABASE_URL` | `prisma generate` loads `prisma.config.ts` at build time. The workflow sets a throwaway value on the Build step; don't remove it.           |
+| Boot: `Cannot find module …` in the dashboard                | The standalone tree was copied with `cp -r`, dereferencing pnpm symlinks. It must be `cp -a`.                                               |
+| Screenshots render broken, rest of the page fine             | `S3_PUBLIC_ENDPOINT` wrong, or the Caddy `/<bucket>/*` path doesn't match `S3_BUCKET`. `SignatureDoesNotMatch` in the response confirms it. |
+| TLS never issues                                             | Port 80 blocked, DNS not pointing here yet, or (proxied) Cloudflare SSL mode is Flexible.                                                   |
+| `/health/ready` 503                                          | One of Postgres/Redis/MinIO is unreachable; the body names which. `sudo timetrack-status`.                                                  |
 
 ### Useful commands
 
 ```bash
-cd <DEPLOY_PATH>
-C="docker compose --env-file .env.prod -f infra/docker-compose.prod.yml"
+pm2 ls                                              # every app on the box
+pm2 logs timetrack-api --lines 60                   # or timetrack-worker / timetrack-dashboard
+sudo timetrack-status                               # datastore health + queue depths
+readlink -f /srv/timetrack/current                  # the live release
+cut -d= -f1 /srv/timetrack/shared/.env | sort       # which keys rendered (names only)
 
-$C ps                                    # container status incl. health
-$C logs --tail=60 api                    # or worker / dashboard / proxy
-docker inspect --format '{{json .State.Health}}' timetrack-prod-api-1
-cut -d= -f1 .env.prod | grep . | sort    # which keys rendered (names only, no values)
+# root only:
+docker compose --env-file /opt/timetrack/datastores.env \
+  -f /opt/timetrack/docker-compose.datastores.yml ps
 ```
 
 ---
 
 ## Security checklist
 
-- [ ] Deploy user is dedicated, key-only, and its key is not your personal key
-- [ ] `.env.prod` is mode 600 (the workflow does this; verify after any manual edit)
-- [ ] Only 80/443 are open publicly — Postgres, Redis and MinIO publish no ports
+- [ ] Deploy key is dedicated to this repo, and `deploy` is **not** in the `docker` group
+- [ ] `shared/.env` and `/opt/timetrack/datastores.env` are mode 600
+- [ ] Only 22/80/443 open publicly; the datastores publish on `127.0.0.1` only (verified in §9)
 - [ ] Seed admin password rotated after first login
-- [ ] Secrets never committed; `.env.prod` is gitignored and dockerignored
-- [ ] `POSTGRES_PASSWORD` / `MINIO_ROOT_PASSWORD` recorded somewhere safe — they are baked
-      into the data volumes at initialisation and **cannot be rotated by editing a secret**
+- [ ] Secrets never committed; `.env*` is gitignored
+- [ ] `POSTGRES_PASSWORD` / `MINIO_ROOT_PASSWORD` recorded somewhere safe — they are baked into
+      the data volumes at initialisation and **cannot be rotated by editing a secret**
 - [ ] Backups running, and a restore tested at least once

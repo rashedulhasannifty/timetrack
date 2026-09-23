@@ -169,7 +169,7 @@ function Lightbox({
         src={shot.fullUrl}
         alt={`Screenshot at ${shotDescription(shot)}`}
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[80vh] max-w-5xl rounded-lg object-contain shadow-e1"
+        className="max-h-[80vh] max-w-5xl rounded-lg object-contain"
       />
       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
         <button
@@ -217,7 +217,7 @@ function Tile({
   if (mode === 'redacted') {
     return (
       <figure className="m-0 flex flex-col gap-1.5">
-        <div className="bg-surface border-separator flex aspect-[16/10] w-full items-center justify-center rounded-[10px] border">
+        <div className="bg-surface border-separator flex aspect-[16/10] w-full items-center justify-center rounded-md border">
           <span className="bg-surface-raised text-text-secondary text-caption rounded px-1.5 py-0.5 font-medium">
             Redacted
           </span>
@@ -233,7 +233,7 @@ function Tile({
   if (mode === 'pending') {
     return (
       <figure className="m-0 flex flex-col gap-1.5">
-        <div className="bg-surface border-separator flex aspect-[16/10] w-full items-center justify-center rounded-[10px] border">
+        <div className="bg-surface border-separator flex aspect-[16/10] w-full items-center justify-center rounded-md border">
           <span className="text-caption text-text-secondary">{shot.status}</span>
         </div>
         <figcaption className="tt-numeric text-caption text-text-secondary">{caption}</figcaption>
@@ -257,7 +257,7 @@ function Tile({
 
   return (
     <figure className="m-0 flex flex-col gap-1.5">
-      <div className="border-separator relative aspect-[16/10] w-full overflow-hidden rounded-[10px] border">
+      <div className="border-separator relative aspect-[16/10] w-full overflow-hidden rounded-md border">
         {/* Presigned MinIO URL, not a static asset — next/image is not applicable here. */}
         {onOpen ? (
           <button

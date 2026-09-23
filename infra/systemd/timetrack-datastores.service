@@ -1,0 +1,22 @@
+[Unit]
+Description=TimeTrack datastores (Postgres, Redis, MinIO)
+Documentation=https://github.com/rashedulhasannifty/timetrack/blob/main/docs/deployment.md
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# The containers outlive this process (restart: unless-stopped); the unit tracks "brought up".
+RemainAfterExit=yes
+WorkingDirectory=/opt/timetrack
+# Credentials come from the deploy's shared/.env, so a deploy must have run once first.
+ExecStartPre=/opt/timetrack/datastores-env.sh
+# --wait blocks until every healthcheck passes, so a deploy's `systemctl start` returns only
+# once Postgres accepts connections and migrations can run.
+ExecStart=/usr/bin/docker compose --env-file /opt/timetrack/datastores.env -f /opt/timetrack/docker-compose.datastores.yml up -d --wait --remove-orphans
+ExecStartPost=/usr/bin/docker compose --env-file /opt/timetrack/datastores.env -f /opt/timetrack/docker-compose.datastores.yml --profile setup run --rm createbuckets
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

@@ -32,7 +32,12 @@ export async function redactScreenshotAction(id: string, reason: string): Promis
   }
 }
 
-export type ResolveIdleState = { ok: boolean; message?: string };
+export type ResolveIdleState = {
+  ok: boolean;
+  message?: string;
+  /** Set on success only. Which button was pressed — the toast text depends on it. */
+  resolvedAction?: 'KEPT' | 'DISCARDED';
+};
 
 /**
  * Employee resolves one of their own idle periods: KEPT counts the stretch as tracked time,
@@ -62,10 +67,18 @@ export async function resolveIdleAction(
   });
   if (!parsed.success) return { ok: false, message: 'Could not resolve that period.' };
 
+  // Narrowed separately from the schema's full ResolvedAction enum (which also allows
+  // UNRESOLVED, never sent by this form's two buttons): the toast field should only ever be
+  // the choice the person actually made.
+  const resolvedAction =
+    parsed.data.resolvedAction === 'KEPT' || parsed.data.resolvedAction === 'DISCARDED'
+      ? parsed.data.resolvedAction
+      : undefined;
+
   try {
     await api.upsertIdleEvent(session.accessToken, parsed.data);
     revalidatePath('/me');
-    return { ok: true };
+    return { ok: true, ...(resolvedAction ? { resolvedAction } : {}) };
   } catch {
     // Never surface raw API/error text to the browser.
     return { ok: false, message: 'Could not save — try again.' };

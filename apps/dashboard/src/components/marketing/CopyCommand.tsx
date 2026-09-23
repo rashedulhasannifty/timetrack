@@ -34,7 +34,7 @@ export function CopyCommand({ command }: { command: string }) {
       <button
         type="button"
         onClick={() => void copy()}
-        className={`border-separator text-caption hover:text-text hover:bg-surface shrink-0 border-l px-4 font-mono tracking-[0.07em] uppercase transition-colors ${
+        className={`border-separator text-caption hover:text-text hover:bg-hover shrink-0 border-l px-4 font-mono tracking-[0.07em] uppercase transition-colors ${
           state === 'copied' ? 'text-good' : 'text-text-secondary'
         }`}
       >

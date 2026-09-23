@@ -8,8 +8,6 @@ import { PRODUCT_NAME } from './render';
 import { escapeHtml } from './render.js';
 
 export interface InviteEmailInput {
-  /** The invited person's name, as the admin typed it. Untrusted — escaped for HTML. */
-  name: string;
   /** The RAW one-time token. Only the SHA-256 hash is stored; this is the bearer secret. */
   inviteToken: string;
   /** ISO-8601 expiry, computed and persisted at create time. */
@@ -36,8 +34,10 @@ export function renderInviteEmail(input: InviteEmailInput): RenderedEmail {
   const expires = new Date(input.expiresAt).toUTCString();
   const subject = `You have been invited to ${PRODUCT_NAME}`;
 
+  // No name-based greeting: at send time nobody has a name for this person yet — the
+  // invitee types their own on the accept page.
   const text = [
-    `Hi ${input.name},`,
+    'Hi there,',
     '',
     `You have been invited to join ${PRODUCT_NAME}. Open the link below to set your password`,
     'and finish setting up your account:',
@@ -50,7 +50,7 @@ export function renderInviteEmail(input: InviteEmailInput): RenderedEmail {
 
   const html = [
     '<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.5;color:#111">',
-    `<p>Hi ${escapeHtml(input.name)},</p>`,
+    '<p>Hi there,</p>',
     `<p>You have been invited to join ${PRODUCT_NAME}. Use the button below to set your password and finish setting up your account.</p>`,
     `<p><a href="${escapeHtml(acceptUrl)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Accept invitation</a></p>`,
     `<p style="font-size:13px;color:#555">Or paste this link into your browser:<br><span>${escapeHtml(acceptUrl)}</span></p>`,

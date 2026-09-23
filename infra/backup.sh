@@ -1,29 +1,30 @@
 #!/usr/bin/env bash
 # TimeTrack backup — Postgres dump (+ off-site S3 copy) + MinIO mirror. See docs/deployment.md §6.
 #
-#   ./infra/backup.sh              # run a backup
-#   BACKUP_DIR=/mnt/backups ./infra/backup.sh
-#   KEEP_DAYS=30 ./infra/backup.sh
+#   sudo /opt/timetrack/backup.sh              # run a backup
+#   sudo BACKUP_DIR=/mnt/backups /opt/timetrack/backup.sh
+#   sudo KEEP_DAYS=30 /opt/timetrack/backup.sh
 #
-# Run from the deploy directory (the one holding .env.prod). Installed as a systemd timer by
+# Runs as ROOT: the datastores are root-managed containers (infra/datastores/) and the deploy
+# user has no Docker access. Installed root-owned at /opt/timetrack/ with a systemd timer from
 # infra/systemd/ — see §6. Exits non-zero on any failure so the timer's unit is marked failed
 # and OnFailure alerting fires; a backup that quietly produced nothing is worse than none.
 set -euo pipefail
 
-DEPLOY_DIR="${DEPLOY_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-BACKUP_DIR="${BACKUP_DIR:-${DEPLOY_DIR}/backups}"
+APP_ROOT="${APP_ROOT:-/srv/timetrack}"
+OPT_DIR="${OPT_DIR:-/opt/timetrack}"
+BACKUP_DIR="${BACKUP_DIR:-${APP_ROOT}/backups}"
 KEEP_DAYS="${KEEP_DAYS:-14}"
-ENV_FILE="${DEPLOY_DIR}/.env.prod"
-COMPOSE_FILE="${DEPLOY_DIR}/infra/docker-compose.prod.yml"
+ENV_FILE="${APP_ROOT}/shared/.env"
 STAMP="$(date -u +%Y%m%d-%H%M%SZ)"
 
-[[ -f "$ENV_FILE" ]] || { echo "✖ no .env.prod at $ENV_FILE"; exit 1; }
+[[ -f "$ENV_FILE" ]] || { echo "✖ no shared .env at $ENV_FILE"; exit 1; }
 
-# Read only the keys we need. Do NOT `source` .env.prod: MAIL_FROM contains spaces and
+# Read only the keys we need. Do NOT `source` the .env: MAIL_FROM contains spaces and
 # angle brackets, which the shell would treat as redirection.
 env_value() { grep -m1 "^$1=" "$ENV_FILE" | cut -d= -f2-; }
 
-COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+COMPOSE=(docker compose --env-file "$OPT_DIR/datastores.env" -f "$OPT_DIR/docker-compose.datastores.yml")
 mkdir -p "$BACKUP_DIR/postgres" "$BACKUP_DIR/minio"
 
 # ── Postgres ────────────────────────────────────────────────────────────────────────────
@@ -96,19 +97,34 @@ fi
 # ── MinIO ───────────────────────────────────────────────────────────────────────────────
 # Screenshots are retention-bounded (30d by default), so mirroring stays cheap. --remove
 # keeps the mirror faithful rather than growing forever with objects retention deleted.
-S3_BUCKET="$(env_value S3_BUCKET)"
-MINIO_USER="$(env_value MINIO_ROOT_USER)"
-MINIO_PASS="$(env_value MINIO_ROOT_PASSWORD)"
-NETWORK="$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' \
-  "$("${COMPOSE[@]}" ps -q minio)")"
+#
+# Only while screenshots live in the bundled MinIO. On external S3 (deployment §5) the bucket is
+# off this box already and S3_BUCKET names the S3 bucket — a MinIO bucket of that name would be
+# empty, and --remove would then delete the mirror's contents rather than refresh them.
+# `|| true` because env_value's grep exits 1 on a missing key, which set -e would treat as fatal.
+S3_ENDPOINT_CFG="$(env_value S3_ENDPOINT || true)"
+case "$S3_ENDPOINT_CFG" in
+  '' | http://127.0.0.1:9000* | http://localhost:9000* | http://minio:9000*) MIRROR_MINIO=1 ;;
+  *) MIRROR_MINIO='' ;;
+esac
 
-echo "→ minio bucket '${S3_BUCKET}' → ${BACKUP_DIR}/minio"
-docker run --rm --network "$NETWORK" \
-  -v "$BACKUP_DIR/minio:/backup" \
-  -e MC_HOST_local="http://${MINIO_USER}:${MINIO_PASS}@minio:9000" \
-  quay.io/minio/mc:latest \
-  mirror --overwrite --remove "local/${S3_BUCKET}" /backup
-echo "  ✓ $(du -sh "$BACKUP_DIR/minio" | cut -f1) mirrored"
+if [[ -z "$MIRROR_MINIO" ]]; then
+  echo "→ screenshots are on external S3 (${S3_ENDPOINT_CFG}) — no MinIO mirror"
+else
+  S3_BUCKET="$(env_value S3_BUCKET)"
+  MINIO_USER="$(env_value MINIO_ROOT_USER)"
+  MINIO_PASS="$(env_value MINIO_ROOT_PASSWORD)"
+  NETWORK="$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' \
+    "$("${COMPOSE[@]}" ps -q minio)")"
+
+  echo "→ minio bucket '${S3_BUCKET}' → ${BACKUP_DIR}/minio"
+  docker run --rm --network "$NETWORK" \
+    -v "$BACKUP_DIR/minio:/backup" \
+    -e MC_HOST_local="http://${MINIO_USER}:${MINIO_PASS}@minio:9000" \
+    quay.io/minio/mc:latest \
+    mirror --overwrite --remove "local/${S3_BUCKET}" /backup
+  echo "  ✓ $(du -sh "$BACKUP_DIR/minio" | cut -f1) mirrored"
+fi
 
 # ── Retention ───────────────────────────────────────────────────────────────────────────
 # Only prunes dumps. The MinIO mirror is a mirror, not a history — it is pruned by --remove.

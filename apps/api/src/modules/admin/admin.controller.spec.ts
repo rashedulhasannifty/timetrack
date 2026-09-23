@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import 'reflect-metadata';
+import type { ArgumentMetadata } from '@nestjs/common';
+import { UpdateSettingsSchema } from '@timetrack/contracts';
 import { AdminController } from './admin.controller.js';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import type { AdminService } from './admin.service.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { ROLES } from '../../common/decorators/roles.decorator.js';
@@ -38,6 +41,18 @@ describe('AdminController', () => {
     // exists to fix — the write would silently land on the admin's own team instead.
     await ctrl.updateTeamSettings('t2', patch, actor);
     expect(service.updateSettings).toHaveBeenCalledWith(patch, actor, 't2');
+  });
+
+  it('the settings PATCH pipe carries keepScreenshotsForever alone, with no defaults injected', () => {
+    // The same pipe instance shape both PATCH routes use (@Body(new ZodValidationPipe(...))).
+    // A one-field toggle must reach the service as one field: a materialized default here would
+    // silently reset every other setting on the team.
+    const pipe = new ZodValidationPipe(UpdateSettingsSchema);
+    const body = { type: 'body' } as ArgumentMetadata;
+    expect(pipe.transform({ keepScreenshotsForever: true }, body)).toEqual({
+      keepScreenshotsForever: true,
+    });
+    expect(() => pipe.transform({ keepScreenshotsForever: 'yes' }, body)).toThrow();
   });
 
   it('eraseUser delegates id + dto + actor', async () => {

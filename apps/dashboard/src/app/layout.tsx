@@ -24,10 +24,10 @@ export const metadata: Metadata = {
   description: 'Self-hosted time tracking and workforce analytics',
 };
 
-// Seed the .dark class before first paint so the manual theme choice (or, on first
-// visit, the OS setting) applies with no flash. Tiny + inline; the top-bar toggle
-// writes localStorage['tt-theme'].
-const THEME_INIT = `(function(){try{var t=localStorage.getItem('tt-theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})()`;
+// Seed the .dark class and the data-density attribute before first paint so the manual
+// theme/density choices (or, on first visit, the OS setting for theme) apply with no
+// flash. Tiny + inline; the top-bar toggles write localStorage['tt-theme'] / ['tt-density'].
+const THEME_INIT = `(function(){try{var t=localStorage.getItem('tt-theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}var d=localStorage.getItem('tt-density');document.documentElement.setAttribute('data-density',d==='compact'?'compact':'comfortable')}catch(e){}})()`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

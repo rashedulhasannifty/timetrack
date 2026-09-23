@@ -103,7 +103,9 @@ model Team {
 model Invite {
   id         String    @id @default(uuid(7))
   email      String
-  name       String
+  /// Legacy. Invites created before the invitee supplied their own name carry one here;
+  /// new invites do not, and accept reads the name from the request body instead.
+  name       String?
   role       Role      @default(EMPLOYEE)
   teamId     String
   team       Team      @relation(fields: [teamId], references: [id])

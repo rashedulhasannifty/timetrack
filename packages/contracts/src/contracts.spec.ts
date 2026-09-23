@@ -183,6 +183,29 @@ describe('team-settings + policy', () => {
     expect(TeamSettingsSchema.safeParse({ screenshotRetentionDays: 0 }).success).toBe(false);
   });
 
+  it('keeps screenshots forever only when an admin says so — off by default, and it round-trips', () => {
+    // A legacy row with no such key must resolve to OFF, never to indefinite retention.
+    expect(TeamSettingsSchema.parse({}).keepScreenshotsForever).toBe(false);
+    const on = TeamSettingsSchema.parse({
+      keepScreenshotsForever: true,
+      screenshotRetentionDays: 45,
+    });
+    expect(on.keepScreenshotsForever).toBe(true);
+    // The days survive, unused, for when the flag is turned off again.
+    expect(on.screenshotRetentionDays).toBe(45);
+    expect(TeamSettingsSchema.parse(JSON.parse(JSON.stringify(on)))).toEqual(on);
+    expect(TeamSettingsSchema.safeParse({ keepScreenshotsForever: 'yes' }).success).toBe(false);
+    // Forever is a flag, never a retention value: the 180-day ceiling still holds beside it.
+    expect(
+      TeamSettingsSchema.safeParse({ keepScreenshotsForever: true, screenshotRetentionDays: 181 })
+        .success,
+    ).toBe(false);
+    // The PATCH partial carries the flag alone, with no defaults materialized around it.
+    expect(UpdateSettingsSchema.parse({ keepScreenshotsForever: true })).toEqual({
+      keepScreenshotsForever: true,
+    });
+  });
+
   it('seeds productive defaults, keeps unproductive empty, and ships no blanket wildcards', () => {
     const s = TeamSettingsSchema.parse({});
     expect(s.productiveApps).toContain('Code');
@@ -320,9 +343,15 @@ describe('admin — UpdateSettingsSchema is a default-free partial', () => {
 
 describe('users / projects / reports', () => {
   it('defaults an invited user to EMPLOYEE', () => {
-    expect(InviteUserSchema.parse({ email: 'a@b.co', name: 'A', teamId: UUID }).role).toBe(
-      'EMPLOYEE',
-    );
+    expect(InviteUserSchema.parse({ email: 'a@b.co', teamId: UUID }).role).toBe('EMPLOYEE');
+  });
+
+  it('does not take a name at invite time — the invitee supplies it on accept', () => {
+    // .strict() mirrors what ZodValidationPipe does to every request body, so a stale
+    // caller still sending `name` gets a 422 rather than having it silently stripped.
+    expect(
+      InviteUserSchema.strict().safeParse({ email: 'a@b.co', name: 'A', teamId: UUID }).success,
+    ).toBe(false);
   });
 
   it('validates a project create and a team summary', () => {
@@ -334,10 +363,22 @@ describe('users / projects / reports', () => {
 });
 
 describe('invite/accept contracts', () => {
-  it('AcceptInviteSchema requires a token and a min-8 password', () => {
-    expect(AcceptInviteSchema.safeParse({ token: 't', password: 'longenough' }).success).toBe(true);
-    expect(AcceptInviteSchema.safeParse({ token: 't', password: 'short' }).success).toBe(false);
-    expect(AcceptInviteSchema.safeParse({ token: '', password: 'longenough' }).success).toBe(false);
+  it('AcceptInviteSchema requires a token, a min-8 password, and a name', () => {
+    const ok = { token: 't', password: 'longenough', name: 'Ada Lovelace' };
+    expect(AcceptInviteSchema.safeParse(ok).success).toBe(true);
+    expect(AcceptInviteSchema.safeParse({ ...ok, password: 'short' }).success).toBe(false);
+    expect(AcceptInviteSchema.safeParse({ ...ok, token: '' }).success).toBe(false);
+    expect(AcceptInviteSchema.safeParse({ token: 't', password: 'longenough' }).success).toBe(
+      false,
+    );
+    expect(AcceptInviteSchema.safeParse({ ...ok, name: '' }).success).toBe(false);
+    expect(AcceptInviteSchema.safeParse({ ...ok, name: 'x'.repeat(201) }).success).toBe(false);
+  });
+
+  it('trims the accepted name, so whitespace alone is not a name', () => {
+    const ok = { token: 't', password: 'longenough' };
+    expect(AcceptInviteSchema.parse({ ...ok, name: '  Ada Lovelace  ' }).name).toBe('Ada Lovelace');
+    expect(AcceptInviteSchema.safeParse({ ...ok, name: '   ' }).success).toBe(false);
   });
 
   it('InviteResultSchema accepts a result with and without an optional devToken', () => {

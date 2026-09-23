@@ -23,6 +23,34 @@ export function isDroppable(bounds: { to: Date }, cutoffMax: Date): boolean {
   return bounds.to.getTime() <= cutoffMax.getTime();
 }
 
+export interface TeamRetention {
+  id: string;
+  days: number;
+  /** The team keeps this table's rows indefinitely (an explicit admin choice, PRD §10). */
+  forever: boolean;
+}
+
+export interface RetentionPlan {
+  /**
+   * Retention (days) the cross-team partition DROP uses, or null when no partition may be
+   * dropped. Partitions are global — every team's rows share a month — so a single team that
+   * keeps forever holds back every DROP; dropping at the longest FINITE retention would destroy
+   * that team's rows along with everyone else's.
+   */
+  dropAfterDays: number | null;
+  /** Teams whose expired rows the per-team sweep deletes. A forever team is never here. */
+  sweep: { id: string; days: number }[];
+}
+
+export function planRetention(teams: TeamRetention[]): RetentionPlan {
+  const sweep = teams.filter((t) => !t.forever).map(({ id, days }) => ({ id, days }));
+  const anyForever = sweep.length < teams.length;
+  return {
+    dropAfterDays: anyForever || sweep.length === 0 ? null : Math.max(...sweep.map((t) => t.days)),
+    sweep,
+  };
+}
+
 export function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));

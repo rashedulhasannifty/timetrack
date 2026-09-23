@@ -1,23 +1,11 @@
 import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { redirect } from 'next/navigation';
 import { refreshBackTo } from '../../../lib/redirect';
-import { Card } from '../../../components/ui/Card';
-import { Avatar } from '../../../components/ui/Avatar';
-import { Badge, type BadgeTone } from '../../../components/ui/Badge';
-import { Table, THead, Tbody, Tr, Th, Td } from '../../../components/ui/Table';
 import { TabPills, type TabItem } from '../../../components/ui/TabPills';
 import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
-import { weekLabel, formatHours, statusBadge, wasAutoDecided } from '../../../lib/approvals-view';
-import { DecideForm } from './DecideForm';
+import { ApprovalsTable } from './ApprovalsTable';
 import type { TimesheetApproval, ApprovalStatus } from '@timetrack/contracts';
-
-// Maps statusBadge's tone vocabulary onto the shared Badge component's tone vocabulary.
-const TONE: Record<'neutral' | 'positive' | 'warning', BadgeTone> = {
-  neutral: 'neutral',
-  positive: 'good',
-  warning: 'warning',
-} as const;
 
 // The API treats an absent `status` as "every status", but a bare `/approvals` is not the way
 // to ask for that: this page has always defaulted an absent status to PENDING, and existing
@@ -91,56 +79,7 @@ export default async function ApprovalsPage({
           ) : rows.length === 0 ? (
             <p className="text-text-secondary text-body">No timesheets in this filter.</p>
           ) : (
-            <Card padding="none" className="overflow-hidden">
-              <Table>
-                <THead>
-                  <tr>
-                    <Th>User</Th>
-                    <Th>Week</Th>
-                    <Th align="right">Hours</Th>
-                    <Th>Status</Th>
-                    <Th align="right">Decision</Th>
-                  </tr>
-                </THead>
-                <Tbody>
-                  {rows.map((row) => {
-                    const badge = statusBadge(row.status);
-                    return (
-                      <Tr key={row.id}>
-                        <Td>
-                          <span className="inline-flex items-center gap-2.5">
-                            <Avatar name={row.userName} size={28} />
-                            <span className="font-bold">{row.userName}</span>
-                          </span>
-                        </Td>
-                        <Td className="text-text-secondary tt-numeric">
-                          {weekLabel(row.periodStart)}
-                        </Td>
-                        <Td align="right" className="font-bold">
-                          {formatHours(row.totalSeconds ?? row.trackedSeconds)}
-                        </Td>
-                        <Td>
-                          <span className="inline-flex items-center gap-2">
-                            <Badge tone={TONE[badge.tone]}>{badge.label}</Badge>
-                            {wasAutoDecided(row) ? (
-                              <span
-                                className="text-text-secondary text-caption"
-                                title="Approved automatically after the grace period — no manager reviewed it. You can still flag it."
-                              >
-                                automatically
-                              </span>
-                            ) : null}
-                          </span>
-                        </Td>
-                        <Td align="right">
-                          <DecideForm approvalId={row.id} />
-                        </Td>
-                      </Tr>
-                    );
-                  })}
-                </Tbody>
-              </Table>
-            </Card>
+            <ApprovalsTable rows={rows} />
           )}
         </div>
       )}

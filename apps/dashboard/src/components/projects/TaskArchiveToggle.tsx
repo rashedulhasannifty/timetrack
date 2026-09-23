@@ -1,7 +1,8 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useToastAction } from '../ui/useToastAction';
 import { archiveTaskAction, type ProjectActionState } from '../../app/(app)/projects/actions';
+import { archiveToastMessage } from '../../app/(app)/projects/archive-toast';
 
 const INITIAL: ProjectActionState = { ok: false };
 
@@ -14,7 +15,9 @@ export function TaskArchiveToggle({
   projectId: string;
   archived: boolean;
 }) {
-  const [state, formAction, pending] = useActionState(archiveTaskAction, INITIAL);
+  const [state, formAction, pending] = useToastAction(archiveTaskAction, INITIAL, (s) =>
+    archiveToastMessage('Task', s),
+  );
   return (
     <form action={formAction} className="inline-flex items-center gap-2">
       <input type="hidden" name="id" value={id} />
@@ -23,7 +26,7 @@ export function TaskArchiveToggle({
       <button
         type="submit"
         disabled={pending}
-        className="border-separator text-text-secondary hover:bg-surface hover:text-text rounded-md border px-2 py-0.5 text-caption font-medium transition-colors disabled:opacity-50"
+        className="border-separator text-text-secondary hover:bg-hover hover:text-text rounded-md border px-2 py-0.5 text-caption font-medium transition-colors disabled:opacity-50"
       >
         {archived ? 'Unarchive' : 'Archive'}
       </button>

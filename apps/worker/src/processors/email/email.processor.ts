@@ -14,7 +14,6 @@ import { collectWeeklySummaries, renderWeeklySummaryEmail } from './weekly-summa
  * not an HTTP DTO, so it does not belong in packages/contracts. */
 interface InviteJobData {
   email: string;
-  name: string;
   inviteToken: string;
   expiresAt: string;
 }
@@ -24,7 +23,6 @@ function isInviteJobData(data: unknown): data is InviteJobData {
   const d = data as Record<string, unknown>;
   return (
     typeof d.email === 'string' &&
-    typeof d.name === 'string' &&
     typeof d.inviteToken === 'string' &&
     typeof d.expiresAt === 'string'
   );
@@ -197,8 +195,8 @@ export class EmailProcessor extends WorkerHost {
       this.logger.error({ jobId: job.id }, 'invite job has a malformed payload');
       return;
     }
-    const { email, name, inviteToken, expiresAt } = job.data;
-    const mail = renderInviteEmail({ name, inviteToken, expiresAt, appUrl: this.env.APP_URL });
+    const { email, inviteToken, expiresAt } = job.data;
+    const mail = renderInviteEmail({ inviteToken, expiresAt, appUrl: this.env.APP_URL });
 
     if (!this.mailer.enabled) {
       // SES unconfigured — development only. The URL carries the token, so it is logged

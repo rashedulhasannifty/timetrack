@@ -11,36 +11,38 @@ import { PasswordField } from '../../../components/ui/PasswordField';
 export default async function AcceptInvitePage({
   searchParams,
 }: {
-  searchParams: Promise<{ token?: string; error?: string }>;
+  searchParams: Promise<{ token?: string; error?: string; name?: string }>;
 }) {
-  const { token, error } = await searchParams;
+  const { token, error, name } = await searchParams;
 
   const inputClass =
     'bg-surface border-separator text-text placeholder:text-text-secondary focus:border-accent rounded-md border px-3 py-2.5 text-body outline-none transition-colors';
 
   const message =
-    error === 'weak'
-      ? 'Password must be at least 8 characters.'
-      : error === 'mismatch'
-        ? 'The two passwords do not match.'
-        : error === 'invalid'
-          ? 'This invitation link is invalid, expired, or has already been used. Ask your administrator to send a new one.'
-          : null;
+    error === 'name'
+      ? 'Enter your name (up to 200 characters).'
+      : error === 'weak'
+        ? 'Password must be at least 8 characters.'
+        : error === 'mismatch'
+          ? 'The two passwords do not match.'
+          : error === 'invalid'
+            ? 'This invitation link is invalid, expired, or has already been used. Ask your administrator to send a new one.'
+            : null;
 
   // No token in the URL is a broken/truncated link — there is no form to show.
   const hasToken = typeof token === 'string' && token.length > 0;
 
   return (
     <main className="flex min-h-screen items-center justify-center p-8">
-      <div className="bg-surface-raised border-separator w-full max-w-sm rounded-2xl border p-7 shadow-e2">
+      <div className="bg-surface-raised border-separator w-full max-w-sm rounded-lg border p-7 shadow-e2">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <BrandMark size={34} />
           <div>
             <h1 className="text-text font-display text-h2 font-semibold tracking-tight">
-              Set your password
+              Finish setting up
             </h1>
             <p className="text-text-secondary text-label mt-1">
-              Choose a password to finish setting up your Nifty Timer account.
+              Tell us your name and choose a password to finish setting up your Nifty Timer account.
             </p>
           </div>
         </div>
@@ -54,6 +56,18 @@ export default async function AcceptInvitePage({
         {hasToken ? (
           <form className="flex flex-col gap-3" action="/api/auth/accept-invite" method="post">
             <input type="hidden" name="token" value={token} />
+            {/* The invitee's own name: it is what their team sees on every screen, so they
+                type it themselves rather than inheriting an admin's guess. */}
+            <input
+              name="name"
+              type="text"
+              autoComplete="name"
+              maxLength={200}
+              required
+              placeholder="Your full name"
+              defaultValue={typeof name === 'string' ? name : ''}
+              className={inputClass}
+            />
             <PasswordField
               name="password"
               autoComplete="new-password"
@@ -74,13 +88,13 @@ export default async function AcceptInvitePage({
               type="submit"
               className="bg-accent hover:bg-accent-hover text-body mt-1 rounded-md px-3 py-2.5 font-medium text-white transition-colors"
             >
-              Set password and sign in
+              Create my account
             </button>
           </form>
         ) : (
           <a
             href="/login"
-            className="border-separator text-text hover:bg-surface text-body flex w-full items-center justify-center rounded-md border px-3 py-2.5 font-medium transition-colors"
+            className="border-separator text-text hover:bg-hover text-body flex w-full items-center justify-center rounded-md border px-3 py-2.5 font-medium transition-colors"
           >
             Go to sign in
           </a>

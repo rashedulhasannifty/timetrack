@@ -4,8 +4,45 @@ import {
   partitionBounds,
   isDroppable,
   chunk,
+  planRetention,
   PARTITION_NAME_RE,
 } from './retention.util.js';
+
+describe('planRetention', () => {
+  it('drops at the longest retention and sweeps every team when nobody keeps forever', () => {
+    const plan = planRetention([
+      { id: 'a', days: 7, forever: false },
+      { id: 'b', days: 90, forever: false },
+    ]);
+    expect(plan.dropAfterDays).toBe(90);
+    expect(plan.sweep).toEqual([
+      { id: 'a', days: 7 },
+      { id: 'b', days: 90 },
+    ]);
+  });
+
+  it('holds EVERY partition drop when any one team keeps forever — partitions are shared', () => {
+    // Dropping at the longest finite retention (7) would take the forever team's rows with it.
+    const plan = planRetention([
+      { id: 'a', days: 7, forever: false },
+      { id: 'f', days: 30, forever: true },
+    ]);
+    expect(plan.dropAfterDays).toBeNull();
+  });
+
+  it('never sweeps a forever team, but still sweeps the others', () => {
+    const plan = planRetention([
+      { id: 'a', days: 7, forever: false },
+      { id: 'f', days: 30, forever: true },
+    ]);
+    expect(plan.sweep).toEqual([{ id: 'a', days: 7 }]);
+  });
+
+  it('drops and sweeps nothing when every team keeps forever', () => {
+    const plan = planRetention([{ id: 'f', days: 30, forever: true }]);
+    expect(plan).toEqual({ dropAfterDays: null, sweep: [] });
+  });
+});
 
 describe('retention util', () => {
   it('subtracts N days from now (UTC)', () => {

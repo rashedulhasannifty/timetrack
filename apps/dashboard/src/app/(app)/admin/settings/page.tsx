@@ -6,6 +6,7 @@ import { AdminTabs } from '../../../../components/ui/AdminTabs';
 import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
+import { screenshotRetentionLabel } from '../../../../lib/screenshot-retention';
 import { SettingsForm } from './SettingsForm';
 import { TeamPolicyPicker } from './TeamPolicyPicker';
 import type { TeamSettings, ObservedApp } from '@timetrack/contracts';
@@ -83,10 +84,7 @@ export default async function AdminSettingsPage({
               value={`${settings.screenshotIntervalMinutes} min`}
             />
             <PolicyRow label="Blur" value={BLUR_LABEL[settings.screenshotBlur]} />
-            <PolicyRow
-              label="Screenshot retention"
-              value={`${settings.screenshotRetentionDays} days`}
-            />
+            <PolicyRow label="Screenshot retention" value={screenshotRetentionLabel(settings)} />
             <PolicyRow label="Idle threshold" value={`${settings.idleThresholdMinutes} min`} />
             <PolicyRow
               label="Distraction alerts"

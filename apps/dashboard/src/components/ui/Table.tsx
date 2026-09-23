@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode, TdHTMLAttributes } from 'react';
+import type { CSSProperties, HTMLAttributes, ReactNode, TdHTMLAttributes } from 'react';
 
 /** Full-width table shell; place inside a `<Card padding="none">`. */
 export function Table({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -30,7 +30,7 @@ export function Tr({
   interactive?: boolean;
   className?: string;
 } & HTMLAttributes<HTMLTableRowElement>) {
-  const hover = interactive ? 'hover:bg-surface cursor-pointer' : '';
+  const hover = interactive ? 'hover:bg-hover cursor-pointer' : '';
   return (
     <tr className={`border-separator border-t ${hover} ${className}`.trim()} {...rest}>
       {children}
@@ -39,6 +39,9 @@ export function Tr({
 }
 
 const HEAD_ALIGN = { left: 'text-left', right: 'text-right' } as const;
+
+/* Vertical padding is --pad-y so one [data-density] switch retunes every table. Horizontal
+   gutters stay fixed at 26px: density is about row height, not column spacing. */
 
 /**
  * Header cell — the `tt-eyebrow` voice (10.5px, heavy, uppercase, wide). When `sortable`,
@@ -52,6 +55,7 @@ export function Th({
   sortDirection = null,
   onSortClick,
   className = '',
+  style,
 }: {
   children: ReactNode;
   align?: 'left' | 'right';
@@ -59,11 +63,13 @@ export function Th({
   sortDirection?: 'asc' | 'desc' | null;
   onSortClick?: () => void;
   className?: string;
+  style?: CSSProperties | undefined;
 }) {
-  const base = `tt-eyebrow text-neutral px-[26px] py-3 ${HEAD_ALIGN[align]} ${className}`.trim();
+  const base =
+    `tt-eyebrow text-neutral px-[26px] py-[var(--pad-y)] ${HEAD_ALIGN[align]} ${className}`.trim();
   if (!sortable) {
     return (
-      <th scope="col" className={base}>
+      <th scope="col" className={base} style={style}>
         {children}
       </th>
     );
@@ -73,6 +79,7 @@ export function Th({
     <th
       scope="col"
       className={base}
+      style={style}
       aria-sort={
         sortDirection === 'asc' ? 'ascending' : sortDirection === 'desc' ? 'descending' : 'none'
       }
@@ -101,7 +108,7 @@ export function Td({
 } & TdHTMLAttributes<HTMLTableCellElement>) {
   const alignCls = align === 'right' ? 'tt-numeric text-right' : 'text-left';
   return (
-    <td className={`px-[26px] py-[13px] ${alignCls} ${className}`.trim()} {...rest}>
+    <td className={`px-[26px] py-[var(--pad-y)] ${alignCls} ${className}`.trim()} {...rest}>
       {children}
     </td>
   );

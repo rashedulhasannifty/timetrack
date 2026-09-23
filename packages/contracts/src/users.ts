@@ -13,9 +13,13 @@ export const UserSchema = z.object({
   createdAt: z.iso.datetime(),
 });
 
+/**
+ * PRD §6.8 — an admin invites an address into a team and a role. The person's NAME is not
+ * here: they type it themselves when they accept (see AcceptInviteSchema), so the directory
+ * shows what they call themselves rather than what an admin guessed from their email.
+ */
 export const InviteUserSchema = z.object({
   email: z.email(),
-  name: z.string().min(1).max(200),
   role: Role.default('EMPLOYEE'),
   teamId: z.uuid(),
 });
