@@ -6,7 +6,35 @@ describe('buttonClasses', () => {
     const cls = buttonClasses('primary', 'sm');
     expect(cls).toContain('bg-accent'); // primary variant
     expect(cls).toContain('text-caption px-[13px] py-[6px]'); // sm size
-    expect(cls).toContain('rounded-full'); // base
+    expect(cls).toContain('rounded-md'); // base — tightened from rounded-full
+  });
+
+  /** The three solid/raised variants are pressable; ghost is flat by design — a
+   *  borderless text control with a 3D edge reads as a floating artefact. */
+  it('makes the raised variants pressable and leaves ghost flat', () => {
+    expect(buttonClasses('primary', 'md')).toContain('btn-3d');
+    expect(buttonClasses('secondary', 'md')).toContain('btn-3d');
+    expect(buttonClasses('destructive', 'md')).toContain('btn-3d');
+    expect(buttonClasses('ghost', 'md')).not.toContain('btn-3d');
+  });
+
+  /** .btn-3d reads --b-edge off the element; a variant that forgets it renders
+   *  with an invisible edge and silently loses its depth. Assert the actual mapping, not
+   *  just that some edge is set — a variant wired to the wrong token would still pass a
+   *  bare "[--b-edge:" substring check. */
+  it('gives every pressable variant its own edge colour', () => {
+    const EDGE: Record<'primary' | 'secondary' | 'destructive', string> = {
+      primary: 'var(--tt-accent-edge)',
+      secondary: 'var(--tt-border-strong)',
+      destructive: 'var(--tt-destructive-edge)',
+    };
+    for (const v of ['primary', 'secondary', 'destructive'] as const) {
+      expect(buttonClasses(v, 'md'), v).toContain(`[--b-edge:${EDGE[v]}]`);
+    }
+  });
+
+  it('is no longer a pill', () => {
+    expect(buttonClasses()).not.toContain('rounded-full');
   });
 
   it('supports the xs size for compact contexts', () => {
@@ -17,7 +45,7 @@ describe('buttonClasses', () => {
     expect(buttonClasses('primary', 'md')).toContain('bg-accent');
     expect(buttonClasses('secondary', 'md')).toContain('border-separator');
     expect(buttonClasses('destructive', 'md')).toContain('bg-destructive');
-    expect(buttonClasses('ghost', 'md')).toContain('hover:bg-surface');
+    expect(buttonClasses('ghost', 'md')).toContain('hover:bg-hover');
   });
 
   it('gives every variant a distinct look', () => {

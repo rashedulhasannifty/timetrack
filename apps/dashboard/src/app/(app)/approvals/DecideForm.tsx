@@ -1,9 +1,12 @@
 'use client';
 
-import { useActionState, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button } from '../../../components/ui/Button';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { buttonClasses } from '../../../components/ui/Button';
+import { useToastAction } from '../../../components/ui/useToastAction';
 import { decideAction, type DecideState } from './actions';
 import { decidePlacement, type Placement } from './decide-placement';
+import { decideToastMessage } from './decide-toast';
+import { DecideFields } from './DecideFields';
 
 const INITIAL: DecideState = { ok: false };
 
@@ -14,7 +17,7 @@ const INITIAL: DecideState = { ok: false };
  * no token ever reaches this component.
  */
 export function DecideForm({ approvalId }: { approvalId: string }) {
-  const [state, formAction, pending] = useActionState(decideAction, INITIAL);
+  const [state, formAction, pending] = useToastAction(decideAction, INITIAL, decideToastMessage);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -71,7 +74,7 @@ export function DecideForm({ approvalId }: { approvalId: string }) {
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="bg-surface-raised border-separator text-accent text-caption cursor-pointer rounded-full border px-[13px] py-[5px] font-bold"
+        className={`${buttonClasses('secondary', 'xs')} text-accent`}
       >
         Decide
       </button>
@@ -83,43 +86,11 @@ export function DecideForm({ approvalId }: { approvalId: string }) {
           // FIXED, not absolute: the approvals table sits in a Card with `overflow-hidden`, which
           // cropped an absolutely positioned popover on the last (or only) row — there is no card
           // left below those rows for it to open into. See decide-placement.ts.
-          className={`bg-surface-raised border-separator shadow-e2 fixed z-50 flex w-[220px] flex-col gap-2 rounded-[10px] border p-2 ${
+          className={`bg-surface-raised border-separator shadow-e2 fixed z-50 flex w-[220px] flex-col gap-2 rounded-md border p-2 ${
             placement ? '' : 'invisible'
           }`}
         >
-          <input type="hidden" name="id" value={approvalId} />
-          <input
-            type="text"
-            name="note"
-            placeholder="Note (optional)"
-            maxLength={2000}
-            className="bg-surface border-separator text-text focus:border-accent w-full rounded-md border px-2 py-1 text-caption outline-none"
-          />
-          <div className="flex gap-2">
-            <Button
-              type="submit"
-              name="status"
-              value="APPROVED"
-              variant="primary"
-              size="sm"
-              disabled={pending}
-            >
-              Approve
-            </Button>
-            <Button
-              type="submit"
-              name="status"
-              value="FLAGGED"
-              variant="secondary"
-              size="sm"
-              disabled={pending}
-            >
-              Flag for payroll
-            </Button>
-          </div>
-          {state.message ? (
-            <span className="text-destructive text-caption">{state.message}</span>
-          ) : null}
+          <DecideFields approvalId={approvalId} pending={pending} message={state.message} />
         </form>
       ) : null}
     </div>

@@ -126,6 +126,24 @@ export const IconEyeOff = (p: SVGProps<SVGSVGElement>) => (
   </Base>
 );
 
+export const IconClose = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M6 6l12 12M18 6L6 18" />
+  </Base>
+);
+
+/**
+ * Row density. Deliberately NOT three bare lines: that is IconMenu, and on a wide screen — where
+ * the navigation toggle is hidden — a hamburger-shaped button in the same corner read as a stray
+ * menu. The frame makes it a table of rows instead.
+ */
+export const IconRows = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <rect x="3.5" y="4.75" width="17" height="14.5" rx="2.5" />
+    <path d="M3.5 9.6h17M3.5 14.4h17" />
+  </Base>
+);
+
 export const IconDownload = (p: SVGProps<SVGSVGElement>) => (
   <Base {...p}>
     <path d="M12 3.6v10.2" />

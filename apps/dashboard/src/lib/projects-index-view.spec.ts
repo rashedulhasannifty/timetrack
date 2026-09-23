@@ -26,6 +26,7 @@ describe('toProjectIndexRows', () => {
         archived: false,
         trackedSeconds: 7200,
         color: projectColor('p2'),
+        tasks: [],
         taskCount: 0,
         sharePct: (7200 / 10_800) * 100,
       },
@@ -35,6 +36,7 @@ describe('toProjectIndexRows', () => {
         archived: false,
         trackedSeconds: 3600,
         color: projectColor('p1'),
+        tasks: [],
         taskCount: 0,
         sharePct: (3600 / 10_800) * 100,
       },
@@ -146,11 +148,35 @@ describe('toProjectIndexRows — reconciliation', () => {
         { id: 't2', projectId: 'p1', name: 'Two', archived: false },
       ],
     };
-    expect(toProjectIndexRows([withTasks], []).rows[0]!.taskCount).toBe(2);
+    const row = toProjectIndexRows([withTasks], []).rows[0]!;
+    expect(row.taskCount).toBe(2);
+    expect(row.tasks).toEqual([
+      { id: 't1', name: 'One' },
+      { id: 't2', name: 'Two' },
+    ]);
+  });
+
+  it('lists non-archived tasks in list order, excluding archived ones', () => {
+    const withTasks: Project = {
+      ...P('p1', 'Alpha'),
+      tasks: [
+        { id: 't1', projectId: 'p1', name: 'One', archived: false },
+        { id: 't2', projectId: 'p1', name: 'Two', archived: true },
+        { id: 't3', projectId: 'p1', name: 'Three', archived: false },
+      ],
+    };
+    const row = toProjectIndexRows([withTasks], []).rows[0]!;
+    expect(row.tasks).toEqual([
+      { id: 't1', name: 'One' },
+      { id: 't3', name: 'Three' },
+    ]);
+    expect(row.taskCount).toBe(2);
   });
 
   it('reports zero tasks when the response omitted them', () => {
-    expect(toProjectIndexRows([P('p1', 'Alpha')], []).rows[0]!.taskCount).toBe(0);
+    const row = toProjectIndexRows([P('p1', 'Alpha')], []).rows[0]!;
+    expect(row.taskCount).toBe(0);
+    expect(row.tasks).toEqual([]);
   });
 
   it('never divides by zero when the range has no tracked time', () => {

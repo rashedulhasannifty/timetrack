@@ -45,7 +45,7 @@ export function TimeRibbon({ ribbon }: { ribbon: PersonDayViewModel['ribbon'] })
 
         {/* The track itself */}
         <div
-          className="border-separator bg-surface relative overflow-hidden rounded-[6px] border"
+          className="border-separator bg-surface relative overflow-hidden rounded-sm border"
           style={{ height: RIBBON_HEIGHT_PX }}
         >
           {/* Untracked gaps — hatched muted band */}

@@ -30,6 +30,7 @@ export function DayHeader({
   isToday,
   recordingNow,
   avatar,
+  replace = false,
 }: {
   date: string;
   subjectName: string;
@@ -37,6 +38,8 @@ export function DayHeader({
   isToday: boolean;
   recordingNow: boolean;
   avatar?: ReactNode;
+  /** Inside a route drawer day changes replace history, so closing it is one step back. */
+  replace?: boolean;
 }) {
   const prevDate = shiftDay(date, -1);
   const nextDate = shiftDay(date, 1);
@@ -66,21 +69,23 @@ export function DayHeader({
               Tracking
             </span>
           ) : null}
-          <DayPicker date={date} today={today} />
+          <DayPicker date={date} today={today} replace={replace} />
           <nav
-            className="border-separator bg-surface-raised shadow-e1 flex items-center gap-1 rounded-full border p-0.5"
+            className="border-separator bg-surface-raised flex items-center gap-1 rounded-full border p-0.5"
             aria-label="Day navigation"
           >
             <Link
               href={`?date=${prevDate}`}
-              className="text-text hover:bg-surface text-caption rounded-full px-2.5 py-1 font-semibold"
+              replace={replace}
+              className="text-text hover:bg-hover text-caption rounded-full px-2.5 py-1 font-semibold"
               aria-label="Previous day"
             >
               ‹
             </Link>
             <Link
               href={`?date=${today}`}
-              className="text-text hover:bg-surface text-caption rounded-full px-2.5 py-1 font-semibold"
+              replace={replace}
+              className="text-text hover:bg-hover text-caption rounded-full px-2.5 py-1 font-semibold"
             >
               Today
             </Link>
@@ -95,7 +100,8 @@ export function DayHeader({
             ) : (
               <Link
                 href={`?date=${nextDate}`}
-                className="text-text hover:bg-surface text-caption rounded-full px-2.5 py-1 font-semibold"
+                replace={replace}
+                className="text-text hover:bg-hover text-caption rounded-full px-2.5 py-1 font-semibold"
                 aria-label="Next day"
               >
                 ›

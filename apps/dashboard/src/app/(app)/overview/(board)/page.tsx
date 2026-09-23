@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { refreshBackTo } from '../../../lib/redirect';
+import { refreshBackTo } from '../../../../lib/redirect';
 import type {
   ProjectSummary,
   TeamActivity,
@@ -8,26 +8,26 @@ import type {
   TeamSummary,
   TeamTrends,
 } from '@timetrack/contracts';
-import { SetPageTitle } from '../../../components/ui/PageTitleContext';
-import { StatCard } from '../../../components/ui/StatCard';
-import { Card, CardHeader, CardTitle } from '../../../components/ui/Card';
-import { HeroPanel, HeroDelta } from '../../../components/ui/HeroPanel';
-import { Button } from '../../../components/ui/Button';
-import { StackedDayBars } from '../../../components/charts/StackedDayBars';
-import { ReportRangePicker } from '../../../components/reports/ReportRangePicker';
-import { DayColumnsChart } from '../../../components/overview/DayColumnsChart';
-import { AttentionPanel } from '../../../components/overview/AttentionPanel';
-import { PeopleTable } from '../../../components/overview/PeopleTable';
-import { ProjectShareList } from '../../../components/overview/ProjectShareList';
-import { AppUsageTabs } from '../../../components/overview/AppUsageTabs';
-import { WidgetVisibilityProvider } from '../../../components/overview/WidgetVisibilityProvider';
-import { Widget } from '../../../components/overview/Widget';
-import { WidgetsDrawer, type WidgetGroup } from '../../../components/overview/WidgetsDrawer';
-import { IconApprovals, IconClock, IconTeam } from '../../../components/ui/icons';
-import { getSession } from '../../../lib/session';
-import { api, ApiError } from '../../../lib/api-client';
-import { defaultReportRange } from '../../../lib/reports-view';
-import { formatDuration } from '../../../lib/format';
+import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
+import { StatCard } from '../../../../components/ui/StatCard';
+import { Card, CardHeader, CardTitle } from '../../../../components/ui/Card';
+import { HeroPanel, HeroDelta } from '../../../../components/ui/HeroPanel';
+import { Button } from '../../../../components/ui/Button';
+import { StackedDayBars } from '../../../../components/charts/StackedDayBars';
+import { ReportRangePicker } from '../../../../components/reports/ReportRangePicker';
+import { DayColumnsChart } from '../../../../components/overview/DayColumnsChart';
+import { AttentionPanel } from '../../../../components/overview/AttentionPanel';
+import { PeopleTable } from '../../../../components/overview/PeopleTable';
+import { ProjectShareList } from '../../../../components/overview/ProjectShareList';
+import { AppUsageTabs } from '../../../../components/overview/AppUsageTabs';
+import { WidgetVisibilityProvider } from '../../../../components/overview/WidgetVisibilityProvider';
+import { Widget } from '../../../../components/overview/Widget';
+import { WidgetsDrawer, type WidgetGroup } from '../../../../components/overview/WidgetsDrawer';
+import { IconApprovals, IconClock, IconTeam } from '../../../../components/ui/icons';
+import { getSession } from '../../../../lib/session';
+import { api, ApiError } from '../../../../lib/api-client';
+import { defaultReportRange } from '../../../../lib/reports-view';
+import { formatDuration } from '../../../../lib/format';
 import {
   appUsageByCategory,
   attentionItems,
@@ -40,7 +40,7 @@ import {
   teamIdleKpi,
   trendsToDayColumns,
   trendsToProductivityBars,
-} from '../../../lib/overview-view';
+} from '../../../../lib/overview-view';
 
 // Widget ids are persisted per user in localStorage['tt-widgets'] as a hidden-map. The
 // redesign retired `havent`, `apps-used`, `apps-unproductive`, `apps-unrated` and the five
@@ -160,7 +160,7 @@ export default async function OverviewPage({
 
   return (
     <>
-      <SetPageTitle title="Overview" />
+      <SetPageTitle title="Overview" kicker="How the team spent its time" />
       {forbidden ? (
         <p className="text-text-secondary text-body">
           You’re not permitted to view the team overview.
@@ -286,7 +286,7 @@ export default async function OverviewPage({
               <Card padding="none" className="overflow-hidden">
                 <CardHeader
                   title="People"
-                  note="click a row for the day view"
+                  note="click a name for the day view"
                   action={
                     <Button href="/reports" variant="secondary" size="sm">
                       Full report
@@ -346,7 +346,7 @@ export default async function OverviewPage({
 function EmptyOverview() {
   return (
     <div className="flex flex-col items-center gap-3.5 px-10 py-[110px] text-center">
-      <span className="bg-tint inline-flex h-14 w-14 items-center justify-center rounded-[18px]">
+      <span className="bg-tint inline-flex h-14 w-14 items-center justify-center rounded-lg">
         <IconClock width={26} height={26} className="text-accent" />
       </span>
       <span className="text-h2 font-extrabold tracking-[-0.02em]">No time tracked yet</span>

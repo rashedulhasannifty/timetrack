@@ -21,7 +21,7 @@ async function login(page: import('@playwright/test').Page) {
   await page.fill('input[name="email"]', EMAIL);
   await page.fill('input[name="password"]', PASSWORD);
   await page.click('button[type="submit"]');
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/overview$/);
 }
 
 test.describe('day view — screenshots and date navigation', () => {
@@ -32,7 +32,9 @@ test.describe('day view — screenshots and date navigation', () => {
 
   test.beforeEach(async ({ page }) => {
     await login(page);
-    await page.goto(`/people/${USER_ID}?date=${DATE}`);
+    await page.goto(`/people/${USER_ID}?date=${DATE}&panel=screenshots`);
+    // Until hydration the date picker has no onChange attached, so a fill would go nowhere.
+    await page.waitForLoadState('networkidle');
   });
 
   test('thumbnails actually load — a presigned URL the browser can reach', async ({ page }) => {

@@ -23,7 +23,7 @@ export default async function LoginPage({
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-8">
-      <div className="bg-surface-raised border-separator w-full max-w-sm rounded-2xl border p-7 shadow-e2">
+      <div className="bg-surface-raised border-separator w-full max-w-sm rounded-lg border p-7 shadow-e2">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <Link href="/" aria-label="Nifty Timer home">
             <BrandMark size={34} />
@@ -62,7 +62,7 @@ export default async function LoginPage({
             </div>
             <a
               href="/api/auth/sso/start"
-              className="border-separator text-text hover:bg-surface text-body flex w-full items-center justify-center rounded-md border px-3 py-2.5 font-medium transition-colors"
+              className="border-separator text-text hover:bg-hover text-body flex w-full items-center justify-center rounded-md border px-3 py-2.5 font-medium transition-colors"
             >
               Sign in with SSO
             </a>

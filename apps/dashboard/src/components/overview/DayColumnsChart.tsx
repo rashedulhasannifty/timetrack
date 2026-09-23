@@ -18,7 +18,7 @@ export function DayColumnsChart({ columns }: { columns: DayColumn[] }) {
     <div className="relative">
       {active ? (
         <div
-          className="bg-hero text-hero-text pointer-events-none absolute -top-2 z-10 flex flex-col gap-px whitespace-nowrap rounded-[9px] px-[11px] py-[7px]"
+          className="bg-hero text-hero-text pointer-events-none absolute -top-2 z-10 flex flex-col gap-px whitespace-nowrap rounded-md px-[11px] py-[7px]"
           style={{
             left: `${Math.min(86, Math.max(0, (hot! / Math.max(1, columns.length - 1)) * 100 - 7))}%`,
             boxShadow: '0 8px 24px -8px rgba(0,0,0,.35)',
@@ -34,11 +34,11 @@ export function DayColumnsChart({ columns }: { columns: DayColumn[] }) {
         {columns.map((c, i) => (
           <div
             key={c.day}
-            className={`flex h-full flex-1 items-end rounded-[4px] ${hot === i ? 'bg-tint' : ''}`}
+            className={`flex h-full flex-1 items-end rounded-sm ${hot === i ? 'bg-tint' : ''}`}
             onMouseEnter={() => setHot(i)}
           >
             <div
-              className="w-full rounded-[4px]"
+              className="w-full rounded-sm"
               style={{
                 // A day with tracked time never collapses to nothing: a 1% floor keeps the
                 // bar visible so an almost-empty day is distinguishable from an empty one.

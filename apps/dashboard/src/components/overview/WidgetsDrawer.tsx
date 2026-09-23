@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useWidgetVisibility } from './WidgetVisibilityProvider';
+import { buttonClasses } from '../ui/Button';
 
 export interface WidgetGroup {
   label: string;
@@ -33,7 +34,7 @@ export function WidgetsDrawer({ groups }: { groups: WidgetGroup[] }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="border-separator text-text-secondary hover:text-text rounded-full border px-3 py-1.5 text-label"
+        className={buttonClasses('secondary', 'sm')}
       >
         ⚙ Widgets
       </button>

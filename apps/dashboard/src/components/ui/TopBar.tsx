@@ -2,8 +2,10 @@
 
 import { usePathname } from 'next/navigation';
 import { ThemeToggle } from './ThemeToggle';
+import { DensityToggle } from './DensityToggle';
 import { usePageKicker, usePageTitle } from './PageTitleContext';
 import { IconMenu } from './icons';
+import { iconButtonClasses } from './Button';
 
 type RouteMeta = { prefix: string; title: string; kicker: string; exact?: boolean };
 
@@ -45,7 +47,7 @@ export function TopBar({
           type="button"
           aria-label="Toggle navigation"
           onClick={onToggleSidebar}
-          className="border-separator bg-surface-raised text-text mb-1 grid h-9 w-9 flex-none place-items-center rounded-full border"
+          className={`${iconButtonClasses()} mb-1`}
         >
           <IconMenu width={16} height={16} />
         </button>
@@ -57,6 +59,7 @@ export function TopBar({
         <h1 className="m-0 truncate text-h1 font-extrabold tracking-[-0.035em]">{title}</h1>
       </div>
       <div className="flex-1" />
+      <DensityToggle />
       <ThemeToggle />
     </header>
   );
