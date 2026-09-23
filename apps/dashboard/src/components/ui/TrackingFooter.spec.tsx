@@ -3,7 +3,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { Platform, TeamOverviewRow } from '@timetrack/contracts';
 
 const { teamOverview } = vi.hoisted(() => ({ teamOverview: vi.fn() }));
-vi.mock('../../lib/api-client', () => ({ api: { teamOverview } }));
+// ApiError is a real class here, not a stub: the component branches on `instanceof`, so a fake
+// would make every failure look like a fault and the 403 test would pass for the wrong reason.
+vi.mock('../../lib/api-client', async (orig) => ({
+  ...(await orig<typeof import('../../lib/api-client')>()),
+  api: { teamOverview },
+}));
+
+const { ApiError } = await import('../../lib/api-client');
 
 import { TrackingFooter } from './TrackingFooter';
 
@@ -94,9 +101,32 @@ describe('TrackingFooter', () => {
     expect(html).not.toContain('unknown');
   });
 
-  /** Employees get a 403 from team-overview; the shell must render without a footer, not crash. */
-  it('renders nothing when the call fails', async () => {
-    teamOverview.mockImplementation(() => Promise.reject(new Error('403')));
+  /**
+   * An EMPLOYEE has no team-wide visibility, and a 401 is a token the layout is already
+   * refreshing. Both are expected, so the card is absent rather than broken-looking.
+   */
+  it.each([403, 401])('renders nothing on a %i', async (status) => {
+    teamOverview.mockImplementation(() => Promise.reject(new ApiError(status, 'nope')));
     expect(renderToStaticMarkup(await TrackingFooter({ token: 't' }))).toBe('');
+  });
+
+  /**
+   * Regression for the bug that cost an afternoon: a response failing TeamOverviewSchema — an
+   * API older than the dashboard, i.e. a half-deployed `platform` — used to be swallowed by a
+   * bare `catch { return null }`, so the card just vanished. Silence is the thing being fixed;
+   * the card must now say something.
+   */
+  it.each([
+    ['a schema mismatch', new Error('Invalid option: expected one of "MACOS"|"WINDOWS"')],
+    ['a 500', new ApiError(500, 'Internal Server Error')],
+    ['an unreachable API', new TypeError('fetch failed')],
+  ])('reports %s instead of vanishing', async (_label, err) => {
+    teamOverview.mockImplementation(() => Promise.reject(err));
+    const html = renderToStaticMarkup(await TrackingFooter({ token: 't' }));
+
+    expect(html).not.toBe('');
+    expect(html).toContain('Live status unavailable');
+    // Never a bare "0 tracking now" on a failure — that is a claim, not an absence of data.
+    expect(html).not.toContain('tracking now');
   });
 });
