@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import type { DayEntryRow } from '../../lib/person-day-view';
 import { TimeEntriesDrawerList } from './TimeEntriesDrawerList';
 
@@ -22,8 +22,11 @@ export function TimeEntriesList({
   // undefined prop into a bare optional one (TS2375).
   rowAction?: ((entry: DayEntryRow) => ReactNode) | undefined;
 }) {
+  // Each slot is wrapped in a keyed Fragment: the record's values are rendered as children of
+  // the client list, and React warns about a missing key on any node that arrives that way,
+  // whatever the caller returned.
   const actions = rowAction
-    ? Object.fromEntries(entries.map((e) => [e.id, rowAction(e)]))
+    ? Object.fromEntries(entries.map((e) => [e.id, <Fragment key={e.id}>{rowAction(e)}</Fragment>]))
     : undefined;
   return <TimeEntriesDrawerList entries={entries} actions={actions} />;
 }
