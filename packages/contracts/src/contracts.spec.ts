@@ -108,6 +108,58 @@ describe('time-entry round-trip', () => {
     expect(manual).not.toHaveProperty('platform');
   });
 
+  /**
+   * The temporal rule, which had no test at all: every schema's rejection path was uncovered.
+   *
+   * Zero-length is load-bearing, not an edge case — the client's interrupted-time recovery
+   * writes `end == start` on Discard to release the one-running-per-user slot. A `>` here
+   * instead of `<` would reject that legitimate close and strand the entry open forever, and
+   * nothing in the suite would have noticed.
+   */
+  describe('endTime vs startTime', () => {
+    const T0 = '2026-07-12T09:00:00.000Z';
+    const T1 = '2026-07-12T10:00:00.000Z';
+
+    it('accepts a zero-length entry but refuses an inverted one', () => {
+      expect(
+        CreateTimeEntrySchema.safeParse({ ...entry, startTime: T0, endTime: T0 }).success,
+      ).toBe(true);
+
+      const bad = CreateTimeEntrySchema.safeParse({ ...entry, startTime: T1, endTime: T0 });
+      expect(bad.success).toBe(false);
+      expect(bad.error?.issues[0]?.path).toEqual(['endTime']);
+      expect(bad.error?.issues[0]?.message).toBe('endTime must not be before startTime');
+    });
+
+    it('leaves an open entry alone — a null endTime is not inverted', () => {
+      expect(
+        CreateTimeEntrySchema.safeParse({ ...entry, startTime: T1, endTime: null }).success,
+      ).toBe(true);
+    });
+
+    /** A patch can only be checked when it carries BOTH edges; one edge is merged server-side. */
+    it('checks the patch pair only when the patch supplies both edges', () => {
+      expect(UpdateTimeEntrySchema.safeParse({ startTime: T1, endTime: T0 }).success).toBe(false);
+      expect(UpdateTimeEntrySchema.safeParse({ startTime: T0, endTime: T1 }).success).toBe(true);
+      expect(UpdateTimeEntrySchema.safeParse({ endTime: T0 }).success).toBe(true);
+      expect(UpdateTimeEntrySchema.safeParse({ startTime: T1 }).success).toBe(true);
+    });
+
+    /** Manual entry is stricter: a human asserting a zero-length span is a mistake, not a Discard. */
+    it('refuses a zero-length manual entry, unlike the sync upsert', () => {
+      const manual = { id: UUID, projectId: null, taskId: null };
+      expect(
+        CreateManualTimeEntrySchema.safeParse({ ...manual, startTime: T0, endTime: T0 }).success,
+      ).toBe(false);
+      expect(
+        CreateManualTimeEntrySchema.safeParse({ ...manual, startTime: T1, endTime: T0 }).success,
+      ).toBe(false);
+      expect(
+        CreateManualTimeEntrySchema.safeParse({ ...manual, startTime: T0, endTime: T1 }).success,
+      ).toBe(true);
+    });
+  });
+
   it('round-trips the full entity through its own schema', () => {
     const full = { ...entry, userId: UUID, editedById: null, editedAt: null };
     expect(TimeEntrySchema.parse(full)).toEqual(full);
