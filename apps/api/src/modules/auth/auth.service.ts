@@ -26,6 +26,7 @@ import {
   type AuthIdentity,
 } from './auth.repository.js';
 import { OidcService, type OidcIdentity } from './oidc.service.js';
+import { ClientsService, type ClientReport } from '../clients/clients.service.js';
 import { durationToSeconds } from './token.util.js';
 
 /** The OIDC provider tag stored on a linked/provisioned user. Slice 4.4 is OIDC-only. */
@@ -54,6 +55,7 @@ export class AuthService {
     private readonly repo: AuthRepository,
     private readonly invites: InvitesService,
     private readonly oidc: OidcService,
+    private readonly clients: ClientsService,
   ) {}
 
   async acceptInvite(dto: AcceptInvite): Promise<TokenPair> {
@@ -61,7 +63,8 @@ export class AuthService {
     return (await this.issueTokens({ id: userId, role, teamId, deactivatedAt: null })).tokens;
   }
 
-  async login(dto: Login): Promise<TokenPair> {
+  /** `client` is the calling desktop app, when it identified itself; recorded best effort. */
+  async login(dto: Login, client: ClientReport | null = null): Promise<TokenPair> {
     const user = await this.repo.findByEmail(dto.email);
     // A null passwordHash is an SSO-only account: it has no password, so the password path
     // must reject it — and must do so BEFORE argon2.verify (which throws on a null hash).
@@ -72,6 +75,7 @@ export class AuthService {
     }
     const ok = await argon2.verify(user.passwordHash, dto.password);
     if (!ok) throw this.invalidCredentials();
+    await this.clients.record(user.id, client);
     return (
       await this.issueTokens({
         id: user.id,
@@ -82,7 +86,7 @@ export class AuthService {
     ).tokens;
   }
 
-  async refresh(dto: Refresh): Promise<TokenPair> {
+  async refresh(dto: Refresh, client: ClientReport | null = null): Promise<TokenPair> {
     const stored = await this.repo.findRefreshToken(this.hashRefreshToken(dto.refreshToken));
     const now = new Date();
     if (!stored || stored.expiresAt.getTime() <= now.getTime()) throw this.invalidToken();
@@ -108,6 +112,9 @@ export class AuthService {
 
     const identity = await this.repo.findIdentityById(stored.userId);
     if (!identity || identity.deactivatedAt) throw this.invalidToken();
+    // Recorded once the token has proved whose it is, and before rotation: `record` never
+    // throws, so it cannot change which of the outcomes below the caller gets.
+    await this.clients.record(identity.id, client);
 
     // The grace path deliberately does NOT re-link: the original's revokedAt/replacedById
     // stay put so the window cannot slide forward on every replay.

@@ -8,6 +8,10 @@ import type { InvitesService } from '../src/modules/invites/invites.service.js';
 import type { OidcService } from '../src/modules/auth/oidc.service.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
+import type { ClientsService } from '../src/modules/clients/clients.service.js';
+
+// Version recording has its own spec; here it is a no-op so these tests stay about auth.
+const noClients = { record: async () => undefined } as unknown as ClientsService;
 
 const RUN_E2E = process.env.RUN_E2E === '1';
 
@@ -30,7 +34,7 @@ describe.runIf(RUN_E2E)('auth refresh — grace window (real Postgres)', () => {
     });
     const repo = new AuthRepository(db.prisma as unknown as PrismaService);
     // refresh() never touches InvitesService or OidcService; bare stubs are safe here.
-    return new AuthService(jwt, repo, {} as InvitesService, {} as OidcService);
+    return new AuthService(jwt, repo, {} as InvitesService, {} as OidcService, noClients);
   }
 
   async function seedUserAndLogin(svc: AuthService) {

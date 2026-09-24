@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { loadEnv } from '@timetrack/config';
 import { InvitesModule } from '../invites/invites.module.js';
+import { ClientsModule } from '../clients/clients.module.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { AuthRepository } from './auth.repository.js';
@@ -18,6 +19,7 @@ const env = loadEnv();
       signOptions: { expiresIn: env.ACCESS_TOKEN_TTL as NonNullable<JwtSignOptions['expiresIn']> },
     }),
     InvitesModule,
+    ClientsModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, AuthRepository, OidcService],

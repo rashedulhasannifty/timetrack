@@ -61,6 +61,9 @@ async function seedFullUser(
       resolvedAction: 'KEEP',
     },
   });
+  await db.prisma.clientInstall.create({
+    data: { userId: user.id, platform: 'MACOS', version: '0.6.1', lastSeenAt: ts },
+  });
   await db.prisma.activityDailySummary.create({
     data: {
       userId: user.id,
@@ -94,6 +97,7 @@ async function remainingRows(db: TestDb, userId: string, email: string) {
     screenshots: await db.prisma.screenshot.count({ where: { userId } }),
     idleEvents: await db.prisma.idleEvent.count({ where: { userId } }),
     activityDailySummaries: await db.prisma.activityDailySummary.count({ where: { userId } }),
+    clientInstalls: await db.prisma.clientInstall.count({ where: { userId } }),
     invites: await db.prisma.invite.count({ where: { email } }),
   };
 }

@@ -14,6 +14,7 @@ export type EraseCounts = {
   screenshots: number;
   idleEvents: number;
   activityDailySummaries: number;
+  clientInstalls: number;
   invites: number;
 };
 
@@ -458,6 +459,7 @@ export class AdminRepository {
           idleEvents: (await tx.idleEvent.deleteMany({ where: { userId } })).count,
           activityDailySummaries: (await tx.activityDailySummary.deleteMany({ where: { userId } }))
             .count,
+          clientInstalls: (await tx.clientInstall.deleteMany({ where: { userId } })).count,
           // Keyed by EMAIL — the table a userId sweep misses.
           invites: (await tx.invite.deleteMany({ where: { email } })).count,
         };

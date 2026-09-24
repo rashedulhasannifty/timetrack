@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, Post } from '@nestjs/common';
 import {
   AcceptInviteSchema,
   LoginSchema,
@@ -14,6 +14,7 @@ import {
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { Public } from '../../common/decorators/public.decorator.js';
 import { AuthService } from './auth.service.js';
+import { clientFromHeaders } from '../clients/clients.service.js';
 
 /**
  * PRD §6.8 — email/password at launch. All three routes are @Public (they mint the
@@ -27,15 +28,21 @@ export class AuthController {
   @Post('login')
   @Public()
   @HttpCode(200)
-  login(@Body(new ZodValidationPipe(LoginSchema)) dto: Login): Promise<TokenPair> {
-    return this.service.login(dto);
+  login(
+    @Body(new ZodValidationPipe(LoginSchema)) dto: Login,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+  ): Promise<TokenPair> {
+    return this.service.login(dto, clientFromHeaders(headers));
   }
 
   @Post('refresh')
   @Public()
   @HttpCode(200)
-  refresh(@Body(new ZodValidationPipe(RefreshSchema)) dto: Refresh): Promise<TokenPair> {
-    return this.service.refresh(dto);
+  refresh(
+    @Body(new ZodValidationPipe(RefreshSchema)) dto: Refresh,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+  ): Promise<TokenPair> {
+    return this.service.refresh(dto, clientFromHeaders(headers));
   }
 
   @Post('accept-invite')
