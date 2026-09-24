@@ -66,6 +66,7 @@ model User {
   timeEntries     TimeEntry[]
   refreshTokens   RefreshToken[]
   timesheetApprovals TimesheetApproval[]
+  clientInstalls  ClientInstall[]
 
   @@unique([ssoProvider, ssoSubject])
   @@index([teamId, deactivatedAt])
@@ -93,6 +94,22 @@ model RefreshToken {
   @@index([familyId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+/// The desktop app a user last signed in or refreshed from, one row per platform (a person
+/// may run both). Written on login/refresh from the X-Client-* headers, so it says what the
+/// app reported, not what is installed: a user who never opens the app keeps their last row.
+model ClientInstall {
+  id         String   @id @default(uuid(7))
+  userId     String
+  platform   Platform
+  /// Dotted numeric version as the app reported it, e.g. "0.6.1". Validated by Zod on write.
+  version    String
+  lastSeenAt DateTime
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, platform])
+  @@map("client_installs")
 }
 
 model Team {
