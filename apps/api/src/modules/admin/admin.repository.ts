@@ -342,6 +342,15 @@ export class AdminRepository {
 
   /** Keyed by EMAIL, not userId — same table a userId-only sweep would miss. NEVER select
    *  `tokenHash` — it is live session material, not personal data. */
+  /** At most one row per platform, so a single read — no cursor needed. */
+  async *streamClientInstalls(userId: string): AsyncGenerator<unknown> {
+    yield* await this.prisma.clientInstall.findMany({
+      where: { userId },
+      orderBy: { platform: 'asc' },
+      select: { platform: true, version: true, lastSeenAt: true },
+    });
+  }
+
   async *streamInvites(email: string): AsyncGenerator<unknown> {
     let cursor: string | undefined;
     for (;;) {
