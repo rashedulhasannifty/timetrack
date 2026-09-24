@@ -16,6 +16,7 @@ import { RoleSelect } from './RoleSelect';
 import { TeamSelect } from './TeamSelect';
 import { TabPills } from '../../../../components/ui/TabPills';
 import { ClickUpRoster } from './ClickUpRoster';
+import { PendingInvites } from './PendingInvites';
 import { CLICKUP_ROSTER } from './clickup-roster';
 import { buildRosterRows } from './clickup-status';
 
@@ -43,18 +44,22 @@ export default async function AdminUsersPage({
   if (!session) redirect(refreshBackTo('/admin/users'));
   if (session.role !== 'ADMIN') return <Forbidden />;
 
-  const [users, teams] = await Promise.all([
+  const [users, teams, pending] = await Promise.all([
     api.listUsers(session.accessToken),
     api.listTeams(session.accessToken),
+    api.listPendingInvites(session.accessToken),
   ]);
   const activeCount = users.filter((u) => u.deactivatedAt === null).length;
-  // `?tab=clickup` swaps the member list for the ClickUp roster, so the tab survives a reload.
-  const tab = (await searchParams).tab === 'clickup' ? 'clickup' : 'members';
-  const rosterRows = buildRosterRows(CLICKUP_ROSTER, users);
+  // `?tab=` picks the list, so the selected tab survives a reload and can be linked to.
+  const requested = (await searchParams).tab;
+  const tab = requested === 'clickup' || requested === 'pending' ? requested : 'members';
+  const rosterRows = buildRosterRows(CLICKUP_ROSTER, users, pending);
   const tabs = [
     { href: '/admin/users', label: 'Members', count: users.length },
+    { href: '/admin/users?tab=pending', label: 'Pending', count: pending.length },
     { href: '/admin/users?tab=clickup', label: 'ClickUp', count: rosterRows.length },
   ];
+  const activeHref = tabs.find((t) => t.href.endsWith(`tab=${tab}`))?.href ?? tabs[0]!.href;
 
   return (
     <>
@@ -67,15 +72,13 @@ export default async function AdminUsersPage({
             {users.length} users · {activeCount} active · {teams.length}{' '}
             {teams.length === 1 ? 'team' : 'teams'}
           </span>
-          <TabPills
-            tabs={tabs}
-            activeHref={tab === 'clickup' ? tabs[1]!.href : tabs[0]!.href}
-            ariaLabel="User lists"
-          />
+          <TabPills tabs={tabs} activeHref={activeHref} ariaLabel="User lists" />
         </div>
 
         {tab === 'clickup' ? (
           <ClickUpRoster rows={rosterRows} teams={teams} />
+        ) : tab === 'pending' ? (
+          <PendingInvites invites={pending} teams={teams} />
         ) : (
           <>
             <InviteForm teams={teams} />

@@ -24,10 +24,6 @@ const STATUS_BADGE: Record<RosterStatus, { tone: 'neutral' | 'accent' | 'good'; 
  * The ClickUp tab: the workspace's ClickUp members, each with an Invite button, plus checkboxes
  * to invite several at once. Role and team are picked once at the top and apply to every invite
  * sent from here — the usual case is a batch of employees going into one team.
- *
- * "Invited" is remembered only until the page reloads (there is no endpoint listing pending
- * invites). Re-inviting a pending address is harmless: the API refuses it and the row flips to
- * Invited.
  */
 export function ClickUpRoster({ rows, teams }: { rows: RosterRow[]; teams: Team[] }) {
   const [role, setRole] = useState('EMPLOYEE');
@@ -108,17 +104,17 @@ export function ClickUpRoster({ rows, teams }: { rows: RosterRow[]; teams: Team[
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="bg-surface-raised border-separator shadow-e1 flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-end">
-        <label className="text-body flex flex-col gap-1">
-          <span className="text-text-secondary">Invite as</span>
+      <div className="bg-surface-raised border-separator shadow-e1 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border p-3">
+        <label className="text-body inline-flex items-center gap-2">
+          <span className="text-text-secondary whitespace-nowrap">Invite as</span>
           <select value={role} onChange={(e) => setRole(e.target.value)} className={FIELD}>
             <option value="EMPLOYEE">Employee</option>
             <option value="MANAGER">Manager</option>
             <option value="ADMIN">Admin</option>
           </select>
         </label>
-        <label className="text-body flex flex-col gap-1">
-          <span className="text-text-secondary">Into team</span>
+        <label className="text-body inline-flex items-center gap-2">
+          <span className="text-text-secondary whitespace-nowrap">Into team</span>
           <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className={FIELD}>
             {teams.map((t) => (
               <option key={t.id} value={t.id}>
@@ -127,16 +123,14 @@ export function ClickUpRoster({ rows, teams }: { rows: RosterRow[]; teams: Team[
             ))}
           </select>
         </label>
-        <label className="text-body flex flex-1 flex-col gap-1">
-          <span className="text-text-secondary">Search</span>
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Name or email"
-            className={FIELD}
-          />
-        </label>
+        <input
+          type="search"
+          aria-label="Search ClickUp members"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search name or email"
+          className={`${FIELD} min-w-48 flex-1`}
+        />
         <button
           type="button"
           className={buttonClasses('primary')}

@@ -19,6 +19,15 @@ describe('buildRosterRows', () => {
     );
     expect(rows.map((r) => r.status)).toEqual(['has-account', 'not-invited']);
   });
+
+  it('marks an open invite as invited, but an account outranks it', () => {
+    const rows = buildRosterRows(
+      [member('ada@example.com'), member('Bob@Example.com'), member('cy@example.com')],
+      [{ email: 'ada@example.com' }],
+      [{ email: 'ada@example.com' }, { email: 'bob@example.com' }],
+    );
+    expect(rows.map((r) => r.status)).toEqual(['has-account', 'invited', 'not-invited']);
+  });
 });
 
 describe('statusFromInviteError', () => {

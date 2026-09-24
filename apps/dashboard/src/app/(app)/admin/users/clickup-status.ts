@@ -1,10 +1,6 @@
 import type { ClickUpMember } from './clickup-roster';
 
-/**
- * Where a ClickUp member stands here. `invited` is only ever known for this session: there is
- * no endpoint that lists pending invites, so it comes from an invite this page just sent, or
- * from the API refusing a second one because an invite is already pending.
- */
+/** Where a ClickUp member stands here: signed up, holding an open invite, or neither. */
 export type RosterStatus = 'not-invited' | 'invited' | 'has-account';
 
 export interface RosterRow extends ClickUpMember {
@@ -13,16 +9,26 @@ export interface RosterRow extends ClickUpMember {
 
 const norm = (email: string) => email.trim().toLowerCase();
 
-/** Match the roster against existing users by email, ignoring case and stray whitespace. */
+/**
+ * Match the roster against existing users and open invites by email, ignoring case and stray
+ * whitespace. An account wins over an invite: once someone has signed up, that is what matters.
+ */
 export function buildRosterRows(
   roster: readonly ClickUpMember[],
   users: ReadonlyArray<{ email: string }>,
+  pending: ReadonlyArray<{ email: string }> = [],
 ): RosterRow[] {
   const known = new Set(users.map((u) => norm(u.email)));
-  return roster.map((m) => ({
-    ...m,
-    status: known.has(norm(m.email)) ? 'has-account' : 'not-invited',
-  }));
+  const invited = new Set(pending.map((p) => norm(p.email)));
+  return roster.map((m) => {
+    const email = norm(m.email);
+    const status: RosterStatus = known.has(email)
+      ? 'has-account'
+      : invited.has(email)
+        ? 'invited'
+        : 'not-invited';
+    return { ...m, status };
+  });
 }
 
 export interface InviteOutcome {
