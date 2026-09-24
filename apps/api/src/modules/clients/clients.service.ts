@@ -11,10 +11,11 @@ export interface ClientReport {
 }
 
 /**
- * Mac builds released before the app sent X-Client-Version, keyed by CFBundleVersion. They are
- * still identifiable because URLSession's default User-Agent is "<app>/<CFBundleVersion>
- * CFNetwork/… Darwin/…", and every release bumped the build number by one. Frozen: every build
- * after 9 sends the header, so this table never grows.
+ * Mac builds released before the app sent X-Client-Version, keyed by CFBundleVersion (every
+ * release bumped it by one). The app sets no User-Agent of its own, and URLSession's default is
+ * expected to be "<app>/<CFBundleVersion> CFNetwork/… Darwin/…" — not yet confirmed against a
+ * shipped build. If it is not, these users show as "not reported", never as a wrong version.
+ * Frozen: every build after 9 sends the header, so this table never grows.
  */
 const LEGACY_MAC_BUILDS: Readonly<Record<string, string>> = {
   '2': '0.2.0',
