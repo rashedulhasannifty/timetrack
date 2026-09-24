@@ -144,6 +144,33 @@ final class ManualIdleCoordinatorTests: XCTestCase {
                        ISO8601DateFormatter().string(from: openedAt))
     }
 
+    // The monitor stays armed through a Stop, so arming has to be per ENTRY rather than merely
+    // "whenever the monitor is idle". Without that, a Stop-then-Start leaves the NEW span measuring
+    // idleness from when the OLD one armed: someone who stepped away for four minutes, came back,
+    // stopped and started a different project would watch that fresh entry close itself on the very
+    // next tick — the exact failure the arming instant exists to prevent, one level up.
+    func testANewManualSessionIsNotClosedByThePreviousSessionsIdleness() {
+        let (c, tracker, spy, clock, _) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: nil)
+        c.tick(idleSeconds: 0)                          // arms at t0
+
+        clock.advance(240)                              // away for four minutes
+        tracker.stop()
+        tracker.start(projectId: "p2", taskId: nil)     // they stop and start something else
+        let openedAt = clock.now
+
+        clock.advance(60); c.tick(idleSeconds: 300)     // 5 min idle overall, 1 min for THIS span
+        XCTAssertTrue(tracker.isRunning, "a new span measures its own inactivity, not the old one's")
+        XCTAssertEqual(timeEntries(spy).count, 1, "only the span the user stopped is closed")
+
+        // It still times out on its own inactivity, measured from where it re-armed.
+        clock.advance(300); c.tick(idleSeconds: 600)
+        XCTAssertFalse(tracker.isRunning)
+        XCTAssertEqual(timeEntries(spy).count, 2)
+        XCTAssertEqual(timeEntries(spy)[1]["startTime"] as? String,
+                       ISO8601DateFormatter().string(from: openedAt))
+    }
+
     // After a timeout the person restarts when they are ready, and the next session is protected
     // exactly like the first — the monitor re-arms rather than staying spent.
     func testTheNextManualSessionIsProtectedToo() {
