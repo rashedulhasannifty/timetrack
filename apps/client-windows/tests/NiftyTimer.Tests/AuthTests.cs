@@ -1,3 +1,4 @@
+using System.Net.Http;
 using NiftyTimer.Auth;
 using NiftyTimer.Storage;
 using NiftyTimer.Tests.Support;
