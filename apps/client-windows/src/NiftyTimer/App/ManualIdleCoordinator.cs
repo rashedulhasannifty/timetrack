@@ -27,6 +27,12 @@ public sealed class ManualIdleCoordinator : IManualIdleMonitorDelegate, ISignalR
     private readonly Func<DateTimeOffset, string> _idGen;
 
     /// <summary>
+    /// The manual entry the monitor is currently armed for. See <see cref="Route"/> — without it a
+    /// Stop/Start carries the previous session's arming instant into the new span.
+    /// </summary>
+    private string? _armedEntryId;
+
+    /// <summary>
     /// Fired after the timeout has closed the live entry, so the owner can re-read
     /// <see cref="TimeTracker"/>. The tray indicator is driven by <see cref="MenuViewModel"/>,
     /// which cannot see a stop performed directly on the tracker — without this the icon would
@@ -93,25 +99,28 @@ public sealed class ManualIdleCoordinator : IManualIdleMonitorDelegate, ISignalR
         _onTrackingStopped();
     }
 
-    private bool IsManualSessionLive =>
-        _tracker.State is TrackerState.Tracking { Source: TimeTracker.EntrySource.Manual };
-
     /// <summary>
     /// Forward to the monitor only while a manual session is live, arming it lazily on the first
-    /// manual signal. The guard is also what re-arms after a timeout: the timeout disarms the
-    /// monitor and closes the entry, so nothing routes again until the person starts a new manual
-    /// session.
+    /// manual signal. This is also what re-arms after a timeout: the timeout disarms the monitor
+    /// and closes the entry, so nothing routes again until the person starts a new manual session.
+    ///
+    /// Arming is per ENTRY, not merely "whenever the monitor is idle". The monitor stays armed
+    /// through a Stop, so a Stop-then-Start would otherwise leave the NEW span measuring idleness
+    /// from when the OLD one armed — and a person who stepped away for four minutes, came back,
+    /// stopped and started a different project would watch that fresh entry close itself on the
+    /// next tick. That is the very thing the arming instant exists to prevent, one level up.
     /// </summary>
     private void Route(Action forward)
     {
-        if (!IsManualSessionLive)
+        if (_tracker.State is not TrackerState.Tracking { Source: TimeTracker.EntrySource.Manual } tracking)
         {
             return;
         }
 
-        if (_monitor.State is ManualIdleState.Inactive)
+        if (_monitor.State is ManualIdleState.Inactive || _armedEntryId != tracking.EntryId)
         {
             _monitor.Activate();
+            _armedEntryId = tracking.EntryId;
         }
 
         forward();
