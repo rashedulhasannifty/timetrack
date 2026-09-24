@@ -14,6 +14,10 @@ import { InviteForm } from './InviteForm';
 import { UserRowActions } from './UserRowActions';
 import { RoleSelect } from './RoleSelect';
 import { TeamSelect } from './TeamSelect';
+import { TabPills } from '../../../../components/ui/TabPills';
+import { ClickUpRoster } from './ClickUpRoster';
+import { CLICKUP_ROSTER } from './clickup-roster';
+import { buildRosterRows } from './clickup-status';
 
 /**
  * The admin's workforce screen: list everyone, invite new members, assign them to a manager by
@@ -23,7 +27,12 @@ import { TeamSelect } from './TeamSelect';
  * Server Component. For an ADMIN the API returns every user in the deployment, not just their
  * own team — assigning people to managers is impossible from a single-team roster.
  */
-export default async function AdminUsersPage() {
+export default async function AdminUsersPage({
+  searchParams,
+}: {
+  // Next 16 — searchParams is async.
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const session = await getSession();
   // NOT `return null`: the (app) layout's redirect does NOT re-run on a client-side
   // navigation — Next reuses the cached layout segment and re-renders only this page. Once
@@ -39,6 +48,13 @@ export default async function AdminUsersPage() {
     api.listTeams(session.accessToken),
   ]);
   const activeCount = users.filter((u) => u.deactivatedAt === null).length;
+  // `?tab=clickup` swaps the member list for the ClickUp roster, so the tab survives a reload.
+  const tab = (await searchParams).tab === 'clickup' ? 'clickup' : 'members';
+  const rosterRows = buildRosterRows(CLICKUP_ROSTER, users);
+  const tabs = [
+    { href: '/admin/users', label: 'Members', count: users.length },
+    { href: '/admin/users?tab=clickup', label: 'ClickUp', count: rosterRows.length },
+  ];
 
   return (
     <>
@@ -51,71 +67,83 @@ export default async function AdminUsersPage() {
             {users.length} users · {activeCount} active · {teams.length}{' '}
             {teams.length === 1 ? 'team' : 'teams'}
           </span>
+          <TabPills
+            tabs={tabs}
+            activeHref={tab === 'clickup' ? tabs[1]!.href : tabs[0]!.href}
+            ariaLabel="User lists"
+          />
         </div>
-        <InviteForm teams={teams} />
 
-        {users.length === 0 ? (
-          <p className="text-text-secondary text-body">
-            No users yet. Invite your first teammate above.
-          </p>
+        {tab === 'clickup' ? (
+          <ClickUpRoster rows={rosterRows} teams={teams} />
         ) : (
-          <Card padding="none" className="overflow-hidden">
-            <Table>
-              <THead>
-                <Tr>
-                  <Th>Name</Th>
-                  <Th>Email</Th>
-                  <Th>Role</Th>
-                  <Th>Team</Th>
-                  <Th>Monitoring</Th>
-                  <Th>Status</Th>
-                  <Th align="right">Actions</Th>
-                </Tr>
-              </THead>
-              <Tbody>
-                {users.map((u) => {
-                  const deactivated = u.deactivatedAt !== null;
-                  return (
-                    <Tr key={u.id}>
-                      <Td>
-                        <span className="inline-flex items-center gap-2">
-                          <Avatar name={u.name} size={26} />
-                          {u.name}
-                        </span>
-                      </Td>
-                      <Td className="text-text-secondary">{u.email}</Td>
-                      <Td>
-                        <RoleSelect userId={u.id} role={u.role} />
-                      </Td>
-                      <Td>
-                        <TeamSelect
-                          userId={u.id}
-                          userName={u.name}
-                          teamId={u.teamId}
-                          teams={teams}
-                        />
-                      </Td>
-                      <Td className="text-text-secondary">
-                        {u.monitoringAckAt ? (
-                          `Acknowledged ${formatDate(u.monitoringAckAt)}`
-                        ) : (
-                          <span className="text-text-secondary">Not acknowledged</span>
-                        )}
-                      </Td>
-                      <Td>
-                        <Badge tone={deactivated ? 'neutral' : 'good'}>
-                          {deactivated ? 'Deactivated' : 'Active'}
-                        </Badge>
-                      </Td>
-                      <Td align="right">
-                        <UserRowActions userId={u.id} name={u.name} deactivated={deactivated} />
-                      </Td>
+          <>
+            <InviteForm teams={teams} />
+
+            {users.length === 0 ? (
+              <p className="text-text-secondary text-body">
+                No users yet. Invite your first teammate above.
+              </p>
+            ) : (
+              <Card padding="none" className="overflow-hidden">
+                <Table>
+                  <THead>
+                    <Tr>
+                      <Th>Name</Th>
+                      <Th>Email</Th>
+                      <Th>Role</Th>
+                      <Th>Team</Th>
+                      <Th>Monitoring</Th>
+                      <Th>Status</Th>
+                      <Th align="right">Actions</Th>
                     </Tr>
-                  );
-                })}
-              </Tbody>
-            </Table>
-          </Card>
+                  </THead>
+                  <Tbody>
+                    {users.map((u) => {
+                      const deactivated = u.deactivatedAt !== null;
+                      return (
+                        <Tr key={u.id}>
+                          <Td>
+                            <span className="inline-flex items-center gap-2">
+                              <Avatar name={u.name} size={26} />
+                              {u.name}
+                            </span>
+                          </Td>
+                          <Td className="text-text-secondary">{u.email}</Td>
+                          <Td>
+                            <RoleSelect userId={u.id} role={u.role} />
+                          </Td>
+                          <Td>
+                            <TeamSelect
+                              userId={u.id}
+                              userName={u.name}
+                              teamId={u.teamId}
+                              teams={teams}
+                            />
+                          </Td>
+                          <Td className="text-text-secondary">
+                            {u.monitoringAckAt ? (
+                              `Acknowledged ${formatDate(u.monitoringAckAt)}`
+                            ) : (
+                              <span className="text-text-secondary">Not acknowledged</span>
+                            )}
+                          </Td>
+                          <Td>
+                            <Badge tone={deactivated ? 'neutral' : 'good'}>
+                              {deactivated ? 'Deactivated' : 'Active'}
+                            </Badge>
+                          </Td>
+                          <Td align="right">
+                            <UserRowActions userId={u.id} name={u.name} deactivated={deactivated} />
+                          </Td>
+                        </Tr>
+                      );
+                    })}
+                  </Tbody>
+                </Table>
+              </Card>
+            )}
+          </>
         )}
       </div>
     </>
