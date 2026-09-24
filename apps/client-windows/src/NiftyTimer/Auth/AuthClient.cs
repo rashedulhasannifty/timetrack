@@ -2,6 +2,8 @@ using System.Net.Http;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+using NiftyTimer.App;
 
 namespace NiftyTimer.Auth;
 
@@ -51,16 +53,36 @@ public interface IAuthClient
 /// POSTs to <c>{baseUrl}/auth/login</c> and <c>{baseUrl}/auth/refresh</c>. The base URL already
 /// carries <c>/v1</c>.
 /// </summary>
-public sealed class AuthClient : IAuthClient
+public sealed partial class AuthClient : IAuthClient
 {
     private readonly HttpClient _http;
     private readonly Uri _baseUrl;
+    private readonly string? _clientVersion;
 
-    public AuthClient(HttpClient http, Uri baseUrl)
+    /// <param name="clientVersion">
+    /// This build's version, sent as <c>X-Client-Version</c> so an admin can see who needs an
+    /// update. Defaults to <see cref="BuildStamp.Version"/>; null or unparseable sends nothing.
+    /// </param>
+    public AuthClient(HttpClient http, Uri baseUrl, string? clientVersion = null)
     {
         _http = http;
         _baseUrl = baseUrl;
+        _clientVersion = ReportableVersion(clientVersion ?? BuildStamp.Version);
     }
+
+    /// <summary>
+    /// "0.2.1-pilot" → "0.2.1". The API accepts dotted numbers only and ignores anything else,
+    /// so a suffix is dropped here rather than costing the report entirely.
+    /// </summary>
+    internal static string? ReportableVersion(string? raw)
+    {
+        if (raw is null) return null;
+        var m = LeadingVersion().Match(raw.Trim());
+        return m.Success ? m.Value : null;
+    }
+
+    [GeneratedRegex(@"^\d{1,4}(\.\d{1,4}){0,3}(?=$|[-+])")]
+    private static partial Regex LeadingVersion();
 
     public Task<TokenPair> LoginAsync(string email, string password, CancellationToken cancellationToken = default) =>
         PostAsync(
@@ -85,9 +107,18 @@ public sealed class AuthClient : IAuthClient
         HttpResponseMessage response;
         try
         {
-            response = await _http
-                .PostAsJsonAsync(new Uri(_baseUrl, path), body, cancellationToken)
-                .ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(_baseUrl, path))
+            {
+                Content = JsonContent.Create(body),
+            };
+            if (_clientVersion is not null)
+            {
+                // Identity only — platform and version, never anything about the person or device.
+                request.Headers.Add("X-Client-Platform", "WINDOWS");
+                request.Headers.Add("X-Client-Version", _clientVersion);
+            }
+
+            response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
         {
