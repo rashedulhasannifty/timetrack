@@ -5,6 +5,7 @@ import {
   statusBadge,
   selfApprovals,
   wasAutoDecided,
+  longEntryNotice,
 } from './approvals-view.js';
 import type { TimesheetApproval } from '@timetrack/contracts';
 
@@ -54,6 +55,7 @@ describe('approvals-view', () => {
       status: 'PENDING',
       trackedSeconds: 0,
       totalSeconds: null,
+      longEntrySeconds: null,
       reviewerId: null,
       note: null,
       decidedAt: null,
@@ -62,5 +64,31 @@ describe('approvals-view', () => {
     expect(selfApprovals(rows, 'me')!.map((r) => r.id)).toEqual(['a', 'c']);
     expect(selfApprovals([], 'me')).toEqual([]);
     expect(selfApprovals(null, 'me')).toBeNull(); // a failed fetch is passed through unchanged
+  });
+});
+
+describe('longEntryNotice', () => {
+  // The rule is a null check, not a comparison. The server owns LONG_ENTRY_SECONDS and sends the
+  // length only when it qualifies, so nothing here re-derives the threshold.
+  it('says nothing when the week holds no unusually long entry', () => {
+    expect(longEntryNotice({ longEntrySeconds: null })).toBeNull();
+  });
+
+  it('names the length so a manager knows what they are looking for', () => {
+    // 700 minutes — the day that started all this.
+    const notice = longEntryNotice({ longEntrySeconds: 700 * 60 });
+
+    expect(notice).not.toBeNull();
+    expect(notice!.hours).toBe('11.7h');
+    expect(notice!.label).toBe('11.7h entry');
+  });
+
+  // The tooltip has to say why it matters, or it reads as trivia next to a number that already
+  // looks large. Approving pins totalSeconds, which is what makes this the last chance.
+  it('explains that approving pins the total', () => {
+    const notice = longEntryNotice({ longEntrySeconds: 11 * 3600 });
+
+    expect(notice!.title).toContain('11.0h');
+    expect(notice!.title).toContain('approving pins the total');
   });
 });

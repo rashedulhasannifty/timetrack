@@ -10,6 +10,7 @@ const row = {
   status: 'PENDING',
   trackedSeconds: 5400,
   totalSeconds: null,
+  longEntrySeconds: null,
   reviewerId: null,
   note: null,
   decidedAt: null,
@@ -32,6 +33,18 @@ describe('TimesheetApprovalSchema', () => {
   });
   it('rejects a negative trackedSeconds', () => {
     expect(() => TimesheetApprovalSchema.parse({ ...row, trackedSeconds: -1 })).toThrow();
+  });
+  // null is the ordinary case and means "nothing in this week is unusual"; a number means the
+  // server decided it was worth showing. Both have to parse.
+  it('accepts a flagged long entry alongside a null one', () => {
+    const flagged = { ...row, longEntrySeconds: 700 * 60 };
+    expect(TimesheetApprovalSchema.parse(flagged)).toEqual(flagged);
+  });
+  // Zero would mean "a long entry of no length" — the absence of one is spelled null, and
+  // allowing both would give the dashboard two ways to say nothing.
+  it('rejects a zero or negative longEntrySeconds', () => {
+    expect(() => TimesheetApprovalSchema.parse({ ...row, longEntrySeconds: 0 })).toThrow();
+    expect(() => TimesheetApprovalSchema.parse({ ...row, longEntrySeconds: -1 })).toThrow();
   });
 });
 

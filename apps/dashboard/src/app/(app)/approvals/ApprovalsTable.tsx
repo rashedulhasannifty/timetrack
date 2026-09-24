@@ -8,7 +8,13 @@ import { buttonClasses } from '../../../components/ui/Button';
 import { Card } from '../../../components/ui/Card';
 import { Drawer } from '../../../components/ui/Drawer';
 import { Table, THead, Tbody, Tr, Th, Td } from '../../../components/ui/Table';
-import { formatHours, statusBadge, wasAutoDecided, weekLabel } from '../../../lib/approvals-view';
+import {
+  formatHours,
+  longEntryNotice,
+  statusBadge,
+  wasAutoDecided,
+  weekLabel,
+} from '../../../lib/approvals-view';
 import { toApprovalDetail } from '../../../lib/approvals-drawer-view';
 import { startedOnInteractive } from '../../../lib/row-click';
 import { DecideForm } from './DecideForm';
@@ -51,6 +57,9 @@ export function ApprovalsTable({ rows }: { rows: TimesheetApproval[] }) {
           <Tbody>
             {rows.map((row) => {
               const badge = statusBadge(row.status);
+              // A week can hold one entry nobody stopped and still show an unremarkable total,
+              // so the warning rides next to the hours rather than replacing the status.
+              const longEntry = longEntryNotice(row);
               return (
                 <Tr
                   key={row.id}
@@ -74,7 +83,14 @@ export function ApprovalsTable({ rows }: { rows: TimesheetApproval[] }) {
                   </Td>
                   <Td className="text-text-secondary tt-numeric">{weekLabel(row.periodStart)}</Td>
                   <Td align="right" className="font-bold">
-                    {formatHours(row.totalSeconds ?? row.trackedSeconds)}
+                    <span className="inline-flex items-center gap-2">
+                      {longEntry ? (
+                        <span title={longEntry.title}>
+                          <Badge tone="warning">{longEntry.label}</Badge>
+                        </span>
+                      ) : null}
+                      {formatHours(row.totalSeconds ?? row.trackedSeconds)}
+                    </span>
                   </Td>
                   <Td>
                     <span className="inline-flex items-center gap-2">
@@ -142,6 +158,14 @@ export function ApprovalsTable({ rows }: { rows: TimesheetApproval[] }) {
                       row too, and that badge already says whether it was an approval. */}
                   <span className="text-text-secondary text-caption">Decided as</span>{' '}
                   <span className="font-bold">{detail.decidedHours}</span>
+                </div>
+              ) : null}
+              {detail.longEntry ? (
+                <div
+                  className="text-category-unproductive text-caption"
+                  title={detail.longEntry.title}
+                >
+                  Longest entry {detail.longEntry.hours} — check before approving
                 </div>
               ) : null}
               {detail.driftSeconds !== null ? (

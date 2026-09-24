@@ -50,6 +50,32 @@ export function wasAutoDecided(row: Pick<TimesheetApproval, 'status' | 'reviewer
   return row.status !== 'PENDING' && row.reviewerId === null;
 }
 
+/**
+ * The one-line warning for a week containing an unusually long single entry, or null when there
+ * is nothing to say.
+ *
+ * The rule is a null check, not a comparison: the server decides what counts as long
+ * (`LONG_ENTRY_SECONDS`) and sends the length only when it qualifies. Re-deriving the threshold
+ * here would be a second copy of a number that must not drift.
+ *
+ * Why it is worth a manager's attention at all: a timer someone forgot to stop disappears into a
+ * weekly total — 47 hours looks like a busy week until you see that 11 of them are one entry.
+ * Approving pins `totalSeconds`, so this is the last moment to catch it.
+ */
+export function longEntryNotice(
+  row: Pick<TimesheetApproval, 'longEntrySeconds'>,
+): { hours: string; label: string; title: string } | null {
+  if (row.longEntrySeconds === null) return null;
+  const hours = formatHours(row.longEntrySeconds);
+  return {
+    hours,
+    label: `${hours} entry`,
+    title:
+      `One entry in this week runs ${hours}. That is usually a timer nobody stopped rather than ` +
+      `a day someone worked — check it before approving, because approving pins the total.`,
+  };
+}
+
 export function statusBadge(status: ApprovalStatus): {
   label: string;
   tone: 'neutral' | 'positive' | 'warning';

@@ -1,6 +1,12 @@
 import { clockOf, dayOf } from '@timetrack/contracts';
 import type { TimesheetApproval } from '@timetrack/contracts';
-import { formatHours, statusBadge, wasAutoDecided, weekLabel } from './approvals-view';
+import {
+  formatHours,
+  longEntryNotice,
+  statusBadge,
+  wasAutoDecided,
+  weekLabel,
+} from './approvals-view';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -25,6 +31,8 @@ export interface ApprovalDetail {
    * agree, so the drawer only calls out drift that is actually there.
    */
   driftSeconds: number | null;
+  /** See `longEntryNotice` — null when nothing in the week is unusually long. */
+  longEntry: ReturnType<typeof longEntryNotice>;
   decidedAtLabel: string | null;
   note: string | null;
   /** The person's day view on the week's first day; the week strip there covers the rest. */
@@ -56,6 +64,7 @@ export function toApprovalDetail(row: TimesheetApproval, _now: Date = new Date()
     trackedHours: formatHours(row.trackedSeconds),
     decidedHours: row.totalSeconds !== null ? formatHours(row.totalSeconds) : null,
     driftSeconds,
+    longEntry: longEntryNotice(row),
     decidedAtLabel: row.decidedAt !== null ? formatDecidedAt(row.decidedAt) : null,
     note: row.note,
     weekHref: `/people/${row.userId}?date=${weekStartDay}`,

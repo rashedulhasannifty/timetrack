@@ -13,6 +13,7 @@ const row = (over: Partial<TimesheetApproval> = {}): TimesheetApproval => ({
   status: 'PENDING',
   trackedSeconds: 3600,
   totalSeconds: null,
+  longEntrySeconds: null,
   reviewerId: null,
   note: null,
   decidedAt: null,
