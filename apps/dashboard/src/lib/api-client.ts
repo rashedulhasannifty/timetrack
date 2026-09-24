@@ -21,6 +21,8 @@ import {
   type Task,
   type CreateTask,
   UserSchema,
+  ClientInstallSchema,
+  type ClientInstall,
   type User,
   TeamSchema,
   TeamListSchema,
@@ -269,6 +271,8 @@ export const api = {
     return get(`/projects${qs ? `?${qs}` : ''}`, z.array(ProjectSchema), token);
   },
   listUsers: (token: string): Promise<User[]> => get('/users', z.array(UserSchema), token),
+  listClientInstalls: (token: string): Promise<ClientInstall[]> =>
+    get('/clients', z.array(ClientInstallSchema), token),
   getCurrentUser: (token: string): Promise<User> => get('/users/me', UserSchema, token),
   getCurrentTeam: (token: string): Promise<Team> => get('/teams/current', TeamSchema, token),
   /** ADMIN-only. Backs the team pickers on the admin users page and the Teams surface. */

@@ -14,6 +14,9 @@ import { InviteForm } from './InviteForm';
 import { UserRowActions } from './UserRowActions';
 import { RoleSelect } from './RoleSelect';
 import { TeamSelect } from './TeamSelect';
+import { AppVersionCell } from './AppVersionCell';
+import { fetchLatestReleases } from '../../../../lib/client-releases';
+import { installsByUser } from '../../../../lib/client-version';
 
 /**
  * The admin's workforce screen: list everyone, invite new members, assign them to a manager by
@@ -34,10 +37,13 @@ export default async function AdminUsersPage() {
   if (!session) redirect(refreshBackTo('/admin/users'));
   if (session.role !== 'ADMIN') return <Forbidden />;
 
-  const [users, teams] = await Promise.all([
+  const [users, teams, installs, latest] = await Promise.all([
     api.listUsers(session.accessToken),
     api.listTeams(session.accessToken),
+    api.listClientInstalls(session.accessToken),
+    fetchLatestReleases(),
   ]);
+  const appsByUser = installsByUser(installs, latest, new Date());
   const activeCount = users.filter((u) => u.deactivatedAt === null).length;
 
   return (
@@ -68,6 +74,7 @@ export default async function AdminUsersPage() {
                   <Th>Role</Th>
                   <Th>Team</Th>
                   <Th>Monitoring</Th>
+                  <Th>App</Th>
                   <Th>Status</Th>
                   <Th align="right">Actions</Th>
                 </Tr>
@@ -101,6 +108,9 @@ export default async function AdminUsersPage() {
                         ) : (
                           <span className="text-text-secondary">Not acknowledged</span>
                         )}
+                      </Td>
+                      <Td>
+                        <AppVersionCell installs={appsByUser.get(u.id) ?? []} />
                       </Td>
                       <Td>
                         <Badge tone={deactivated ? 'neutral' : 'good'}>
