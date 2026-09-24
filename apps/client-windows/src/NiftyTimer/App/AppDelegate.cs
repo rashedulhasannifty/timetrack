@@ -38,6 +38,13 @@ public sealed class AppDelegate : IDisposable
     private const int ForgotToStartSeconds = 600;
 
     /// <summary>
+    /// How long a single manual entry may stay open before <see cref="ManualSessionCap"/> closes
+    /// it. Twelve hours is past any real working day, so it cannot cut a normal session short, and
+    /// it is well under the overnight-and-into-tomorrow spans this exists to stop.
+    /// </summary>
+    private const int ManualSessionCapSeconds = 12 * 60 * 60;
+
+    /// <summary>
     /// The UI dispatcher, captured at construction — i.e. on the UI thread. Read directly rather
     /// than through <c>Application.Current.Dispatcher</c> so it stays correct from a background
     /// continuation, where <c>Application.Current</c> is fine but the intent is easy to lose.
@@ -94,6 +101,7 @@ public sealed class AppDelegate : IDisposable
     private SessionObserver? _sessionObserver;
     private AutoTrackingCoordinator? _autoCoordinator;
     private ManualIdleCoordinator? _manualIdleCoordinator;
+    private ManualSessionCap? _manualSessionCap;
     private bool _hasAttemptedRecovery;
 
     // The capture SUBSYSTEMS, by contrast, are null until the gated branch installs them — and
@@ -848,11 +856,40 @@ public sealed class AppDelegate : IDisposable
         RefreshPendingCount();
         UpdateTray();
 
+        // The backstop under a forgotten manual timer. Installed HERE, not with idle detection:
+        // BecomeReady runs on both ready paths, so the cap is present even on a launch where the
+        // policy fetch never succeeds and no idle detection is installed at all — which is the
+        // only situation in which it can ever fire. It reads no input, so it is safe on the
+        // offline branch (CLAUDE.md §1) and is deliberately not one of the installers
+        // OfflineCaptureUnreachableTests forbids there. See ManualSessionCap.
+        InstallManualSessionCap();
+
         // After the userId is known, and before the person can start anything new.
         RecoverLiveSpanIfNeeded();
 
         _ = RefreshProjectsAsync();
         _ = RefreshTotalsAsync();
+    }
+
+    /// <summary>
+    /// Install the manual-session cap. Separate from <see cref="BecomeReady"/> so the wiring guard
+    /// has a named method to assert on, and idempotent because sign-out resets
+    /// <c>_hasBecomeReady</c> and the next user runs BecomeReady again. The cap holds no per-user
+    /// state — it reads whichever manual entry is live — so it is not torn down between users.
+    /// </summary>
+    private void InstallManualSessionCap()
+    {
+        if (_manualSessionCap is not null)
+        {
+            return;
+        }
+
+        var cap = new ManualSessionCap(
+            _tracker,
+            ManualSessionCapSeconds,
+            onTrackingStopped: () => _viewModel.RefreshFromTracker());
+        cap.Start(_dispatcher);
+        _manualSessionCap = cap;
     }
 
     private void ShowLogin()
