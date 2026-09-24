@@ -72,8 +72,22 @@ export const InviteResultSchema = z.object({
   devToken: z.string().optional(),
 });
 
+/**
+ * An invite that is still open: not yet accepted and not expired. Response element of
+ * GET /v1/users/invites. The token (and its hash) is never part of this — it is a bearer secret.
+ */
+export const PendingInviteSchema = z.object({
+  id: z.uuid(),
+  email: z.email(),
+  role: Role,
+  teamId: z.uuid(),
+  createdAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
+});
+
 export type User = z.infer<typeof UserSchema>;
 export type InviteUser = z.infer<typeof InviteUserSchema>;
 export type AckMonitoring = z.infer<typeof AckMonitoringSchema>;
 export type UpdateUser = z.infer<typeof UpdateUserSchema>;
 export type InviteResult = z.infer<typeof InviteResultSchema>;
+export type PendingInvite = z.infer<typeof PendingInviteSchema>;
