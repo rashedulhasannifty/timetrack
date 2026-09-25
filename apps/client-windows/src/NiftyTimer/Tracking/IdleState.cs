@@ -17,9 +17,13 @@ public static class AwayMinutes
 }
 
 /// <summary>
-/// The state shared by <see cref="IdleMonitor"/> and <see cref="ManualIdleMonitor"/>. Closed
-/// hierarchy — no other cases exist. Records, so equality is by value and tests can assert on
-/// state directly.
+/// <see cref="IdleMonitor"/>'s state. Closed hierarchy — no other cases exist. Records, so
+/// equality is by value and tests can assert on state directly.
+///
+/// AUTO tracking only. The manual monitor used to share this and has its own two-case
+/// <see cref="ManualIdleState"/> now: the away/awaiting pair exists to hold a window open until
+/// the user answers a keep/discard prompt, and a manual session has no prompt to answer — policy
+/// closes the entry instead.
 ///
 /// <c>Away</c> means input demonstrably stopped at <c>Since</c>; <c>Awaiting</c> means the person
 /// came back at <c>Until</c> and the keep/discard question is outstanding.

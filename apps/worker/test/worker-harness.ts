@@ -18,8 +18,17 @@ export async function startWorkerEnv(): Promise<WorkerTestEnv> {
     stdio: 'inherit',
   });
 
-  // Docker Hub's minio/minio is gone; MinIO's official image lives on quay.io.
-  const minio = await new MinioContainer('quay.io/minio/minio:latest').start();
+  // MinIO's own images are no longer pullable anonymously: Docker Hub's minio/minio went first,
+  // then quay.io/minio/minio started answering 401 on 2026-09-25 and took CI red on main. This is
+  // Chainguard's build of the real MinIO server, which is a drop-in — its entrypoint is
+  // /usr/bin/minio with no CMD, so the `server --console-address :9001 /data` that MinioContainer
+  // appends lands exactly as it did before.
+  //
+  // Deliberately NOT digest-pinned. Chainguard's free tier publishes only `:latest` and garbage
+  // collects superseded digests, so a pin here would rot into an unpullable reference — the very
+  // failure this is fixing. Note that pinning would not have helped anyway: what broke was the
+  // whole repository going private, not a tag moving.
+  const minio = await new MinioContainer('chainguard/minio:latest').start();
   process.env.S3_ENDPOINT = minio.getConnectionUrl();
   process.env.S3_REGION = 'us-east-1';
   process.env.S3_ACCESS_KEY = minio.getUsername();

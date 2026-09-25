@@ -13,6 +13,7 @@ const row = (over: Partial<TimesheetApproval> = {}): TimesheetApproval => ({
   status: 'PENDING',
   trackedSeconds: 3600,
   totalSeconds: null,
+  longEntrySeconds: null,
   reviewerId: null,
   note: null,
   decidedAt: null,
@@ -60,6 +61,28 @@ describe('ApprovalsTable (closed state)', () => {
       </ToastProvider>,
     );
     expect(html).toContain('automatically');
+  });
+
+  // The forgotten-timer flag. It rides next to the HOURS rather than replacing the status,
+  // because a week can hold one runaway entry and still show an unremarkable total.
+  it('badges a week whose longest entry ran past the threshold', () => {
+    const html = renderToStaticMarkup(
+      <ToastProvider>
+        <ApprovalsTable rows={[row({ longEntrySeconds: 700 * 60 })]} />
+      </ToastProvider>,
+    );
+    expect(html).toContain('11.7h entry');
+    // The badge has to say why it matters — on its own it is just a second number.
+    expect(html).toContain('approving pins the total');
+  });
+
+  it('says nothing about long entries on an ordinary week', () => {
+    const html = renderToStaticMarkup(
+      <ToastProvider>
+        <ApprovalsTable rows={[row({ longEntrySeconds: null })]} />
+      </ToastProvider>,
+    );
+    expect(html).not.toContain('entry');
   });
 
   it("renders each row's own Decide control", () => {

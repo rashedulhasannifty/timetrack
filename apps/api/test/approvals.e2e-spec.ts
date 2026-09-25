@@ -150,6 +150,77 @@ describe.runIf(RUN_E2E)('approvals repository (real Postgres)', () => {
     expect(rows[0]!.status).toBe('PENDING');
   });
 
+  // The forgotten-timer flag. A week's TOTAL hides a single runaway entry — a scatter of normal
+  // days adds up the same way — so the row carries the longest entry separately.
+  it('reports no long entry for an ordinary week', async () => {
+    const t = await team();
+    const ada = await user(t.id, 'Ada', 'ada@example.com');
+    await approval(ada.id);
+    // Four nine-hour days: 36h in the week, and nothing in it worth a second look.
+    for (const [i, day] of ['06-30', '07-01', '07-02', '07-03'].entries()) {
+      await entry(
+        ada.id,
+        `019797a0-0000-7000-8000-00000000c00${i}`,
+        `2026-${day}T03:00:00Z`,
+        `2026-${day}T12:00:00Z`,
+      );
+    }
+    const rows = await repo().list({ kind: 'user', userId: ada.id });
+    expect(rows[0]!.trackedSeconds).toBe(4 * 9 * 3600);
+    expect(rows[0]!.longEntrySeconds).toBeNull();
+  });
+
+  it('reports the longest entry when one runs past the threshold', async () => {
+    const t = await team();
+    const ada = await user(t.id, 'Ada', 'ada@example.com');
+    await approval(ada.id);
+    await entry(
+      ada.id,
+      '019797a0-0000-7000-8000-00000000c101',
+      '2026-06-30T09:00:00Z',
+      '2026-06-30T10:30:00Z',
+    ); // an ordinary 1.5h entry
+    await entry(
+      ada.id,
+      '019797a0-0000-7000-8000-00000000c102',
+      '2026-07-01T03:00:00Z',
+      '2026-07-01T14:40:00Z',
+    ); // 700 minutes — the day that started all this
+    const rows = await repo().list({ kind: 'user', userId: ada.id });
+    // The LONGEST, not the sum: it is the single entry that needs looking at.
+    expect(rows[0]!.longEntrySeconds).toBe(700 * 60);
+  });
+
+  // Exactly at the threshold is not over it. A flag that fires on a clean ten-hour day is noise,
+  // and noise is what makes managers stop reading flags.
+  it('does not flag an entry sitting exactly on the threshold', async () => {
+    const t = await team();
+    const ada = await user(t.id, 'Ada', 'ada@example.com');
+    await approval(ada.id);
+    await entry(
+      ada.id,
+      '019797a0-0000-7000-8000-00000000c201',
+      '2026-06-30T00:00:00Z',
+      '2026-06-30T10:00:00Z',
+    ); // exactly 10h
+    const rows = await repo().list({ kind: 'user', userId: ada.id });
+    expect(rows[0]!.longEntrySeconds).toBeNull();
+  });
+
+  // The number a manager sees has to be a slice of the number they are approving. A stranded
+  // open row is clamped to its heartbeat for the total, so it must be clamped here too —
+  // otherwise a crashed client flags a week for hours the week does not contain.
+  it('clamps a stranded open entry before judging its length', async () => {
+    const t = await team();
+    const ada = await user(t.id, 'Ada', 'ada@example.com');
+    await approval(ada.id);
+    await strandedOpenEntry(ada.id, '019797a0-0000-7000-8000-00000000c301', '2026-06-30T00:00:00Z');
+    const rows = await repo().list({ kind: 'user', userId: ada.id });
+    // 60s of heartbeat + the freshness window — nowhere near ten hours, despite the row still
+    // being open days later.
+    expect(rows[0]!.longEntrySeconds).toBeNull();
+  });
+
   it('team scope includes only that team; all scope spans teams', async () => {
     const t1 = await team();
     const t2 = await team();

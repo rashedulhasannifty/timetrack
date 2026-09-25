@@ -18,6 +18,8 @@ final class ManualIdleCoordinator: ManualIdleMonitorDelegate, AutoTrackingSignal
     /// directly on the tracker — without this the icon would keep reporting a session that ended.
     /// Defaulted so the call sites and tests that don't care need no change.
     private let onTrackingStopped: () -> Void
+    /// The manual entry the monitor is currently armed for. See `route`.
+    private var armedEntryId: String?
 
     init(
         tracker: TimeTracker,
@@ -48,18 +50,22 @@ final class ManualIdleCoordinator: ManualIdleMonitorDelegate, AutoTrackingSignal
     func resume() {}
 
     /// Forward to the monitor only while a `.manual` session is live, arming it lazily on the
-    /// first manual signal. The guard is also what re-arms after a timeout: the timeout disarms
-    /// the monitor and closes the entry, so nothing routes again until the person starts a new
-    /// manual session.
+    /// first manual signal. This is also what re-arms after a timeout: the timeout disarms the
+    /// monitor and closes the entry, so nothing routes again until the person starts a new manual
+    /// session.
+    ///
+    /// Arming is per ENTRY, not merely "whenever the monitor is idle". The monitor stays armed
+    /// through a Stop, so a Stop-then-Start would otherwise leave the NEW span measuring idleness
+    /// from where the OLD one armed — and someone who stepped away for four minutes, came back,
+    /// stopped and started a different project would watch that fresh entry close itself on the
+    /// very next tick. That is exactly what `armedAt` exists to prevent, one level up.
     private func route(_ forward: () -> Void) {
-        guard isManualSessionLive else { return }
-        if monitor.state == .inactive { monitor.activate() }
+        guard case .tracking(let entryId, _, _, .manual) = tracker.state else { return }
+        if monitor.state == .inactive || armedEntryId != entryId {
+            monitor.activate()
+            armedEntryId = entryId
+        }
         forward()
-    }
-
-    private var isManualSessionLive: Bool {
-        if case .tracking(_, _, _, .manual) = tracker.state { return true }
-        return false
     }
 
     // MARK: ManualIdleMonitorDelegate

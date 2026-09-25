@@ -100,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notifier: LocalNotifying?
     private var dailyTotal: DailyTotalAccumulator?
     private var endOfDayScheduler: EndOfDayScheduler?
+    private var manualSessionCap: ManualSessionCap?
     private var manualNudgeMonitor: ManualNudgeMonitor?
     private var distractionMonitor: DistractionMonitor?
     /// The admin-editable slice of the team policy, refreshed by AckGate on every capture cycle.
@@ -107,6 +108,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dailyDistraction: DailyDistractionAccumulator?
     private let endOfDayHour = 18
     private let forgotToStartMinutes = 10
+    /// How long a single manual entry may stay open before `ManualSessionCap` closes it. Twelve
+    /// hours is past any real working day, so it cannot cut a normal session short, and it is well
+    /// under the overnight-and-into-tomorrow spans this exists to stop.
+    private let manualSessionCapHours = 12
     // 60s sampler window ⇒ a threshold in minutes == a consecutive-sample count (see
     // ActivitySampler). Whether the nudge runs at all, after how many unproductive minutes, and how
     // often it repeats are ALL team policy (`settings.distractionAlertsEnabled` /
@@ -601,6 +606,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Read per tick: an admin toggling alerts, or moving the threshold, applies to a
             // running client on its next sample.
             notifier: distractionNotifier, settings: { [livePolicy] in livePolicy.current.distraction })
+
+        // The backstop under a forgotten manual timer. Installed HERE, not with idle detection:
+        // `installNudgeInfra` runs on both ready paths, so the cap is present even on a launch
+        // where the policy fetch never succeeds and no idle detection is installed at all — which
+        // is the only situation in which it can ever fire. It reads no input, so it is safe on
+        // the offline branch (CLAUDE.md §1); see `ManualSessionCap`.
+        let cap = ManualSessionCap(
+            tracker: timeTracker,
+            maxSeconds: manualSessionCapHours * 3600,
+            onTrackingStopped: { [weak self] in self?.menuViewModel.refreshFromTracker() })
+        self.manualSessionCap = cap
+        cap.start()
 
         let scheduler = EndOfDayScheduler(
             hour: endOfDayHour, notifier: notifier,

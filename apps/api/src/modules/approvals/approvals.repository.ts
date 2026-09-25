@@ -18,6 +18,7 @@ interface RawRow {
   status: ApprovalStatus;
   trackedSeconds: number | bigint;
   totalSeconds: number | bigint | null;
+  longestEntrySeconds: number | bigint;
   reviewerId: string | null;
   note: string | null;
   decidedAt: Date | string | null;
@@ -84,6 +85,61 @@ const MERGED_PERIOD_SECONDS = (
   ), 0)`;
 
 /**
+ * How long a single entry has to be before a manager is told about it.
+ *
+ * Ten hours, chosen against the two ends it sits between. Below: a real working day, even a long
+ * one, is rarely one unbroken entry — people switch projects — so this does not cry wolf. Above:
+ * `ManualSessionCap` closes a manual entry at twelve hours, and a flag that only fired at twelve
+ * would miss everything the clients already handle and nothing else. Ten leaves a window where
+ * the flag is the only thing that will notice.
+ *
+ * A server-side constant on purpose, not a team setting: a setting means a schema change, a
+ * migration and a partial-update path, to configure a number whose whole job is to be a
+ * conservative "look at this".
+ */
+export const LONG_ENTRY_SECONDS = 10 * 60 * 60;
+
+/**
+ * The longest single entry the user has in the period, in seconds, or 0 when they have none.
+ *
+ * Deliberately the CLIPPED span — the same `[from, to]` window and the same `ENTRY_END` freshness
+ * treatment the period total uses. The number a manager sees must be a slice of the number they
+ * are approving; reporting an entry's untruncated length would flag a week for time that week
+ * does not contain.
+ *
+ * `MAX` and not `SUM`: one 11-hour entry is the thing worth looking at, and it is invisible in a
+ * weekly total that a scatter of normal days could equally produce.
+ */
+const LONGEST_ENTRY_SECONDS = (
+  fromCol: Prisma.Sql,
+  toCol: Prisma.Sql,
+  userCol: Prisma.Sql,
+  freshnessSeconds: number,
+): Prisma.Sql => Prisma.sql`
+  COALESCE((
+    SELECT MAX(EXTRACT(EPOCH FROM (upper(s.span) - lower(s.span))))
+    FROM time_entries te
+    -- The span is built ONCE in a lateral, not inlined into both upper() and lower(). Every
+    -- interpolation in a Prisma raw template is a NEW positional parameter, so writing it twice
+    -- would send the whole clipped-span expression's parameters twice over.
+    CROSS JOIN LATERAL (SELECT ${CLIPPED_SPAN(fromCol, toCol, freshnessSeconds)} AS span) s
+    WHERE te."userId" = ${userCol}
+      AND te."startTime" < ${toCol}
+      AND ${ENTRY_END(freshnessSeconds)} > ${fromCol}
+      AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+  ), 0)`;
+
+/**
+ * Below the threshold there is nothing to say, and saying "9.2 hours" about a normal long day
+ * would train managers to ignore the field. Rounded down to whole seconds, like every other
+ * duration on this row.
+ */
+function longEntryOrNull(seconds: number): number | null {
+  const whole = Math.floor(seconds);
+  return whole > LONG_ENTRY_SECONDS ? whole : null;
+}
+
+/**
  * CLAUDE.md §3 — Prisma lives HERE. `list`/`getOne` share one SELECT projection
  * (live trackedSeconds via a correlated subquery); only the WHERE predicate differs
  * between a scoped/status-filtered list and a single-row lookup by id.
@@ -119,6 +175,11 @@ export class ApprovalsRepository {
       status: r.status,
       trackedSeconds: Number(r.trackedSeconds),
       totalSeconds: r.totalSeconds === null ? null : Number(r.totalSeconds),
+      // The threshold is applied HERE rather than in SQL so the query stays one shape and the
+      // constant has exactly one home. Below the threshold the field is null — "nothing unusual"
+      // — which is what makes the dashboard's rule a null check rather than a second copy of the
+      // number.
+      longEntrySeconds: longEntryOrNull(Number(r.longestEntrySeconds)),
       reviewerId: r.reviewerId,
       note: r.note,
       decidedAt: r.decidedAt === null ? null : new Date(r.decidedAt).toISOString(),
@@ -137,7 +198,13 @@ export class ApprovalsRepository {
                Prisma.sql`ta."periodEnd"`,
                Prisma.sql`ta."userId"`,
                this.trackingFreshnessSeconds,
-             )})::int AS "trackedSeconds"
+             )})::int AS "trackedSeconds",
+             FLOOR(${LONGEST_ENTRY_SECONDS(
+               Prisma.sql`ta."periodStart"`,
+               Prisma.sql`ta."periodEnd"`,
+               Prisma.sql`ta."userId"`,
+               this.trackingFreshnessSeconds,
+             )})::int AS "longestEntrySeconds"
       FROM timesheet_approvals ta
       JOIN users u ON u.id = ta."userId"
       WHERE ${whereSql}
