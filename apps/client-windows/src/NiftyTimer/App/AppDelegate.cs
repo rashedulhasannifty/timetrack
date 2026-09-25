@@ -38,6 +38,13 @@ public sealed class AppDelegate : IDisposable
     private const int ForgotToStartSeconds = 600;
 
     /// <summary>
+    /// How long a single manual entry may stay open before <see cref="ManualSessionCap"/> closes
+    /// it. Twelve hours is past any real working day, so it cannot cut a normal session short, and
+    /// it is well under the overnight-and-into-tomorrow spans this exists to stop.
+    /// </summary>
+    private const int ManualSessionCapSeconds = 12 * 60 * 60;
+
+    /// <summary>
     /// The UI dispatcher, captured at construction — i.e. on the UI thread. Read directly rather
     /// than through <c>Application.Current.Dispatcher</c> so it stays correct from a background
     /// continuation, where <c>Application.Current</c> is fine but the intent is easy to lose.
@@ -94,6 +101,7 @@ public sealed class AppDelegate : IDisposable
     private SessionObserver? _sessionObserver;
     private AutoTrackingCoordinator? _autoCoordinator;
     private ManualIdleCoordinator? _manualIdleCoordinator;
+    private ManualSessionCap? _manualSessionCap;
     private bool _hasAttemptedRecovery;
 
     // The capture SUBSYSTEMS, by contrast, are null until the gated branch installs them — and
@@ -695,15 +703,15 @@ public sealed class AppDelegate : IDisposable
         var thresholdSeconds = Math.Max(60, settings.IdleThresholdMinutes * 60);
 
         // The manual coordinator exists in BOTH modes. Someone in auto mode can still start a span
-        // by hand, and that span needs the same away prompt — the auto layer deliberately stands
-        // down for the duration of a manual session.
+        // by hand, and that span needs the same inactivity timeout — the auto layer deliberately
+        // stands down for the duration of a manual session.
         var manual = new ManualIdleCoordinator(
             _tracker,
             _buffer,
             thresholdSeconds,
-            presentAwayPrompt: (minutes, resolve) => _awayPrompt.PresentAway(minutes, resolve),
-            onEntryReplaced: displayStart => _viewModel.ContinueClockAfterDiscard(displayStart),
-            dismissPrompt: () => _awayPrompt.DismissIfShowing());
+            // The timeout closes the entry directly on TimeTracker; the tray reads MenuViewModel,
+            // which cannot see that on its own.
+            onTrackingStopped: () => _viewModel.RefreshFromTracker());
         _manualIdleCoordinator = manual;
 
         ISignalReceiver receiver = manual;
@@ -848,11 +856,40 @@ public sealed class AppDelegate : IDisposable
         RefreshPendingCount();
         UpdateTray();
 
+        // The backstop under a forgotten manual timer. Installed HERE, not with idle detection:
+        // BecomeReady runs on both ready paths, so the cap is present even on a launch where the
+        // policy fetch never succeeds and no idle detection is installed at all — which is the
+        // only situation in which it can ever fire. It reads no input, so it is safe on the
+        // offline branch (CLAUDE.md §1) and is deliberately not one of the installers
+        // OfflineCaptureUnreachableTests forbids there. See ManualSessionCap.
+        InstallManualSessionCap();
+
         // After the userId is known, and before the person can start anything new.
         RecoverLiveSpanIfNeeded();
 
         _ = RefreshProjectsAsync();
         _ = RefreshTotalsAsync();
+    }
+
+    /// <summary>
+    /// Install the manual-session cap. Separate from <see cref="BecomeReady"/> so the wiring guard
+    /// has a named method to assert on, and idempotent because sign-out resets
+    /// <c>_hasBecomeReady</c> and the next user runs BecomeReady again. The cap holds no per-user
+    /// state — it reads whichever manual entry is live — so it is not torn down between users.
+    /// </summary>
+    private void InstallManualSessionCap()
+    {
+        if (_manualSessionCap is not null)
+        {
+            return;
+        }
+
+        var cap = new ManualSessionCap(
+            _tracker,
+            ManualSessionCapSeconds,
+            onTrackingStopped: () => _viewModel.RefreshFromTracker());
+        cap.Start(_dispatcher);
+        _manualSessionCap = cap;
     }
 
     private void ShowLogin()
@@ -1249,10 +1286,14 @@ public sealed class AppDelegate : IDisposable
     ///
     /// The order inside this method is as load-bearing as its position in
     /// <see cref="SignOutAsync"/>: stop the signal source, then deactivate the monitors (which
-    /// records any pending away window as UNRESOLVED and leaves them inactive), and only THEN close
-    /// the prompts. A prompt closed while its monitor is still armed resolves to Discard and would
-    /// trim an entry on the way out; closed after, the same Discard lands on an inactive monitor and
-    /// does nothing, which is what we want — the window is already recorded.
+    /// records the AUTO layer's pending away window as UNRESOLVED and leaves them inactive), and
+    /// only THEN close the prompts. A prompt closed while its monitor is still armed resolves to
+    /// Discard and would trim an entry on the way out; closed after, the same Discard lands on an
+    /// inactive monitor and does nothing, which is what we want — the window is already recorded.
+    ///
+    /// The manual coordinator has nothing pending to settle: inactivity closes its entry by policy
+    /// rather than leaving a window open for a prompt. It is still deactivated here so the next
+    /// user's session arms its own monitor from scratch.
     /// </summary>
     private void TearDownIdleDetection()
     {

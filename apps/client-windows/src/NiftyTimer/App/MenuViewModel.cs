@@ -40,7 +40,6 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     private string? _notice;
     private string _note = string.Empty;
     private string _query = string.Empty;
-    private DateTimeOffset? _displayStart;
     private DateTimeOffset? _totalsFetchedAt;
     private bool _wasTracking;
 
@@ -308,15 +307,16 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public string ElapsedLabel => WorkTotalFormat.Elapsed(Elapsed);
 
     /// <summary>
-    /// How long the dropdown says you have been working on this stretch.
+    /// How long the dropdown says you have been working on this stretch: the running entry's own
+    /// age.
     ///
-    /// Usually the running entry's own age. The exception is a discarded idle window: that trims
-    /// the entry and opens a fresh one, so the entry's age restarts at zero even though the person
-    /// worked for an hour before stepping away. <see cref="ContinueClockAfterDiscard"/> supplies the
-    /// instant to count from instead, so the clock keeps reading accumulated WORKED time.
+    /// It used to need an override. A discarded idle window trimmed the entry and opened a fresh
+    /// one, so the age restarted at zero even though the person had worked all morning, and a
+    /// separate anchor was carried here to paper over the swap. Inactivity now closes the entry
+    /// outright instead of trimming and reopening it, so there is no swap and no anchor.
     /// </summary>
     public TimeSpan Elapsed =>
-        _tracker.State is TrackerState.Tracking t ? _clock() - (_displayStart ?? t.StartedAt) : TimeSpan.Zero;
+        _tracker.State is TrackerState.Tracking t ? _clock() - t.StartedAt : TimeSpan.Zero;
 
     /// <summary>
     /// The selection an auto-started span should carry. Never a note: a note is something the
@@ -396,7 +396,6 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         }
 
         Notice = null;
-        _displayStart = null;
         _tracker.Start(_selection?.ProjectId, _selection?.TaskId, NoteOrNull());
         TrackingStarted?.Invoke();
         RaiseTrackingState();
@@ -434,14 +433,12 @@ public sealed class MenuViewModel : INotifyPropertyChanged
             return;
         }
 
-        _displayStart = null;
         _tracker.Stop();
         RaiseTrackingState();
     }
 
     public void Pause()
     {
-        _displayStart = null;
         _tracker.Pause();
         RaiseTrackingState();
     }
@@ -453,7 +450,6 @@ public sealed class MenuViewModel : INotifyPropertyChanged
             return;
         }
 
-        _displayStart = null;
         _tracker.Resume();
         RaiseTrackingState();
     }
@@ -469,19 +465,6 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     /// </summary>
     public void RefreshFromTracker()
     {
-        _displayStart = null;
-        RaiseTrackingState();
-    }
-
-    /// <summary>
-    /// A discarded idle window replaced the running entry (see
-    /// <see cref="ManualIdleCoordinator"/>). <paramref name="displayStart"/> is the instant the
-    /// clock should count from so it keeps reading worked time rather than jumping back to zero —
-    /// the swap happens directly on <see cref="TimeTracker"/> and is invisible from here otherwise.
-    /// </summary>
-    public void ContinueClockAfterDiscard(DateTimeOffset displayStart)
-    {
-        _displayStart = displayStart;
         RaiseTrackingState();
     }
 
@@ -501,7 +484,6 @@ public sealed class MenuViewModel : INotifyPropertyChanged
             return;
         }
 
-        _displayStart = null;
         LiveSyncBlocked = false;
         Notice = "Already tracking on another machine — stop it there first.";
         RaiseTrackingState();
@@ -509,7 +491,6 @@ public sealed class MenuViewModel : INotifyPropertyChanged
 
     public void SelectProject(string projectId, string? taskId)
     {
-        _displayStart = null;
         Selection = new StoredSelection(projectId, taskId);
         if (_userId is { } userId)
         {
@@ -556,7 +537,6 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         Notice = null;
         Note = string.Empty;
         Query = string.Empty;
-        _displayStart = null;
         RaiseTrackingState();
     }
 
