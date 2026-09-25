@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { InviteUserSchema, EraseUserSchema, Role } from '@timetrack/contracts';
 import { getSession } from '../../../../lib/session';
 import { api, ApiError } from '../../../../lib/api-client';
+import { CLICKUP_ROSTER } from './clickup-roster';
+import { inviteSequentially, statusFromInviteError, type InviteOutcome } from './clickup-status';
 
 /** Result of the invite form, surfaced through useActionState. */
 export interface InviteState {
@@ -130,6 +132,49 @@ export async function setUserTeamAction(_prev: RowState, formData: FormData): Pr
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
   }
+}
+
+/** Result of an invite from the ClickUp tab, one outcome per address. */
+export interface RosterInviteState {
+  ok: boolean;
+  message?: string;
+  outcomes?: InviteOutcome[];
+}
+
+/**
+ * Invite one or more ClickUp members (the per-row button sends one, "Invite selected" several)
+ * into a single role and team. Only addresses on the ClickUp roster are accepted, so this can't
+ * become a way to invite arbitrary addresses in bulk. Invites go out one at a time, and a
+ * failure on one address doesn't stop the rest.
+ */
+export async function inviteRosterAction(
+  emails: string[],
+  role: string,
+  teamId: string,
+): Promise<RosterInviteState> {
+  const session = await getSession();
+  if (!session || session.role !== 'ADMIN') return { ok: false, message: 'Not authorized.' };
+
+  const onRoster = new Set(CLICKUP_ROSTER.map((m) => m.email.toLowerCase()));
+  if (emails.length === 0 || !emails.every((e) => onRoster.has(e.toLowerCase()))) {
+    return { ok: false, message: 'Pick people from the ClickUp list.' };
+  }
+  const parsed = emails.map((email) => InviteUserSchema.safeParse({ email, role, teamId }));
+  const dtos = parsed.flatMap((p) => (p.success ? [p.data] : []));
+  if (dtos.length !== emails.length) return { ok: false, message: 'Pick a role and a team.' };
+
+  const outcomes = await inviteSequentially(
+    dtos.map((d) => d.email),
+    async (email) => {
+      await api.inviteUser(session.accessToken, { ...dtos[0]!, email });
+    },
+    (e) =>
+      e instanceof ApiError
+        ? { status: statusFromInviteError(e.status, e.message), message: e.message }
+        : { status: null, message: 'Could not send the invite.' },
+  );
+  revalidatePath('/admin/users');
+  return { ok: outcomes.every((o) => !o.error), outcomes };
 }
 
 // Team create/rename live in ../teams/actions.ts, next to the surface that owns them.

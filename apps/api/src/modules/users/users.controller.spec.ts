@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { UsersController } from './users.controller.js';
+import { ROLES } from '../../common/decorators/roles.decorator.js';
 import type { UsersService } from './users.service.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 
@@ -12,6 +13,7 @@ function make() {
     update: vi.fn().mockResolvedValue({ id: 'u1' }),
     invite: vi.fn().mockResolvedValue({ id: 'u2', inviteToken: 'tok' }),
     ackMonitoring: vi.fn().mockResolvedValue({ id: 'u1' }),
+    listInvites: vi.fn().mockResolvedValue([]),
   } as unknown as UsersService;
   return { service, ctrl: new UsersController(service) };
 }
@@ -53,5 +55,16 @@ describe('UsersController', () => {
     const dto = { policyVersion: '1' };
     await ctrl.ackMonitoring('u1', dto, actor);
     expect(service.ackMonitoring).toHaveBeenCalledWith('u1', dto, actor);
+  });
+
+  it('listInvites delegates with the current user', async () => {
+    const { ctrl, service } = make();
+    await ctrl.listInvites(actor);
+    expect(service.listInvites).toHaveBeenCalledWith(actor);
+  });
+
+  // The 403 for a non-admin comes from RolesGuard, which reads this metadata.
+  it('restricts the pending-invite list to ADMIN', () => {
+    expect(Reflect.getMetadata(ROLES, UsersController.prototype.listInvites)).toEqual(['ADMIN']);
   });
 });

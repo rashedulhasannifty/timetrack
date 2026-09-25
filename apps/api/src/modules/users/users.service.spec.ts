@@ -308,3 +308,16 @@ describe('UsersService.ackMonitoring', () => {
     expect(ackMonitoring).toHaveBeenCalledWith('a1', 'v1', 'a1');
   });
 });
+
+describe('UsersService.listInvites', () => {
+  it('delegates to the invites service with the actor', async () => {
+    const admin: SessionUser = { id: 'a1', role: 'ADMIN', teamId: 't1' };
+    const listPending = vi.fn().mockResolvedValue([]);
+    const svc = new UsersService(
+      {} as unknown as UsersRepository,
+      { listPending } as unknown as InvitesService,
+    );
+    await expect(svc.listInvites(admin)).resolves.toEqual([]);
+    expect(listPending).toHaveBeenCalledWith(admin);
+  });
+});

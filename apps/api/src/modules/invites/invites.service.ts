@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import * as argon2 from 'argon2';
-import type { InviteUser, Role } from '@timetrack/contracts';
+import type { InviteUser, PendingInvite, Role } from '@timetrack/contracts';
 import { loadEnv } from '@timetrack/config';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { QueueService, QUEUES } from '../../infra/queue/queue.module.js';
@@ -92,6 +92,23 @@ export class InvitesService {
       },
       token,
     };
+  }
+
+  /** Open invites for the admin's Pending list. Admin-only, like creating one. */
+  async listPending(actor: SessionUser): Promise<PendingInvite[]> {
+    if (actor.role !== 'ADMIN') {
+      throw new ForbiddenException({
+        type: 'https://timetrack.internal/errors/forbidden',
+        title: 'Only an admin can list invites',
+        status: 403,
+      });
+    }
+    const rows = await this.repo.listPending(new Date());
+    return rows.map((r) => ({
+      ...r,
+      createdAt: r.createdAt.toISOString(),
+      expiresAt: r.expiresAt.toISOString(),
+    }));
   }
 
   /**

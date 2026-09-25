@@ -62,6 +62,24 @@ describe.runIf(RUN_E2E)('invites accept — real Postgres', () => {
     await expect(svc().accept(token, 'password123', 'New Hire')).rejects.toThrow();
   });
 
+  it('lists only open invites: accepted and expired ones are left out', async () => {
+    const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
+    const actor = { ...admin, teamId: team.id };
+    const open = { email: 'open@ex.co', role: 'EMPLOYEE' as const, teamId: team.id };
+    await svc().create(open, actor);
+    const { token } = await svc().create({ ...open, email: 'done@ex.co' }, actor);
+    await svc().accept(token, 'password123', 'Done');
+    await svc().create({ ...open, email: 'stale@ex.co' }, actor);
+    await db.prisma.invite.updateMany({
+      where: { email: 'stale@ex.co' },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+
+    const pending = await svc().listPending(actor);
+    expect(pending.map((p) => p.email)).toEqual(['open@ex.co']);
+    expect(pending[0]).not.toHaveProperty('tokenHash');
+  });
+
   it('rejects an expired invite', async () => {
     const team = await db.prisma.team.create({ data: { name: 'Eng', settings: {} } });
     const { token } = await svc().create(

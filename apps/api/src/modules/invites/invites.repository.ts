@@ -38,6 +38,27 @@ export class InvitesRepository {
   }
 
   /**
+   * Every open invite, newest first — the same "unaccepted, unexpired" rule
+   * hasActivePendingInvite uses, so what this lists is exactly what a re-invite would refuse.
+   */
+  listPending(now: Date): Promise<
+    Array<{
+      id: string;
+      email: string;
+      role: Role;
+      teamId: string;
+      createdAt: Date;
+      expiresAt: Date;
+    }>
+  > {
+    return this.prisma.invite.findMany({
+      where: { acceptedAt: null, expiresAt: { gt: now } },
+      select: { id: true, email: true, role: true, teamId: true, createdAt: true, expiresAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
    * True when the email already has a still-valid (unaccepted, unexpired) invite. Blocks a
    * second pending invite for the same email; an EXPIRED unaccepted invite does not block a
    * re-invite. (Prisma cannot express a partial unique index without a preview feature, so
