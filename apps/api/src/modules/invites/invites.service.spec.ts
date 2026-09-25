@@ -30,6 +30,7 @@ function makeService(repo: Partial<InvitesRepository> = {}) {
     hasActivePendingInvite: vi.fn().mockResolvedValue(false),
     teamExists: vi.fn().mockResolvedValue(true),
     acceptInTransaction: vi.fn(),
+    listPending: vi.fn().mockResolvedValue([]),
     ...repo,
   } as unknown as InvitesRepository;
   const queue = { enqueue: vi.fn().mockResolvedValue(undefined) } as unknown as QueueService;
@@ -125,5 +126,37 @@ describe('InvitesService.accept', () => {
     await expect(svc.accept('tok', 'password123', 'Ada')).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
+  });
+});
+
+describe('InvitesService.listPending', () => {
+  it('rejects a non-admin actor with 403', async () => {
+    const { svc, repo } = makeService();
+    await expect(svc.listPending({ ...admin, role: 'MANAGER' })).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(repo.listPending).not.toHaveBeenCalled();
+  });
+
+  it('returns ISO timestamps and nothing token-shaped', async () => {
+    const createdAt = new Date('2026-09-20T10:00:00Z');
+    const expiresAt = new Date('2026-09-27T10:00:00Z');
+    const { svc } = makeService({
+      listPending: vi
+        .fn()
+        .mockResolvedValue([
+          { id: 'i1', email: 'a@ex.co', role: 'EMPLOYEE', teamId: 't1', createdAt, expiresAt },
+        ]),
+    });
+    expect(await svc.listPending(admin)).toEqual([
+      {
+        id: 'i1',
+        email: 'a@ex.co',
+        role: 'EMPLOYEE',
+        teamId: 't1',
+        createdAt: '2026-09-20T10:00:00.000Z',
+        expiresAt: '2026-09-27T10:00:00.000Z',
+      },
+    ]);
   });
 });

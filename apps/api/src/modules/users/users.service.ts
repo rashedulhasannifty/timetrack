@@ -10,6 +10,7 @@ import type {
   AckMonitoring,
   InviteResult,
   InviteUser,
+  PendingInvite,
   Role,
   UpdateUser,
   User,
@@ -174,6 +175,10 @@ export class UsersService {
     // Dev-only fallback so the flow is testable before SMTP exists. Strictly development.
     if (loadEnv().NODE_ENV === 'development') result.devToken = token;
     return result;
+  }
+
+  listInvites(actor: SessionUser): Promise<PendingInvite[]> {
+    return this.invites.listPending(actor);
   }
 
   /**

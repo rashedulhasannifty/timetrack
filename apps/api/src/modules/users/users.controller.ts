@@ -6,6 +6,7 @@ import {
   type AckMonitoring,
   type InviteResult,
   type InviteUser,
+  type PendingInvite,
   type UpdateUser,
   type User,
 } from '@timetrack/contracts';
@@ -49,6 +50,14 @@ export class UsersController {
     @CurrentUser() actor: SessionUser,
   ): Promise<InviteResult> {
     return this.service.invite(dto, actor);
+  }
+
+  // Deployment-wide admin list, not user-scoped, so no @ResourceScope: invites belong to no
+  // user yet. The service re-checks ADMIN.
+  @Get('invites')
+  @Roles('ADMIN')
+  listInvites(@CurrentUser() actor: SessionUser): Promise<PendingInvite[]> {
+    return this.service.listInvites(actor);
   }
 
   /** PRD §4.1 — the client calls this once the employee acknowledges the policy. */

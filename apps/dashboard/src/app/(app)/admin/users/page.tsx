@@ -17,6 +17,11 @@ import { TeamSelect } from './TeamSelect';
 import { AppVersionCell } from './AppVersionCell';
 import { fetchLatestReleases } from '../../../../lib/client-releases';
 import { installsByUser } from '../../../../lib/client-version';
+import { TabPills } from '../../../../components/ui/TabPills';
+import { ClickUpRoster } from './ClickUpRoster';
+import { PendingInvites } from './PendingInvites';
+import { CLICKUP_ROSTER } from './clickup-roster';
+import { buildRosterRows } from './clickup-status';
 
 /**
  * The admin's workforce screen: list everyone, invite new members, assign them to a manager by
@@ -26,7 +31,12 @@ import { installsByUser } from '../../../../lib/client-version';
  * Server Component. For an ADMIN the API returns every user in the deployment, not just their
  * own team — assigning people to managers is impossible from a single-team roster.
  */
-export default async function AdminUsersPage() {
+export default async function AdminUsersPage({
+  searchParams,
+}: {
+  // Next 16 — searchParams is async.
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const session = await getSession();
   // NOT `return null`: the (app) layout's redirect does NOT re-run on a client-side
   // navigation — Next reuses the cached layout segment and re-renders only this page. Once
@@ -37,14 +47,25 @@ export default async function AdminUsersPage() {
   if (!session) redirect(refreshBackTo('/admin/users'));
   if (session.role !== 'ADMIN') return <Forbidden />;
 
-  const [users, teams, installs, latest] = await Promise.all([
+  const [users, teams, installs, latest, pending] = await Promise.all([
     api.listUsers(session.accessToken),
     api.listTeams(session.accessToken),
     api.listClientInstalls(session.accessToken),
     fetchLatestReleases(),
+    api.listPendingInvites(session.accessToken),
   ]);
   const appsByUser = installsByUser(installs, latest, new Date());
   const activeCount = users.filter((u) => u.deactivatedAt === null).length;
+  // `?tab=` picks the list, so the selected tab survives a reload and can be linked to.
+  const requested = (await searchParams).tab;
+  const tab = requested === 'clickup' || requested === 'pending' ? requested : 'members';
+  const rosterRows = buildRosterRows(CLICKUP_ROSTER, users, pending);
+  const tabs = [
+    { href: '/admin/users', label: 'Members', count: users.length },
+    { href: '/admin/users?tab=pending', label: 'Pending', count: pending.length },
+    { href: '/admin/users?tab=clickup', label: 'ClickUp', count: rosterRows.length },
+  ];
+  const activeHref = tabs.find((t) => t.href.endsWith(`tab=${tab}`))?.href ?? tabs[0]!.href;
 
   return (
     <>
@@ -57,75 +78,85 @@ export default async function AdminUsersPage() {
             {users.length} users · {activeCount} active · {teams.length}{' '}
             {teams.length === 1 ? 'team' : 'teams'}
           </span>
+          <TabPills tabs={tabs} activeHref={activeHref} ariaLabel="User lists" />
         </div>
-        <InviteForm teams={teams} />
 
-        {users.length === 0 ? (
-          <p className="text-text-secondary text-body">
-            No users yet. Invite your first teammate above.
-          </p>
+        {tab === 'clickup' ? (
+          <ClickUpRoster rows={rosterRows} teams={teams} />
+        ) : tab === 'pending' ? (
+          <PendingInvites invites={pending} teams={teams} />
         ) : (
-          <Card padding="none" className="overflow-hidden">
-            <Table>
-              <THead>
-                <Tr>
-                  <Th>Name</Th>
-                  <Th>Email</Th>
-                  <Th>Role</Th>
-                  <Th>Team</Th>
-                  <Th>Monitoring</Th>
-                  <Th>App</Th>
-                  <Th>Status</Th>
-                  <Th align="right">Actions</Th>
-                </Tr>
-              </THead>
-              <Tbody>
-                {users.map((u) => {
-                  const deactivated = u.deactivatedAt !== null;
-                  return (
-                    <Tr key={u.id}>
-                      <Td>
-                        <span className="inline-flex items-center gap-2">
-                          <Avatar name={u.name} size={26} />
-                          {u.name}
-                        </span>
-                      </Td>
-                      <Td className="text-text-secondary">{u.email}</Td>
-                      <Td>
-                        <RoleSelect userId={u.id} role={u.role} />
-                      </Td>
-                      <Td>
-                        <TeamSelect
-                          userId={u.id}
-                          userName={u.name}
-                          teamId={u.teamId}
-                          teams={teams}
-                        />
-                      </Td>
-                      <Td className="text-text-secondary">
-                        {u.monitoringAckAt ? (
-                          `Acknowledged ${formatDate(u.monitoringAckAt)}`
-                        ) : (
-                          <span className="text-text-secondary">Not acknowledged</span>
-                        )}
-                      </Td>
-                      <Td>
-                        <AppVersionCell installs={appsByUser.get(u.id) ?? []} />
-                      </Td>
-                      <Td>
-                        <Badge tone={deactivated ? 'neutral' : 'good'}>
-                          {deactivated ? 'Deactivated' : 'Active'}
-                        </Badge>
-                      </Td>
-                      <Td align="right">
-                        <UserRowActions userId={u.id} name={u.name} deactivated={deactivated} />
-                      </Td>
+          <>
+            <InviteForm teams={teams} />
+
+            {users.length === 0 ? (
+              <p className="text-text-secondary text-body">
+                No users yet. Invite your first teammate above.
+              </p>
+            ) : (
+              <Card padding="none" className="overflow-hidden">
+                <Table>
+                  <THead>
+                    <Tr>
+                      <Th>Name</Th>
+                      <Th>Email</Th>
+                      <Th>Role</Th>
+                      <Th>Team</Th>
+                      <Th>Monitoring</Th>
+                      <Th>App</Th>
+                      <Th>Status</Th>
+                      <Th align="right">Actions</Th>
                     </Tr>
-                  );
-                })}
-              </Tbody>
-            </Table>
-          </Card>
+                  </THead>
+                  <Tbody>
+                    {users.map((u) => {
+                      const deactivated = u.deactivatedAt !== null;
+                      return (
+                        <Tr key={u.id}>
+                          <Td>
+                            <span className="inline-flex items-center gap-2">
+                              <Avatar name={u.name} size={26} />
+                              {u.name}
+                            </span>
+                          </Td>
+                          <Td className="text-text-secondary">{u.email}</Td>
+                          <Td>
+                            <RoleSelect userId={u.id} role={u.role} />
+                          </Td>
+                          <Td>
+                            <TeamSelect
+                              userId={u.id}
+                              userName={u.name}
+                              teamId={u.teamId}
+                              teams={teams}
+                            />
+                          </Td>
+                          <Td className="text-text-secondary">
+                            {u.monitoringAckAt ? (
+                              `Acknowledged ${formatDate(u.monitoringAckAt)}`
+                            ) : (
+                              <span className="text-text-secondary">Not acknowledged</span>
+                            )}
+                          </Td>
+                          <Td>
+                            <AppVersionCell installs={appsByUser.get(u.id) ?? []} />
+                          </Td>
+                          <Td>
+                            <Badge tone={deactivated ? 'neutral' : 'good'}>
+                              {deactivated ? 'Deactivated' : 'Active'}
+                            </Badge>
+                          </Td>
+                          <Td align="right">
+                            <UserRowActions userId={u.id} name={u.name} deactivated={deactivated} />
+                          </Td>
+                        </Tr>
+                      );
+                    })}
+                  </Tbody>
+                </Table>
+              </Card>
+            )}
+          </>
         )}
       </div>
     </>
