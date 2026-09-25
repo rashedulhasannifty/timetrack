@@ -695,15 +695,15 @@ public sealed class AppDelegate : IDisposable
         var thresholdSeconds = Math.Max(60, settings.IdleThresholdMinutes * 60);
 
         // The manual coordinator exists in BOTH modes. Someone in auto mode can still start a span
-        // by hand, and that span needs the same away prompt — the auto layer deliberately stands
-        // down for the duration of a manual session.
+        // by hand, and that span needs the same inactivity timeout — the auto layer deliberately
+        // stands down for the duration of a manual session.
         var manual = new ManualIdleCoordinator(
             _tracker,
             _buffer,
             thresholdSeconds,
-            presentAwayPrompt: (minutes, resolve) => _awayPrompt.PresentAway(minutes, resolve),
-            onEntryReplaced: displayStart => _viewModel.ContinueClockAfterDiscard(displayStart),
-            dismissPrompt: () => _awayPrompt.DismissIfShowing());
+            // The timeout closes the entry directly on TimeTracker; the tray reads MenuViewModel,
+            // which cannot see that on its own.
+            onTrackingStopped: () => _viewModel.RefreshFromTracker());
         _manualIdleCoordinator = manual;
 
         ISignalReceiver receiver = manual;
@@ -1249,10 +1249,14 @@ public sealed class AppDelegate : IDisposable
     ///
     /// The order inside this method is as load-bearing as its position in
     /// <see cref="SignOutAsync"/>: stop the signal source, then deactivate the monitors (which
-    /// records any pending away window as UNRESOLVED and leaves them inactive), and only THEN close
-    /// the prompts. A prompt closed while its monitor is still armed resolves to Discard and would
-    /// trim an entry on the way out; closed after, the same Discard lands on an inactive monitor and
-    /// does nothing, which is what we want — the window is already recorded.
+    /// records the AUTO layer's pending away window as UNRESOLVED and leaves them inactive), and
+    /// only THEN close the prompts. A prompt closed while its monitor is still armed resolves to
+    /// Discard and would trim an entry on the way out; closed after, the same Discard lands on an
+    /// inactive monitor and does nothing, which is what we want — the window is already recorded.
+    ///
+    /// The manual coordinator has nothing pending to settle: inactivity closes its entry by policy
+    /// rather than leaving a window open for a prompt. It is still deactivated here so the next
+    /// user's session arms its own monitor from scratch.
     /// </summary>
     private void TearDownIdleDetection()
     {
