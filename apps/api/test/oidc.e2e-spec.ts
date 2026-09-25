@@ -9,6 +9,10 @@ import type { InvitesService } from '../src/modules/invites/invites.service.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
 import { startFakeIdp, type FakeIdp } from './fake-oidc-idp.js';
+import type { ClientsService } from '../src/modules/clients/clients.service.js';
+
+// Version recording has its own spec; here it is a no-op so these tests stay about auth.
+const noClients = { record: async () => undefined } as unknown as ClientsService;
 
 const RUN_E2E = process.env.RUN_E2E === '1';
 
@@ -59,7 +63,7 @@ describe.runIf(RUN_E2E)('auth OIDC (real Postgres + stub IdP)', () => {
     });
     const repo = new AuthRepository(db.prisma as unknown as PrismaService);
     // A fresh OidcService per service() so it reads the current OIDC_* env (new team id).
-    return new AuthService(jwt, repo, {} as InvitesService, new OidcService());
+    return new AuthService(jwt, repo, {} as InvitesService, new OidcService(), noClients);
   }
 
   /** Run the full authorize → (stub IdP) → callback handshake with the given claims. */
@@ -136,7 +140,11 @@ describe.runIf(RUN_E2E)('auth OIDC (real Postgres + stub IdP)', () => {
 
   it('reuses the same user on a second sign-in matched by subject (no duplicate)', async () => {
     const svc = service();
-    const first = await signIn(svc, { sub: 'idp-2', email: 'repeat@company.com', email_verified: true });
+    const first = await signIn(svc, {
+      sub: 'idp-2',
+      email: 'repeat@company.com',
+      email_verified: true,
+    });
     const second = await signIn(svc, {
       sub: 'idp-2',
       email: 'repeat@company.com',

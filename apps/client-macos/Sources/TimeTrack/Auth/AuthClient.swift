@@ -22,7 +22,14 @@ protocol AuthClienting {
 /// POSTs to {baseURL}/auth/login and {baseURL}/auth/refresh. baseURL already carries /v1.
 final class AuthClient: AuthClienting {
     private let baseURL: URL
-    init(baseURL: URL) { self.baseURL = baseURL }
+    private let version: AppVersion?
+
+    /// `version` is sent as X-Client-Version so an admin can see who needs an update. nil (as
+    /// under `swift run`, which has no Info.plist) sends no identity headers at all.
+    init(baseURL: URL, version: AppVersion? = AppVersion.current()) {
+        self.baseURL = baseURL
+        self.version = version
+    }
 
     func login(email: String, password: String) async throws -> TokenPair {
         try await post("auth/login", body: ["email": email, "password": password], unauthorizedError: .invalidCredentials)
@@ -32,11 +39,22 @@ final class AuthClient: AuthClienting {
         try await post("auth/refresh", body: ["refreshToken": refreshToken], unauthorizedError: .refreshRejected)
     }
 
-    private func post(_ path: String, body: [String: String], unauthorizedError: AuthError) async throws -> TokenPair {
+    /// Built separately from the send so the headers can be checked without a network.
+    func makeRequest(_ path: String, body: [String: String]) throws -> URLRequest {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let version {
+            // Identity only — platform and version, never anything about the person or device.
+            request.setValue("MACOS", forHTTPHeaderField: "X-Client-Platform")
+            request.setValue(version.description, forHTTPHeaderField: "X-Client-Version")
+        }
         request.httpBody = try JSONEncoder().encode(body)
+        return request
+    }
+
+    private func post(_ path: String, body: [String: String], unauthorizedError: AuthError) async throws -> TokenPair {
+        let request = try makeRequest(path, body: body)
         let data: Data, response: URLResponse
         do {
             (data, response) = try await URLSession.shared.data(for: request)

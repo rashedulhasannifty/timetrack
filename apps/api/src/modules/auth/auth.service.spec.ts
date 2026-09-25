@@ -56,6 +56,9 @@ function makeService(
   oidc: Partial<import('./oidc.service.js').OidcService> = {},
 ) {
   const jwt = { signAsync: vi.fn().mockResolvedValue('access.jwt.token') } as unknown as JwtService;
+  const clients = {
+    record: vi.fn().mockResolvedValue(undefined),
+  } as unknown as import('../clients/clients.service.js').ClientsService;
   const fullRepo = {
     findByEmail: vi.fn(),
     findIdentityById: vi.fn(),
@@ -81,10 +84,11 @@ function makeService(
     ...oidc,
   } as unknown as import('./oidc.service.js').OidcService;
   return {
-    svc: new AuthService(jwt, fullRepo, invitesSvc, oidcSvc),
+    svc: new AuthService(jwt, fullRepo, invitesSvc, oidcSvc, clients),
     repo: fullRepo,
     invites: invitesSvc,
     oidc: oidcSvc,
+    clients,
   };
 }
 
@@ -99,6 +103,23 @@ describe('AuthService.login', () => {
     expect(pair.refreshToken).toEqual(expect.any(String));
     expect(pair.expiresIn).toBe(900);
     expect(repo.createRefreshToken).toHaveBeenCalledOnce();
+  });
+
+  it('records the calling app against the user once the password checks out', async () => {
+    vi.mocked(argon2.verify).mockResolvedValue(true);
+    const { svc, clients } = makeService({ findByEmail: vi.fn().mockResolvedValue(USER) });
+    const client = { platform: 'MACOS' as const, version: '0.7.0' };
+    await svc.login({ email: 'a@b.co', password: 'correct-horse' }, client);
+    expect(clients.record).toHaveBeenCalledWith(USER.id, client);
+  });
+
+  it('records nothing for a wrong password', async () => {
+    vi.mocked(argon2.verify).mockResolvedValue(false);
+    const { svc, clients } = makeService({ findByEmail: vi.fn().mockResolvedValue(USER) });
+    await expect(
+      svc.login({ email: 'a@b.co', password: 'wrong' }, { platform: 'MACOS', version: '0.7.0' }),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(clients.record).not.toHaveBeenCalled();
   });
 
   it('rejects a wrong password with 401', async () => {
@@ -290,6 +311,24 @@ describe('AuthService.refresh', () => {
     // The successor is created INSIDE the rotation, never as a second unlinked write.
     expect(repo.createRefreshToken).not.toHaveBeenCalled();
     expect(pair.accessToken).toBe('access.jwt.token');
+  });
+
+  it('records the calling app against the token owner', async () => {
+    const { svc, clients } = makeService({
+      findRefreshToken: vi.fn().mockResolvedValue(liveToken),
+      findIdentityById: vi.fn().mockResolvedValue(IDENTITY),
+    });
+    const client = { platform: 'WINDOWS' as const, version: '0.3.0' };
+    await svc.refresh({ refreshToken: 'opaque' }, client);
+    expect(clients.record).toHaveBeenCalledWith('u1', client);
+  });
+
+  it('records nothing for an unknown refresh token', async () => {
+    const { svc, clients } = makeService({ findRefreshToken: vi.fn().mockResolvedValue(null) });
+    await expect(
+      svc.refresh({ refreshToken: 'nope' }, { platform: 'MACOS', version: '0.7.0' }),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(clients.record).not.toHaveBeenCalled();
   });
 
   it('serves the loser of a concurrent ROTATION — the multi-tab case', async () => {

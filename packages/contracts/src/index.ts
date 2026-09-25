@@ -15,3 +15,4 @@ export * from './team-settings.js';
 export * from './policy.js';
 export * from './admin.js';
 export * from './approvals.js';
+export * from './clients.js';

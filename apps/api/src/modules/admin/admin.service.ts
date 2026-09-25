@@ -171,6 +171,7 @@ export class AdminService {
       ['activityDailySummaries', this.repo.streamActivityDailySummaries(userId)],
       ['screenshots', this.repo.streamScreenshots(userId)],
       ['idleEvents', this.repo.streamIdleEvents(userId)],
+      ['clientInstalls', this.repo.streamClientInstalls(userId)],
       ['invites', this.repo.streamInvites(email)],
       ['auditLog', this.repo.streamAuditLog(userId)],
     ];

@@ -1,3 +1,4 @@
+using System.Net.Http;
 using NiftyTimer.Auth;
 using NiftyTimer.Storage;
 using NiftyTimer.Tests.Support;
@@ -242,5 +243,64 @@ public class DpapiTokenStoreTests : IDisposable
         var onDisk = File.ReadAllBytes(path);
         var asText = System.Text.Encoding.UTF8.GetString(onDisk);
         Assert.DoesNotContain("super-secret-refresh-token", asText, StringComparison.Ordinal);
+    }
+}
+
+public class AuthClientHeaderTests
+{
+    [Theory]
+    [InlineData("0.2.1", "0.2.1")]
+    [InlineData("0.2.1-pilot", "0.2.1")]
+    [InlineData("0.3.0+abc123", "0.3.0")]
+    [InlineData("nightly", null)]
+    [InlineData("1.2.3.4.5", null)]
+    [InlineData(null, null)]
+    public void ReportsOnlyADottedNumericVersion(string? raw, string? expected)
+    {
+        Assert.Equal(expected, AuthClient.ReportableVersion(raw));
+    }
+
+    [Fact]
+    public async Task SendsPlatformAndVersionOnLoginAndRefresh()
+    {
+        var handler = new CapturingHandler();
+        var client = new AuthClient(new HttpClient(handler), new Uri("http://api.test/v1/"), "0.3.0-pilot");
+
+        await client.LoginAsync("a@b.co", "pw");
+        await client.RefreshAsync("rt");
+
+        Assert.Equal(2, handler.Requests.Count);
+        foreach (var request in handler.Requests)
+        {
+            Assert.Equal("WINDOWS", Assert.Single(request.Headers.GetValues("X-Client-Platform")));
+            Assert.Equal("0.3.0", Assert.Single(request.Headers.GetValues("X-Client-Version")));
+        }
+    }
+
+    [Fact]
+    public async Task SendsNoIdentityHeadersWhenTheVersionIsUnreadable()
+    {
+        var handler = new CapturingHandler();
+        var client = new AuthClient(new HttpClient(handler), new Uri("http://api.test/v1/"), "nightly");
+
+        await client.LoginAsync("a@b.co", "pw");
+
+        var request = Assert.Single(handler.Requests);
+        Assert.False(request.Headers.Contains("X-Client-Platform"));
+        Assert.False(request.Headers.Contains("X-Client-Version"));
+    }
+
+    private sealed class CapturingHandler : HttpMessageHandler
+    {
+        public List<HttpRequestMessage> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = System.Net.Http.Json.JsonContent.Create(new { accessToken = "a", refreshToken = "r", expiresIn = 900 }),
+            });
+        }
     }
 }

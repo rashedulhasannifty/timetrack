@@ -14,6 +14,9 @@ import { InviteForm } from './InviteForm';
 import { UserRowActions } from './UserRowActions';
 import { RoleSelect } from './RoleSelect';
 import { TeamSelect } from './TeamSelect';
+import { AppVersionCell } from './AppVersionCell';
+import { fetchLatestReleases } from '../../../../lib/client-releases';
+import { installsByUser } from '../../../../lib/client-version';
 import { TabPills } from '../../../../components/ui/TabPills';
 import { ClickUpRoster } from './ClickUpRoster';
 import { PendingInvites } from './PendingInvites';
@@ -44,11 +47,14 @@ export default async function AdminUsersPage({
   if (!session) redirect(refreshBackTo('/admin/users'));
   if (session.role !== 'ADMIN') return <Forbidden />;
 
-  const [users, teams, pending] = await Promise.all([
+  const [users, teams, installs, latest, pending] = await Promise.all([
     api.listUsers(session.accessToken),
     api.listTeams(session.accessToken),
+    api.listClientInstalls(session.accessToken),
+    fetchLatestReleases(),
     api.listPendingInvites(session.accessToken),
   ]);
+  const appsByUser = installsByUser(installs, latest, new Date());
   const activeCount = users.filter((u) => u.deactivatedAt === null).length;
   // `?tab=` picks the list, so the selected tab survives a reload and can be linked to.
   const requested = (await searchParams).tab;
@@ -97,6 +103,7 @@ export default async function AdminUsersPage({
                       <Th>Role</Th>
                       <Th>Team</Th>
                       <Th>Monitoring</Th>
+                      <Th>App</Th>
                       <Th>Status</Th>
                       <Th align="right">Actions</Th>
                     </Tr>
@@ -130,6 +137,9 @@ export default async function AdminUsersPage({
                             ) : (
                               <span className="text-text-secondary">Not acknowledged</span>
                             )}
+                          </Td>
+                          <Td>
+                            <AppVersionCell installs={appsByUser.get(u.id) ?? []} />
                           </Td>
                           <Td>
                             <Badge tone={deactivated ? 'neutral' : 'good'}>

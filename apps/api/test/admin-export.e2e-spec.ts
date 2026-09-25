@@ -65,6 +65,9 @@ async function seedFullUser(
       resolvedAction: 'KEEP',
     },
   });
+  await db.prisma.clientInstall.create({
+    data: { userId: user.id, platform: 'MACOS', version: '0.6.1', lastSeenAt: new Date() },
+  });
   await db.prisma.activityDailySummary.create({
     data: {
       userId: user.id,
@@ -132,6 +135,7 @@ describe.runIf(RUN_E2E)('admin export — streamed JSON (real Postgres)', () => 
       'activityDailySummaries',
       'screenshots',
       'idleEvents',
+      'clientInstalls',
       'invites',
       'auditLog',
     ]) {
