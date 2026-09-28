@@ -54,7 +54,9 @@ public sealed class TrayIconController : IDisposable
 
     private const uint ImageIcon = 1;
     private const uint LrLoadFromFile = 0x0010;
-    private const uint LrDefaultSize = 0x0040;
+
+    private const int SmCxSmIcon = 49;
+    private const int SmCySmIcon = 50;
 
     /// <summary>How long the capture lens stays up — the macOS client's flash length.</summary>
     private static readonly TimeSpan CaptureFlash = TimeSpan.FromSeconds(1.5);
@@ -356,7 +358,16 @@ public sealed class TrayIconController : IDisposable
 
     private static IntPtr LoadIcon(string path)
     {
-        var handle = LoadImage(IntPtr.Zero, path, ImageIcon, 0, 0, LrLoadFromFile | LrDefaultSize);
+        // Ask for the notification area's own size, so the shell gets the .ico frame drawn for the
+        // current display scaling. LR_DEFAULTSIZE asks for the LARGE icon size (32 px at 100%),
+        // which the shell then shrinks back down — a blurred mark, fainter than it was drawn.
+        var handle = LoadImage(
+            IntPtr.Zero,
+            path,
+            ImageIcon,
+            GetSystemMetrics(SmCxSmIcon),
+            GetSystemMetrics(SmCySmIcon),
+            LrLoadFromFile);
         if (handle == IntPtr.Zero)
         {
             // The indicator is not optional, so a missing icon is a hard failure rather than a
@@ -541,6 +552,9 @@ public sealed class TrayIconController : IDisposable
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool DestroyIcon(IntPtr icon);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern uint RegisterWindowMessage(string message);
