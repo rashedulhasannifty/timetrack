@@ -73,15 +73,18 @@ public sealed class UpdateInstaller
     private readonly string _installDirectory;
     private readonly string _runningExecutable;
     private readonly TimeSpan _stallTimeout;
+    private readonly string _logPath;
 
     public UpdateInstaller(
         HttpClient http,
         string? installDirectory = null,
         string? runningExecutable = null,
-        TimeSpan? stallTimeout = null)
+        TimeSpan? stallTimeout = null,
+        string? logPath = null)
     {
         _http = http;
         _stallTimeout = stallTimeout ?? DefaultStallTimeout;
+        _logPath = logPath ?? Path.Combine(Path.GetTempPath(), "niftytimer-update.log");
         _runningExecutable = runningExecutable ?? Environment.ProcessPath ?? string.Empty;
         _installDirectory = installDirectory
             ?? (_runningExecutable.Length > 0
@@ -261,9 +264,15 @@ public sealed class UpdateInstaller
     ///
     /// A running executable cannot replace itself on Windows — the image is locked — so the swap
     /// has to outlive this process. The script waits for our PID to disappear, renames the current
-    /// install aside, moves the staged build in, relaunches, and on any failure puts the old
+    /// install aside, copies the staged build in, relaunches, and on any failure puts the old
     /// install back. Renaming rather than deleting is what makes the rollback possible: if the
-    /// move in fails, the previous build is still there under a different name and is restored.
+    /// copy in fails, the previous build is still there under a different name and is restored.
+    ///
+    /// The script starts in the temp folder, never in the install folder. It used to inherit this
+    /// process's working directory — the install folder whenever the app was opened by
+    /// double-clicking it — and Windows refuses to rename a folder that is any process's current
+    /// directory. Every update then failed, rolled back without a word, and relaunched the old build.
+    /// Each step is written to the update log, so a failure is never silent again.
     ///
     /// This mirrors the macOS client, which shells out to a small swap script for the same reason.
     /// A dedicated updater executable would be tidier and is the obvious follow-up; it is also a
@@ -279,6 +288,7 @@ public sealed class UpdateInstaller
             FileName = "powershell.exe",
             UseShellExecute = false,
             CreateNoWindow = true,
+            WorkingDirectory = Path.GetTempPath(),
         };
 
         foreach (var argument in new[]
@@ -291,6 +301,7 @@ public sealed class UpdateInstaller
                      "-Staged", stagedDirectory,
                      "-Install", _installDirectory,
                      "-Relaunch", _runningExecutable,
+                     "-Log", _logPath,
                  })
         {
             start.ArgumentList.Add(argument);
@@ -313,10 +324,41 @@ public sealed class UpdateInstaller
           [Parameter(Mandatory=$true)][int]$ProcessId,
           [Parameter(Mandatory=$true)][string]$Staged,
           [Parameter(Mandatory=$true)][string]$Install,
-          [Parameter(Mandatory=$true)][string]$Relaunch
+          [Parameter(Mandatory=$true)][string]$Relaunch,
+          [string]$Log = (Join-Path ([IO.Path]::GetTempPath()) 'niftytimer-update.log')
         )
-
         $ErrorActionPreference = 'Stop'
+
+        # Never stand in the install folder: Windows refuses to rename a folder that is any
+        # process's current directory. Set-Location alone moves only PowerShell's own location,
+        # not the process's, so the process directory is set as well.
+        $neutral = [IO.Path]::GetTempPath()
+        [Environment]::CurrentDirectory = $neutral
+        Set-Location -LiteralPath $neutral
+
+        function Write-Log([string]$Message) {
+          try {
+            $folder = Split-Path -Parent $Log
+            if ($folder -and -not (Test-Path -LiteralPath $folder)) {
+              New-Item -ItemType Directory -Force -Path $folder | Out-Null
+            }
+            Add-Content -LiteralPath $Log -Value ((Get-Date).ToString('o') + ' ' + $Message)
+          } catch { }
+        }
+
+        # Antivirus commonly holds a freshly written file for a moment; a short retry rides it out.
+        function Invoke-WithRetry([scriptblock]$Action, [string]$What) {
+          for ($attempt = 1; $attempt -le 10; $attempt++) {
+            try { & $Action; return }
+            catch {
+              Write-Log ("$What failed (attempt $attempt): " + $_.Exception.Message)
+              if ($attempt -eq 10) { throw }
+              Start-Sleep -Milliseconds 500
+            }
+          }
+        }
+
+        Write-Log "update: install=$Install staged=$Staged"
 
         # Wait for the app to exit; its image is locked until then. Bounded so a hung process
         # cannot leave a swap script running forever.
@@ -329,24 +371,56 @@ public sealed class UpdateInstaller
         # so ending it loses nothing — and relaunching beside it would meet its single-instance lock
         # and exit, leaving no copy running at all.
         if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
+          Write-Log 'the app did not exit; ending it'
           Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
           Wait-Process -Id $ProcessId -Timeout 10 -ErrorAction SilentlyContinue
         }
 
         $backup = "$Install.previous"
-
+        $movedAside = $false
+        $swapped = $false
         try {
-          if (Test-Path $backup) { Remove-Item -Recurse -Force $backup }
-          Move-Item -Force $Install $backup
-          Move-Item -Force $Staged $Install
+          if (Test-Path -LiteralPath $backup) {
+            Invoke-WithRetry { Remove-Item -LiteralPath $backup -Recurse -Force } 'clearing an old backup'
+          }
+          Invoke-WithRetry { Move-Item -LiteralPath $Install -Destination $backup -Force } 'moving the current install aside'
+          $movedAside = $true
+
+          # Copied, not moved: the staged build sits in the temp folder, which can be on another drive.
+          Invoke-WithRetry { Copy-Item -LiteralPath $Staged -Destination $Install -Recurse -Force } 'copying the new build in'
+          if (-not (Test-Path -LiteralPath $Relaunch)) { throw "the new build has no $Relaunch" }
+          $swapped = $true
+          Write-Log 'update installed'
         } catch {
-          # Roll back: the previous install is still on disk under $backup.
-          if ((Test-Path $backup) -and -not (Test-Path $Install)) {
-            Move-Item -Force $backup $Install
+          Write-Log ('update failed: ' + $_.Exception.Message)
+        }
+
+        # Roll back only what this script moved. A partial copy goes first so the previous install
+        # can take its place again.
+        if ($movedAside -and -not $swapped) {
+          try {
+            if (Test-Path -LiteralPath $Install) {
+              Invoke-WithRetry { Remove-Item -LiteralPath $Install -Recurse -Force } 'clearing a partial copy'
+            }
+            Invoke-WithRetry { Move-Item -LiteralPath $backup -Destination $Install -Force } 'restoring the previous install'
+            Write-Log 'rolled back to the previous install'
+          } catch {
+            Write-Log ("ROLLBACK FAILED; the previous install is still at ${backup}. " + $_.Exception.Message)
           }
         }
 
-        if (Test-Path $backup) { Remove-Item -Recurse -Force $backup -ErrorAction SilentlyContinue }
-        if (Test-Path $Relaunch) { Start-Process -FilePath $Relaunch }
+        # The backup is deleted only once the new build is confirmed in place. On any other path it
+        # may be the only copy of the app left on disk.
+        if ($swapped) {
+          Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $Staged -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        if (Test-Path -LiteralPath $Relaunch) {
+          Start-Process -FilePath $Relaunch -WorkingDirectory $neutral
+          Write-Log "relaunched $Relaunch"
+        } else {
+          Write-Log "nothing to relaunch at $Relaunch"
+        }
         """;
 }
