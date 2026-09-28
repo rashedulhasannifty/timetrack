@@ -30,6 +30,9 @@ protocol ManualIdleMonitorDelegate: AnyObject {
     /// `limitInstant` is always `awayStart + awayLimitSeconds`, derived rather than read from the
     /// clock, so it doesn't drift with whichever tick happened to notice.
     func manualIdleMonitor(_ m: ManualIdleMonitor, didExceedAwayLimitFrom awayStart: Date, at limitInstant: Date)
+    /// The open prompt is being answered by policy (the person went away again without answering
+    /// it). Close it. Its own answer on close arrives after the monitor has moved on and is ignored.
+    func manualIdleMonitorDidWithdrawPrompt(_ m: ManualIdleMonitor)
 }
 
 final class ManualIdleMonitor {
@@ -97,6 +100,13 @@ final class ManualIdleMonitor {
                 // someone to come back before closing the door.
                 exceedLimit(from: since)
             }
+        case .awaiting(_, let until) where idleSeconds >= thresholdSeconds:
+            // Back, prompt unanswered, and gone again — the end of the day with the prompt still
+            // up. Left waiting, the timer would run until the 12h cap: the very overnight entry
+            // the limit exists to stop. The second absence starts where input stopped, never
+            // before the return that opened the prompt.
+            withdrawPrompt()
+            beginAway(at: max(now.addingTimeInterval(-Double(idleSeconds)), until))
         default:
             break
         }
@@ -104,8 +114,15 @@ final class ManualIdleMonitor {
 
     /// System sleep / screen lock: away now (don't wait for threshold). Still no stop.
     func markAway() {
-        guard case .active = state else { return }
-        beginAway(at: clock())
+        switch state {
+        case .active:
+            beginAway(at: clock())
+        case .awaiting:
+            withdrawPrompt()
+            beginAway(at: clock())
+        case .inactive, .away:
+            break
+        }
     }
 
     /// Explicit resume (wake/unlock). A sleep can outlast the away limit entirely — no tick fires
@@ -121,6 +138,15 @@ final class ManualIdleMonitor {
         guard case let .awaiting(since, until) = state else { return }
         delegate?.manualIdleMonitor(self, didResolveAwayFrom: since, to: until, keeping: action == .keep)
         state = .active
+    }
+
+    /// Answer the open prompt with its default, Discard, and close it. The state leaves `.awaiting`
+    /// BEFORE the prompt is closed, so the prompt's own answer on close is a no-op.
+    private func withdrawPrompt() {
+        guard case let .awaiting(since, until) = state else { return }
+        state = .active
+        delegate?.manualIdleMonitorDidWithdrawPrompt(self)
+        delegate?.manualIdleMonitor(self, didResolveAwayFrom: since, to: until, keeping: false)
     }
 
     private func beginAway(at awayStart: Date) {

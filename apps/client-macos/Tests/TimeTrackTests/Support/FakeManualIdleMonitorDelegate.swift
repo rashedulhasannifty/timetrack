@@ -9,6 +9,7 @@ final class FakeManualIdleMonitorDelegate: ManualIdleMonitorDelegate {
         case resolved(from: Date, to: Date, keeping: Bool)
         case abandoned(from: Date, to: Date)
         case exceededLimit(from: Date, at: Date)
+        case withdrewPrompt
     }
     private(set) var calls: [Call] = []
 
@@ -26,5 +27,10 @@ final class FakeManualIdleMonitorDelegate: ManualIdleMonitorDelegate {
     }
     func manualIdleMonitor(_ m: ManualIdleMonitor, didExceedAwayLimitFrom awayStart: Date, at limitInstant: Date) {
         calls.append(.exceededLimit(from: awayStart, at: limitInstant))
+    }
+    func manualIdleMonitorDidWithdrawPrompt(_ m: ManualIdleMonitor) {
+        calls.append(.withdrewPrompt)
+        // A real prompt resolves with its default when it is closed; the monitor must ignore it.
+        m.resolve(.keep)
     }
 }

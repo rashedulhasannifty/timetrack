@@ -159,4 +159,77 @@ final class ManualIdleMonitorTests: XCTestCase {
         XCTAssertEqual(monitor.state, .awaiting(since: t0, until: t0.addingTimeInterval(600)))
         XCTAssertEqual(delegate.calls.last, .becameAway(seconds: 600))
     }
+
+    // MARK: Going away again while the prompt is still open
+
+    /// Someone comes back, ignores the prompt, and leaves for the night. The open prompt must not
+    /// switch idle detection off: going idle again resolves it as Discard (its default) and the
+    /// second absence starts its own away window from the moment input stopped.
+    func testGoingIdleAgainWhileThePromptIsOpenDiscardsItAndBeginsASecondAway() {
+        let (monitor, delegate, clock) = make(threshold: 300)
+        monitor.activate()
+        clock.advance(300); monitor.tick(idleSeconds: 300)     // away since t0
+        clock.advance(120); monitor.tick(idleSeconds: 5)       // back at t0+420 → prompt
+        clock.advance(400); monitor.tick(idleSeconds: 305)     // left again at t0+515
+
+        let secondStart = t0.addingTimeInterval(515)
+        XCTAssertEqual(monitor.state, .away(since: secondStart))
+        XCTAssertEqual(Array(delegate.calls.suffix(3)), [
+            .withdrewPrompt,
+            .resolved(from: t0, to: t0.addingTimeInterval(420), keeping: false),
+            .beganAway(at: secondStart),
+        ], "the prompt's own default on close is ignored — one discard, not a keep")
+    }
+
+    func testTheSecondAbsenceIsBoundedByTheLimitLikeAnyOther() {
+        let (monitor, delegate, clock) = make(threshold: 300)
+        monitor.activate()
+        clock.advance(300); monitor.tick(idleSeconds: 300)
+        clock.advance(120); monitor.tick(idleSeconds: 5)       // prompt
+        clock.advance(400); monitor.tick(idleSeconds: 305)     // second away since t0+515
+        clock.advance(3600); monitor.tick(idleSeconds: 3905)   // overnight
+
+        let secondStart = t0.addingTimeInterval(515)
+        XCTAssertEqual(delegate.calls.last, .exceededLimit(from: secondStart, at: secondStart.addingTimeInterval(3600)))
+        XCTAssertEqual(monitor.state, .inactive)
+    }
+
+    func testLockingWhileThePromptIsOpenDiscardsItAndBeginsAwayNow() {
+        let (monitor, delegate, clock) = make(threshold: 300)
+        monitor.activate()
+        clock.advance(300); monitor.tick(idleSeconds: 300)
+        clock.advance(120); monitor.tick(idleSeconds: 5)       // prompt at t0+420
+        clock.advance(60); monitor.markAway()                  // lock at t0+480
+
+        let lockedAt = t0.addingTimeInterval(480)
+        XCTAssertEqual(monitor.state, .away(since: lockedAt))
+        XCTAssertEqual(Array(delegate.calls.suffix(3)), [
+            .withdrewPrompt,
+            .resolved(from: t0, to: t0.addingTimeInterval(420), keeping: false),
+            .beganAway(at: lockedAt),
+        ])
+    }
+
+    /// The second absence never reaches back before the return that opened the prompt.
+    func testTheSecondAwayStartIsClampedToTheReturn() {
+        let (monitor, delegate, clock) = make(threshold: 300)
+        monitor.activate()
+        clock.advance(300); monitor.tick(idleSeconds: 300)
+        clock.advance(120); monitor.tick(idleSeconds: 5)       // back at t0+420
+        clock.advance(300); monitor.tick(idleSeconds: 900)     // a reading older than the return
+
+        XCTAssertEqual(delegate.calls.last, .beganAway(at: t0.addingTimeInterval(420)))
+    }
+
+    func testAnOpenPromptIsLeftAloneWhileThePersonIsActive() {
+        let (monitor, delegate, clock) = make(threshold: 300)
+        monitor.activate()
+        clock.advance(300); monitor.tick(idleSeconds: 300)
+        clock.advance(120); monitor.tick(idleSeconds: 5)       // prompt
+        let before = delegate.calls
+        clock.advance(600); monitor.tick(idleSeconds: 30)      // working, not answering
+
+        XCTAssertEqual(delegate.calls, before)
+        XCTAssertEqual(monitor.state, .awaiting(since: t0, until: t0.addingTimeInterval(420)))
+    }
 }

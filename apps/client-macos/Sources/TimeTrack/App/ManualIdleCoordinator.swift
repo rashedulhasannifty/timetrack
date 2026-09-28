@@ -129,7 +129,13 @@ final class ManualIdleCoordinator: ManualIdleMonitorDelegate, AutoTrackingSignal
         // Discard: trim ONLY if the same manual entry is still running.
         if case let .tracking(id, _, selection, .manual) = tracker.state, id == awayEntryId {
             tracker.stop(at: awayStart)
-            tracker.start(projectId: selection.projectId, taskId: selection.taskId, source: .manual)
+            // The replacement opens at the return, not at the answer: the person was working
+            // from then, and a prompt answered by policy is answered after they have left again.
+            tracker.start(projectId: selection.projectId, taskId: selection.taskId, note: selection.note,
+                          source: .manual, at: resume)
+            // Same session, so the monitor stays armed across the swap rather than re-arming on
+            // the replacement and forgetting an away window it has already begun.
+            if case let .tracking(replacement, _, _, _) = tracker.state { armedEntryId = replacement }
             enqueueIdle(from: awayStart, to: resume, action: .discarded)
             // Shift the clock forward by the discarded idle gap so it keeps reading worked time.
             onEntryReplaced(resume.timeIntervalSince(awayStart))
@@ -141,6 +147,10 @@ final class ManualIdleCoordinator: ManualIdleMonitorDelegate, AutoTrackingSignal
     func manualIdleMonitor(_ m: ManualIdleMonitor, didAbandonAwayFrom awayStart: Date, to lastKnown: Date) {
         enqueueIdle(from: awayStart, to: lastKnown, action: .unresolved)
         awayEntryId = nil
+    }
+
+    func manualIdleMonitorDidWithdrawPrompt(_ m: ManualIdleMonitor) {
+        dismissPrompt()
     }
 
     func manualIdleMonitor(_ m: ManualIdleMonitor, didExceedAwayLimitFrom awayStart: Date, at limitInstant: Date) {

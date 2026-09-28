@@ -342,4 +342,63 @@ final class ManualIdleCoordinatorTests: XCTestCase {
         stale?(.keep)
         XCTAssertEqual(idleEvents(spy).count, 1, "the disarmed monitor's resolve is a no-op")
     }
+
+    // MARK: - Leaving again with the prompt still open
+
+    private func date(_ value: Any?) -> Date? {
+        guard let text = value as? String else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+    }
+
+    /// Back, prompt ignored, gone for the night. Without this the unanswered prompt switched idle
+    /// detection off and the timer ran to the 12h cap. Now the prompt is withdrawn as a Discard,
+    /// the minutes worked after returning are kept, and the second absence ends the entry.
+    func testLeavingForTheNightWithThePromptOpenStillStopsTheTimer() {
+        let (c, tracker, spy, clock, resolver, dismissals, notices) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: "k1")          // entry A at t0
+        c.tick(idleSeconds: 0)
+        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0
+        clock.advance(120); c.tick(idleSeconds: 5)            // back at t0+420 → prompt
+        XCTAssertNotNil(resolver())
+        clock.advance(400); c.tick(idleSeconds: 305)          // left again at t0+515
+
+        XCTAssertEqual(dismissals(), 1, "the unanswered prompt is closed")
+        guard case let .tracking(_, startedAt, selection, .manual) = tracker.state else {
+            return XCTFail("a replacement entry is running")
+        }
+        XCTAssertEqual(startedAt, t0.addingTimeInterval(420), "the replacement opens at the return")
+        XCTAssertEqual(selection.projectId, "p1")
+
+        clock.advance(3600); c.tick(idleSeconds: 3905)        // overnight
+        XCTAssertFalse(tracker.isRunning, "the second absence is bounded by the limit")
+        XCTAssertEqual(notices(), [t0.addingTimeInterval(515)])
+
+        let entries = timeEntries(spy)
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(date(entries[1]["startTime"]), t0.addingTimeInterval(420))
+        XCTAssertEqual(date(entries[1]["endTime"]), t0.addingTimeInterval(515),
+                       "the time worked between the return and leaving again is kept")
+
+        let events = idleEvents(spy)
+        XCTAssertEqual(events.map { $0["resolvedAction"] as? String }, ["DISCARDED", "DISCARDED"])
+
+        // The prompt's own answer, arriving late, changes nothing.
+        resolver()?(.keep)
+        XCTAssertEqual(idleEvents(spy).count, 2)
+    }
+
+    func testAnsweringDiscardResumesFromTheReturnNotFromTheClick() {
+        let (c, tracker, _, clock, resolver, _, _) = make(threshold: 300)
+        tracker.start(projectId: "p1", taskId: "k1")
+        c.tick(idleSeconds: 0)
+        clock.advance(300); c.tick(idleSeconds: 300)          // away since t0
+        clock.advance(120); c.tick(idleSeconds: 5)            // back at t0+420
+        clock.advance(600); c.tick(idleSeconds: 20)           // working for ten minutes first
+        resolver()?(.discard)
+
+        guard case let .tracking(_, startedAt, _, _) = tracker.state else { return XCTFail("running") }
+        XCTAssertEqual(startedAt, t0.addingTimeInterval(420))
+    }
 }

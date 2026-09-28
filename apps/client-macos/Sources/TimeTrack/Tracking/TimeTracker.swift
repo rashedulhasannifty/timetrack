@@ -74,9 +74,12 @@ final class TimeTracker {
     var isRunning: Bool { if case .tracking = state { return true } else { return false } }
     var isPaused: Bool { if case .paused = state { return true } else { return false } }
 
-    func start(projectId: String?, taskId: String?, note: String? = nil, source: Source = .manual) {
+    /// `startTime` backdates the open, the mirror of `stop(at:)`: a Discard on the away prompt
+    /// resumes from the moment the person came back, not from when they answered. Defaults to
+    /// `clock()`.
+    func start(projectId: String?, taskId: String?, note: String? = nil, source: Source = .manual, at startTime: Date? = nil) {
         guard case .tracking = state else {
-            open(Selection(projectId: projectId, taskId: taskId, note: note), source: source)
+            open(Selection(projectId: projectId, taskId: taskId, note: note), source: source, at: startTime ?? clock())
             return
         }
         // Already tracking — ignore a second start.
@@ -133,8 +136,8 @@ final class TimeTracker {
         onSpanClosed?(start, end)
     }
 
-    private func open(_ selection: Selection, source: Source) {
-        let now = clock()
+    private func open(_ selection: Selection, source: Source, at now: Date? = nil) {
+        let now = now ?? clock()
         let id = idGen(now)
         state = .tracking(entryId: id, startedAt: now, selection: selection, source: source)
         liveSpan.begin(entryId: id, startTime: now, selection: selection, source: source)
