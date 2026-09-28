@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Reflection;
+using System.Text;
 using NiftyTimer.Update;
 using Xunit;
 
@@ -288,8 +290,8 @@ public class UpdateInstallerTests
         var script = UpdateInstaller.SwapScript();
 
         Assert.Contains("Get-Process -Id $ProcessId", script, StringComparison.Ordinal);
-        Assert.Contains("Move-Item -Force $Install $backup", script, StringComparison.Ordinal);
-        Assert.Contains("Move-Item -Force $backup $Install", script, StringComparison.Ordinal);
+        Assert.Contains("Move-Item -LiteralPath $Install -Destination $backup", script, StringComparison.Ordinal);
+        Assert.Contains("Move-Item -LiteralPath $backup -Destination $Install", script, StringComparison.Ordinal);
         Assert.Contains("Start-Process -FilePath $Relaunch", script, StringComparison.Ordinal);
     }
 
@@ -309,8 +311,103 @@ public class UpdateInstallerTests
             stop > script.IndexOf("Start-Sleep", StringComparison.Ordinal),
             "The hung copy must be ended only after the bounded wait, not instead of it.");
         Assert.True(
-            stop < script.IndexOf("Move-Item -Force $Install $backup", StringComparison.Ordinal),
+            stop < script.IndexOf("Move-Item -LiteralPath $Install -Destination $backup", StringComparison.Ordinal),
             "The hung copy must be ended before the install is moved, or its locked image fails the swap.");
+    }
+
+    /// <summary>
+    /// The backup may be the only copy of the app on disk. It is deleted only once the new build is
+    /// confirmed in place — never on a path where the forward move worked and the rollback did not.
+    /// </summary>
+    [Fact]
+    public void TheSwapScriptDeletesTheBackupOnlyAfterASuccessfulSwap()
+    {
+        var script = UpdateInstaller.SwapScript();
+        var guard = script.IndexOf("if ($swapped) {", StringComparison.Ordinal);
+        var delete = script.IndexOf("Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction", StringComparison.Ordinal);
+
+        Assert.True(guard >= 0 && delete > guard, "The backup is deleted outside the success guard.");
+        Assert.Equal(delete, script.LastIndexOf("Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The regression that stranded every Windows install on its first build. The script used to
+    /// inherit the app's working directory — the install folder whenever the app was opened by
+    /// double-clicking it — and Windows refuses to rename a folder that is any process's current
+    /// directory. The swap failed, rolled back without a word, and relaunched the old version.
+    ///
+    /// This runs the real script, started INSIDE the install folder exactly as every shipped build
+    /// started it, and requires the swap to land anyway.
+    /// </summary>
+    [Fact]
+    public void TheSwapLandsEvenWhenStartedFromInsideTheInstallFolder()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Directory.CreateTempSubdirectory("niftytimer-swap-").FullName;
+        try
+        {
+            var install = Path.Combine(root, "NiftyTimer");
+            var staged = Path.Combine(root, "staged");
+            Directory.CreateDirectory(install);
+            Directory.CreateDirectory(staged);
+
+            // Harmless stand-ins for the two builds: the relaunch really starts whatever is there.
+            var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
+            File.Copy(Path.Combine(system, "hostname.exe"), Path.Combine(install, "NiftyTimer.exe"));
+            File.WriteAllText(Path.Combine(install, "old.txt"), "old");
+            File.Copy(Path.Combine(system, "whoami.exe"), Path.Combine(staged, "NiftyTimer.exe"));
+            File.WriteAllText(Path.Combine(staged, "new.txt"), "new");
+
+            var script = Path.Combine(root, "swap.ps1");
+            File.WriteAllText(script, UpdateInstaller.SwapScript(), new UTF8Encoding(false));
+            var log = Path.Combine(root, "update.log");
+
+            var start = new ProcessStartInfo("powershell.exe")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = install,
+            };
+            foreach (var argument in new[]
+                     {
+                         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
+                         "-ProcessId", "2147480000",
+                         "-Staged", staged,
+                         "-Install", install,
+                         "-Relaunch", Path.Combine(install, "NiftyTimer.exe"),
+                         "-Log", log,
+                     })
+            {
+                start.ArgumentList.Add(argument);
+            }
+
+            using (var swap = Process.Start(start)!)
+            {
+                Assert.True(swap.WaitForExit(60_000), "The swap script did not finish.");
+            }
+
+            var written = File.Exists(log) ? File.ReadAllText(log) : "(no update log)";
+            Assert.True(File.Exists(Path.Combine(install, "new.txt")), written);
+            Assert.False(File.Exists(Path.Combine(install, "old.txt")), written);
+            Assert.False(Directory.Exists(install + ".previous"), written);
+            Assert.Contains("update installed", written, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // The relaunched stand-in may still hold its image for a moment; the temp folder
+                // is swept by the OS.
+            }
+        }
     }
 }
 

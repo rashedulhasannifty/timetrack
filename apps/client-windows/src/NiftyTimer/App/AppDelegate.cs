@@ -225,7 +225,7 @@ public sealed class AppDelegate : IDisposable
         _updates = new UpdateCoordinator(
             new GitHubReleaseFeed(_http, _config.UpdateRepo),
             enabled: AppInstall.IsProduction(_config.AppId));
-        _updateInstaller = new UpdateInstaller(_http);
+        _updateInstaller = new UpdateInstaller(_http, logPath: AppInstall.SupportDirectory(_config.AppId, "update.log"));
 
         // Registration losing to another application that already owns Ctrl+Alt+T is normal and
         // must never be fatal: the tray icon is the primary control and still works.
