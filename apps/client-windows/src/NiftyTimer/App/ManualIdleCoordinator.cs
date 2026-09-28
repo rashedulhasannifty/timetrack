@@ -122,11 +122,15 @@ public sealed class ManualIdleCoordinator : IManualIdleMonitorDelegate, ISignalR
                 tracking.EntryId == _awayEntryId)
             {
                 _tracker.Stop(awayStart);
+
+                // The replacement opens at the return, not at the answer: the person was working
+                // from then, and a prompt answered by policy is answered after they have left again.
                 _tracker.Start(
                     tracking.Selection.ProjectId,
                     tracking.Selection.TaskId,
                     tracking.Selection.Note,
-                    TimeTracker.EntrySource.Manual);
+                    TimeTracker.EntrySource.Manual,
+                    startTime: resume);
                 Enqueue(awayStart, resume, ResolvedAction.Discarded);
 
                 // Tell the display clock to keep reading accumulated WORKED time. The fresh entry's
@@ -141,6 +145,10 @@ public sealed class ManualIdleCoordinator : IManualIdleMonitorDelegate, ISignalR
                 {
                     var workedBeforeAway = awayStart - tracking.StartedAt;
                     _onEntryReplaced(fresh.StartedAt - workedBeforeAway);
+
+                    // Same session, so the monitor stays armed across the swap rather than
+                    // re-arming on the replacement and forgetting an away window it has already begun.
+                    _armedEntryId = fresh.EntryId;
                 }
             }
             else
@@ -159,6 +167,8 @@ public sealed class ManualIdleCoordinator : IManualIdleMonitorDelegate, ISignalR
         Enqueue(awayStart, lastKnown, ResolvedAction.Unresolved);
         _awayEntryId = null;
     }
+
+    public void DidWithdrawPrompt() => _dismissPrompt();
 
     public void DidExceedAwayLimit(DateTimeOffset awayStart, DateTimeOffset detectedAt)
     {

@@ -65,14 +65,24 @@ public sealed class TimeTracker
 
     public bool IsPaused => State is TrackerState.Paused;
 
-    public void Start(string? projectId, string? taskId, string? note = null, EntrySource source = EntrySource.Manual)
+    /// <summary>
+    /// Open an entry. <paramref name="startTime"/> backdates the open, the mirror of
+    /// <see cref="Stop"/>: a Discard on the away prompt resumes from the moment the person came
+    /// back, not from when they answered. Defaults to now.
+    /// </summary>
+    public void Start(
+        string? projectId,
+        string? taskId,
+        string? note = null,
+        EntrySource source = EntrySource.Manual,
+        DateTimeOffset? startTime = null)
     {
         if (State is TrackerState.Tracking)
         {
             return; // Already tracking — ignore a second start.
         }
 
-        Open(new Selection(projectId, taskId, note), source);
+        Open(new Selection(projectId, taskId, note), source, startTime ?? _clock());
     }
 
     /// <summary>
@@ -115,7 +125,7 @@ public sealed class TimeTracker
     {
         if (State is TrackerState.Paused paused)
         {
-            Open(paused.Selection, EntrySource.Manual); // pause/resume is a manual-only affordance
+            Open(paused.Selection, EntrySource.Manual, _clock()); // pause/resume is a manual-only affordance
         }
     }
 
@@ -200,9 +210,8 @@ public sealed class TimeTracker
     internal static EntrySource SourceFromToken(string token) =>
         token == "AUTO" ? EntrySource.Auto : EntrySource.Manual;
 
-    private void Open(Selection selection, EntrySource source)
+    private void Open(Selection selection, EntrySource source, DateTimeOffset now)
     {
-        var now = _clock();
         var id = _idGen(now);
         State = new TrackerState.Tracking(id, now, selection, source);
         _liveSpan.Begin(id, now, selection, source);

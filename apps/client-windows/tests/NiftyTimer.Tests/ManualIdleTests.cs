@@ -32,6 +32,8 @@ public class ManualIdleMonitorTests
 
         public List<(DateTimeOffset AwayStart, DateTimeOffset DetectedAt)> LimitExceeded { get; } = [];
 
+        public int Withdrawn { get; private set; }
+
         public void DidBeginAway(DateTimeOffset awayStart) => Begun.Add(awayStart);
 
         public void DidBecomeAway(int seconds) => AwaySeconds.Add(seconds);
@@ -44,6 +46,8 @@ public class ManualIdleMonitorTests
 
         public void DidExceedAwayLimit(DateTimeOffset awayStart, DateTimeOffset detectedAt) =>
             LimitExceeded.Add((awayStart, detectedAt));
+
+        public void DidWithdrawPrompt() => Withdrawn++;
     }
 
     private static (ManualIdleMonitor Monitor, Recorder Delegate) New(
@@ -232,6 +236,116 @@ public class ManualIdleMonitorTests
 
         Assert.Equal(45 * 60, Assert.Single(recorder.AwaySeconds));
         Assert.Empty(recorder.LimitExceeded);
+    }
+
+    /// <summary>
+    /// Someone comes back, ignores the prompt, and leaves for the night. The open prompt must not
+    /// switch idle detection off: going idle again resolves it as Discard (its default) and the
+    /// second absence starts its own away window from the moment input stopped.
+    /// </summary>
+    [Fact]
+    public void GoingIdleAgainWhileThePromptIsOpenDiscardsItAndBeginsASecondAway()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now);
+        monitor.Activate();
+
+        now = T0.AddMinutes(5);
+        monitor.Tick(300); // away since T0
+
+        now = T0.AddMinutes(7);
+        monitor.Tick(5); // back -> prompt
+
+        now = T0.AddMinutes(13);
+        monitor.Tick(330); // left again at 09:07:30
+
+        var secondStart = T0.AddMinutes(7).AddSeconds(30);
+        Assert.Equal(1, recorder.Withdrawn);
+        Assert.Equal((T0, T0.AddMinutes(7), false), Assert.Single(recorder.Resolved));
+        Assert.Equal(secondStart, recorder.Begun[^1]);
+        Assert.Equal(new IdleState.Away(secondStart), monitor.State);
+
+        // The prompt's own answer, arriving after it was withdrawn, changes nothing.
+        monitor.Resolve(AwayResolution.Keep);
+        Assert.Single(recorder.Resolved);
+    }
+
+    [Fact]
+    public void TheSecondAbsenceIsBoundedByTheLimitLikeAnyOther()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now);
+        monitor.Activate();
+
+        now = T0.AddMinutes(5);
+        monitor.Tick(300);
+        now = T0.AddMinutes(7);
+        monitor.Tick(5); // prompt
+        now = T0.AddMinutes(13);
+        monitor.Tick(330); // second away since 09:07:30
+
+        now = T0.AddMinutes(68); // overnight
+        monitor.Tick(3630);
+
+        Assert.Equal(T0.AddMinutes(7).AddSeconds(30), Assert.Single(recorder.LimitExceeded).AwayStart);
+        Assert.Equal(IdleState.Inactive, monitor.State);
+    }
+
+    [Fact]
+    public void LockingWhileThePromptIsOpenDiscardsItAndBeginsAwayNow()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now);
+        monitor.Activate();
+
+        now = T0.AddMinutes(5);
+        monitor.Tick(300);
+        now = T0.AddMinutes(7);
+        monitor.Tick(5); // prompt
+
+        now = T0.AddMinutes(8);
+        monitor.MarkAway(); // lock
+
+        Assert.Equal(1, recorder.Withdrawn);
+        Assert.Equal((T0, T0.AddMinutes(7), false), Assert.Single(recorder.Resolved));
+        Assert.Equal(new IdleState.Away(T0.AddMinutes(8)), monitor.State);
+    }
+
+    /// <summary>The second absence never reaches back before the return that opened the prompt.</summary>
+    [Fact]
+    public void TheSecondAwayStartIsClampedToTheReturn()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now);
+        monitor.Activate();
+
+        now = T0.AddMinutes(5);
+        monitor.Tick(300);
+        now = T0.AddMinutes(7);
+        monitor.Tick(5); // back at 09:07
+        now = T0.AddMinutes(12);
+        monitor.Tick(900); // a reading older than the return
+
+        Assert.Equal(T0.AddMinutes(7), recorder.Begun[^1]);
+    }
+
+    [Fact]
+    public void AnOpenPromptIsLeftAloneWhileThePersonIsActive()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now);
+        monitor.Activate();
+
+        now = T0.AddMinutes(5);
+        monitor.Tick(300);
+        now = T0.AddMinutes(7);
+        monitor.Tick(5); // prompt
+        now = T0.AddMinutes(17);
+        monitor.Tick(30); // working, not answering
+
+        Assert.Equal(0, recorder.Withdrawn);
+        Assert.Empty(recorder.Resolved);
+        Assert.Equal(new IdleState.Awaiting(T0, T0.AddMinutes(7)), monitor.State);
     }
 }
 
@@ -651,6 +765,70 @@ public class ManualIdleCoordinatorTests
         h.Coordinator.Tick(0); // back
 
         Assert.Equal(6, Assert.Single(h.Prompts)); // away for 6 minutes: 09:07 to 09:13
+    }
+
+    /// <summary>
+    /// Back, prompt ignored, gone for the night. Without this the unanswered prompt switched idle
+    /// detection off and the timer ran to the 12h cap. Now the prompt is withdrawn as a Discard, the
+    /// minutes worked after returning are kept, and the second absence ends the entry.
+    /// </summary>
+    [Fact]
+    public void LeavingForTheNightWithThePromptOpenStillStopsTheTimer()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", "t1");
+        h.Coordinator.Tick(0); // arm at 09:00
+
+        h.Now = T0.AddMinutes(5);
+        h.Coordinator.Tick(300); // away since 09:00
+        h.Now = T0.AddMinutes(7);
+        h.Coordinator.Tick(5); // back -> prompt
+        Assert.Single(h.Prompts);
+
+        h.Now = T0.AddMinutes(13);
+        h.Coordinator.Tick(330); // left again at 09:07:30
+
+        Assert.Equal(1, h.Dismissals);
+        var replacement = Assert.IsType<TrackerState.Tracking>(h.Tracker.State);
+        Assert.Equal(T0.AddMinutes(7), replacement.StartedAt); // opens at the return
+        Assert.Equal("p1", replacement.Selection.ProjectId);
+
+        h.Now = T0.AddMinutes(68); // overnight
+        h.Coordinator.Tick(3630);
+
+        Assert.Equal(TrackerState.Idle, h.Tracker.State);
+        Assert.Equal(T0.AddMinutes(7).AddSeconds(30), Assert.Single(h.LimitNotices));
+
+        var entries = h.TimeEntries();
+        Assert.Equal(2, entries.Count);
+        Assert.Equal("2026-08-25T09:07:00Z", entries[1].StartTime);
+        Assert.Equal("2026-08-25T09:07:30Z", entries[1].EndTime); // the worked minutes are kept
+
+        var idle = h.IdleEvents();
+        Assert.Equal(2, idle.Count);
+        Assert.All(idle, e => Assert.Equal("DISCARDED", e.ResolvedAction));
+
+        // The prompt's own answer, arriving late, changes nothing.
+        h.Resolve?.Invoke(AwayResolution.Keep);
+        Assert.Equal(2, h.IdleEvents().Count);
+    }
+
+    [Fact]
+    public void AnsweringDiscardResumesFromTheReturnNotFromTheClick()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", "t1");
+        h.Coordinator.Tick(0);
+
+        h.Now = T0.AddMinutes(5);
+        h.Coordinator.Tick(300); // away since 09:00
+        h.Now = T0.AddMinutes(7);
+        h.Coordinator.Tick(5); // back at 09:07
+        h.Now = T0.AddMinutes(17);
+        h.Coordinator.Tick(20); // working for ten minutes first
+        h.Resolve!(AwayResolution.Discard);
+
+        Assert.Equal(T0.AddMinutes(7), Assert.IsType<TrackerState.Tracking>(h.Tracker.State).StartedAt);
     }
 }
 

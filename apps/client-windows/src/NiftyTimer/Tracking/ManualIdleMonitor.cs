@@ -40,6 +40,12 @@ public interface IManualIdleMonitorDelegate
     /// on its own), and tell the person their timer stopped.
     /// </summary>
     void DidExceedAwayLimit(DateTimeOffset awayStart, DateTimeOffset detectedAt);
+
+    /// <summary>
+    /// The open prompt is being answered by policy: the person went away again without answering
+    /// it. Close it. Its own answer on close arrives after the monitor has moved on and is ignored.
+    /// </summary>
+    void DidWithdrawPrompt();
 }
 
 /// <summary>The manual-session decision machine. See <see cref="IManualIdleMonitorDelegate"/>.</summary>
@@ -136,6 +142,16 @@ public sealed class ManualIdleMonitor
                 TransitionToAwaiting(away.Since, now);
                 break;
 
+            case IdleState.Awaiting awaiting when idleSeconds >= _thresholdSeconds:
+                // Back, prompt unanswered, and gone again — the end of the day with the prompt
+                // still up. Left waiting, the timer would run until the 12h cap: the very overnight
+                // entry the limit exists to stop. The second absence starts where input stopped,
+                // never before the return that opened the prompt.
+                var inputStopped = now.AddSeconds(-idleSeconds);
+                WithdrawPrompt(awaiting);
+                BeginAway(inputStopped > awaiting.Until ? inputStopped : awaiting.Until);
+                break;
+
             default:
                 break;
         }
@@ -144,14 +160,17 @@ public sealed class ManualIdleMonitor
     /// <summary>System sleep / screen lock: away now (don't wait for the threshold). Still no stop.</summary>
     public void MarkAway()
     {
+        if (State is IdleState.Awaiting awaiting)
+        {
+            WithdrawPrompt(awaiting);
+        }
+
         if (State is not IdleState.ActiveState)
         {
             return;
         }
 
-        var awayStart = _clock();
-        State = new IdleState.Away(awayStart);
-        Delegate?.DidBeginAway(awayStart);
+        BeginAway(_clock());
     }
 
     /// <summary>
@@ -190,6 +209,23 @@ public sealed class ManualIdleMonitor
 
         Delegate?.DidResolveAway(awaiting.Since, awaiting.Until, action == AwayResolution.Keep);
         State = IdleState.Active;
+    }
+
+    /// <summary>
+    /// Answer the open prompt with its default, Discard, and close it. The state leaves Awaiting
+    /// BEFORE the prompt is closed, so the prompt's own answer on close is a no-op.
+    /// </summary>
+    private void WithdrawPrompt(IdleState.Awaiting awaiting)
+    {
+        State = IdleState.Active;
+        Delegate?.DidWithdrawPrompt();
+        Delegate?.DidResolveAway(awaiting.Since, awaiting.Until, keeping: false);
+    }
+
+    private void BeginAway(DateTimeOffset awayStart)
+    {
+        State = new IdleState.Away(awayStart);
+        Delegate?.DidBeginAway(awayStart);
     }
 
     private void TransitionToAwaiting(DateTimeOffset since, DateTimeOffset resumeAt)
