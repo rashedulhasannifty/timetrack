@@ -10,9 +10,11 @@ using Xunit;
 namespace NiftyTimer.Tests;
 
 /// <summary>
-/// Manual tracking used to run THROUGH an away window and let the employee adjudicate it on
-/// return. These tests pin the replacement: inactivity times the session out, and the entry ends
-/// at a point derived from the threshold rather than from whenever the poller noticed.
+/// The manual-session idle machine. Same shape as <see cref="IdleMonitor"/>, but a manual entry is
+/// the user's own action, so going away must never stop it (CLAUDE.md §1) — with one exception:
+/// <see cref="ManualIdleMonitor.AwayLimit"/>. Nobody comes back from a PC left awake over a
+/// weekend, so an away window that nobody ever answers is bounded by policy rather than left open
+/// forever.
 /// </summary>
 public class ManualIdleMonitorTests
 {
@@ -20,16 +22,36 @@ public class ManualIdleMonitorTests
 
     private sealed class Recorder : IManualIdleMonitorDelegate
     {
-        public List<(DateTimeOffset From, DateTimeOffset StoppingAt)> TimedOut { get; } = [];
+        public List<DateTimeOffset> Begun { get; } = [];
 
-        public void DidTimeOut(DateTimeOffset awayStart, DateTimeOffset stopInstant) =>
-            TimedOut.Add((awayStart, stopInstant));
+        public List<int> AwaySeconds { get; } = [];
+
+        public List<(DateTimeOffset From, DateTimeOffset To, bool Keeping)> Resolved { get; } = [];
+
+        public List<(DateTimeOffset From, DateTimeOffset To)> Abandoned { get; } = [];
+
+        public List<(DateTimeOffset AwayStart, DateTimeOffset DetectedAt)> LimitExceeded { get; } = [];
+
+        public void DidBeginAway(DateTimeOffset awayStart) => Begun.Add(awayStart);
+
+        public void DidBecomeAway(int seconds) => AwaySeconds.Add(seconds);
+
+        public void DidResolveAway(DateTimeOffset awayStart, DateTimeOffset resume, bool keeping) =>
+            Resolved.Add((awayStart, resume, keeping));
+
+        public void DidAbandonAway(DateTimeOffset awayStart, DateTimeOffset lastKnown) =>
+            Abandoned.Add((awayStart, lastKnown));
+
+        public void DidExceedAwayLimit(DateTimeOffset awayStart, DateTimeOffset detectedAt) =>
+            LimitExceeded.Add((awayStart, detectedAt));
     }
 
-    private static (ManualIdleMonitor Monitor, Recorder Delegate) New(Func<DateTimeOffset> clock)
+    private static (ManualIdleMonitor Monitor, Recorder Delegate) New(
+        Func<DateTimeOffset> clock,
+        TimeSpan? awayLimit = null)
     {
         var recorder = new Recorder();
-        var monitor = new ManualIdleMonitor(300, clock) { Delegate = recorder };
+        var monitor = new ManualIdleMonitor(300, clock, awayLimit) { Delegate = recorder };
         return (monitor, recorder);
     }
 
@@ -38,152 +60,184 @@ public class ManualIdleMonitorTests
     /// belongs to the user.
     /// </summary>
     [Fact]
-    public void ActivateArmsWithoutTouchingTheTimer()
+    public void ActivateArmsWithoutStartingAnything()
     {
         var (monitor, recorder) = New(() => T0);
 
         monitor.Activate();
 
-        Assert.Equal(ManualIdleState.Active, monitor.State);
-        Assert.Empty(recorder.TimedOut);
+        Assert.Equal(IdleState.Active, monitor.State);
+        Assert.Empty(recorder.Begun);
+        Assert.Empty(recorder.Resolved);
     }
 
     [Fact]
-    public void SubThresholdTickDoesNothing()
+    public void CrossingTheThresholdReportsAwayButNeverStops()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now);
+        monitor.Activate(); // armed at T0
+
+        now = T0.AddMinutes(30);
+        monitor.Tick(400);
+
+        var expectedAwayStart = now.AddSeconds(-400);
+        Assert.Equal(expectedAwayStart, Assert.Single(recorder.Begun));
+        Assert.Equal(new IdleState.Away(expectedAwayStart), monitor.State);
+    }
+
+    [Fact]
+    public void ResolvingReArmsWithoutOpeningASpan()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now);
+        monitor.Activate(); // armed at T0
+
+        now = T0.AddMinutes(10);
+        monitor.Tick(600); // idle 600s as of T0+10min -> away since T0
+
+        now = T0.AddMinutes(30);
+        monitor.Tick(0); // back -> awaiting
+
+        monitor.Resolve(AwayResolution.Discard);
+
+        Assert.Single(recorder.Resolved);
+        Assert.Equal(IdleState.Active, monitor.State);
+    }
+
+    [Fact]
+    public void TearingDownWhileAwayRecordsUnresolved()
     {
         var now = T0;
         var (monitor, recorder) = New(() => now);
         monitor.Activate();
-
-        now = T0.AddSeconds(299);
-        monitor.Tick(299);
-
-        Assert.Equal(ManualIdleState.Active, monitor.State);
-        Assert.Empty(recorder.TimedOut);
-    }
-
-    /// <summary>
-    /// The headline. Input stopped at T0; the entry ends 300s later — those idle minutes stay on
-    /// the timesheet, because the admin's chosen threshold is what the team is willing to credit.
-    /// </summary>
-    [Fact]
-    public void CrossingTheThresholdTimesOutAndKeepsTheIdleMinutes()
-    {
-        var now = T0;
-        var (monitor, recorder) = New(() => now);
-        monitor.Activate();
-
-        now = T0.AddSeconds(300);
-        monitor.Tick(300);
-
-        Assert.Equal((T0, T0.AddSeconds(300)), Assert.Single(recorder.TimedOut));
-    }
-
-    /// <summary>
-    /// The poller runs on its own cadence, so a reading can overshoot the threshold. The entry's
-    /// end must not drift with it: two PCs on the same policy end the same span in the same place.
-    /// </summary>
-    [Fact]
-    public void TheStopInstantComesFromTheThresholdNotTheTickThatNoticed()
-    {
-        var now = T0;
-        var (monitor, recorder) = New(() => now);
-        monitor.Activate();
-
-        now = T0.AddSeconds(475);
-        monitor.Tick(475); // noticed 175s late
-
-        Assert.Equal((T0, T0.AddSeconds(300)), Assert.Single(recorder.TimedOut));
-    }
-
-    /// <summary>
-    /// A locked screen is not a long read: the moment input stopped is known exactly, so no idle
-    /// minutes are credited that provably did not happen.
-    /// </summary>
-    [Fact]
-    public void SleepOrLockStopsWhereTheInputDid()
-    {
-        var now = T0;
-        var (monitor, recorder) = New(() => now);
-        monitor.Activate();
-
-        now = T0.AddSeconds(60);
         monitor.MarkAway();
 
-        Assert.Equal((now, now), Assert.Single(recorder.TimedOut));
-    }
+        now = T0.AddMinutes(20);
+        monitor.Deactivate();
 
-    /// <summary>
-    /// Disarming as it fires is what stops a still-idle PC from re-closing an entry the timeout
-    /// already closed — and what lets the coordinator re-arm on the next manual session.
-    /// </summary>
-    [Fact]
-    public void TimingOutDisarmsTheMonitor()
-    {
-        var now = T0;
-        var (monitor, recorder) = New(() => now);
-        monitor.Activate();
-
-        now = T0.AddSeconds(300);
-        monitor.Tick(300);
-        Assert.Equal(ManualIdleState.Inactive, monitor.State);
-
-        now = T0.AddSeconds(600);
-        monitor.Tick(600);
-        monitor.MarkAway();
-
-        Assert.Single(recorder.TimedOut); // a disarmed monitor decides nothing
+        Assert.Equal((T0, now), Assert.Single(recorder.Abandoned));
     }
 
     /// <summary>
     /// The OS idle counter does not reset when someone presses Stop and starts something else.
-    /// Without clamping to the arming instant, that inherited reading closes the new span the
-    /// moment it opens — a policy stop for inactivity that belongs to the previous session.
+    /// Without clamping to the arming instant, that inherited reading would flag a session away
+    /// for idle time that happened before it was even armed.
     /// </summary>
     [Fact]
     public void IdlenessInheritedFromBeforeTheSessionDoesNotCount()
     {
-        var now = T0.AddSeconds(900); // 15 min idle before this session
+        var now = T0.AddSeconds(900); // 15 min "idle" already elapsed before this session
         var (monitor, recorder) = New(() => now);
-        monitor.Activate();           // armed at T0+900
+        monitor.Activate(); // armed at T0+900s
 
-        monitor.Tick(900);
+        monitor.Tick(900); // a reading claiming 900s idle, right at arming
 
-        Assert.Empty(recorder.TimedOut); // the new session has been idle for 0s, not 900s
-        Assert.Equal(ManualIdleState.Active, monitor.State);
+        Assert.Empty(recorder.Begun); // clamped to the arming instant: 0s idle so far, not 900s
+        Assert.Equal(IdleState.Active, monitor.State);
 
-        // It times out on its OWN inactivity, measured from arming.
-        now = T0.AddSeconds(1200);
-        monitor.Tick(1200);
+        now = now.AddSeconds(300); // 300s pass with continued inactivity
+        monitor.Tick(1200); // the OS still reports one long-idle reading
 
-        Assert.Equal((T0.AddSeconds(900), T0.AddSeconds(1200)), Assert.Single(recorder.TimedOut));
+        Assert.Equal(T0.AddSeconds(900), Assert.Single(recorder.Begun));
     }
 
+    /// <summary>
+    /// The headline addition: an away window that nobody ever answers does not stay open forever.
+    /// </summary>
     [Fact]
-    public void DeactivateReportsNothing()
+    public void AwayPastTheLimitTimesOutWithoutInputReturning()
     {
         var now = T0;
-        var (monitor, recorder) = New(() => now);
+        var (monitor, recorder) = New(() => now, TimeSpan.FromMinutes(60));
         monitor.Activate();
+        monitor.MarkAway(); // away since T0
 
-        now = T0.AddSeconds(120);
-        monitor.Deactivate();
+        now = T0.AddMinutes(61);
+        monitor.Tick(600); // still idle, no return — but well past the limit
 
-        Assert.Equal(ManualIdleState.Inactive, monitor.State);
-        Assert.Empty(recorder.TimedOut); // nothing is ever left pending to abandon
+        Assert.Equal(IdleState.Inactive, monitor.State);
+        Assert.Equal((T0, now), Assert.Single(recorder.LimitExceeded));
+        Assert.Empty(recorder.AwaySeconds); // the limit fires instead of the prompt
+    }
+
+    /// <summary>Returning inside the limit still asks — the ordinary keep/discard path.</summary>
+    [Fact]
+    public void ReturningWithinTheLimitStillPrompts()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now, TimeSpan.FromMinutes(60));
+        monitor.Activate();
+        monitor.MarkAway(); // away since T0
+
+        now = T0.AddMinutes(59);
+        monitor.Tick(0); // back, 59 minutes later — inside the limit
+
+        Assert.Equal(59 * 60, Assert.Single(recorder.AwaySeconds));
+        Assert.Empty(recorder.LimitExceeded);
+        Assert.Equal(new IdleState.Awaiting(T0, now), monitor.State);
+    }
+
+    /// <summary>
+    /// The boundary that matters: input DID resume, but too late. The limit wins over the prompt.
+    /// </summary>
+    [Fact]
+    public void ReturningPastTheLimitTimesOutInsteadOfPrompting()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now, TimeSpan.FromMinutes(60));
+        monitor.Activate();
+        monitor.MarkAway();
+
+        now = T0.AddMinutes(61);
+        monitor.Tick(0); // input has resumed, but 61 minutes after the away start
+
+        Assert.Equal(IdleState.Inactive, monitor.State);
+        Assert.Equal((T0, now), Assert.Single(recorder.LimitExceeded));
+        Assert.Empty(recorder.AwaySeconds);
+    }
+
+    /// <summary>
+    /// Sleep can outlast the limit on its own — the poller is paused for the whole stretch, so no
+    /// tick ever fires. Wake is where a sleep that long is caught.
+    /// </summary>
+    [Fact]
+    public void SleepPastTheLimitTimesOutOnWakeRatherThanPrompting()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now, TimeSpan.FromMinutes(60));
+        monitor.Activate();
+        monitor.MarkAway(); // lock/sleep marks away immediately
+
+        // No ticks arrive during sleep.
+        now = T0.AddHours(3);
+        monitor.Resume(); // the wake signal, not a tick
+
+        Assert.Equal(IdleState.Inactive, monitor.State);
+        Assert.Equal((T0, now), Assert.Single(recorder.LimitExceeded));
+        Assert.Empty(recorder.AwaySeconds);
+    }
+
+    /// <summary>The mirror case: waking within the limit still asks, via the same Resume path.</summary>
+    [Fact]
+    public void WakingWithinTheLimitPromptsViaResume()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now, TimeSpan.FromMinutes(60));
+        monitor.Activate();
+        monitor.MarkAway();
+
+        now = T0.AddMinutes(45);
+        monitor.Resume();
+
+        Assert.Equal(45 * 60, Assert.Single(recorder.AwaySeconds));
+        Assert.Empty(recorder.LimitExceeded);
     }
 }
 
 /// <summary>
-/// The coordinator that turns a manual inactivity timeout into a closed entry and a buffer write.
-///
-/// The bug these pin: a manual entry ran through an away window and KEPT it unless the employee
-/// came back and discarded it. A PC left awake produced a multi-day span whose start day reported
-/// more tracked time than the day contains. Inactivity now closes the entry by policy.
-///
-/// Note what this type no longer has: no presentAwayPrompt. Once the timeout has closed the entry
-/// there is nothing left for the employee to adjudicate on return, so the prompt is gone by
-/// construction rather than by assertion.
+/// The coordinator that turns manual away windows into buffer writes. This is where the
+/// mis-attribution hazards live.
 /// </summary>
 public class ManualIdleCoordinatorTests
 {
@@ -199,21 +253,48 @@ public class ManualIdleCoordinatorTests
 
         public ManualIdleCoordinator Coordinator { get; private set; } = null!;
 
+        public List<int> Prompts { get; } = [];
+
+        public List<DateTimeOffset> Replaced { get; } = [];
+
+        public List<DateTimeOffset> LimitNotices { get; } = [];
+
+        public int Dismissals { get; private set; }
+
         public int Stops { get; private set; }
 
-        public static Harness Build()
+        public Action<AwayResolution>? Resolve { get; private set; }
+
+        /// <summary>
+        /// The same callback the coordinator was given, exposed so a test can play the AppDelegate
+        /// side of sign-out: it dismisses the prompt window in a SEPARATE call after Deactivate,
+        /// never as a side effect of Deactivate itself.
+        /// </summary>
+        public Action DismissPrompt { get; private set; } = () => { };
+
+        public static Harness Build(TimeSpan? awayLimit = null)
         {
             var h = new Harness();
             var n = 0;
             h.Tracker = new TimeTracker(h.Buffer, () => h.Now, _ => $"entry-{++n}");
             var m = 0;
+            h.DismissPrompt = () => h.Dismissals++;
             h.Coordinator = new ManualIdleCoordinator(
                 h.Tracker,
                 h.Buffer,
                 thresholdSeconds: 300,
+                presentAwayPrompt: (minutes, resolve) =>
+                {
+                    h.Prompts.Add(minutes);
+                    h.Resolve = resolve;
+                },
                 clock: () => h.Now,
                 idGen: _ => $"idle-{++m}",
-                onTrackingStopped: () => h.Stops++);
+                onEntryReplaced: start => h.Replaced.Add(start),
+                dismissPrompt: h.DismissPrompt,
+                onTrackingStopped: () => h.Stops++,
+                onAwayLimitExceeded: awayStart => h.LimitNotices.Add(awayStart),
+                awayLimit: awayLimit);
             return h;
         }
 
@@ -229,209 +310,347 @@ public class ManualIdleCoordinatorTests
     }
 
     /// <summary>
-    /// The headline. Before this, the entry was still running here and would have kept running for
-    /// as long as the PC stayed awake.
-    /// </summary>
-    [Fact]
-    public void InactivityClosesTheManualEntryAtTheThreshold()
-    {
-        var h = Harness.Build();
-        h.Tracker.Start("p1", "t1");          // manual entry opens at 09:00
-
-        h.Now = T0.AddMinutes(1);
-        h.Coordinator.Tick(0);                // the poller arms; still working
-
-        h.Now = T0.AddMinutes(6);
-        h.Coordinator.Tick(300);              // idle since 09:01
-
-        Assert.Equal(TrackerState.Idle, h.Tracker.State); // an unattended timer must not keep counting
-
-        var closed = Assert.Single(h.TimeEntries());
-        Assert.Equal("2026-08-25T09:00:00Z", closed.StartTime);
-        Assert.Equal("2026-08-25T09:06:00Z", closed.EndTime); // 09:01 + 5 min
-    }
-
-    /// <summary>
-    /// The other half of the policy: the minutes before the timeout stay ON the entry, and the
-    /// window is recorded so the Idle panel can show what they were.
-    /// </summary>
-    [Fact]
-    public void TheKeptIdleWindowIsRecorded()
-    {
-        var h = Harness.Build();
-        h.Tracker.Start("p1", null);
-        h.Coordinator.Tick(0);                // the poller arms the session
-
-        h.Now = T0.AddMinutes(5);
-        h.Coordinator.Tick(300);
-
-        var idle = Assert.Single(h.IdleEvents());
-        Assert.Equal("KEPT", idle.ResolvedAction);
-        Assert.Equal("2026-08-25T09:00:00Z", idle.StartTime);
-        Assert.Equal("2026-08-25T09:05:00Z", idle.EndTime);
-    }
-
-    /// <summary>Sleep/lock knows exactly when input stopped, so it credits nothing and records no window.</summary>
-    [Fact]
-    public void SleepClosesTheEntryWithoutCreditingIdleTime()
-    {
-        var h = Harness.Build();
-        h.Tracker.Start("p1", null);
-
-        h.Now = T0.AddMinutes(1);
-        h.Coordinator.MarkAway();
-
-        Assert.Equal(TrackerState.Idle, h.Tracker.State);
-        Assert.Equal("2026-08-25T09:01:00Z", Assert.Single(h.TimeEntries()).EndTime);
-        Assert.Empty(h.IdleEvents()); // no idle minutes were credited, so there is no window
-    }
-
-    /// <summary>
-    /// The tray reads MenuViewModel and cannot see a stop performed on the tracker directly —
-    /// without this the indicator would keep reporting a session that policy already ended.
-    /// </summary>
-    [Fact]
-    public void TheOwnerIsToldSoTheIndicatorCanFollow()
-    {
-        var h = Harness.Build();
-        h.Tracker.Start("p1", null);
-        h.Coordinator.Tick(0);
-        Assert.Equal(0, h.Stops);
-
-        h.Now = T0.AddMinutes(5);
-        h.Coordinator.Tick(300);
-
-        Assert.Equal(1, h.Stops);
-    }
-
-    /// <summary>
     /// With no manual span running there is nothing to be idle against — the auto layer handles
-    /// that case, and this one must stay silent rather than closing a clock that is already stopped.
+    /// that case, and this one must stay silent rather than prompting about a clock that is stopped.
     /// </summary>
     [Fact]
     public void SignalsAreIgnoredWhenNothingIsTracking()
     {
         var h = Harness.Build();
 
-        h.Now = T0.AddMinutes(10);
-        h.Coordinator.Tick(600);
+        h.Coordinator.Tick(9999);
         h.Coordinator.MarkAway();
 
+        Assert.Empty(h.Prompts);
         Assert.Empty(h.Buffer.Entries);
-        Assert.Equal(0, h.Stops);
-        Assert.Equal(ManualIdleState.Inactive, h.Coordinator.MonitorState);
+        Assert.Equal(IdleState.Inactive, h.Coordinator.MonitorState);
     }
 
-    /// <summary>
-    /// An AUTO span belongs to the other coordinator, which stops at the away start on its own
-    /// terms. This one must never reach across and close it on manual terms.
-    /// </summary>
+    /// <summary>An AUTO span belongs to the other coordinator; this one must not touch it.</summary>
     [Fact]
     public void SignalsAreIgnoredDuringAnAutoSpan()
     {
         var h = Harness.Build();
         h.Tracker.Start("p1", null, source: TimeTracker.EntrySource.Auto);
 
-        h.Now = T0.AddMinutes(5);
-        h.Coordinator.Tick(300);
+        h.Coordinator.Tick(9999);
 
-        Assert.IsType<TrackerState.Tracking>(h.Tracker.State);
-        Assert.Equal(ManualIdleState.Inactive, h.Coordinator.MonitorState);
+        Assert.Empty(h.Prompts);
+        Assert.Equal(IdleState.Inactive, h.Coordinator.MonitorState);
     }
 
-    /// <summary>
-    /// A paused session is a deliberate break the person already took. It is not this coordinator's
-    /// to close, and the tracker is not tracking, so nothing routes.
-    /// </summary>
     [Fact]
-    public void SignalsAreIgnoredWhilePaused()
+    public void KeepLeavesTheRunningEntryAloneAndRecordsKept()
     {
         var h = Harness.Build();
         h.Tracker.Start("p1", null);
-        h.Coordinator.Tick(0);
-        h.Tracker.Pause();
+        var entryId = ((TrackerState.Tracking)h.Tracker.State).EntryId;
+        h.Coordinator.Tick(0); // arm at 09:00
 
         h.Now = T0.AddMinutes(30);
-        h.Coordinator.Tick(1800);
+        h.Coordinator.Tick(600); // away since 09:20
+        h.Now = T0.AddMinutes(40);
+        h.Coordinator.Tick(0); // back
+        h.Resolve!(AwayResolution.Keep);
 
-        Assert.IsType<TrackerState.Paused>(h.Tracker.State);
-        Assert.Empty(h.IdleEvents());
+        // The manual entry ran straight through; nothing was closed or reopened.
+        Assert.Equal(entryId, ((TrackerState.Tracking)h.Tracker.State).EntryId);
+        Assert.Empty(h.TimeEntries());
+
+        var idle = Assert.Single(h.IdleEvents());
+        Assert.Equal("KEPT", idle.ResolvedAction);
+        Assert.Equal("2026-08-25T09:20:00Z", idle.StartTime);
+        Assert.Equal("2026-08-25T09:40:00Z", idle.EndTime);
+        Assert.Empty(h.Replaced);
+    }
+
+    [Fact]
+    public void DiscardTrimsTheEntryAtTheAwayStartAndOpensAFreshOne()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", "t1");
+        var original = ((TrackerState.Tracking)h.Tracker.State).EntryId;
+        h.Coordinator.Tick(0); // arm at 09:00
+
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600); // away since 09:20
+        h.Now = T0.AddMinutes(40);
+        h.Coordinator.Tick(0);
+        h.Resolve!(AwayResolution.Discard);
+
+        var closed = Assert.Single(h.TimeEntries());
+        Assert.Equal(original, closed.Id);
+        Assert.Equal("2026-08-25T09:00:00Z", closed.StartTime);
+        Assert.Equal("2026-08-25T09:20:00Z", closed.EndTime); // trimmed to the away start
+
+        var fresh = Assert.IsType<TrackerState.Tracking>(h.Tracker.State);
+        Assert.NotEqual(original, fresh.EntryId);
+        Assert.Equal("p1", fresh.Selection.ProjectId);
+        Assert.Equal("t1", fresh.Selection.TaskId); // same project/task carried over
+
+        Assert.Equal("DISCARDED", Assert.Single(h.IdleEvents()).ResolvedAction);
     }
 
     /// <summary>
-    /// Integrity re-check: the signal was routed while a manual session was live, but TimeTracker
-    /// is the authority on what is running NOW. Stopping on a stale decision would close a span
-    /// belonging to a different session — the same mis-attribution class as the sign-out leak.
+    /// The clock must keep reading WORKED time. Twenty minutes were worked before stepping away, so
+    /// after the swap the display counts from twenty minutes before the fresh entry's start —
+    /// otherwise answering the prompt visibly throws the morning away.
     /// </summary>
     [Fact]
-    public void ATimeoutAimedAtAnEndedSessionCannotCloseTheNextOne()
+    public void DiscardKeepsTheDisplayClockOnWorkedTime()
     {
         var h = Harness.Build();
         h.Tracker.Start("p1", null);
         h.Coordinator.Tick(0);
 
-        h.Now = T0.AddMinutes(5);
-        h.Tracker.Stop();                  // the user pressed Stop themselves
-        h.Tracker.Start("p2", null);       // and started something else
-        var fresh = ((TrackerState.Tracking)h.Tracker.State).EntryId;
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600);
+        h.Now = T0.AddMinutes(40);
+        h.Coordinator.Tick(0);
+        h.Resolve!(AwayResolution.Discard);
 
-        h.Coordinator.Tick(300);
-
-        // The new span is untouched: the monitor re-arms on this tick, so nothing decides anything
-        // until the NEW session goes idle on its own.
-        Assert.Equal(fresh, ((TrackerState.Tracking)h.Tracker.State).EntryId);
-        Assert.Single(h.TimeEntries());    // only the span the user stopped is closed
-
-        h.Now = T0.AddMinutes(10);
-        h.Coordinator.Tick(300);
-
-        Assert.Equal(TrackerState.Idle, h.Tracker.State);
-        Assert.Equal(2, h.TimeEntries().Count);
-        Assert.Equal("2026-08-25T09:05:00Z", h.TimeEntries()[1].StartTime);
+        var displayStart = Assert.Single(h.Replaced);
+        Assert.Equal(TimeSpan.FromMinutes(20), h.Now - displayStart);
     }
 
     /// <summary>
-    /// After a timeout the person restarts when they are ready, and the next session is protected
-    /// exactly like the first — the monitor re-arms rather than staying spent.
+    /// The prompt is not modal. If the person hits Stop while it is on screen, the entry the away
+    /// window belonged to is gone — trimming whatever is running now would cut into unrelated work.
     /// </summary>
     [Fact]
-    public void TheNextManualSessionIsProtectedToo()
+    public void DiscardAfterTheEntryEndedRecordsUnresolvedAndTrimsNothing()
     {
         var h = Harness.Build();
         h.Tracker.Start("p1", null);
         h.Coordinator.Tick(0);
 
-        h.Now = T0.AddMinutes(5);
-        h.Coordinator.Tick(300);
-        Assert.Equal(TrackerState.Idle, h.Tracker.State);
-
-        h.Now = T0.AddMinutes(6);
-        h.Tracker.Start("p1", null);       // they come back and start again
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600);
+        h.Now = T0.AddMinutes(40);
         h.Coordinator.Tick(0);
 
-        h.Now = T0.AddMinutes(11);
-        h.Coordinator.Tick(300);
+        h.Tracker.Stop(); // the user stopped while the prompt was up
+        h.Tracker.Start("p2", null); // ...and started something else
+        var unrelated = ((TrackerState.Tracking)h.Tracker.State).EntryId;
 
-        Assert.Equal(TrackerState.Idle, h.Tracker.State); // the second session times out like the first
-        Assert.Equal(2, h.TimeEntries().Count);
+        h.Resolve!(AwayResolution.Discard);
+
+        Assert.Equal("UNRESOLVED", Assert.Single(h.IdleEvents()).ResolvedAction);
+        Assert.Equal(unrelated, ((TrackerState.Tracking)h.Tracker.State).EntryId);
+        Assert.Empty(h.Replaced);
     }
 
     /// <summary>
-    /// Sign-out leaves nothing behind. There is no pending window to abandon, so no UNRESOLVED row
-    /// is written against the user who is leaving — and the next user arms a monitor from scratch.
+    /// The same hazard caught earlier: the next signal notices the away entry is gone, records the
+    /// window UNRESOLVED, and takes the stale prompt off screen rather than leaving it to be
+    /// answered blind.
     /// </summary>
     [Fact]
-    public void DeactivateSettlesNothingBecauseNothingIsPending()
+    public void ANewSignalReconcilesAStaleAwayWindowAndDismissesThePrompt()
     {
         var h = Harness.Build();
         h.Tracker.Start("p1", null);
         h.Coordinator.Tick(0);
 
-        h.Now = T0.AddMinutes(3);
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600);
+        h.Now = T0.AddMinutes(40);
+        h.Coordinator.Tick(0);
+        Assert.Single(h.Prompts);
+
+        h.Tracker.Stop();
+        h.Tracker.Start("p2", null);
+        h.Coordinator.Tick(0);
+
+        Assert.Equal("UNRESOLVED", Assert.Single(h.IdleEvents()).ResolvedAction);
+        Assert.Equal(1, h.Dismissals);
+    }
+
+    [Fact]
+    public void DeactivateRecordsAPendingWindowAsUnresolved()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null);
+        h.Coordinator.Tick(0);
+
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600);
+
+        h.Now = T0.AddMinutes(35);
         h.Coordinator.Deactivate();
 
+        var idle = Assert.Single(h.IdleEvents());
+        Assert.Equal("UNRESOLVED", idle.ResolvedAction);
+        Assert.Equal("2026-08-25T09:20:00Z", idle.StartTime);
+        Assert.Equal("2026-08-25T09:35:00Z", idle.EndTime);
+    }
+
+    /// <summary>
+    /// Sign-out while a prompt is on screen: Deactivate settles the window as UNRESOLVED first,
+    /// then AppDelegate dismisses the prompt window as a separate call — the same order
+    /// <c>AppDelegate.TearDownIdleDetection</c> uses. A resolve landing after either step must be a
+    /// no-op, or the next user to sign in would inherit the previous user's Keep or Discard.
+    /// </summary>
+    [Fact]
+    public void SignOutWhileAwaitingDismissesThePromptAndRecordsUnresolved()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null);
+        h.Coordinator.Tick(0); // arm at 09:00
+
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600); // away since 09:20
+        h.Now = T0.AddMinutes(40);
+        h.Coordinator.Tick(0); // back — the prompt is up
+        var resolve = h.Resolve!;
+        Assert.Single(h.Prompts);
+
+        h.Coordinator.Deactivate();
+        h.DismissPrompt();
+
+        var idle = Assert.Single(h.IdleEvents());
+        Assert.Equal("UNRESOLVED", idle.ResolvedAction);
+        Assert.Equal(1, h.Dismissals);
+
+        // The mis-attribution bug itself: a stale resolve landing after sign-out must do nothing.
+        resolve(AwayResolution.Keep);
+        resolve(AwayResolution.Discard);
+
+        Assert.Single(h.IdleEvents()); // still just the one UNRESOLVED row
+        Assert.Empty(h.TimeEntries());
+    }
+
+    /// <summary>
+    /// The headline addition. Nobody ever answered, and the machine stayed awake and idle the
+    /// whole time: the entry stops itself at the away start, none of the away time counts, and the
+    /// person is told rather than asked.
+    /// </summary>
+    [Fact]
+    public void LimitPastWithoutReturnStopsTheEntryAtAwayStartAndNotifies()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", "t1");
+        var original = ((TrackerState.Tracking)h.Tracker.State).EntryId;
+        h.Coordinator.Tick(0); // arm at 09:00
+
+        h.Now = T0.AddMinutes(6);
+        h.Coordinator.Tick(300); // away since 09:01
+
+        h.Now = T0.AddMinutes(70); // past the 60-minute limit, still idle
+        h.Coordinator.Tick(600);
+
+        Assert.Equal(TrackerState.Idle, h.Tracker.State); // stopped outright, nothing reopened
+        Assert.Empty(h.Prompts); // never asked
+
+        var closed = Assert.Single(h.TimeEntries());
+        Assert.Equal(original, closed.Id);
+        Assert.Equal("2026-08-25T09:01:00Z", closed.EndTime); // stopped AT the away start
+
+        var idle = Assert.Single(h.IdleEvents());
+        Assert.Equal("DISCARDED", idle.ResolvedAction);
+        Assert.Equal("2026-08-25T09:01:00Z", idle.StartTime);
+
+        Assert.Equal(1, h.Stops);
+        Assert.Equal(T0.AddMinutes(1), Assert.Single(h.LimitNotices));
+    }
+
+    /// <summary>The boundary case: input DID come back, but 61 minutes after the away start.</summary>
+    [Fact]
+    public void ReturningPastTheLimitStopsTheEntryInsteadOfPrompting()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null);
+        h.Coordinator.Tick(0);
+
+        h.Now = T0.AddMinutes(6);
+        h.Coordinator.Tick(300); // away since 09:01
+
+        h.Now = T0.AddMinutes(62); // 61 minutes after the away start
+        h.Coordinator.Tick(0);
+
+        Assert.Equal(TrackerState.Idle, h.Tracker.State);
+        Assert.Empty(h.Prompts);
+        Assert.Equal("DISCARDED", Assert.Single(h.IdleEvents()).ResolvedAction);
+    }
+
+    /// <summary>
+    /// Sleep can blow through the limit on its own — no tick ever fires while asleep — so the
+    /// coordinator has to catch it on the wake signal, not only on a poll tick.
+    /// </summary>
+    [Fact]
+    public void LimitExceededDuringSleepIsCaughtOnWake()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null);
+        h.Coordinator.Tick(0); // arm at 09:00
+
+        h.Now = T0.AddMinutes(1);
+        h.Coordinator.MarkAway(); // lock/sleep — away since 09:01
+
+        // No ticks arrive while asleep.
+        h.Now = T0.AddHours(4);
+        h.Coordinator.Resume(); // the wake signal
+
+        Assert.Equal(TrackerState.Idle, h.Tracker.State);
+        Assert.Empty(h.Prompts); // the limit path, not the prompt
+
+        var closed = Assert.Single(h.TimeEntries());
+        Assert.Equal("2026-08-25T09:01:00Z", closed.EndTime);
+
+        var idle = Assert.Single(h.IdleEvents());
+        Assert.Equal("DISCARDED", idle.ResolvedAction);
+        Assert.Equal("2026-08-25T09:01:00Z", idle.StartTime);
+
+        Assert.Equal(T0.AddMinutes(1), Assert.Single(h.LimitNotices));
+    }
+
+    /// <summary>
+    /// The per-entry arming fix (ported from the timeout-model regression it was found in).
+    /// Stopping BEFORE any away cycle leaves the monitor Active; without re-arming for the fresh
+    /// entry, a stale idle reading reported right after Start would flag the NEW entry away using
+    /// the OLD entry's arming instant — before the new entry even existed.
+    /// </summary>
+    [Fact]
+    public void StartingAFreshEntryReArmsSoStaleIdlenessDoesNotCarryOver()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null); // 09:00
+        h.Coordinator.Tick(0); // arm at 09:00
+
+        h.Now = T0.AddMinutes(6);
+        h.Tracker.Stop(); // stopped before any away cycle — monitor still Active
+        h.Tracker.Start("p2", null); // a different project, started right away
+        var fresh = ((TrackerState.Tracking)h.Tracker.State).EntryId;
+
+        // Reporting 600s idle right after Start must not retroactively flag the FRESH entry away
+        // using the OLD entry's arming instant (09:00) — it has to measure from when THIS entry
+        // armed (09:06), which is well under the threshold.
+        h.Coordinator.Tick(600);
+
+        Assert.Equal(fresh, ((TrackerState.Tracking)h.Tracker.State).EntryId);
+        Assert.Empty(h.Prompts);
         Assert.Empty(h.IdleEvents());
-        Assert.Equal(ManualIdleState.Inactive, h.Coordinator.MonitorState);
+    }
+
+    /// <summary>The other half: the fresh entry is still fully protected on its OWN inactivity.</summary>
+    [Fact]
+    public void TheFreshEntryStillGoesAwayOnItsOwnInactivity()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null);
+        h.Coordinator.Tick(0);
+
+        h.Now = T0.AddMinutes(6);
+        h.Tracker.Stop();
+        h.Tracker.Start("p2", null);
+        h.Coordinator.Tick(0); // re-arm for the fresh entry at 09:06
+
+        h.Now = T0.AddMinutes(12);
+        h.Coordinator.Tick(300); // 5 min idle since 09:07 (armed at 09:06)
+        h.Now = T0.AddMinutes(13);
+        h.Coordinator.Tick(0); // back
+
+        Assert.Equal(6, Assert.Single(h.Prompts)); // away for 6 minutes: 09:07 to 09:13
     }
 }
 
@@ -499,8 +718,8 @@ public class ManualNudgeMonitorTests
 
         monitor.Tick(0, T0);
         monitor.Tick(400, T0.AddMinutes(5)); // away
-        monitor.Tick(0, T0.AddMinutes(6));   // back — the clock restarts here
-        monitor.Tick(0, T0.AddMinutes(12));  // only 6 min of presence
+        monitor.Tick(0, T0.AddMinutes(6)); // back — the clock restarts here
+        monitor.Tick(0, T0.AddMinutes(12)); // only 6 min of presence
 
         Assert.Empty(notifier.Sent);
 
@@ -529,7 +748,7 @@ public class ManualNudgeMonitorTests
         monitor.Tick(900, T0.AddMinutes(5));
         Assert.Single(notifier.Sent);
 
-        monitor.Tick(0, T0.AddMinutes(10));   // back at the keyboard
+        monitor.Tick(0, T0.AddMinutes(10)); // back at the keyboard
         monitor.Tick(600, T0.AddMinutes(20)); // idle again
 
         Assert.Equal(2, notifier.Sent.Count);

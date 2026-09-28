@@ -1,78 +1,80 @@
 namespace NiftyTimer.Tracking;
 
 /// <summary>
-/// Whether a manual session is currently being watched for inactivity.
+/// The manual-session counterpart of <see cref="IdleMonitor"/>. Same state shape, but manual
+/// semantics: going away does NOT stop the timer (a manual entry is the user's own action —
+/// CLAUDE.md §1), and resolving does NOT auto-open a new span — the
+/// <see cref="App.ManualIdleCoordinator"/> performs the keep/discard effects.
 ///
-/// Two cases, not the four in <see cref="IdleState"/>. The away/awaiting pair existed to hold a
-/// window open until the user answered a keep/discard prompt; the timeout answers it by policy, so
-/// the monitor simply disarms. Disarming to <c>Inactive</c> rather than to a terminal state of its
-/// own is what lets <see cref="App.ManualIdleCoordinator"/> re-arm on the next manual session
-/// without a special case.
-/// </summary>
-public enum ManualIdleState
-{
-    Inactive,
-    Active,
-}
-
-/// <summary>
-/// The manual-session counterpart of <see cref="IdleMonitor"/>: it decides when inactivity has
-/// gone on long enough that the manual timer must stop. UI/network/capture-free; the clock is
-/// injected for deterministic tests.
-///
-/// Manual tracking used to run straight THROUGH an away window — the timer kept counting, and the
-/// employee adjudicated the gap with a keep/discard prompt when they came back. Nobody comes back
-/// from a PC left awake over a weekend, and an unanswered window was kept: a span could run for
-/// days and make its start day report more tracked time than the day contains. Inactivity now
-/// STOPS the timer at the team's idle threshold, the way Time Doctor's "Timeout After" setting
-/// does, so unattended time is bounded by policy rather than by someone remembering to press Stop.
-///
-/// The minutes between input stopping and the timeout are KEPT on the entry and recorded as an
-/// idle window: they are as likely to be a call or a long read as an empty chair, and the Idle
-/// panel is where that shows. Everything after the timeout is simply untracked — there is nothing
-/// left to adjudicate, so there is no prompt on return and the person restarts the timer
-/// themselves. Starting is theirs to do (CLAUDE.md §1); running unattended for two days is not.
-///
-/// This mirrors the macOS client's <c>ManualIdleMonitor</c> exactly, so the same policy closes the
-/// same span in the same place whichever client an employee is on.
+/// One exception to "going away never stops the timer": <see cref="AwayLimit"/>. Nobody comes
+/// back from a PC left awake over a weekend, and an away window is otherwise open-ended — kept or
+/// discarded only once the person answers a prompt that may never come. Past the limit there is
+/// nobody left to ask, so the entry stops itself at <c>awayStart</c> (none of the away time
+/// counts) and the person restarts the clock themselves.
 /// </summary>
 public interface IManualIdleMonitorDelegate
 {
     /// <summary>
-    /// Inactivity reached the timeout. Close the manual entry at <paramref name="stopInstant"/>
-    /// and record <c>[awayStart, stopInstant]</c> as an idle window.
-    ///
-    /// For the inactivity path <paramref name="stopInstant"/> is
-    /// <paramref name="awayStart"/> + threshold. For sleep/lock it is
-    /// <paramref name="awayStart"/> itself: the moment input stopped is known exactly there, so
-    /// there are no unknown idle minutes to keep and none are invented.
+    /// Idle threshold crossed (or sleep/lock). The timer keeps running; the coordinator snapshots
+    /// which entry the away window belongs to.
     /// </summary>
-    void DidTimeOut(DateTimeOffset awayStart, DateTimeOffset stopInstant);
+    void DidBeginAway(DateTimeOffset awayStart);
+
+    /// <summary>
+    /// Input resumed after being away, within <see cref="AwayLimit"/> — present the keep/discard
+    /// prompt. The delegate must eventually call <see cref="ManualIdleMonitor.Resolve"/>.
+    /// </summary>
+    void DidBecomeAway(int seconds);
+
+    /// <summary>The away window was resolved. <paramref name="keeping"/> → count it; else discard.</summary>
+    void DidResolveAway(DateTimeOffset awayStart, DateTimeOffset resume, bool keeping);
+
+    /// <summary>Torn down while still away/awaiting — record UNRESOLVED, no trim.</summary>
+    void DidAbandonAway(DateTimeOffset awayStart, DateTimeOffset lastKnown);
+
+    /// <summary>
+    /// Away ran past <see cref="AwayLimit"/> without ever resolving — nobody came back to answer a
+    /// prompt. Stop the manual entry at <paramref name="awayStart"/> (none of the away time
+    /// counts), record the window DISCARDED up to <paramref name="detectedAt"/> (the instant the
+    /// limit was noticed — a tick, or the wake that follows a sleep long enough to blow through it
+    /// on its own), and tell the person their timer stopped.
+    /// </summary>
+    void DidExceedAwayLimit(DateTimeOffset awayStart, DateTimeOffset detectedAt);
 }
 
 /// <summary>The manual-session decision machine. See <see cref="IManualIdleMonitorDelegate"/>.</summary>
 public sealed class ManualIdleMonitor
 {
+    /// <summary>
+    /// How long an away window may sit unanswered before the entry stops itself. Fixed rather than
+    /// policy-driven — unlike the idle threshold, this is a client-side backstop, not a team
+    /// setting. Injectable so tests do not wait an hour.
+    /// </summary>
+    public static readonly TimeSpan AwayLimit = TimeSpan.FromMinutes(60);
+
     private readonly int _thresholdSeconds;
+    private readonly TimeSpan _awayLimit;
     private readonly Func<DateTimeOffset> _clock;
 
     /// <summary>
     /// When this session was armed. The OS idle counter keeps running across a Stop/Start, so a
-    /// reading taken just after arming describes inactivity that happened BEFORE the session and
-    /// is not the session's to answer for — without this, a span could be closed by policy the
-    /// instant someone opened it.
+    /// reading taken just after arming can describe inactivity that happened BEFORE the session —
+    /// clamping to this instant keeps a fresh entry from being flagged away for someone else's
+    /// idle time. See <see cref="App.ManualIdleCoordinator"/>'s per-entry re-arming, which is what
+    /// keeps this instant fresh across a Stop/Start.
     /// </summary>
     private DateTimeOffset? _armedAt;
 
-    public ManualIdleMonitor(int thresholdSeconds, Func<DateTimeOffset>? clock = null)
+    public ManualIdleMonitor(int thresholdSeconds, Func<DateTimeOffset>? clock = null, TimeSpan? awayLimit = null)
     {
         _thresholdSeconds = thresholdSeconds;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
+        _awayLimit = awayLimit ?? AwayLimit;
     }
 
     public IManualIdleMonitorDelegate? Delegate { get; set; }
 
-    public ManualIdleState State { get; private set; } = ManualIdleState.Inactive;
+    public IdleState State { get; private set; } = IdleState.Inactive;
 
     /// <summary>
     /// Arm the monitor. Unlike <see cref="IdleMonitor.Activate"/> there is no start-tracking side
@@ -80,70 +82,131 @@ public sealed class ManualIdleMonitor
     /// </summary>
     public void Activate()
     {
-        State = ManualIdleState.Active;
+        State = IdleState.Active;
         _armedAt = _clock();
     }
 
-    /// <summary>
-    /// Tear down. Nothing can be pending by construction — a timeout disarms as it fires — so this
-    /// reports nothing and simply disarms.
-    /// </summary>
-    public void Deactivate() => Disarm();
+    /// <summary>Tear down; if still away/awaiting, record UNRESOLVED.</summary>
+    public void Deactivate()
+    {
+        switch (State)
+        {
+            case IdleState.Away away:
+                Delegate?.DidAbandonAway(away.Since, _clock());
+                break;
+            case IdleState.Awaiting awaiting:
+                Delegate?.DidAbandonAway(awaiting.Since, awaiting.Until);
+                break;
+            default:
+                break;
+        }
+
+        Disarm();
+    }
 
     /// <summary>
-    /// Periodic idle sample. Inactivity reaching the threshold times the session out.
-    ///
-    /// The stop lands at <c>awayStart + threshold</c>, NOT at the tick that noticed. The poller
-    /// runs on its own cadence and a reading can overshoot, so deriving the instant from the
-    /// threshold keeps the entry's end independent of when the timer happened to fire — two PCs on
-    /// the same policy close the same span in the same place.
+    /// Periodic idle sample. active→away at the threshold (NO stop, clamped to when this session
+    /// armed); away→timed-out past <see cref="AwayLimit"/>; away→awaiting on a below-threshold
+    /// reading within the limit.
     /// </summary>
     public void Tick(int idleSeconds)
     {
-        if (State is not ManualIdleState.Active || _armedAt is not { } armedAt)
-        {
-            return;
-        }
-
         var now = _clock();
 
-        // Clamped to the arming instant: idleness inherited from before this session doesn't count.
-        var sinceInput = now.AddSeconds(-idleSeconds);
-        var awayStart = sinceInput > armedAt ? sinceInput : armedAt;
+        switch (State)
+        {
+            case IdleState.ActiveState when _armedAt is { } armedAt:
+                // Clamped to the arming instant: idleness inherited from before this session was
+                // armed is not this session's to answer for.
+                var sinceInput = now.AddSeconds(-idleSeconds);
+                var awayStart = sinceInput > armedAt ? sinceInput : armedAt;
+                if (now - awayStart >= TimeSpan.FromSeconds(_thresholdSeconds))
+                {
+                    State = new IdleState.Away(awayStart);
+                    Delegate?.DidBeginAway(awayStart);
+                }
 
-        if (now - awayStart < TimeSpan.FromSeconds(_thresholdSeconds))
+                break;
+
+            case IdleState.Away away when now - away.Since >= _awayLimit:
+                ExceedLimit(away.Since, now);
+                break;
+
+            case IdleState.Away away when idleSeconds < _thresholdSeconds:
+                TransitionToAwaiting(away.Since, now);
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    /// <summary>System sleep / screen lock: away now (don't wait for the threshold). Still no stop.</summary>
+    public void MarkAway()
+    {
+        if (State is not IdleState.ActiveState)
         {
             return;
         }
 
-        TimeOut(awayStart, awayStart.AddSeconds(_thresholdSeconds));
+        var awayStart = _clock();
+        State = new IdleState.Away(awayStart);
+        Delegate?.DidBeginAway(awayStart);
     }
 
     /// <summary>
-    /// System sleep or screen lock: input demonstrably stopped NOW. Don't wait for the threshold,
-    /// and don't credit threshold-worth of idle that provably did not happen — a locked screen is
-    /// not a long read. The entry ends where the input did.
+    /// Explicit resume (wake/unlock). The tick path also transitions away→awaiting (or times out)
+    /// on its own, but sleep can outlast <see cref="AwayLimit"/> with no tick ever firing — the
+    /// poller is paused for the duration — so wake is where a long sleep's limit is caught.
     /// </summary>
-    public void MarkAway()
+    public void Resume()
     {
-        if (State is not ManualIdleState.Active)
+        if (State is not IdleState.Away away)
         {
             return;
         }
 
         var now = _clock();
-        TimeOut(now, now);
+        if (now - away.Since >= _awayLimit)
+        {
+            ExceedLimit(away.Since, now);
+        }
+        else
+        {
+            TransitionToAwaiting(away.Since, now);
+        }
     }
 
-    private void TimeOut(DateTimeOffset awayStart, DateTimeOffset stopInstant)
+    /// <summary>
+    /// The user's keep/discard choice. Returns to Active (re-armed) WITHOUT opening a span — the
+    /// coordinator applies the effect.
+    /// </summary>
+    public void Resolve(AwayResolution action)
+    {
+        if (State is not IdleState.Awaiting awaiting)
+        {
+            return;
+        }
+
+        Delegate?.DidResolveAway(awaiting.Since, awaiting.Until, action == AwayResolution.Keep);
+        State = IdleState.Active;
+    }
+
+    private void TransitionToAwaiting(DateTimeOffset since, DateTimeOffset resumeAt)
+    {
+        State = new IdleState.Awaiting(since, resumeAt);
+        Delegate?.DidBecomeAway((int)(resumeAt - since).TotalSeconds);
+    }
+
+    private void ExceedLimit(DateTimeOffset since, DateTimeOffset detectedAt)
     {
         Disarm();
-        Delegate?.DidTimeOut(awayStart, stopInstant);
+        Delegate?.DidExceedAwayLimit(since, detectedAt);
     }
 
     private void Disarm()
     {
-        State = ManualIdleState.Inactive;
+        State = IdleState.Inactive;
         _armedAt = null;
     }
 }

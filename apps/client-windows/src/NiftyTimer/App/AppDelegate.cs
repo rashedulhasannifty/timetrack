@@ -703,15 +703,20 @@ public sealed class AppDelegate : IDisposable
         var thresholdSeconds = Math.Max(60, settings.IdleThresholdMinutes * 60);
 
         // The manual coordinator exists in BOTH modes. Someone in auto mode can still start a span
-        // by hand, and that span needs the same inactivity timeout — the auto layer deliberately
-        // stands down for the duration of a manual session.
+        // by hand, and that span needs the same away prompt — the auto layer deliberately stands
+        // down for the duration of a manual session.
         var manual = new ManualIdleCoordinator(
             _tracker,
             _buffer,
             thresholdSeconds,
-            // The timeout closes the entry directly on TimeTracker; the tray reads MenuViewModel,
-            // which cannot see that on its own.
-            onTrackingStopped: () => _viewModel.RefreshFromTracker());
+            presentAwayPrompt: (minutes, resolve) => _awayPrompt.PresentAway(minutes, resolve),
+            onEntryReplaced: displayStart => _viewModel.ContinueClockAfterDiscard(displayStart),
+            dismissPrompt: () => _awayPrompt.DismissIfShowing(),
+            // The away-limit stop closes the entry directly on TimeTracker, without reopening a
+            // fresh one the way Discard does; the tray reads MenuViewModel, which cannot see that
+            // on its own.
+            onTrackingStopped: () => _viewModel.RefreshFromTracker(),
+            onAwayLimitExceeded: NotifyManualIdleLimitExceeded);
         _manualIdleCoordinator = manual;
 
         ISignalReceiver receiver = manual;
@@ -1286,14 +1291,15 @@ public sealed class AppDelegate : IDisposable
     ///
     /// The order inside this method is as load-bearing as its position in
     /// <see cref="SignOutAsync"/>: stop the signal source, then deactivate the monitors (which
-    /// records the AUTO layer's pending away window as UNRESOLVED and leaves them inactive), and
+    /// records either layer's pending away window as UNRESOLVED and leaves them inactive), and
     /// only THEN close the prompts. A prompt closed while its monitor is still armed resolves to
     /// Discard and would trim an entry on the way out; closed after, the same Discard lands on an
     /// inactive monitor and does nothing, which is what we want — the window is already recorded.
     ///
-    /// The manual coordinator has nothing pending to settle: inactivity closes its entry by policy
-    /// rather than leaving a window open for a prompt. It is still deactivated here so the next
-    /// user's session arms its own monitor from scratch.
+    /// This is exactly the mis-attribution the manual side used to risk: a non-modal away prompt
+    /// left open across sign-out belongs to the user leaving, and answering it after the fact would
+    /// attribute their time to whoever signs in next. Deactivating first, before the dismiss below,
+    /// is what closes that gap.
     /// </summary>
     private void TearDownIdleDetection()
     {
@@ -1443,6 +1449,23 @@ public sealed class AppDelegate : IDisposable
 
     internal static string IdleNudgeBody(int seconds) =>
         string.Create(CultureInfo.InvariantCulture, $"Idle for {AwayMinutes.Of(seconds)} min — still working?");
+
+    /// <summary>
+    /// The manual away-limit notice. Not the keep/discard prompt — by the time this fires the
+    /// entry is already closed and there is nothing left to adjudicate, so it is purely
+    /// informational, the same tray balloon <see cref="NotifyIdleThresholdCrossed"/> uses. Posted
+    /// as soon as the limit is detected (a poll tick, or the wake that follows a long sleep)
+    /// rather than deferred until the person is next seen active: the limit fires at most once per
+    /// entry, so there is no repeat to de-duplicate, and Windows keeps the balloon in the Action
+    /// Center until it is seen either way.
+    /// </summary>
+    private void NotifyManualIdleLimitExceeded(DateTimeOffset awayStart) =>
+        _notifier.Notify("manual-idle-limit", "Time tracking", ManualIdleLimitBody(awayStart));
+
+    internal static string ManualIdleLimitBody(DateTimeOffset awayStart) =>
+        string.Create(
+            CultureInfo.CurrentCulture,
+            $"Your timer stopped at {awayStart.ToLocalTime():t} because you were away for over an hour. Start it again from the menu.");
 
     private static void OnUi(Action action)
     {
