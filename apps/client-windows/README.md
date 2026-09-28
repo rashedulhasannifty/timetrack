@@ -15,9 +15,9 @@ from `packages/*` — the wire contract is mirrored by hand and kept honest by t
 ## Status — all four slices complete
 
 Shipped: sign-in, the acknowledgement gate, the always-visible tray indicator, manual and auto
-tracking, the durable offline buffer, sync, idle detection with the inactivity timeout,
-crash recovery, periodic screenshots, activity sampling and categorization, local nudges, a global
-hotkey, self-updating, and packaging.
+tracking, the durable offline buffer, sync, idle detection with the away keep/discard prompt and a
+60-minute away-limit backstop, crash recovery, periodic screenshots, activity sampling and
+categorization, local nudges, a global hotkey, self-updating, and packaging.
 
 **On counts versus content, precisely.** The client counts input events, it never reads them:
 `Activity/EventCounter` asks Windows for the raw-input message _header_ and nothing else, so key
@@ -27,7 +27,7 @@ below.
 | Slice | Contents                                                           | State |
 | ----- | ------------------------------------------------------------------ | ----- |
 | S1    | Auth · AckGate · tray indicator · manual timer · buffer + sync     | done  |
-| S2    | Idle detection · inactivity timeout · crash recovery               | done  |
+| S2    | Idle detection · away keep/discard · crash recovery                | done  |
 | S3    | Screenshots · activity sampling · categorizer                      | done  |
 | S4    | Notifications · hotkey · updater · packaging · signing · dashboard | done  |
 
@@ -169,8 +169,7 @@ Each of these cost the macOS client a real bug. They are enforced by tests; do n
 - **A close must reach the server before the next open.** The server allows one open entry per
   **user** and only retires a previous one once it has gone stale, which a just-heartbeated row has
   not. Closes ride the durable buffer and arrive up to 90s later; opens publish immediately. So
-  close-then-reopen — a project switch, a resume, a resolved auto away window, recovery-then-start —
-  put
+  close-then-reopen — a project switch, a resume, a resolved away window, recovery-then-start — put
   a second open against a slot the first still holds: 409, clock stopped, "already tracking on
   another machine", no other machine. `LiveEntryPublisher` publishes the close too, and chains every
   publish so the ordering is a property of the code rather than of the network.
@@ -250,20 +249,24 @@ which is exactly the bug #169 reported.
 
 - **Auto** — `AutoTrackingCoordinator` opens an AUTO span on launch, closes it when you go idle, and
   asks keep-or-discard when you come back.
-- **Manual** — you start the clock, and `ManualIdleCoordinator` **stops it at the team's idle
-  threshold** if you stop touching the machine, the way Time Doctor's "Timeout After" setting does.
-  The minutes up to the timeout stay on the entry and are recorded as a KEPT idle window; everything
-  after it is untracked, and you restart the clock yourself. Sleep and lock close the entry at the
-  instant input stopped, crediting no idle minutes at all.
+- **Manual** — you start the clock, and `ManualIdleCoordinator` **never stops a running manual
+  entry on its own** for an ordinary away window (CLAUDE.md §1 — a manual entry is the user's own
+  action). It asks the same keep-or-discard question as auto once you come back within the idle
+  threshold; the only stop it performs unasked is the trim you chose by pressing Discard.
 
-  It used to run straight through the away window and keep it unless you came back and pressed
-  Discard. Nobody comes back from a PC left awake over a weekend, so a forgotten timer produced a
-  day reporting more tracked time than the day contains. There is no keep/discard prompt on a manual
-  session any more: policy has already closed the entry, so there is nothing left to adjudicate.
+  The one exception is `ManualIdleMonitor.AwayLimit` — a fixed 60 minutes. Nobody comes back from a
+  PC left awake over a weekend, and an away window is otherwise open-ended, kept or discarded only
+  once someone answers a prompt that may never come. Past the limit there is nobody left to ask, so
+  the entry stops itself at the away start (none of the away time counts), the window is recorded
+  DISCARDED, and a tray balloon says the clock stopped and to restart it from the menu — no
+  keep/discard prompt, and no auto-restart the way Discard gets. The limit is measured from when
+  input stopped, so it also catches a sleep long enough to blow through it on its own: the check
+  re-runs on wake, not only on the poller's tick.
 
 `ManualIdleCoordinator` is installed in both modes, because someone in auto mode can still start a
-span by hand and that span needs the same timeout. The auto layer stands down for its duration —
-enforced by refusing the signal at the edge, not by a check at the point of stopping.
+span by hand and that span needs the same prompt (and the same away-limit backstop). The auto
+layer stands down for its duration — enforced by refusing the signal at the edge, not by a check at
+the point of stopping.
 
 `SessionObserver` is the single system edge for both, fanned out when they coexist. It polls
 `GetLastInputInfo` every 15s and takes sleep and lock as immediate away signals rather than waiting

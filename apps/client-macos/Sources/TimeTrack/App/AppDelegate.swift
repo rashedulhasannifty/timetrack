@@ -708,14 +708,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tracker: timeTracker,
             buffer: BufferStore.shared,
             thresholdSeconds: thresholdMinutes * 60,
-            // The timeout closes the entry directly on `TimeTracker`; the menu bar reads
-            // `MenuViewModel`, which cannot see that on its own.
-            onTrackingStopped: { [weak self] in self?.menuViewModel.refreshFromTracker() }
+            presentAwayPrompt: { minutes, resolve in
+                AwayResolutionWindowController.present(minutes: minutes, resolve: resolve)
+            },
+            // Discard replaces the live entry directly on `TimeTracker` (trim + fresh start); the
+            // menu bar reads `MenuViewModel`, which cannot see that swap on its own.
+            onEntryReplaced: { [weak self] idle in self?.menuViewModel.continueClockAfterDiscard(idleSeconds: idle) },
+            // The away-limit closes the entry directly on `TimeTracker`, same reason.
+            onTrackingStopped: { [weak self] in self?.menuViewModel.refreshFromTracker() },
+            onAwayLimitExceeded: { [weak self] stoppedAt in self?.notifyAwayLimitExceeded(stoppedAt: stoppedAt) }
         )
         let observer = WorkspaceObserver(receiver: manual)
         self.manualIdleCoordinator = manual
         self.workspaceObserver = observer
         observer.start()
+    }
+
+    /// The away-limit notice: NOT a keep/discard prompt — there is nothing left to adjudicate,
+    /// the entry is already closed. Posted once, through the same local-notification seam every
+    /// other nudge uses (`LocalNotifying`); posted at the moment the limit is hit rather than
+    /// held for the person's return, which is simpler and just as visible (it sits in Notification
+    /// Center until they look).
+    @MainActor private func notifyAwayLimitExceeded(stoppedAt: Date) {
+        let time = DateFormatter.localizedString(from: stoppedAt, dateStyle: .none, timeStyle: .short)
+        notifier?.notify(id: "manual-idle-limit", title: "Time tracking",
+                         body: "Your timer stopped at \(time) because you were away for over an hour. "
+                             + "Start it again from the menu.")
     }
 
     /// Screenshot capture is a CAPTURE path (CLAUDE.md §1) — installed ONLY on the live-policy
@@ -899,9 +917,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tracker: timeTracker,
             buffer: BufferStore.shared,
             thresholdSeconds: thresholdMinutes * 60,
-            // The timeout closes the entry directly on `TimeTracker`; the menu bar reads
-            // `MenuViewModel`, which cannot see that on its own.
-            onTrackingStopped: { [weak self] in self?.menuViewModel.refreshFromTracker() }
+            presentAwayPrompt: { minutes, resolve in
+                AwayResolutionWindowController.present(minutes: minutes, resolve: resolve)
+            },
+            // Discard replaces the live entry directly on `TimeTracker` (trim + fresh start); the
+            // menu bar reads `MenuViewModel`, which cannot see that swap on its own.
+            onEntryReplaced: { [weak self] idle in self?.menuViewModel.continueClockAfterDiscard(idleSeconds: idle) },
+            // The away-limit closes the entry directly on `TimeTracker`, same reason.
+            onTrackingStopped: { [weak self] in self?.menuViewModel.refreshFromTracker() },
+            onAwayLimitExceeded: { [weak self] stoppedAt in self?.notifyAwayLimitExceeded(stoppedAt: stoppedAt) }
         )
         let fanOut = FanOutSignalReceiver([coordinator, manual])
         let observer = WorkspaceObserver(receiver: fanOut)

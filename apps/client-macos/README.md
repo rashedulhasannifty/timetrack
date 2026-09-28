@@ -67,18 +67,29 @@ stops. Both modes now bound unattended time, but they answer the idle minutes di
 **Auto** (`Tracking/IdleMonitor`) closes the span at the away-start — every idle minute is
 trimmed — and offers the window back on return through the keep/discard prompt.
 
-**Manual** (`Tracking/ManualIdleMonitor`) closes it at `awayStart + threshold`, so the
-minutes up to the timeout stay on the entry and are recorded as a KEPT idle window for the
-Idle panel. Everything after the timeout is untracked, and there is no prompt on return —
-policy has already decided, so there is nothing left to adjudicate. The person restarts the
-timer themselves. Sleep and screen lock stop at the instant input stopped, crediting no idle
-minutes: a closed lid is not a long read.
+**Manual** (`Tracking/ManualIdleMonitor`) keeps the timer running through a short absence: at
+the idle threshold it goes "away" (timer still running) and, on return, presents the same
+keep/discard prompt auto mode uses ("You were away for X minutes") — Keep counts the window,
+Discard trims the entry to `awayStart` and opens a fresh one under the same project/task, and
+while the prompt is unanswered the clock keeps running. Arming (and idleness) is per manual
+entry (`ManualIdleCoordinator`'s `armedEntryId`): a Stop-then-Start onto a different project
+measures its own idleness, never the previous entry's.
 
-Manual tracking used to run straight through the away window and KEEP it unless the employee
-came back and discarded it. A Mac left awake produced a 47-hour span whose start day reported
-50h tracked out of a possible 24. Time Doctor's equivalent is its "Timeout After" setting
-(default 15 min, max 6 h) — same shape, except we reuse the idle threshold rather than adding
-a second knob.
+A short absence is worth adjudicating; an unattended one is not. Manual tracking used to run
+straight through an away window with no bound — nobody comes back from a Mac left awake over a
+weekend to answer the prompt, and an unresolved window was KEPT, so one span reached 47 hours
+and its start day reported 50h tracked out of a possible 24 (the bug the timeout-only design,
+since reverted, tried to fix by dropping the prompt entirely). The fix keeps the prompt for the
+common case and adds a fixed **60-minute away limit** (`awayLimitSeconds` in
+`ManualIdleMonitor`, not a server/policy value) under it: an away window that is never
+resolved within the hour — no return in time, including one that spans a sleep — stops the
+entry at `awayStart` (none of the away time counts), records the window DISCARDED, and skips
+the prompt entirely. The person is told once, through the same local-notification seam every
+other nudge uses (`Notifications/LocalNotifier`), posted at the moment the limit is hit rather
+than held for their return: "Your timer stopped at \<time\> because you were away for over an
+hour. Start it again from the menu." Sleep and screen lock mark away at the instant input
+stopped (no threshold wait), and the same 60-minute rule applies from there — a sleep that
+outlasts the limit is caught on wake, not with a stale prompt.
 
 Inactivity is measured from when the monitor armed, not from the raw OS idle counter: that
 counter keeps running across a Stop/Start, and an inherited reading would close a new span
