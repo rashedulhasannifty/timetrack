@@ -1834,8 +1834,12 @@ describe.runIf(RUN_E2E)('reports repository — streamEntries (real Postgres)', 
       data: { teamId: t.id, name: 'Acme' },
       select: { id: true },
     });
+    const sp = await db.prisma.subproject.create({
+      data: { projectId: p.id, name: 'General', isDefault: true },
+      select: { id: true },
+    });
     const tk = await db.prisma.task.create({
-      data: { projectId: p.id, name: 'Build' },
+      data: { projectId: p.id, subprojectId: sp.id, name: 'Build' },
       select: { id: true },
     });
     // starts 1h before FROM, ends 1h into range → clamped to [FROM, FROM+1h], 3600s.
