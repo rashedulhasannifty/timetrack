@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
 import { APP_TIMEZONE, DEFAULT_SUBPROJECT_NAME } from '@timetrack/contracts';
 import type { Project, Subproject, Task } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+import { WorkTypesRepository } from '../work-types/work-types.repository.js';
 
 /**
  * The effective end of a time entry. A CLOSED entry ends at its `endTime`. An OPEN entry ends
@@ -54,7 +55,12 @@ const SUBPROJECT_SELECT = {
 /** CLAUDE.md §3 — Prisma lives here. Never select `*` back to the client. */
 @Injectable()
 export class ProjectsRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  // Both params carry explicit tokens: once any param has @Inject, Nest stops reflecting the
+  // others, and vitest's transform drops design:paramtypes (see projects.service.ts).
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(WorkTypesRepository) private readonly workTypes: WorkTypesRepository,
+  ) {}
 
   async listByTeam(teamId: string, includeArchived = false): Promise<Project[]> {
     // One query, not N+1 (CLAUDE.md §4) — tasks come back via the nested select.
@@ -103,6 +109,14 @@ export class ProjectsRepository {
           targetId: project.id,
           diff: { teamId, name, color },
         },
+      });
+      // The team's work types, in the same transaction (spec §5): a manager who creates a client
+      // still gets them. One project, so Prisma's default transaction timeout is enough (R13).
+      await this.workTypes.reconcile(tx, [project.id], {
+        actorId,
+        trigger: 'project_create',
+        targetType: 'project',
+        targetId: project.id,
       });
       return project;
     });
@@ -279,6 +293,14 @@ export class ProjectsRepository {
           targetId: id,
           diff: { from: before?.teamId ?? null, to: teamId },
         },
+      });
+      // Swap to the new team's work types: the old team's linked rows archive (never delete) and
+      // a move back restores the same rows (spec §5, rule 1 and 4).
+      await this.workTypes.reconcile(tx, [id], {
+        actorId,
+        trigger: 'project_team_change',
+        targetType: 'project',
+        targetId: id,
       });
       return project;
     });
