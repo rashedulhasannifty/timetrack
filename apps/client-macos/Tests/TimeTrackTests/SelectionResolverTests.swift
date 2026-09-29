@@ -1,51 +1,61 @@
 import XCTest
 @testable import TimeTrack
 
+/// The unified stale-resolution table (spec §4), identical on Windows.
 final class SelectionResolverTests: XCTestCase {
-    private let choices: [Choice] = [
-        Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Apollo", taskName: nil),
-        Choice(id: "t1", projectId: "p1", taskId: "t1", projectName: "Apollo", taskName: "Build"),
-        Choice(id: "p2", projectId: "p2", taskId: nil, projectName: "Gemini", taskName: nil),
+    private let projects: [Project] = [
+        Project(id: "p1", teamId: "t", name: "Acme", archived: false,
+                tasks: [ProjectTask(id: "k1", projectId: "p1", name: "Build", subprojectId: "s2")],
+                subprojects: [Subproject(id: "s1", projectId: "p1", name: "General", archived: false, isDefault: true),
+                              Subproject(id: "s2", projectId: "p1", name: "Checkout", archived: false, isDefault: false),
+                              Subproject(id: "s3", projectId: "p1", name: "Other", archived: false, isDefault: false)]),
+        Project(id: "p2", teamId: "t", name: "Archived", archived: true, tasks: nil),
+        Project(id: "p3", teamId: "t", name: "Legacy", archived: false, tasks: nil),
     ]
 
-    func testResolvesAProjectOnlySelection() {
-        let got = SelectionResolver.resolve(
-            StoredSelection(projectId: "p2", taskId: nil), in: choices
-        )
-        XCTAssertEqual(got?.id, "p2")
+    private func resolve(_ s: StoredSelection?) -> StoredSelection? {
+        SelectionResolver.resolve(s, in: projects)
     }
 
-    func testResolvesAProjectAndTaskSelection() {
-        let got = SelectionResolver.resolve(
-            StoredSelection(projectId: "p1", taskId: "t1"), in: choices
-        )
-        XCTAssertEqual(got?.id, "t1")
-        XCTAssertEqual(got?.taskId, "t1")
+    func testNothingDisappearedKeepsTheSelection() {
+        XCTAssertEqual(resolve(StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "k1")),
+                       StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "k1"))
+        XCTAssertEqual(resolve(StoredSelection(projectId: "p1", subprojectId: "s3", taskId: nil)),
+                       StoredSelection(projectId: "p1", subprojectId: "s3", taskId: nil))
     }
 
-    func testDropsASelectionWhoseProjectIsGone() {
-        // Archived, deleted, or the user was moved off that team.
-        XCTAssertNil(SelectionResolver.resolve(
-            StoredSelection(projectId: "gone", taskId: nil), in: choices
-        ))
+    func testTaskGoneKeepsTheSubproject() {
+        XCTAssertEqual(resolve(StoredSelection(projectId: "p1", subprojectId: "s3", taskId: "gone")),
+                       StoredSelection(projectId: "p1", subprojectId: "s3", taskId: nil))
     }
 
-    func testDropsASelectionWhoseTaskIsGone() {
-        // The project survives but the task does not — do NOT silently fall back to the
-        // project, because that would start tracking against something never chosen.
-        XCTAssertNil(SelectionResolver.resolve(
-            StoredSelection(projectId: "p1", taskId: "gone"), in: choices
-        ))
+    func testSubprojectGoneFallsBackToTheDefault() {
+        XCTAssertEqual(resolve(StoredSelection(projectId: "p1", subprojectId: "gone", taskId: nil)),
+                       StoredSelection(projectId: "p1", subprojectId: "s1", taskId: nil))
     }
 
-    func testDropsEverythingWhenTheProjectListIsEmpty() {
-        // Offline first launch with an empty cache — never pre-select from nothing.
-        XCTAssertNil(SelectionResolver.resolve(
-            StoredSelection(projectId: "p1", taskId: nil), in: []
-        ))
+    func testProjectGoneOrArchivedClearsTheSelection() {
+        XCTAssertNil(resolve(StoredSelection(projectId: "gone", taskId: nil)))
+        XCTAssertNil(resolve(StoredSelection(projectId: "p2", taskId: nil)))
+        XCTAssertNil(resolve(nil))
     }
 
-    func testNilStoredSelectionResolvesToNil() {
-        XCTAssertNil(SelectionResolver.resolve(nil, in: choices))
+    /// Upgrade rule: a 0.6.x selection has no subprojectId.
+    func testUpgradesAnOldSelectionFromItsTaskOrTheDefault() {
+        XCTAssertEqual(resolve(StoredSelection(projectId: "p1", taskId: "k1")),
+                       StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "k1"))
+        XCTAssertEqual(resolve(StoredSelection(projectId: "p1", taskId: nil)),
+                       StoredSelection(projectId: "p1", subprojectId: "s1", taskId: nil))
+    }
+
+    /// Ruling 1: the task's CURRENT subproject wins over a stale stored one.
+    func testAMovedTaskResolvesToItsNewSubproject() {
+        XCTAssertEqual(resolve(StoredSelection(projectId: "p1", subprojectId: "s3", taskId: "k1")),
+                       StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "k1"))
+    }
+
+    func testALegacyCacheProjectResolvesWithANilSubproject() {
+        XCTAssertEqual(resolve(StoredSelection(projectId: "p3", subprojectId: "s9", taskId: nil)),
+                       StoredSelection(projectId: "p3", subprojectId: nil, taskId: nil))
     }
 }
