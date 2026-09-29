@@ -16,6 +16,7 @@ const TIME_ENTRY_SELECT = {
   userId: true,
   projectId: true,
   taskId: true,
+  subprojectId: true,
   startTime: true,
   endTime: true,
   source: true,
@@ -51,16 +52,20 @@ export class TimeEntriesRepository {
     @Inject(TRACKING_FRESHNESS_SECONDS) private readonly trackingFreshnessSeconds: number,
   ) {}
 
-  async upsert(dto: CreateTimeEntry, userId: string): Promise<TimeEntry> {
+  async upsert(
+    dto: CreateTimeEntry,
+    userId: string,
+    subprojectId: string | null,
+  ): Promise<TimeEntry> {
     try {
       const now = new Date();
       // Opening a span takes over from an abandoned one; a CLOSED upload is the hot batch path
       // and skips the transaction entirely.
       const row = dto.endTime
-        ? await this.upsertEntry(this.prisma, dto, userId, now)
+        ? await this.upsertEntry(this.prisma, dto, userId, subprojectId, now)
         : await this.prisma.$transaction(async (tx) => {
             await this.retireStaleRunning(tx, userId, dto.id, now);
-            return this.upsertEntry(tx, dto, userId, now);
+            return this.upsertEntry(tx, dto, userId, subprojectId, now);
           });
       return serialize(row);
     } catch (e) {
@@ -115,6 +120,7 @@ export class TimeEntriesRepository {
     client: Prisma.TransactionClient | PrismaService,
     dto: CreateTimeEntry,
     userId: string,
+    subprojectId: string | null,
     now: Date,
   ) {
     return client.timeEntry.upsert({
@@ -124,6 +130,7 @@ export class TimeEntriesRepository {
         userId,
         projectId: dto.projectId,
         taskId: dto.taskId,
+        subprojectId,
         source: dto.source,
         note: dto.note ?? null,
         startTime: new Date(dto.startTime),
@@ -132,6 +139,8 @@ export class TimeEntriesRepository {
         platform: dto.platform ?? null,
       },
       update: {
+        // `subprojectId` is deliberately absent: sync never re-assigns an entry (a heartbeat
+        // must not move it); reassignment goes through the audited PATCH path.
         // The close is MONOTONE: an open payload arriving after the close (a retry, or a
         // heartbeat queued behind it) must NOT null a stored endTime and re-open the entry.
         // The same reasoning covers `note`: a heartbeat re-POST that omits it must not erase
@@ -146,6 +155,47 @@ export class TimeEntriesRepository {
       },
       select: TIME_ENTRY_SELECT,
     });
+  }
+
+  /**
+   * Everything the service needs to pick an entry's subproject, in ONE round trip — it runs on
+   * every sync upsert that names a project, heartbeats included. Pure lookups: which subproject
+   * to use is TimeEntriesService's decision (pickSubproject), not this query's.
+   *
+   * An unknown project yields all-null/false, which the service turns into a null subproject:
+   * shipped clients can hold ids of projects that no longer exist, and failing that write would
+   * be a retry-forever 500.
+   */
+  async subprojectCandidates(
+    projectId: string,
+    taskId: string | null,
+    subprojectId: string | null,
+  ): Promise<{
+    defaultId: string | null;
+    taskSubprojectId: string | null;
+    requestedBelongs: boolean;
+  }> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        defaultId: string | null;
+        taskSubprojectId: string | null;
+        requestedBelongs: boolean;
+      }>
+    >`
+      SELECT
+        (SELECT s.id FROM subprojects s
+          WHERE s."projectId" = ${projectId} AND s."isDefault") AS "defaultId",
+        (SELECT t."subprojectId" FROM tasks t
+          WHERE t.id = ${taskId}::text AND t."projectId" = ${projectId}) AS "taskSubprojectId",
+        EXISTS (SELECT 1 FROM subprojects s
+          WHERE s.id = ${subprojectId}::text AND s."projectId" = ${projectId}) AS "requestedBelongs"
+    `;
+    const r = rows[0];
+    return {
+      defaultId: r?.defaultId ?? null,
+      taskSubprojectId: r?.taskSubprojectId ?? null,
+      requestedBelongs: r?.requestedBelongs ?? false,
+    };
   }
 
   /**
@@ -262,6 +312,7 @@ export class TimeEntriesRepository {
     dto: CreateManualTimeEntry,
     userId: string,
     actorId: string,
+    subprojectId: string | null,
   ): Promise<TimeEntry> {
     const now = new Date();
     try {
@@ -272,6 +323,7 @@ export class TimeEntriesRepository {
             userId,
             projectId: dto.projectId,
             taskId: dto.taskId,
+            subprojectId,
             startTime: new Date(dto.startTime),
             endTime: new Date(dto.endTime),
             source: 'MANUAL',
@@ -293,6 +345,7 @@ export class TimeEntriesRepository {
               endTime: dto.endTime,
               projectId: dto.projectId,
               taskId: dto.taskId,
+              subprojectId,
             },
           },
         });
@@ -349,6 +402,7 @@ export class TimeEntriesRepository {
     };
     if ('projectId' in after) data.projectId = after.projectId as string | null;
     if ('taskId' in after) data.taskId = after.taskId as string | null;
+    if ('subprojectId' in after) data.subprojectId = after.subprojectId ?? null;
     if ('source' in after) data.source = after.source as 'MANUAL' | 'AUTO';
     if ('note' in after) data.note = after.note ?? null;
     if ('startTime' in after) data.startTime = new Date(after.startTime as string);
@@ -384,6 +438,7 @@ function serialize(row: {
   userId: string;
   projectId: string | null;
   taskId: string | null;
+  subprojectId: string | null;
   startTime: Date;
   endTime: Date | null;
   source: 'MANUAL' | 'AUTO';
@@ -396,6 +451,7 @@ function serialize(row: {
     userId: row.userId,
     projectId: row.projectId,
     taskId: row.taskId,
+    subprojectId: row.subprojectId,
     startTime: row.startTime.toISOString(),
     endTime: row.endTime?.toISOString() ?? null,
     source: row.source,
