@@ -215,6 +215,39 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
     ).resolves.toMatchObject({ name: 'old' });
   });
 
+  it('409s renaming or restoring a hand-made subproject onto an active name, case-insensitively', async () => {
+    const DUP = 'This project already has a subproject with that name';
+    const eng = await team('Eng');
+    await select(eng, 'Payroll');
+    const p = await client(eng, 'Acme');
+    const special = await projects().createSubproject(
+      { projectId: p.id, name: 'Special' },
+      admin(eng),
+    );
+
+    // Rename onto the linked row, onto General (trimmed, any case): refused.
+    for (const name of ['payroll', ' GENERAL ']) {
+      expect(await titleOf(projects().updateSubproject(special.id, { name }, admin(eng)))).toBe(
+        DUP,
+      );
+    }
+    // Its own name in another case is not a clash with itself.
+    await expect(
+      projects().updateSubproject(special.id, { name: 'SPECIAL' }, admin(eng)),
+    ).resolves.toMatchObject({ name: 'SPECIAL' });
+
+    // An archived row may take the name (archived names are free) but not come back with it.
+    const temp = await projects().createSubproject({ projectId: p.id, name: 'Temp' }, admin(eng));
+    await projects().updateSubproject(temp.id, { archived: true }, admin(eng));
+    await expect(
+      projects().updateSubproject(temp.id, { name: 'payroll' }, admin(eng)),
+    ).resolves.toMatchObject({ name: 'payroll', archived: true });
+    expect(
+      await titleOf(projects().updateSubproject(temp.id, { archived: false }, admin(eng))),
+    ).toBe(DUP);
+    expect(await activeNames(p.id)).toEqual(['General', 'Payroll', 'SPECIAL']);
+  });
+
   it("an EMPLOYEE sees only their team's clients, each with General plus the enabled work types", async () => {
     const eng = await team('Eng');
     const support = await team('Support');

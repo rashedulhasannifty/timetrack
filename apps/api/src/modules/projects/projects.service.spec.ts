@@ -675,6 +675,44 @@ describe('ProjectsService — catalog-managed subprojects', () => {
     expect(repo.createSubproject).not.toHaveBeenCalled();
   });
 
+  it('409s a rename or a restore onto a name another active subproject has, excluding itself', async () => {
+    const DUP = 'This project already has a subproject with that name';
+    const renamed = makeService({ hasActiveSubprojectNamed: vi.fn().mockResolvedValue(true) });
+    renamed.repo.findSubprojectForActor = vi.fn().mockResolvedValue(SUB);
+    await expect(
+      renamed.svc.updateSubproject('s1', { name: ' payroll ' }, manager),
+    ).rejects.toMatchObject({ response: { title: DUP, status: 409 } });
+    expect(renamed.repo.hasActiveSubprojectNamed).toHaveBeenCalledWith('p1', 'payroll', 's1');
+
+    const restored = makeService({
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, archived: true }),
+      hasActiveSubprojectNamed: vi.fn().mockResolvedValue(true),
+    });
+    await expect(
+      restored.svc.updateSubproject('s1', { archived: false }, manager),
+    ).rejects.toMatchObject({ response: { title: DUP, status: 409 } });
+    expect(restored.repo.hasActiveSubprojectNamed).toHaveBeenCalledWith('p1', 'Checkout', 's1');
+    expect(restored.repo.updateSubproject).not.toHaveBeenCalled();
+  });
+
+  it('skips the name check when the row stays archived or is being archived', async () => {
+    const archivedRename = makeService({
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, archived: true }),
+      hasActiveSubprojectNamed: vi.fn().mockResolvedValue(true),
+    });
+    await archivedRename.svc.updateSubproject('s1', { name: 'Payroll' }, manager);
+    await archivedRename.svc.updateSubproject('s1', { name: 'Payroll', archived: true }, manager);
+    expect(archivedRename.repo.hasActiveSubprojectNamed).not.toHaveBeenCalled();
+    expect(archivedRename.repo.updateSubproject).toHaveBeenCalledTimes(2);
+
+    const archiving = makeService({
+      findSubprojectForActor: vi.fn().mockResolvedValue(SUB),
+      hasActiveSubprojectNamed: vi.fn().mockResolvedValue(true),
+    });
+    await archiving.svc.updateSubproject('s1', { archived: true }, manager);
+    expect(archiving.repo.hasActiveSubprojectNamed).not.toHaveBeenCalled();
+  });
+
   it('checks the trimmed name, so "Payroll " is caught', async () => {
     const { svc, repo } = makeService({
       findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }),

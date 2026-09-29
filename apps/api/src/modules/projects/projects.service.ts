@@ -138,6 +138,17 @@ export class ProjectsService {
     if (dto.archived === true && sub.isDefault) {
       throw this.conflict('The default subproject cannot be archived');
     }
+    // The same rule POST enforces (spec §5): a rename, or a restore, must not leave two active
+    // subprojects with one name — the desktop pickers would show both. The row itself is excluded.
+    const activeAfter = !(dto.archived ?? sub.archived);
+    const nameChanges = dto.name !== undefined || (sub.archived && dto.archived === false);
+    if (
+      activeAfter &&
+      nameChanges &&
+      (await this.repo.hasActiveSubprojectNamed(sub.projectId, (dto.name ?? sub.name).trim(), id))
+    ) {
+      throw this.conflict('This project already has a subproject with that name');
+    }
     // exactOptionalPropertyTypes: pass only the keys the caller actually sent.
     const patch: { name?: string; archived?: boolean } = {};
     if (dto.name !== undefined) patch.name = dto.name;

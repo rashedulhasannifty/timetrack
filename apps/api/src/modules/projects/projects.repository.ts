@@ -321,9 +321,19 @@ export class ProjectsRepository {
     return { ...rest, teamId: project.teamId };
   }
 
-  async hasActiveSubprojectNamed(projectId: string, name: string): Promise<boolean> {
+  /** `excludeId`: the row being renamed or restored, which never clashes with itself. */
+  async hasActiveSubprojectNamed(
+    projectId: string,
+    name: string,
+    excludeId?: string,
+  ): Promise<boolean> {
     const hit = await this.prisma.subproject.findFirst({
-      where: { projectId, archived: false, name: { equals: name, mode: 'insensitive' } },
+      where: {
+        projectId,
+        archived: false,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId !== undefined ? { id: { not: excludeId } } : {}),
+      },
       select: { id: true },
     });
     return hit !== null;
