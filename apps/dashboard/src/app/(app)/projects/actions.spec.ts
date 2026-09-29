@@ -1,23 +1,39 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { revalidatePath, getSession, getCurrentTeam, createProject, moveProject } = vi.hoisted(
-  () => ({
-    revalidatePath: vi.fn(),
-    getSession: vi.fn(),
-    getCurrentTeam: vi.fn(),
-    createProject: vi.fn(),
-    moveProject: vi.fn(),
-  }),
-);
+const {
+  revalidatePath,
+  getSession,
+  getCurrentTeam,
+  createProject,
+  moveProject,
+  createTask,
+  createSubproject,
+  moveTask,
+} = vi.hoisted(() => ({
+  revalidatePath: vi.fn(),
+  getSession: vi.fn(),
+  getCurrentTeam: vi.fn(),
+  createProject: vi.fn(),
+  moveProject: vi.fn(),
+  createTask: vi.fn(),
+  createSubproject: vi.fn(),
+  moveTask: vi.fn(),
+}));
 
 vi.mock('next/cache', () => ({ revalidatePath }));
 vi.mock('../../../lib/session', () => ({ getSession }));
 vi.mock('../../../lib/api-client', () => ({
-  api: { getCurrentTeam, createProject, moveProject },
+  api: { getCurrentTeam, createProject, moveProject, createTask, createSubproject, moveTask },
   ApiError: class ApiError extends Error {},
 }));
 
-import { createProjectAction, moveProjectAction } from './actions';
+import {
+  createProjectAction,
+  moveProjectAction,
+  createTaskAction,
+  createSubprojectAction,
+  moveTaskAction,
+} from './actions';
 
 const ENGINEERING = '018f9c1e-0000-7000-8000-000000000001';
 const BPO = '018f9c1e-0000-7000-8000-000000000002';
@@ -118,5 +134,42 @@ describe('moveProjectAction', () => {
       expect(res).toEqual({ ok: false, message: 'Pick a team.' });
     }
     expect(moveProject).not.toHaveBeenCalled();
+  });
+});
+
+describe('subproject actions', () => {
+  const SUB = '018f9c1e-0000-7000-8000-0000000000b1';
+  const PROJ = '018f9c1e-0000-7000-8000-0000000000c1';
+
+  it('createTaskAction sends { subprojectId, name } and no projectId', async () => {
+    createTask.mockResolvedValue({});
+    const res = await createTaskAction(
+      INITIAL,
+      form({ projectId: PROJ, subprojectId: SUB, name: 'Pay' }),
+    );
+    expect(res).toEqual({ ok: true });
+    expect(createTask).toHaveBeenCalledWith('tok', { subprojectId: SUB, name: 'Pay' });
+    expect(revalidatePath).toHaveBeenCalledWith(`/projects/${PROJ}`);
+  });
+
+  it('createSubprojectAction refuses an EMPLOYEE', async () => {
+    getSession.mockResolvedValue({ userId: 'u2', role: 'EMPLOYEE', accessToken: 'tok' });
+    const res = await createSubprojectAction(INITIAL, form({ projectId: PROJ, name: 'Checkout' }));
+    expect(res).toEqual({ ok: false, message: 'Not authorized.' });
+    expect(createSubproject).not.toHaveBeenCalled();
+  });
+
+  it('createSubprojectAction calls the API for a MANAGER', async () => {
+    getSession.mockResolvedValue({ userId: 'm1', role: 'MANAGER', accessToken: 'tok' });
+    createSubproject.mockResolvedValue({});
+    const res = await createSubprojectAction(INITIAL, form({ projectId: PROJ, name: 'Checkout' }));
+    expect(res).toEqual({ ok: true });
+    expect(createSubproject).toHaveBeenCalledWith('tok', { projectId: PROJ, name: 'Checkout' });
+  });
+
+  it('moveTaskAction rejects a missing subprojectId without calling the API', async () => {
+    const res = await moveTaskAction(INITIAL, form({ id: PROJ, projectId: PROJ }));
+    expect(res).toEqual({ ok: false, message: 'Pick a subproject.' });
+    expect(moveTask).not.toHaveBeenCalled();
   });
 });

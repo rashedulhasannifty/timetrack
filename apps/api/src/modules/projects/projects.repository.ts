@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
-import { APP_TIMEZONE } from '@timetrack/contracts';
-import type { Project, Task } from '@timetrack/contracts';
+import { APP_TIMEZONE, DEFAULT_SUBPROJECT_NAME } from '@timetrack/contracts';
+import type { Project, Subproject, Task } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 
 /**
@@ -35,6 +35,22 @@ const PROJECT_SELECT = {
   archived: true,
 } as const;
 
+const TASK_SELECT = {
+  id: true,
+  projectId: true,
+  subprojectId: true,
+  name: true,
+  archived: true,
+} as const;
+
+const SUBPROJECT_SELECT = {
+  id: true,
+  projectId: true,
+  name: true,
+  archived: true,
+  isDefault: true,
+} as const;
+
 /** CLAUDE.md §3 — Prisma lives here. Never select `*` back to the client. */
 @Injectable()
 export class ProjectsRepository {
@@ -47,9 +63,17 @@ export class ProjectsRepository {
       orderBy: { name: 'asc' },
       select: {
         ...PROJECT_SELECT,
+        subprojects: {
+          where: includeArchived ? {} : { archived: false },
+          orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+          select: SUBPROJECT_SELECT,
+        },
+        // Assignable tasks only. A task in an ARCHIVED subproject is not assignable either — this
+        // nested list is what the shipped clients pick from, so it is the only way archiving a
+        // subproject reaches them.
         tasks: {
-          where: { archived: false },
-          select: { id: true, projectId: true, name: true, archived: true },
+          where: { archived: false, subproject: { archived: false } },
+          select: TASK_SELECT,
         },
       },
     });
@@ -67,6 +91,10 @@ export class ProjectsRepository {
         data: { teamId, name, color },
         select: PROJECT_SELECT,
       });
+      // Every project owns exactly one default subproject (partial unique index), created with it.
+      await tx.subproject.create({
+        data: { projectId: project.id, name: DEFAULT_SUBPROJECT_NAME, isDefault: true },
+      });
       await tx.auditLog.create({
         data: {
           actorId,
@@ -80,11 +108,15 @@ export class ProjectsRepository {
     });
   }
 
-  async createTask(projectId: string, name: string, actorId: string): Promise<Task> {
+  async createTask(subprojectId: string, name: string, actorId: string): Promise<Task> {
     return this.prisma.$transaction(async (tx) => {
+      const sub = await tx.subproject.findUniqueOrThrow({
+        where: { id: subprojectId },
+        select: { projectId: true },
+      });
       const task = await tx.task.create({
-        data: { projectId, name },
-        select: { id: true, projectId: true, name: true, archived: true },
+        data: { projectId: sub.projectId, subprojectId, name },
+        select: TASK_SELECT,
       });
       await tx.auditLog.create({
         data: {
@@ -92,7 +124,7 @@ export class ProjectsRepository {
           action: 'task.create',
           targetType: 'task',
           targetId: task.id,
-          diff: { projectId, name },
+          diff: { projectId: sub.projectId, subprojectId, name },
         },
       });
       return task;
@@ -103,16 +135,106 @@ export class ProjectsRepository {
     return this.prisma.task.findMany({
       where: { projectId },
       orderBy: [{ archived: 'asc' }, { name: 'asc' }],
-      select: { id: true, projectId: true, name: true, archived: true },
+      select: TASK_SELECT,
     });
   }
 
-  async findTaskForActor(taskId: string): Promise<{ projectId: string; teamId: string } | null> {
+  async findTaskForActor(taskId: string): Promise<(Task & { teamId: string }) | null> {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
-      select: { projectId: true, project: { select: { teamId: true } } },
+      select: { ...TASK_SELECT, project: { select: { teamId: true } } },
     });
-    return task ? { projectId: task.projectId, teamId: task.project.teamId } : null;
+    if (!task) return null;
+    const { project, ...rest } = task;
+    return { ...rest, teamId: project.teamId };
+  }
+
+  async moveTask(taskId: string, subprojectId: string, actorId: string): Promise<Task> {
+    return this.prisma.$transaction(async (tx) => {
+      const before = await tx.task.findUniqueOrThrow({
+        where: { id: taskId },
+        select: { subprojectId: true },
+      });
+      const task = await tx.task.update({
+        where: { id: taskId },
+        data: { subprojectId },
+        select: TASK_SELECT,
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: 'task.move',
+          targetType: 'task',
+          targetId: taskId,
+          diff: { from: before.subprojectId, to: subprojectId },
+        },
+      });
+      return task;
+    });
+  }
+
+  async createSubproject(projectId: string, name: string, actorId: string): Promise<Subproject> {
+    return this.prisma.$transaction(async (tx) => {
+      const sub = await tx.subproject.create({
+        data: { projectId, name },
+        select: SUBPROJECT_SELECT,
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: 'subproject.create',
+          targetType: 'subproject',
+          targetId: sub.id,
+          diff: { projectId, name },
+        },
+      });
+      return sub;
+    });
+  }
+
+  async updateSubproject(
+    id: string,
+    patch: { name?: string; archived?: boolean },
+    actorId: string,
+  ): Promise<Subproject> {
+    return this.prisma.$transaction(async (tx) => {
+      const sub = await tx.subproject.update({
+        where: { id },
+        data: {
+          ...(patch.name !== undefined ? { name: patch.name } : {}),
+          ...(patch.archived !== undefined ? { archived: patch.archived } : {}),
+        },
+        select: SUBPROJECT_SELECT,
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          action: 'subproject.update',
+          targetType: 'subproject',
+          targetId: id,
+          diff: { ...patch },
+        },
+      });
+      return sub;
+    });
+  }
+
+  async findSubprojectForActor(id: string): Promise<(Subproject & { teamId: string }) | null> {
+    const sub = await this.prisma.subproject.findUnique({
+      where: { id },
+      select: { ...SUBPROJECT_SELECT, project: { select: { teamId: true } } },
+    });
+    if (!sub) return null;
+    const { project, ...rest } = sub;
+    return { ...rest, teamId: project.teamId };
+  }
+
+  listSubprojectsForProject(projectId: string): Promise<Subproject[]> {
+    return this.prisma.subproject.findMany({
+      where: { projectId },
+      orderBy: [{ isDefault: 'desc' }, { archived: 'asc' }, { name: 'asc' }],
+      select: SUBPROJECT_SELECT,
+    });
   }
 
   async setTaskArchived(id: string, archived: boolean, actorId: string): Promise<Task> {
@@ -120,7 +242,7 @@ export class ProjectsRepository {
       const task = await tx.task.update({
         where: { id },
         data: { archived },
-        select: { id: true, projectId: true, name: true, archived: true },
+        select: TASK_SELECT,
       });
       await tx.auditLog.create({
         data: {
@@ -235,11 +357,19 @@ export class ProjectsRepository {
     from: Date,
     to: Date,
     freshnessSeconds: number,
-  ): Promise<{ taskId: string | null; name: string; trackedSeconds: number }[]> {
+  ): Promise<
+    { taskId: string | null; subprojectId: string | null; name: string; trackedSeconds: number }[]
+  > {
     const rows = await this.prisma.$queryRaw<
-      Array<{ taskId: string | null; name: string; trackedSeconds: number | bigint }>
+      Array<{
+        taskId: string | null;
+        subprojectId: string | null;
+        name: string;
+        trackedSeconds: number | bigint;
+      }>
     >`
-      SELECT te."taskId" AS "taskId", COALESCE(t.name, 'No task') AS "name",
+      SELECT te."taskId" AS "taskId", t."subprojectId" AS "subprojectId",
+             COALESCE(t.name, 'No task') AS "name",
              FLOOR(SUM(GREATEST(EXTRACT(EPOCH FROM (
                LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz)
                - GREATEST(te."startTime", ${from}::timestamptz)
@@ -250,11 +380,42 @@ export class ProjectsRepository {
         AND te."startTime" < ${to}::timestamptz
         AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
         AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
-      GROUP BY te."taskId", t.name
+      GROUP BY te."taskId", t."subprojectId", t.name
       ORDER BY "trackedSeconds" DESC, "taskId" ASC NULLS LAST
     `;
     return rows.map((r) => ({
       taskId: r.taskId,
+      subprojectId: r.subprojectId,
+      name: r.name,
+      trackedSeconds: Number(r.trackedSeconds),
+    }));
+  }
+
+  async subprojectsForProject(
+    projectId: string,
+    from: Date,
+    to: Date,
+    freshnessSeconds: number,
+  ): Promise<{ subprojectId: string | null; name: string; trackedSeconds: number }[]> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{ subprojectId: string | null; name: string; trackedSeconds: number | bigint }>
+    >`
+      SELECT te."subprojectId" AS "subprojectId", COALESCE(s.name, 'No subproject') AS "name",
+             FLOOR(SUM(GREATEST(EXTRACT(EPOCH FROM (
+               LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz)
+               - GREATEST(te."startTime", ${from}::timestamptz)
+             )), 0)))::int AS "trackedSeconds"
+      FROM time_entries te
+      LEFT JOIN subprojects s ON s.id = te."subprojectId"
+      WHERE te."projectId" = ${projectId}
+        AND te."startTime" < ${to}::timestamptz
+        AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
+        AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+      GROUP BY te."subprojectId", s.name
+      ORDER BY "trackedSeconds" DESC, "subprojectId" ASC NULLS LAST
+    `;
+    return rows.map((r) => ({
+      subprojectId: r.subprojectId,
       name: r.name,
       trackedSeconds: Number(r.trackedSeconds),
     }));

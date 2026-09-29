@@ -345,13 +345,14 @@ describe('ReportsService.exportCsv', () => {
           durationSeconds: 3600,
           source: 'MANUAL',
           note: null,
+          subproject: 'General',
         },
       ]),
     );
     const csv = await drain(await svc.exportCsv({ ...range }, admin));
     expect(csv).toBe(
-      'entryId,user,project,task,startTime,endTime,durationSeconds,source,note\r\n' +
-        'e1,Ada,Acme,,2026-07-02T09:00:00.000Z,2026-07-02T10:00:00.000Z,3600,MANUAL,\r\n',
+      'entryId,user,project,task,startTime,endTime,durationSeconds,source,note,subproject\r\n' +
+        'e1,Ada,Acme,,2026-07-02T09:00:00.000Z,2026-07-02T10:00:00.000Z,3600,MANUAL,,General\r\n',
     );
     // ADMIN with no filter → kind:'all'
     expect(repo.streamEntries).toHaveBeenCalledWith(

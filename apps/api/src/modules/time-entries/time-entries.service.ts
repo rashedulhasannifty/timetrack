@@ -16,6 +16,44 @@ const FUTURE_TOLERANCE_MS = 60_000;
 // The fields UpdateTimeEntrySchema permits — the only ones an edit may touch or diff.
 const EDITABLE_KEYS = ['projectId', 'taskId', 'startTime', 'endTime', 'source', 'note'] as const;
 
+export type SubprojectCandidates = {
+  defaultId: string | null;
+  taskSubprojectId: string | null;
+  requestedBelongs: boolean;
+};
+
+/**
+ * Which subproject an entry belongs to (spec §2 "Subproject resolution"):
+ *   1. no project → none;
+ *   2. an explicit subproject of that project → it. One from another project is a 422 on the
+ *      dashboard paths ('strict') but ignored on the sync path ('lenient'): a 4xx is permanent to
+ *      the uploader and would drop recorded time;
+ *   3. the task's subproject, when the task is in that project;
+ *   4. the project's default. A project that does not exist has no default → none.
+ */
+export function pickSubproject(
+  input: {
+    projectId: string | null;
+    taskId: string | null;
+    subprojectId?: string | null | undefined;
+  },
+  candidates: SubprojectCandidates | null,
+  mode: 'strict' | 'lenient',
+): string | null {
+  if (input.projectId === null || candidates === null) return null;
+  if (input.subprojectId) {
+    if (candidates.requestedBelongs) return input.subprojectId;
+    if (mode === 'strict') {
+      throw new UnprocessableEntityException({
+        type: 'https://timetrack.internal/errors/unprocessable',
+        title: 'Subproject does not belong to the project',
+        status: 422,
+      });
+    }
+  }
+  return candidates.taskSubprojectId ?? candidates.defaultId;
+}
+
 /**
  * CLAUDE.md §3 — services hold business logic. No Prisma; go through the repository.
  * List/upsert authorization is enforced by `@ResourceScope` on the controller. Edit is
@@ -29,9 +67,28 @@ export class TimeEntriesService {
     private readonly access: ResourceAccessService,
   ) {}
 
-  upsert(dto: CreateTimeEntry, user: SessionUser): Promise<TimeEntry> {
+  async upsert(dto: CreateTimeEntry, user: SessionUser): Promise<TimeEntry> {
+    const subprojectId = await this.resolveSubproject(dto, 'lenient');
     // A time entry is always attributed to the authenticated user (no cross-user writes).
-    return this.repo.upsert(dto, user.id);
+    return this.repo.upsert(dto, user.id, subprojectId);
+  }
+
+  private async resolveSubproject(
+    input: {
+      projectId: string | null;
+      taskId: string | null;
+      subprojectId?: string | null | undefined;
+    },
+    mode: 'strict' | 'lenient',
+  ): Promise<string | null> {
+    // No lookup for an entry with no project — that is most auto-tracked heartbeats.
+    if (input.projectId === null) return null;
+    const candidates = await this.repo.subprojectCandidates(
+      input.projectId,
+      input.taskId,
+      input.subprojectId ?? null,
+    );
+    return pickSubproject(input, candidates, mode);
   }
 
   /**
@@ -72,7 +129,8 @@ export class TimeEntriesService {
       });
     }
 
-    return this.repo.createManual(dto, targetUserId, actor.id);
+    const subprojectId = await this.resolveSubproject(dto, 'strict');
+    return this.repo.createManual(dto, targetUserId, actor.id, subprojectId);
   }
 
   /**
@@ -116,6 +174,23 @@ export class TimeEntriesService {
     await this.access.assertCanAccessUser(actor, current.userId);
 
     const { before, after } = diffChangedFields(current, dto);
+    // The subproject is derived, not free-form: re-resolve when the assignment changes (or a
+    // subprojectId is sent explicitly). A save that re-sends an unchanged project/task must not
+    // move the entry. An explicit subprojectId is validated (strict); a real project/task change
+    // without one re-derives it (task's subproject, else the project's default).
+    if ('subprojectId' in dto || 'projectId' in after || 'taskId' in after) {
+      const projectId = 'projectId' in dto ? (dto.projectId ?? null) : current.projectId;
+      const taskId = 'taskId' in dto ? (dto.taskId ?? null) : current.taskId;
+      const requested = 'subprojectId' in dto ? (dto.subprojectId ?? null) : null;
+      const resolved = await this.resolveSubproject(
+        { projectId, taskId, subprojectId: requested },
+        'strict',
+      );
+      if (resolved !== current.subprojectId) {
+        before.subprojectId = current.subprojectId;
+        after.subprojectId = resolved;
+      }
+    }
     if (Object.keys(after).length === 0) {
       throw new UnprocessableEntityException({
         type: 'https://timetrack.internal/errors/unprocessable',

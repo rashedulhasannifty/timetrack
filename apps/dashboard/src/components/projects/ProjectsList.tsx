@@ -70,7 +70,8 @@ export function ProjectsList({
                     Archived
                   </span>
                 )}
-                <span className="text-text-secondary text-caption min-w-[130px]">
+                <span className="text-text-secondary text-caption min-w-[190px]">
+                  {row.subprojectCount} {row.subprojectCount === 1 ? 'subproject' : 'subprojects'} ·{' '}
                   {row.taskCount === 0
                     ? 'no tasks'
                     : `${row.taskCount} ${row.taskCount === 1 ? 'task' : 'tasks'}`}

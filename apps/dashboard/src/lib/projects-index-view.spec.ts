@@ -28,6 +28,7 @@ describe('toProjectIndexRows', () => {
         color: projectColor('p2'),
         tasks: [],
         taskCount: 0,
+        subprojectCount: 0,
         sharePct: (7200 / 10_800) * 100,
       },
       {
@@ -38,6 +39,7 @@ describe('toProjectIndexRows', () => {
         color: projectColor('p1'),
         tasks: [],
         taskCount: 0,
+        subprojectCount: 0,
         sharePct: (3600 / 10_800) * 100,
       },
     ]);
@@ -144,8 +146,8 @@ describe('toProjectIndexRows — reconciliation', () => {
     const withTasks: Project = {
       ...P('p1', 'Alpha'),
       tasks: [
-        { id: 't1', projectId: 'p1', name: 'One', archived: false },
-        { id: 't2', projectId: 'p1', name: 'Two', archived: false },
+        { id: 't1', projectId: 'p1', subprojectId: 's1', name: 'One', archived: false },
+        { id: 't2', projectId: 'p1', subprojectId: 's1', name: 'Two', archived: false },
       ],
     };
     const row = toProjectIndexRows([withTasks], []).rows[0]!;
@@ -160,9 +162,9 @@ describe('toProjectIndexRows — reconciliation', () => {
     const withTasks: Project = {
       ...P('p1', 'Alpha'),
       tasks: [
-        { id: 't1', projectId: 'p1', name: 'One', archived: false },
-        { id: 't2', projectId: 'p1', name: 'Two', archived: true },
-        { id: 't3', projectId: 'p1', name: 'Three', archived: false },
+        { id: 't1', projectId: 'p1', subprojectId: 's1', name: 'One', archived: false },
+        { id: 't2', projectId: 'p1', subprojectId: 's1', name: 'Two', archived: true },
+        { id: 't3', projectId: 'p1', subprojectId: 's1', name: 'Three', archived: false },
       ],
     };
     const row = toProjectIndexRows([withTasks], []).rows[0]!;
@@ -181,5 +183,21 @@ describe('toProjectIndexRows — reconciliation', () => {
 
   it('never divides by zero when the range has no tracked time', () => {
     expect(toProjectIndexRows([P('p1', 'Alpha')], []).rows[0]!.sharePct).toBe(0);
+  });
+
+  it('counts active subprojects (default included) and is 0 when the list omits them', () => {
+    const sp = (id: string, name: string, archived = false, isDefault = false) => ({
+      id,
+      projectId: 'p1',
+      name,
+      archived,
+      isDefault,
+    });
+    const withSubs: Project = {
+      ...P('p1', 'Alpha'),
+      subprojects: [sp('a', 'General', false, true), sp('b', 'Old', true), sp('c', 'Checkout')],
+    };
+    expect(toProjectIndexRows([withSubs], []).rows[0]?.subprojectCount).toBe(2);
+    expect(toProjectIndexRows([P('p2', 'Beta')], []).rows[0]?.subprojectCount).toBe(0);
   });
 });

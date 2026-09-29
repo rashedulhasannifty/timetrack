@@ -1,4 +1,5 @@
 import { dayStartInstant, isValidDay } from '@timetrack/contracts';
+import type { Project } from '@timetrack/contracts';
 
 /**
  * Turning "24 Aug, 09:00 to 17:30" into the pair of instants the API wants.
@@ -88,4 +89,83 @@ export function optionalText(raw: FormDataEntryValue | null): string | undefined
 /** A `<select>` whose empty option means "no project". */
 export function optionalId(raw: FormDataEntryValue | null): string | null {
   return typeof raw === 'string' && raw.length > 0 ? raw : null;
+}
+
+/**
+ * An entry's assignment, carried by ONE grouped <select> as `projectId|subprojectId|taskId` so
+ * the form needs no client-side cascade. '' means "No project".
+ */
+export type Assignment = {
+  projectId: string | null;
+  subprojectId: string | null;
+  taskId: string | null;
+};
+export type AssignmentGroup = { label: string; options: { value: string; label: string }[] };
+
+const NONE: Assignment = { projectId: null, subprojectId: null, taskId: null };
+const ID = /^[0-9a-f-]{36}$/i;
+
+export function encodeAssignment(a: Assignment): string {
+  if (a.projectId === null) return '';
+  return `${a.projectId}|${a.subprojectId ?? ''}|${a.taskId ?? ''}`;
+}
+
+/** null = malformed (a tampered or stale form); the caller refuses rather than guessing. */
+export function parseAssignment(raw: FormDataEntryValue | null): Assignment | null {
+  if (raw === null || raw === '') return NONE;
+  if (typeof raw !== 'string') return null;
+  const parts = raw.split('|');
+  if (parts.length !== 3) return null;
+  const [projectId, subprojectId, taskId] = parts as [string, string, string];
+  if (!ID.test(projectId)) return null;
+  if (subprojectId !== '' && !ID.test(subprojectId)) return null;
+  if (taskId !== '' && !ID.test(taskId)) return null;
+  return { projectId, subprojectId: subprojectId || null, taskId: taskId || null };
+}
+
+/**
+ * The select's options: per project, each subproject (default first, as the API orders them)
+ * followed by its tasks as `Subproject › Task`. Archived projects/subprojects are not offered —
+ * EXCEPT the entry's current assignment, which is always present so that saving an unrelated
+ * change (a time, a note) can never silently move the entry.
+ */
+export function assignmentGroups(
+  projects: Project[],
+  current: Assignment | null,
+): AssignmentGroup[] {
+  const currentValue = current && current.projectId !== null ? encodeAssignment(current) : null;
+  let currentOffered = false;
+
+  const groups: AssignmentGroup[] = [];
+  for (const p of projects) {
+    const isCurrentProject = current?.projectId === p.id;
+    if (p.archived && !isCurrentProject) continue;
+    const options: AssignmentGroup['options'] = [];
+    for (const s of p.subprojects ?? []) {
+      if (s.archived && current?.subprojectId !== s.id) continue;
+      options.push({
+        value: encodeAssignment({ projectId: p.id, subprojectId: s.id, taskId: null }),
+        label: s.name,
+      });
+      for (const t of (p.tasks ?? []).filter((t) => t.subprojectId === s.id)) {
+        options.push({
+          value: encodeAssignment({ projectId: p.id, subprojectId: s.id, taskId: t.id }),
+          label: `${s.name} › ${t.name}`,
+        });
+      }
+    }
+    if (currentValue && options.some((o) => o.value === currentValue)) currentOffered = true;
+    if (isCurrentProject && currentValue && !currentOffered) {
+      options.push({ value: currentValue, label: 'Current assignment' });
+      currentOffered = true;
+    }
+    if (options.length > 0) groups.push({ label: p.name, options });
+  }
+  if (currentValue && !currentOffered) {
+    groups.push({
+      label: 'Current',
+      options: [{ value: currentValue, label: 'Current assignment' }],
+    });
+  }
+  return groups;
 }

@@ -18,6 +18,7 @@ const base: CsvEntryRow = {
   durationSeconds: 5400,
   source: 'MANUAL',
   note: 'hello',
+  subproject: 'General',
 };
 
 describe('csv-writer header', () => {
@@ -32,9 +33,10 @@ describe('csv-writer header', () => {
       'durationSeconds',
       'source',
       'note',
+      'subproject',
     ]);
     expect(csvHeaderLine()).toBe(
-      'entryId,user,project,task,startTime,endTime,durationSeconds,source,note\r\n',
+      'entryId,user,project,task,startTime,endTime,durationSeconds,source,note,subproject\r\n',
     );
   });
 });
@@ -43,15 +45,34 @@ describe('csv-writer row', () => {
   it('formats a plain row with ISO times and CRLF', () => {
     expect(formatCsvRow(base)).toBe(
       '019797a0-0000-7000-8000-000000000101,Ada,Acme,Build,' +
-        '2026-07-12T09:00:00.000Z,2026-07-12T10:30:00.000Z,5400,MANUAL,hello\r\n',
+        '2026-07-12T09:00:00.000Z,2026-07-12T10:30:00.000Z,5400,MANUAL,hello,General\r\n',
     );
   });
 
   it('renders null project/task/note and a running entry (empty endTime) as empty fields', () => {
-    const row: CsvEntryRow = { ...base, project: null, task: null, note: null, endTime: null };
+    const row: CsvEntryRow = {
+      ...base,
+      project: null,
+      task: null,
+      note: null,
+      subproject: null,
+      endTime: null,
+    };
     expect(formatCsvRow(row)).toBe(
-      '019797a0-0000-7000-8000-000000000101,Ada,,,' + '2026-07-12T09:00:00.000Z,,5400,MANUAL,\r\n',
+      '019797a0-0000-7000-8000-000000000101,Ada,,,' + '2026-07-12T09:00:00.000Z,,5400,MANUAL,,\r\n',
     );
+  });
+});
+
+describe('subproject column', () => {
+  it('appends subproject as the LAST column so positional parsers keep working', () => {
+    expect(CSV_COLUMNS.indexOf('task')).toBe(3);
+    expect(CSV_COLUMNS.at(-1)).toBe('subproject');
+  });
+
+  it('neutralizes a formula-leading subproject name', () => {
+    const line = formatCsvRow({ ...base, subproject: '=HYPERLINK("x")' });
+    expect(line.trimEnd().endsWith(`"'=HYPERLINK(""x"")"`)).toBe(true);
   });
 });
 
@@ -85,6 +106,6 @@ describe('neutralizeField (CSV injection)', () => {
   it('neutralizes THEN escapes: a leading = plus a comma is both prefixed and quoted', () => {
     // formatCsvRow applies neutralize before escape on text columns.
     const row: CsvEntryRow = { ...base, note: '=1,2' };
-    expect(formatCsvRow(row)).toContain(',"\'=1,2"\r\n');
+    expect(formatCsvRow(row)).toContain(',"\'=1,2",General\r\n');
   });
 });

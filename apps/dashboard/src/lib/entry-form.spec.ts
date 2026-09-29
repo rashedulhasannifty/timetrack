@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { parseEntryTimes, optionalText, optionalId, textField } from './entry-form';
+import {
+  parseEntryTimes,
+  optionalText,
+  optionalId,
+  textField,
+  assignmentGroups,
+  encodeAssignment,
+  parseAssignment,
+} from './entry-form';
+import type { Project } from '@timetrack/contracts';
 
 describe('parseEntryTimes', () => {
   it('builds both instants from the APP_TIMEZONE day, not the runner clock', () => {
@@ -67,5 +76,93 @@ describe('optional field readers', () => {
     expect(optionalId('')).toBeNull();
     expect(optionalId(null)).toBeNull();
     expect(optionalId('p1')).toBe('p1');
+  });
+});
+
+const P = '018f9c1e-0000-7000-8000-000000000001';
+const G = '018f9c1e-0000-7000-8000-000000000002';
+const C = '018f9c1e-0000-7000-8000-000000000003';
+const T = '018f9c1e-0000-7000-8000-000000000004';
+
+const project = (over: Record<string, unknown> = {}) =>
+  ({
+    id: P,
+    teamId: P,
+    name: 'Website',
+    color: null,
+    archived: false,
+    subprojects: [
+      { id: G, projectId: P, name: 'General', archived: false, isDefault: true },
+      { id: C, projectId: P, name: 'Checkout', archived: false, isDefault: false },
+    ],
+    tasks: [{ id: T, projectId: P, subprojectId: C, name: 'Pay form', archived: false }],
+    ...over,
+  }) as unknown as Project;
+
+describe('assignment encoding', () => {
+  it('round-trips a full and a partial assignment', () => {
+    for (const a of [
+      { projectId: P, subprojectId: C, taskId: T },
+      { projectId: P, subprojectId: G, taskId: null },
+      { projectId: null, subprojectId: null, taskId: null },
+    ]) {
+      expect(parseAssignment(encodeAssignment(a))).toEqual(a);
+    }
+  });
+
+  it('rejects malformed values', () => {
+    expect(parseAssignment('nope')).toBeNull();
+    expect(parseAssignment(`${P}|x|`)).toBeNull();
+    expect(parseAssignment(null)).toEqual({ projectId: null, subprojectId: null, taskId: null });
+  });
+});
+
+describe('assignmentGroups', () => {
+  it('one group per project; a subproject option then its tasks, default first', () => {
+    expect(assignmentGroups([project()], null)).toEqual([
+      {
+        label: 'Website',
+        options: [
+          { value: `${P}|${G}|`, label: 'General' },
+          { value: `${P}|${C}|`, label: 'Checkout' },
+          { value: `${P}|${C}|${T}`, label: 'Checkout › Pay form' },
+        ],
+      },
+    ]);
+  });
+
+  it('omits archived projects and subprojects…', () => {
+    const p = project({
+      subprojects: [
+        { id: G, projectId: P, name: 'General', archived: false, isDefault: true },
+        { id: C, projectId: P, name: 'Checkout', archived: true, isDefault: false },
+      ],
+    });
+    expect(assignmentGroups([p], null)[0]?.options.map((o) => o.label)).toEqual(['General']);
+    expect(assignmentGroups([project({ archived: true })], null)).toEqual([]);
+  });
+
+  it('…but keeps the CURRENT assignment so saving an edit never silently reassigns it', () => {
+    const p = project({
+      subprojects: [
+        { id: G, projectId: P, name: 'General', archived: false, isDefault: true },
+        { id: C, projectId: P, name: 'Checkout', archived: true, isDefault: false },
+      ],
+      tasks: [],
+    });
+    const current = { projectId: P, subprojectId: C, taskId: T };
+    const values = assignmentGroups([p], current).flatMap((g) => g.options.map((o) => o.value));
+    expect(values).toContain(encodeAssignment(current));
+  });
+
+  it('keeps a current assignment whose project is not in the list', () => {
+    const current = { projectId: T, subprojectId: null, taskId: null };
+    const groups = assignmentGroups([], current);
+    expect(groups).toEqual([
+      {
+        label: 'Current',
+        options: [{ value: encodeAssignment(current), label: 'Current assignment' }],
+      },
+    ]);
   });
 });

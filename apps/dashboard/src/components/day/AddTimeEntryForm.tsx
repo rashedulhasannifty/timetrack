@@ -71,7 +71,7 @@ export function AddTimeEntryForm({
           {userId ? <input type="hidden" name="userId" value={userId} /> : null}
           <EntryFormFields
             projects={projects}
-            defaults={{ day, start: '09:00', end: '17:00', projectId: null, note: '' }}
+            defaults={{ day, start: '09:00', end: '17:00', assignment: null, note: '' }}
           />
           <div className="flex items-center gap-2">
             <Button type="submit" variant="primary" size="sm" disabled={pending}>

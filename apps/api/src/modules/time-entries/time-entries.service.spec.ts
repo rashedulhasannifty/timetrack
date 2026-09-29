@@ -4,7 +4,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { TimeEntriesService } from './time-entries.service.js';
+import { TimeEntriesService, pickSubproject } from './time-entries.service.js';
 import type { TimeEntriesRepository } from './time-entries.repository.js';
 import type { ResourceAccessService } from '../../common/authz/resource-access.service.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
@@ -18,6 +18,7 @@ const existing: TimeEntry = {
   userId: 'u1',
   projectId: null,
   taskId: null,
+  subprojectId: null,
   startTime: '2026-07-11T09:00:00Z',
   endTime: '2026-07-11T10:00:00Z',
   source: 'MANUAL',
@@ -38,6 +39,9 @@ function repoStub(overrides: Partial<TimeEntriesRepository> = {}) {
       .fn()
       .mockImplementation((dto: { id: string }) => Promise.resolve({ ...existing, id: dto.id })),
     remove: vi.fn().mockResolvedValue(undefined),
+    subprojectCandidates: vi
+      .fn()
+      .mockResolvedValue({ defaultId: 'sDef', taskSubprojectId: null, requestedBelongs: false }),
     ...overrides,
   } as unknown as TimeEntriesRepository;
 }
@@ -76,7 +80,7 @@ describe('TimeEntriesService', () => {
       source: 'MANUAL' as const,
     };
     await svc.upsert(dto, employee);
-    expect(repo.upsert).toHaveBeenCalledWith(dto, 'u1');
+    expect(repo.upsert).toHaveBeenCalledWith(dto, 'u1', null);
   });
 
   it('edit authorizes against the FETCHED entry owner, then updates with a changed-only diff', async () => {
@@ -182,7 +186,7 @@ describe('TimeEntriesService', () => {
       const svc = new TimeEntriesService(repo, access);
       await svc.createManual(manual(), employee);
       expect(access.assertCanAccessUser).not.toHaveBeenCalled();
-      expect(repo.createManual).toHaveBeenCalledWith(expect.anything(), 'u1', 'u1');
+      expect(repo.createManual).toHaveBeenCalledWith(expect.anything(), 'u1', 'u1', null);
     });
 
     it('authorizes against the TARGET user when filing for somebody else', async () => {
@@ -192,7 +196,7 @@ describe('TimeEntriesService', () => {
       await svc.createManual(manual({ userId: 'u2' }), employee);
       expect(access.assertCanAccessUser).toHaveBeenCalledWith(employee, 'u2');
       // The row belongs to u2; the AUDIT actor is still the person who filed it.
-      expect(repo.createManual).toHaveBeenCalledWith(expect.anything(), 'u2', 'u1');
+      expect(repo.createManual).toHaveBeenCalledWith(expect.anything(), 'u2', 'u1', null);
     });
 
     it('refuses a span that overlaps an existing entry', async () => {
@@ -255,5 +259,214 @@ describe('TimeEntriesService', () => {
     const svc = new TimeEntriesService(repo, accessStub());
     expect(await svc.findActive('u1')).toEqual(existing);
     expect(repo.findActiveByUser).toHaveBeenCalledWith('u1');
+  });
+});
+
+describe('pickSubproject', () => {
+  const C = { defaultId: 'sDef', taskSubprojectId: 'sTask', requestedBelongs: true };
+
+  it('no project → null, whatever else is sent', () => {
+    expect(
+      pickSubproject({ projectId: null, taskId: 't', subprojectId: 'sX' }, C, 'strict'),
+    ).toBeNull();
+  });
+  it('project that does not exist (no candidates) → null', () => {
+    expect(pickSubproject({ projectId: 'p', taskId: null }, null, 'lenient')).toBeNull();
+    expect(
+      pickSubproject(
+        { projectId: 'p', taskId: null },
+        { defaultId: null, taskSubprojectId: null, requestedBelongs: false },
+        'lenient',
+      ),
+    ).toBeNull();
+  });
+  it('explicit subproject of the project wins', () => {
+    expect(pickSubproject({ projectId: 'p', taskId: 't', subprojectId: 'sX' }, C, 'strict')).toBe(
+      'sX',
+    );
+  });
+  it('explicit subproject NOT of the project: strict → 422', () => {
+    expect(() =>
+      pickSubproject(
+        { projectId: 'p', taskId: null, subprojectId: 'sX' },
+        { ...C, requestedBelongs: false },
+        'strict',
+      ),
+    ).toThrow(UnprocessableEntityException);
+  });
+  it('explicit subproject NOT of the project: lenient (sync) → falls back, never throws', () => {
+    expect(
+      pickSubproject(
+        { projectId: 'p', taskId: 't', subprojectId: 'sX' },
+        { ...C, requestedBelongs: false },
+        'lenient',
+      ),
+    ).toBe('sTask');
+    expect(
+      pickSubproject(
+        { projectId: 'p', taskId: null, subprojectId: 'sX' },
+        { ...C, taskSubprojectId: null, requestedBelongs: false },
+        'lenient',
+      ),
+    ).toBe('sDef');
+  });
+  it("no explicit subproject → task's subproject, else the default", () => {
+    expect(pickSubproject({ projectId: 'p', taskId: 't' }, C, 'lenient')).toBe('sTask');
+    expect(
+      pickSubproject({ projectId: 'p', taskId: null }, { ...C, taskSubprojectId: null }, 'lenient'),
+    ).toBe('sDef');
+  });
+});
+
+describe('TimeEntriesService subproject resolution', () => {
+  const syncDto = {
+    id: 'e9',
+    projectId: 'p1',
+    taskId: null,
+    startTime: '2026-07-11T09:00:00Z',
+    endTime: null,
+    source: 'AUTO' as const,
+  };
+
+  it('upsert (legacy client shape) stores the default subproject', async () => {
+    const repo = repoStub();
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.upsert(syncDto, employee);
+    expect(repo.subprojectCandidates).toHaveBeenCalledWith('p1', null, null);
+    expect(repo.upsert).toHaveBeenCalledWith(syncDto, 'u1', 'sDef');
+  });
+
+  it('upsert with no project skips the lookup entirely (heartbeat hot path)', async () => {
+    const repo = repoStub();
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.upsert({ ...syncDto, projectId: null }, employee);
+    expect(repo.subprojectCandidates).not.toHaveBeenCalled();
+    expect(repo.upsert).toHaveBeenCalledWith({ ...syncDto, projectId: null }, 'u1', null);
+  });
+
+  it('upsert never 422s a mismatched subprojectId', async () => {
+    const repo = repoStub();
+    const svc = new TimeEntriesService(repo, accessStub());
+    await expect(svc.upsert({ ...syncDto, subprojectId: 'sX' }, employee)).resolves.toBeDefined();
+    expect(repo.upsert).toHaveBeenCalledWith({ ...syncDto, subprojectId: 'sX' }, 'u1', 'sDef');
+  });
+
+  it('createManual 422s a mismatched subprojectId', async () => {
+    const repo = repoStub();
+    const svc = new TimeEntriesService(repo, accessStub());
+    await expect(
+      svc.createManual(
+        {
+          id: 'e9',
+          projectId: 'p1',
+          taskId: null,
+          subprojectId: 'sX',
+          startTime: '2026-07-11T09:00:00Z',
+          endTime: '2026-07-11T10:00:00Z',
+        },
+        employee,
+      ),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(repo.createManual).not.toHaveBeenCalled();
+  });
+
+  it('edit re-resolves when the project changes and records the subproject in the diff', async () => {
+    const repo = repoStub({
+      findForEdit: vi
+        .fn()
+        .mockResolvedValue({ ...existing, projectId: 'pOld', subprojectId: 'sOld' }),
+    });
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.edit('e1', { projectId: 'p1' }, employee);
+    expect(repo.update).toHaveBeenCalledWith(
+      'e1',
+      { projectId: 'p1', subprojectId: 'sDef' },
+      { projectId: 'pOld', subprojectId: 'sOld' },
+      'u1',
+    );
+  });
+
+  it('edit touching only note does not look up subprojects', async () => {
+    const repo = repoStub();
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.edit('e1', { note: 'x' }, employee);
+    expect(repo.subprojectCandidates).not.toHaveBeenCalled();
+  });
+
+  it('edit that re-sends an unchanged assignment keeps the subproject and skips the lookup', async () => {
+    const repo = repoStub({
+      findForEdit: vi
+        .fn()
+        .mockResolvedValue({ ...existing, projectId: 'p1', taskId: null, subprojectId: 'sOther' }),
+    });
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.edit(
+      'e1',
+      { projectId: 'p1', taskId: null, startTime: '2026-07-11T08:00:00Z' },
+      employee,
+    );
+    expect(repo.subprojectCandidates).not.toHaveBeenCalled();
+    expect(repo.update).toHaveBeenCalledWith(
+      'e1',
+      { startTime: '2026-07-11T08:00:00Z' },
+      { startTime: '2026-07-11T09:00:00Z' },
+      'u1',
+    );
+  });
+
+  it('edit with only a subprojectId of another project is a 422', async () => {
+    const repo = repoStub();
+    const svc = new TimeEntriesService(repo, accessStub());
+    await expect(svc.edit('e1', { subprojectId: 'sX' }, employee)).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+  });
+
+  it('edit with only a valid subprojectId writes it', async () => {
+    const repo = repoStub({
+      findForEdit: vi.fn().mockResolvedValue({ ...existing, projectId: 'p1' }),
+      subprojectCandidates: vi
+        .fn()
+        .mockResolvedValue({ defaultId: 'sDef', taskSubprojectId: null, requestedBelongs: true }),
+    });
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.edit('e1', { subprojectId: 'sX' }, employee);
+    expect(repo.update).toHaveBeenCalledWith(
+      'e1',
+      { subprojectId: 'sX' },
+      { subprojectId: null },
+      'u1',
+    );
+  });
+
+  it('createManual passes the resolved subproject to the repository', async () => {
+    const repo = repoStub();
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.createManual(
+      {
+        id: 'e9',
+        projectId: 'p1',
+        taskId: null,
+        startTime: '2026-07-11T09:00:00Z',
+        endTime: '2026-07-11T10:00:00Z',
+      },
+      employee,
+    );
+    expect(repo.createManual).toHaveBeenCalledWith(expect.anything(), 'u1', 'u1', 'sDef');
+  });
+
+  it('edit sending the SAME assignment is still a no-op 422', async () => {
+    const repo = repoStub({
+      findForEdit: vi
+        .fn()
+        .mockResolvedValue({ ...existing, projectId: 'p1', subprojectId: 'sDef' }),
+      subprojectCandidates: vi
+        .fn()
+        .mockResolvedValue({ defaultId: 'sDef', taskSubprojectId: null, requestedBelongs: true }),
+    });
+    const svc = new TimeEntriesService(repo, accessStub());
+    await expect(
+      svc.edit('e1', { projectId: 'p1', taskId: null, subprojectId: 'sDef' }, employee),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
   });
 });

@@ -12,6 +12,7 @@ const row = (over: Partial<ProjectIndexRow> = {}): ProjectIndexRow => ({
   color: '#007aff',
   tasks: [],
   taskCount: 0,
+  subprojectCount: 1,
   sharePct: 50,
   ...over,
 });

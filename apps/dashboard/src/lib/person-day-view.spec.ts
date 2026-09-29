@@ -11,6 +11,7 @@ const entry = (id: string, sh: number, eh: number | null, note = 'work'): TimeEn
     userId: 'u1',
     projectId: null,
     taskId: null,
+    subprojectId: null,
     startTime: iso(sh),
     endTime: eh === null ? null : iso(eh),
     source: 'MANUAL',
@@ -317,6 +318,7 @@ describe('personDayView — entry labels', () => {
       userId: 'u1',
       projectId: null,
       taskId: null,
+      subprojectId: null,
       startTime: iso(9),
       endTime: iso(10),
       source: 'AUTO',
@@ -352,6 +354,37 @@ describe('personDayView — entry labels', () => {
   it('falls back to "Untitled entry" when the project is unresolvable', () => {
     expect(label({ projectId: 'gone' })).toBe('Untitled entry');
     expect(label({})).toBe('Untitled entry');
+  });
+
+  it('names a non-default subproject between project and task; a default one is noise', () => {
+    const withSubs = [
+      {
+        ...projects[0]!,
+        subprojects: [
+          { id: 'sg', projectId: 'p1', name: 'General', archived: false, isDefault: true },
+          { id: 'sc', projectId: 'p1', name: 'Checkout', archived: false, isDefault: false },
+        ],
+      },
+    ] as Project[];
+    const lbl = (over: Partial<TimeEntry>) =>
+      personDayView({
+        ...base,
+        now: new Date(iso(20)),
+        entries: [tagged(over)],
+        projects: withSubs,
+      }).entries[0]!;
+    expect(lbl({ projectId: 'p1', subprojectId: 'sc', taskId: 'k1' }).label).toBe(
+      'Energy Reporting · Checkout · Fix Lighting Forms',
+    );
+    expect(lbl({ projectId: 'p1', subprojectId: 'sg' }).label).toBe('Energy Reporting');
+    expect(lbl({ projectId: 'p1', subprojectId: 'sc' })).toMatchObject({
+      subprojectId: 'sc',
+      subprojectName: 'Checkout',
+    });
+    expect(lbl({ projectId: 'p1', subprojectId: 'sg' })).toMatchObject({
+      subprojectId: 'sg',
+      subprojectName: null,
+    });
   });
 
   it('propagates the resolved name to the ribbon block label too', () => {

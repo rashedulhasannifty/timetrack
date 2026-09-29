@@ -26,6 +26,15 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     return db.prisma.team.create({ data: { name, settings: {} }, select: { id: true } });
   }
 
+  /** The project's default ("General") subproject — createProject makes exactly one. */
+  async function generalOf(projectId: string): Promise<string> {
+    const s = await db.prisma.subproject.findFirstOrThrow({
+      where: { projectId, isDefault: true },
+      select: { id: true },
+    });
+    return s.id;
+  }
+
   it('createProject inserts the project and writes an audit row', async () => {
     const team = await seedTeam();
     const project = await repo().createProject(team.id, 'Website', 'actor1');
@@ -40,7 +49,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
   it('createTask inserts the task and writes an audit row', async () => {
     const team = await seedTeam();
     const project = await repo().createProject(team.id, 'Website', 'actor1');
-    const task = await repo().createTask(project.id, 'Homepage', 'actor1');
+    const task = await repo().createTask(await generalOf(project.id), 'Homepage', 'actor1');
 
     expect(task).toMatchObject({ projectId: project.id, name: 'Homepage' });
     const audit = await db.prisma.auditLog.findFirst({
@@ -52,7 +61,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
   it('setTaskArchived toggles archived and audits archive vs unarchive', async () => {
     const team = await seedTeam();
     const project = await repo().createProject(team.id, 'Website', 'actor1');
-    const task = await repo().createTask(project.id, 'Homepage', 'actor1');
+    const task = await repo().createTask(await generalOf(project.id), 'Homepage', 'actor1');
 
     const archived = await repo().setTaskArchived(task.id, true, 'actor1');
     expect(archived.archived).toBe(true);
@@ -70,8 +79,8 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
   it('listByTeam nested tasks exclude archived; listTasksForProject includes them', async () => {
     const team = await seedTeam();
     const project = await repo().createProject(team.id, 'Website', 'actor1');
-    const active = await repo().createTask(project.id, 'Active', 'actor1');
-    const gone = await repo().createTask(project.id, 'Old', 'actor1');
+    const active = await repo().createTask(await generalOf(project.id), 'Active', 'actor1');
+    const gone = await repo().createTask(await generalOf(project.id), 'Old', 'actor1');
     await repo().setTaskArchived(gone.id, true, 'actor1');
 
     const listed = await repo().listByTeam(team.id, true);
@@ -84,12 +93,16 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     expect(all[0]?.id).toBe(active.id);
   });
 
-  it('findTaskForActor returns {projectId, teamId}, or null when missing', async () => {
+  it('findTaskForActor returns the task with its teamId, or null when missing', async () => {
     const team = await seedTeam();
     const project = await repo().createProject(team.id, 'Website', 'actor1');
-    const task = await repo().createTask(project.id, 'Homepage', 'actor1');
+    const task = await repo().createTask(await generalOf(project.id), 'Homepage', 'actor1');
     expect(await repo().findTaskForActor(task.id)).toEqual({
+      id: task.id,
       projectId: project.id,
+      subprojectId: await generalOf(project.id),
+      name: 'Homepage',
+      archived: false,
       teamId: team.id,
     });
     expect(await repo().findTaskForActor('019797a0-0000-7000-8000-0000000000ff')).toBeNull();
@@ -288,13 +301,41 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     const team = await seedTeam();
     const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
     const project = await repo().createProject(team.id, 'Website', 'actor1');
-    const task = await repo().createTask(project.id, 'Homepage', 'actor1');
+    const task = await repo().createTask(await generalOf(project.id), 'Homepage', 'actor1');
     await seedEntry(jane.id, project.id, task.id, '2026-07-14T09:00:00Z', '2026-07-14T11:00:00Z'); // 2h Homepage
     await seedEntry(jane.id, project.id, null, '2026-07-14T13:00:00Z', '2026-07-14T13:30:00Z'); // 30m No task
     const rows = await repo().tasksForProject(project.id, FROM, TO, FRESHNESS);
+    const general = await generalOf(project.id);
     expect(rows).toEqual([
-      { taskId: task.id, name: 'Homepage', trackedSeconds: 7200 },
-      { taskId: null, name: 'No task', trackedSeconds: 1800 },
+      { taskId: task.id, subprojectId: general, name: 'Homepage', trackedSeconds: 7200 },
+      { taskId: null, subprojectId: null, name: 'No task', trackedSeconds: 1800 },
+    ]);
+  });
+
+  it('subprojectsForProject buckets by subproject and rolls null into "No subproject"', async () => {
+    const team = await seedTeam();
+    const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
+    const project = await repo().createProject(team.id, 'Website', 'actor1');
+    const general = await generalOf(project.id);
+    const closed = (start: string, end: string, subprojectId: string | null) =>
+      db.prisma.timeEntry.create({
+        data: {
+          id: crypto.randomUUID(),
+          userId: jane.id,
+          projectId: project.id,
+          taskId: null,
+          subprojectId,
+          source: 'MANUAL',
+          startTime: new Date(start),
+          endTime: new Date(end),
+        },
+      });
+    await closed('2026-07-14T09:00:00Z', '2026-07-14T10:00:00Z', general); // 1h General
+    await closed('2026-07-14T13:00:00Z', '2026-07-14T13:30:00Z', null); // 30m, unresolved
+    const rows = await repo().subprojectsForProject(project.id, FROM, TO, FRESHNESS);
+    expect(rows).toEqual([
+      { subprojectId: general, name: 'General', trackedSeconds: 3600 },
+      { subprojectId: null, name: 'No subproject', trackedSeconds: 1800 },
     ]);
   });
 
@@ -302,8 +343,8 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     const team = await seedTeam();
     const jane = await seedUser(team.id, 'Jane', 'jane@e.com');
     const project = await repo().createProject(team.id, 'Website', 'actor1');
-    const task = await repo().createTask(project.id, 'Homepage', 'actor1');
-    const ghostTask = await repo().createTask(project.id, 'Ghost task', 'actor1');
+    const task = await repo().createTask(await generalOf(project.id), 'Homepage', 'actor1');
+    const ghostTask = await repo().createTask(await generalOf(project.id), 'Ghost task', 'actor1');
     await seedEntry(jane.id, project.id, task.id, '2026-07-14T09:00:00Z', '2026-07-14T11:00:00Z'); // 2h
     // "Ghost task"'s ONLY entry is a discarded recovery span (spec §4.4, Task 7's Discard path).
     await seedEntry(
@@ -315,14 +356,21 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     );
     const rows = await repo().tasksForProject(project.id, FROM, TO, FRESHNESS);
     // Without the fix, "Ghost task" would appear as a phantom { trackedSeconds: 0 } row.
-    expect(rows).toEqual([{ taskId: task.id, name: 'Homepage', trackedSeconds: 7200 }]);
+    expect(rows).toEqual([
+      {
+        taskId: task.id,
+        subprojectId: await generalOf(project.id),
+        name: 'Homepage',
+        trackedSeconds: 7200,
+      },
+    ]);
   });
 
   it('tasksForProject still includes a genuinely open entry (the critical property)', async () => {
     const team = await seedTeam();
     const cy = await seedUser(team.id, 'Cy', 'cy@e.com');
     const project = await repo().createProject(team.id, 'Website', 'actor1');
-    const task = await repo().createTask(project.id, 'Homepage', 'actor1');
+    const task = await repo().createTask(await generalOf(project.id), 'Homepage', 'actor1');
     const from = new Date(Date.now() - 60 * 60 * 1000);
     const to = new Date(Date.now() + 60 * 60 * 1000);
     await db.prisma.timeEntry.create({
@@ -441,7 +489,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       { userId: jane.id, name: 'Jane', trackedSeconds: bounded },
     ]);
     expect(await repo().tasksForProject(project.id, FROM, TO, FRESHNESS)).toEqual([
-      { taskId: null, name: 'No task', trackedSeconds: bounded },
+      { taskId: null, subprojectId: null, name: 'No task', trackedSeconds: bounded },
     ]);
     expect(await repo().hoursByDay(project.id, FROM, TO, FRESHNESS)).toEqual([
       { day: '2026-07-14', trackedSeconds: bounded },
@@ -577,7 +625,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       const eng = await seedTeam('Engineering');
       const support = await seedTeam('Support');
       const project = await repo().createProject(eng.id, 'Apollo', 'admin-1');
-      await repo().createTask(project.id, 'Design', 'admin-1');
+      await repo().createTask(await generalOf(project.id), 'Design', 'admin-1');
 
       await repo().setTeam(project.id, support.id, 'admin-1');
 
@@ -595,6 +643,129 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       expect(moved.name).toBe('Apollo');
       expect(moved.color).toBe('#ff0000');
       expect(moved.archived).toBe(true);
+    });
+  });
+
+  describe('subprojects', () => {
+    it('createProject also creates exactly one default "General" subproject', async () => {
+      const team = await seedTeam();
+      const project = await repo().createProject(team.id, 'Website', 'actor1');
+      const subs = await repo().listSubprojectsForProject(project.id);
+      expect(subs).toEqual([
+        expect.objectContaining({
+          projectId: project.id,
+          name: 'General',
+          isDefault: true,
+          archived: false,
+        }),
+      ]);
+    });
+
+    it('the partial index refuses a second default for one project', async () => {
+      const team = await seedTeam();
+      const project = await repo().createProject(team.id, 'Website', 'actor1');
+      await expect(
+        db.prisma.subproject.create({
+          data: { projectId: project.id, name: 'Dup', isDefault: true },
+        }),
+      ).rejects.toMatchObject({ code: 'P2002' });
+    });
+
+    it('createSubproject inserts and audits', async () => {
+      const team = await seedTeam();
+      const project = await repo().createProject(team.id, 'Website', 'actor1');
+      const sub = await repo().createSubproject(project.id, 'Checkout', 'actor1');
+      expect(sub).toMatchObject({
+        projectId: project.id,
+        name: 'Checkout',
+        isDefault: false,
+        archived: false,
+      });
+      const audit = await db.prisma.auditLog.findFirst({
+        where: { targetType: 'subproject', targetId: sub.id },
+      });
+      expect(audit?.action).toBe('subproject.create');
+    });
+
+    it('updateSubproject renames/archives and audits the patch', async () => {
+      const team = await seedTeam();
+      const project = await repo().createProject(team.id, 'Website', 'actor1');
+      const sub = await repo().createSubproject(project.id, 'Checkout', 'actor1');
+      const updated = await repo().updateSubproject(
+        sub.id,
+        { name: 'Payments', archived: true },
+        'actor1',
+      );
+      expect(updated).toMatchObject({ name: 'Payments', archived: true });
+      const audit = await db.prisma.auditLog.findFirst({
+        where: { targetType: 'subproject', targetId: sub.id, action: 'subproject.update' },
+      });
+      expect(audit?.diff).toEqual({ name: 'Payments', archived: true });
+    });
+
+    it('listSubprojectsForProject orders default first, then active, then by name', async () => {
+      const team = await seedTeam();
+      const project = await repo().createProject(team.id, 'Website', 'actor1');
+      const z = await repo().createSubproject(project.id, 'Zeta', 'actor1');
+      await repo().createSubproject(project.id, 'Alpha', 'actor1');
+      await repo().updateSubproject(z.id, { archived: true }, 'actor1');
+      await repo().createSubproject(project.id, 'Beta', 'actor1');
+      const names = (await repo().listSubprojectsForProject(project.id)).map((s) => s.name);
+      expect(names).toEqual(['General', 'Alpha', 'Beta', 'Zeta']);
+    });
+
+    it('findSubprojectForActor returns the subproject with its team, or null', async () => {
+      const team = await seedTeam();
+      const project = await repo().createProject(team.id, 'Website', 'actor1');
+      const sub = await repo().createSubproject(project.id, 'Checkout', 'actor1');
+      expect(await repo().findSubprojectForActor(sub.id)).toEqual({ ...sub, teamId: team.id });
+      expect(
+        await repo().findSubprojectForActor('019797a0-0000-7000-8000-0000000000ff'),
+      ).toBeNull();
+    });
+
+    it('createTask derives projectId from the subproject', async () => {
+      const team = await seedTeam();
+      const project = await repo().createProject(team.id, 'Website', 'actor1');
+      const sub = await repo().createSubproject(project.id, 'Checkout', 'actor1');
+      const task = await repo().createTask(sub.id, 'Pay form', 'actor1');
+      expect(task).toMatchObject({
+        projectId: project.id,
+        subprojectId: sub.id,
+        name: 'Pay form',
+      });
+    });
+
+    it('moveTask changes the subproject and audits from/to', async () => {
+      const team = await seedTeam();
+      const project = await repo().createProject(team.id, 'Website', 'actor1');
+      const general = await generalOf(project.id);
+      const sub = await repo().createSubproject(project.id, 'Checkout', 'actor1');
+      const task = await repo().createTask(general, 'Pay form', 'actor1');
+      const moved = await repo().moveTask(task.id, sub.id, 'actor1');
+      expect(moved.subprojectId).toBe(sub.id);
+      const audit = await db.prisma.auditLog.findFirst({
+        where: { targetId: task.id, action: 'task.move' },
+      });
+      expect(audit?.diff).toEqual({ from: general, to: sub.id });
+    });
+
+    it('listByTeam returns subprojects and hides tasks of archived subprojects', async () => {
+      const team = await seedTeam();
+      const project = await repo().createProject(team.id, 'Website', 'actor1');
+      const general = await generalOf(project.id);
+      const old = await repo().createSubproject(project.id, 'Old', 'actor1');
+      const kept = await repo().createTask(general, 'Kept', 'actor1');
+      await repo().createTask(old.id, 'Hidden', 'actor1');
+      await repo().updateSubproject(old.id, { archived: true }, 'actor1');
+
+      const [active] = await repo().listByTeam(team.id);
+      expect(active?.tasks?.map((t) => t.id)).toEqual([kept.id]);
+      expect(active?.subprojects?.map((s) => s.name)).toEqual(['General']);
+
+      const [all] = await repo().listByTeam(team.id, true);
+      expect(all?.subprojects?.map((s) => s.name)).toEqual(['General', 'Old']);
+      expect(all?.tasks?.map((t) => t.id)).toEqual([kept.id]); // still hidden: not assignable
     });
   });
 });

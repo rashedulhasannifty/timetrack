@@ -604,6 +604,7 @@ export class ReportsRepository {
       durationSeconds: number | bigint;
       source: string;
       note: string | null;
+      subproject: string | null;
     };
 
     const projectFilter = projectId ? Prisma.sql`AND te."projectId" = ${projectId}` : Prisma.empty;
@@ -619,6 +620,7 @@ export class ReportsRepository {
                u.name AS "user",
                p.name AS "project",
                t.name AS "task",
+               s.name AS "subproject",
                te."startTime" AS "seqStart",
                date_trunc('second', GREATEST(te."startTime", ${from}::timestamptz)) AS "startTime",
                CASE WHEN te."endTime" IS NULL THEN NULL
@@ -635,6 +637,7 @@ export class ReportsRepository {
         JOIN users u ON u.id = te."userId"
         LEFT JOIN projects p ON p.id = te."projectId"
         LEFT JOIN tasks t ON t.id = te."taskId"
+        LEFT JOIN subprojects s ON s.id = te."subprojectId"
         WHERE te."startTime" < ${to}::timestamptz
           AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
           AND (${this.scopeSql(scope, Prisma.sql`te."userId"`)})
@@ -661,6 +664,7 @@ export class ReportsRepository {
           durationSeconds: Number(r.durationSeconds),
           source: r.source,
           note: r.note,
+          subproject: r.subproject,
         };
       }
 

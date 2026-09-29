@@ -161,7 +161,7 @@ describe('time-entry round-trip', () => {
   });
 
   it('round-trips the full entity through its own schema', () => {
-    const full = { ...entry, userId: UUID, editedById: null, editedAt: null };
+    const full = { ...entry, subprojectId: null, userId: UUID, editedById: null, editedAt: null };
     expect(TimeEntrySchema.parse(full)).toEqual(full);
   });
 
@@ -606,5 +606,42 @@ describe('ActivityDailySummarySchema', () => {
 
   it('exposes the shared sample interval as 60 seconds', () => {
     expect(ACTIVITY_SAMPLE_INTERVAL_SECONDS).toBe(60);
+  });
+});
+
+describe('subprojectId on time-entry bodies', () => {
+  const base = {
+    id: '018f9c1e-0000-7000-8000-0000000000e1',
+    projectId: '018f9c1e-0000-7000-8000-000000000001',
+    taskId: null,
+    startTime: '2026-07-11T09:00:00Z',
+    endTime: '2026-07-11T10:00:00Z',
+    source: 'AUTO' as const,
+  };
+
+  it('sync body without subprojectId still parses — the shipped-client shape', () => {
+    expect(CreateTimeEntrySchema.safeParse(base).success).toBe(true);
+  });
+
+  it('sync body accepts subprojectId and null', () => {
+    expect(CreateTimeEntrySchema.safeParse({ ...base, subprojectId: base.projectId }).success).toBe(
+      true,
+    );
+    expect(CreateTimeEntrySchema.safeParse({ ...base, subprojectId: null }).success).toBe(true);
+  });
+
+  it('update and manual bodies accept an optional subprojectId', () => {
+    expect(UpdateTimeEntrySchema.safeParse({ subprojectId: base.projectId }).success).toBe(true);
+    const { source: _s, ...manual } = base;
+    expect(CreateManualTimeEntrySchema.safeParse(manual).success).toBe(true);
+    expect(CreateManualTimeEntrySchema.safeParse({ ...manual, subprojectId: null }).success).toBe(
+      true,
+    );
+  });
+
+  it('TimeEntrySchema requires subprojectId (nullable) on responses', () => {
+    const resp = { ...base, userId: base.projectId, editedById: null, editedAt: null };
+    expect(TimeEntrySchema.safeParse(resp).success).toBe(false);
+    expect(TimeEntrySchema.safeParse({ ...resp, subprojectId: null }).success).toBe(true);
   });
 });

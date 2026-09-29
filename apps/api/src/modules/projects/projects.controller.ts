@@ -1,20 +1,25 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   CreateProjectSchema,
+  CreateSubprojectSchema,
   CreateTaskSchema,
   ListProjectsQuerySchema,
   ProjectDetailQuerySchema,
   UpdateProjectSchema,
+  UpdateSubprojectSchema,
   UpdateTaskSchema,
   type CreateProject,
+  type CreateSubproject,
   type CreateTask,
   type ListProjectsQuery,
   type Project,
   type ProjectDetail,
   type ProjectDetailQuery,
   type ProjectTopApps,
+  type Subproject,
   type Task,
   type UpdateProject,
+  type UpdateSubproject,
   type UpdateTask,
 } from '@timetrack/contracts';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
@@ -63,12 +68,12 @@ export class ProjectsController {
 
   @Patch('tasks/:id')
   @Roles('MANAGER', 'ADMIN')
-  setTaskArchived(
+  updateTask(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(UpdateTaskSchema)) dto: UpdateTask,
     @CurrentUser() actor: SessionUser,
   ): Promise<Task> {
-    return this.service.setTaskArchived(id, dto, actor);
+    return this.service.updateTask(id, dto, actor);
   }
 
   @Get(':id/detail')
@@ -89,6 +94,34 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
   ): Promise<ProjectTopApps> {
     return this.service.topApps(id, query, user);
+  }
+
+  @Post('subprojects')
+  @Roles('MANAGER', 'ADMIN')
+  createSubproject(
+    @Body(new ZodValidationPipe(CreateSubprojectSchema)) dto: CreateSubproject,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<Subproject> {
+    return this.service.createSubproject(dto, actor);
+  }
+
+  @Patch('subprojects/:id')
+  @Roles('MANAGER', 'ADMIN')
+  updateSubproject(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateSubprojectSchema)) dto: UpdateSubproject,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<Subproject> {
+    return this.service.updateSubproject(id, dto, actor);
+  }
+
+  @Get(':id/subprojects')
+  @Roles('MANAGER', 'ADMIN')
+  listSubprojects(
+    @Param('id') id: string,
+    @CurrentUser() user: SessionUser,
+  ): Promise<Subproject[]> {
+    return this.service.listSubprojects(id, user);
   }
 
   @Patch(':id')

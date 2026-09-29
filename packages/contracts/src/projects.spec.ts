@@ -12,6 +12,11 @@ import {
   PROJECT_PALETTE,
   ProjectTopAppsSchema,
   ProjectTopAppRowSchema,
+  SubprojectSchema,
+  CreateSubprojectSchema,
+  UpdateSubprojectSchema,
+  CreateTaskSchema,
+  DEFAULT_SUBPROJECT_NAME,
 } from './projects.js';
 
 describe('ProjectDetailSchema', () => {
@@ -30,23 +35,63 @@ describe('ProjectDetailSchema', () => {
         { userId: '018f9c1e-0000-7000-8000-0000000000a1', name: 'Jane', trackedSeconds: 5400 },
         { userId: '018f9c1e-0000-7000-8000-0000000000a2', name: 'John', trackedSeconds: 3600 },
       ],
-      tasks: [
-        { taskId: '018f9c1e-0000-7000-8000-0000000000b1', name: 'Homepage', trackedSeconds: 5400 },
-        { taskId: null, name: 'No task', trackedSeconds: 3600 },
+      subprojects: [
+        {
+          subprojectId: '018f9c1e-0000-7000-8000-000000000001',
+          name: 'General',
+          trackedSeconds: 9000,
+        },
       ],
+      tasks: [
+        {
+          taskId: '018f9c1e-0000-7000-8000-0000000000b1',
+          subprojectId: '018f9c1e-0000-7000-8000-000000000001',
+          name: 'Homepage',
+          trackedSeconds: 5400,
+        },
+        { taskId: null, subprojectId: null, name: 'No task', trackedSeconds: 3600 },
+      ],
+    };
+    expect(ProjectDetailSchema.parse(value)).toEqual(value);
+  });
+
+  it('accepts a subproject row with a null subprojectId (the "No subproject" bucket)', () => {
+    const value = {
+      from: '2026-07-13T00:00:00.000Z',
+      to: '2026-07-19T23:59:59.999Z',
+      projectId: '018f9c1e-0000-7000-8000-000000000001',
+      teamId: '018f9c1e-0000-7000-8000-0000000000c1',
+      name: 'Website',
+      color: null,
+      archived: false,
+      totalSeconds: 60,
+      trend: [],
+      members: [],
+      subprojects: [{ subprojectId: null, name: 'No subproject', trackedSeconds: 60 }],
+      tasks: [],
     };
     expect(ProjectDetailSchema.parse(value)).toEqual(value);
   });
 
   it('accepts a task row with a null taskId (the "No task" bucket)', () => {
     expect(
-      ProjectTaskRowSchema.parse({ taskId: null, name: 'No task', trackedSeconds: 60 }),
-    ).toEqual({ taskId: null, name: 'No task', trackedSeconds: 60 });
+      ProjectTaskRowSchema.parse({
+        taskId: null,
+        subprojectId: null,
+        name: 'No task',
+        trackedSeconds: 60,
+      }),
+    ).toEqual({ taskId: null, subprojectId: null, name: 'No task', trackedSeconds: 60 });
   });
 
   it('rejects a negative trackedSeconds', () => {
     expect(() =>
-      ProjectTaskRowSchema.parse({ taskId: null, name: 'x', trackedSeconds: -1 }),
+      ProjectTaskRowSchema.parse({
+        taskId: null,
+        subprojectId: null,
+        name: 'x',
+        trackedSeconds: -1,
+      }),
     ).toThrow();
   });
 
@@ -106,6 +151,7 @@ describe('Task archived + UpdateTaskSchema', () => {
     const base = {
       id: '018f9c1e-0000-7000-8000-000000000001',
       projectId: '018f9c1e-0000-7000-8000-000000000002',
+      subprojectId: '018f9c1e-0000-7000-8000-000000000003',
       name: 'Homepage',
     };
     expect(() => TaskSchema.parse(base)).toThrow(); // missing archived
@@ -168,5 +214,58 @@ describe('ProjectTopAppsSchema', () => {
     expect(() =>
       ProjectTopAppRowSchema.parse({ appName: 'Chrome', trackedSeconds: -100 }),
     ).toThrow();
+  });
+});
+
+const U1 = '018f9c1e-0000-7000-8000-000000000001';
+const U2 = '018f9c1e-0000-7000-8000-000000000002';
+
+describe('subproject schemas', () => {
+  it('names the default subproject General', () => {
+    expect(DEFAULT_SUBPROJECT_NAME).toBe('General');
+  });
+
+  it('SubprojectSchema parses a subproject', () => {
+    const v = { id: U1, projectId: U2, name: 'Homepage', archived: false, isDefault: false };
+    expect(SubprojectSchema.parse(v)).toEqual(v);
+  });
+
+  it('CreateSubprojectSchema requires a 1..200 char name', () => {
+    expect(CreateSubprojectSchema.safeParse({ projectId: U1, name: '' }).success).toBe(false);
+    expect(CreateSubprojectSchema.safeParse({ projectId: U1, name: 'x'.repeat(201) }).success).toBe(
+      false,
+    );
+    expect(CreateSubprojectSchema.safeParse({ projectId: U1, name: 'Homepage' }).success).toBe(
+      true,
+    );
+  });
+
+  it('UpdateSubprojectSchema needs at least one field', () => {
+    expect(UpdateSubprojectSchema.safeParse({}).success).toBe(false);
+    expect(UpdateSubprojectSchema.safeParse({ archived: true }).success).toBe(true);
+    expect(UpdateSubprojectSchema.safeParse({ name: 'Checkout' }).success).toBe(true);
+  });
+
+  it('UpdateSubprojectSchema injects no defaults', () => {
+    expect(UpdateSubprojectSchema.parse({ name: 'A' })).toEqual({ name: 'A' });
+  });
+});
+
+describe('task schemas with subprojects', () => {
+  it('CreateTaskSchema takes a subprojectId, not a projectId', () => {
+    expect(CreateTaskSchema.safeParse({ subprojectId: U1, name: 'T' }).success).toBe(true);
+    expect(CreateTaskSchema.safeParse({ projectId: U1, name: 'T' }).success).toBe(false);
+  });
+
+  it('UpdateTaskSchema accepts archived, a move, or both — but not nothing', () => {
+    expect(UpdateTaskSchema.safeParse({}).success).toBe(false);
+    expect(UpdateTaskSchema.safeParse({ archived: true }).success).toBe(true);
+    expect(UpdateTaskSchema.safeParse({ subprojectId: U1 }).success).toBe(true);
+    expect(UpdateTaskSchema.safeParse({ archived: false, subprojectId: U1 }).success).toBe(true);
+  });
+
+  it('TaskSchema carries subprojectId', () => {
+    const t = { id: U1, projectId: U2, subprojectId: U2, name: 'T', archived: false };
+    expect(TaskSchema.parse(t)).toEqual(t);
   });
 });

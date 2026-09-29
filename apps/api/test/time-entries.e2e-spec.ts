@@ -52,6 +52,26 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     return new TimeEntriesRepository(db.prisma as unknown as PrismaService, FRESHNESS);
   }
 
+  async function seedProject(teamId: string) {
+    const project = await db.prisma.project.create({
+      data: { teamId, name: 'P' },
+      select: { id: true },
+    });
+    const general = await db.prisma.subproject.create({
+      data: { projectId: project.id, name: 'General', isDefault: true },
+      select: { id: true },
+    });
+    const other = await db.prisma.subproject.create({
+      data: { projectId: project.id, name: 'Other' },
+      select: { id: true },
+    });
+    const task = await db.prisma.task.create({
+      data: { projectId: project.id, subprojectId: other.id, name: 'T' },
+      select: { id: true },
+    });
+    return { projectId: project.id, generalId: general.id, otherId: other.id, taskId: task.id };
+  }
+
   function createDto(id: string, over: Partial<{ endTime: string | null; note: string }> = {}) {
     return {
       id,
@@ -94,16 +114,16 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
   it('upsert is idempotent on the client id (double POST -> one row)', async () => {
     const user = await seedUser();
     const dto = createDto('019797a0-0000-7000-8000-0000000000a1');
-    await repo().upsert(dto, user.id);
-    await repo().upsert(dto, user.id); // retried offline batch
+    await repo().upsert(dto, user.id, null);
+    await repo().upsert(dto, user.id, null); // retried offline batch
     expect(await db.prisma.timeEntry.count({ where: { userId: user.id } })).toBe(1);
   });
 
   it('upsert rejects a second, different running entry with a 409', async () => {
     const user = await seedUser();
-    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a2'), user.id);
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a2'), user.id, null);
     await expect(
-      repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a3'), user.id),
+      repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a3'), user.id, null),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -129,7 +149,11 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
       },
     });
 
-    const opened = await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b2'), user.id);
+    const opened = await repo().upsert(
+      createDto('019797a0-0000-7000-8000-0000000000b2'),
+      user.id,
+      null,
+    );
 
     expect(opened.endTime).toBeNull(); // the new span is open and recorded
     const retired = await db.prisma.timeEntry.findUnique({ where: { id: abandoned } });
@@ -153,7 +177,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
       },
     });
 
-    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b4'), user.id);
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b4'), user.id, null);
 
     const retired = await db.prisma.timeEntry.findUnique({ where: { id: abandoned } });
     expect(retired?.endTime?.toISOString()).toBe('2026-07-09T09:30:00.000Z');
@@ -179,7 +203,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     });
 
     await expect(
-      repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b6'), user.id),
+      repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b6'), user.id, null),
     ).rejects.toBeInstanceOf(ConflictException);
 
     const untouched = await db.prisma.timeEntry.findUnique({ where: { id: live } });
@@ -202,7 +226,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
       },
     });
 
-    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b8'), mine.id);
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b8'), mine.id, null);
 
     const untouched = await db.prisma.timeEntry.findUnique({ where: { id: otherEntry } });
     expect(untouched?.endTime).toBeNull();
@@ -228,9 +252,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
         '2026-07-11T10:30:00Z',
         '2026-07-11T12:00:00Z',
       );
-      expect(
-        await repo().hasOverlap(u.id, 'other-id', RANGE_START, RANGE_END),
-      ).toBe(true);
+      expect(await repo().hasOverlap(u.id, 'other-id', RANGE_START, RANGE_END)).toBe(true);
     });
 
     it('detects an OPEN entry that starts inside the range', async () => {
@@ -306,7 +328,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
       const actor = await seedUser('boss1@example.com');
       const id = '019797a0-0000-7000-8000-0000000000f1';
 
-      const row = await repo().createManual(manualDto(id), u.id, actor.id);
+      const row = await repo().createManual(manualDto(id), u.id, actor.id, null);
       expect(row.userId).toBe(u.id);
       expect(row.source).toBe('MANUAL'); // forced, never taken from the body
       expect(row.editedById).toBe(actor.id); // the row did not come from a Mac
@@ -320,8 +342,8 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     it('409s on a re-submitted id rather than writing a second row', async () => {
       const u = await seedUser('manual2@example.com');
       const id = '019797a0-0000-7000-8000-0000000000f2';
-      await repo().createManual(manualDto(id), u.id, u.id);
-      await expect(repo().createManual(manualDto(id), u.id, u.id)).rejects.toMatchObject({
+      await repo().createManual(manualDto(id), u.id, u.id, null);
+      await expect(repo().createManual(manualDto(id), u.id, u.id, null)).rejects.toMatchObject({
         status: 409,
       });
       expect(await db.prisma.timeEntry.count({ where: { userId: u.id } })).toBe(1);
@@ -331,7 +353,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
       const u = await seedUser('manual3@example.com');
       const actor = await seedUser('boss3@example.com');
       const id = '019797a0-0000-7000-8000-0000000000f3';
-      await repo().createManual(manualDto(id, { note: 'client call' }), u.id, u.id);
+      await repo().createManual(manualDto(id, { note: 'client call' }), u.id, u.id, null);
 
       await repo().remove(id, actor.id);
 
@@ -347,7 +369,12 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
 
     it('a manual entry participates in the overlap check like any other', async () => {
       const u = await seedUser('manual4@example.com');
-      await repo().createManual(manualDto('019797a0-0000-7000-8000-0000000000f4'), u.id, u.id);
+      await repo().createManual(
+        manualDto('019797a0-0000-7000-8000-0000000000f4'),
+        u.id,
+        u.id,
+        null,
+      );
       expect(
         await repo().hasOverlap(
           u.id,
@@ -363,7 +390,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     const user = await seedUser();
     expect(await repo().findActiveByUser(user.id)).toBeNull();
 
-    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a4'), user.id);
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a4'), user.id, null);
     const active = await repo().findActiveByUser(user.id);
     expect(active).toMatchObject({ id: '019797a0-0000-7000-8000-0000000000a4', endTime: null });
 
@@ -371,13 +398,14 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     await repo().upsert(
       createDto('019797a0-0000-7000-8000-0000000000a4', { endTime: '2026-07-11T10:00:00Z' }),
       user.id,
+      null,
     );
     expect(await repo().findActiveByUser(user.id)).toBeNull();
   });
 
   it('findForEdit returns the serialized entry, or null when missing', async () => {
     const user = await seedUser();
-    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a5'), user.id);
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000a5'), user.id, null);
     const found = await repo().findForEdit('019797a0-0000-7000-8000-0000000000a5');
     expect(found).toMatchObject({ userId: user.id, editedById: null, editedAt: null });
     expect(await repo().findForEdit('019797a0-0000-7000-8000-0000000000ff')).toBeNull();
@@ -393,6 +421,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
         note: 'draft',
       }),
       user.id,
+      null,
     );
 
     const after: UpdateTimeEntry = { note: 'client meeting' };
@@ -417,10 +446,11 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
 
   it('upsert-close leaves editedBy/editedAt null and writes NO audit row (normal op, not an edit)', async () => {
     const user = await seedUser();
-    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b2'), user.id); // open
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b2'), user.id, null); // open
     const closed = await repo().upsert(
       createDto('019797a0-0000-7000-8000-0000000000b2', { endTime: '2026-07-11T11:00:00Z' }),
       user.id,
+      null,
     ); // close via the sync path, NOT an edit
 
     expect(closed.editedById).toBeNull();
@@ -434,11 +464,12 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
   it('update mapping a reopen that collides with another open entry -> 409', async () => {
     const user = await seedUser();
     // One still-open entry...
-    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b3'), user.id);
+    await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b3'), user.id, null);
     // ...and a closed one we then try to REOPEN (endTime -> null) for the same user.
     await repo().upsert(
       createDto('019797a0-0000-7000-8000-0000000000b4', { endTime: '2026-07-11T10:00:00Z' }),
       user.id,
+      null,
     );
 
     await expect(
@@ -456,14 +487,18 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     const id = '019797a0-0000-7000-8000-0000000000c1';
 
     // 1. The client opens the entry.
-    await repo().upsert(createDto(id), user.id);
+    await repo().upsert(createDto(id), user.id, null);
 
     // 2. The client closes it.
-    const closed = await repo().upsert(createDto(id, { endTime: '2026-07-11T10:00:00Z' }), user.id);
+    const closed = await repo().upsert(
+      createDto(id, { endTime: '2026-07-11T10:00:00Z' }),
+      user.id,
+      null,
+    );
     expect(closed.endTime).toBe('2026-07-11T10:00:00.000Z');
 
     // 3. A stale open payload arrives late (retry, slow network, queued heartbeat).
-    const stale = await repo().upsert(createDto(id), user.id);
+    const stale = await repo().upsert(createDto(id), user.id, null);
 
     // Without the fix this is null and the entry is wedged as permanently running.
     expect(stale.endTime).toBe('2026-07-11T10:00:00.000Z');
@@ -474,7 +509,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     const id = '019797a0-0000-7000-8000-0000000000c2';
     const before = new Date();
 
-    await repo().upsert(createDto(id), user.id);
+    await repo().upsert(createDto(id), user.id, null);
 
     const row = await db.prisma.timeEntry.findUniqueOrThrow({ where: { id } });
     expect(row.heartbeatAt).not.toBeNull();
@@ -486,10 +521,10 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     const id = '019797a0-0000-7000-8000-0000000000c3';
 
     // 1. The note is set (e.g. the client sent it on open, or a dashboard correction landed).
-    await repo().upsert(createDto(id, { note: 'client call' }), user.id);
+    await repo().upsert(createDto(id, { note: 'client call' }), user.id, null);
 
     // 2. A later payload omits `note` entirely, the way the 60s heartbeat re-POST does.
-    const reheartbeat = await repo().upsert(createDto(id), user.id);
+    const reheartbeat = await repo().upsert(createDto(id), user.id, null);
 
     // Without the fix this is undefined/null and the note is silently erased.
     expect(reheartbeat.note).toBe('client call');
@@ -501,7 +536,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     const at = '2026-07-11T09:00:00.000Z';
 
     // A discarded recovery span: closed at its own start (spec §4.4, Task 7's Discard path).
-    await repo().upsert(createDto(discardedId, { endTime: at }), user.id);
+    await repo().upsert(createDto(discardedId, { endTime: at }), user.id, null);
 
     const listed = await repo().list({
       userId: user.id,
@@ -512,7 +547,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
 
     // It released the one-open-entry index slot, so a new open entry can be created.
     const openedId = '019797a0-0000-7000-8000-0000000000fe';
-    const opened = await repo().upsert(createDto(openedId, { endTime: null }), user.id);
+    const opened = await repo().upsert(createDto(openedId, { endTime: null }), user.id, null);
     expect(opened.endTime).toBeNull();
 
     // The critical property: the OPEN entry must still survive the same filter that hid
@@ -547,6 +582,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
       await repo().upsert(
         { ...createDto(SPANNING), startTime: START, endTime: END },
         user.id,
+        null,
       );
       return user;
     }
@@ -587,7 +623,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     it('carries an open span into the days it is still running through', async () => {
       const user = await seedUser();
       const openId = '019797a0-0000-7000-8000-0000000000c2';
-      await repo().upsert({ ...createDto(openId), startTime: START, endTime: null }, user.id);
+      await repo().upsert({ ...createDto(openId), startTime: START, endTime: null }, user.id, null);
 
       const listed = await repo().list({ userId: user.id, ...day(11) });
       expect(listed).toHaveLength(1);
@@ -606,10 +642,85 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
           endTime: '2026-07-11T00:00:00.000Z',
         },
         user.id,
+        null,
       );
       expect(await repo().list({ userId: user.id, ...day(11) })).toHaveLength(0);
       expect(await repo().list({ userId: user.id, ...day(10) })).toHaveLength(1);
     });
+  });
+
+  describe('subprojectCandidates', () => {
+    it('reports the default, the task subproject (same project only), and requested membership', async () => {
+      const user = await seedUser();
+      const a = await seedProject(user.teamId);
+      const b = await seedProject(user.teamId);
+      expect(await repo().subprojectCandidates(a.projectId, a.taskId, a.otherId)).toEqual({
+        defaultId: a.generalId,
+        taskSubprojectId: a.otherId,
+        requestedBelongs: true,
+      });
+      // task and requested subproject from ANOTHER project don't count
+      expect(await repo().subprojectCandidates(a.projectId, b.taskId, b.otherId)).toEqual({
+        defaultId: a.generalId,
+        taskSubprojectId: null,
+        requestedBelongs: false,
+      });
+    });
+
+    it('an unknown project yields no candidates (entry keeps a null subproject, never a 500)', async () => {
+      expect(
+        await repo().subprojectCandidates('019797a0-0000-7000-8000-0000000000ff', null, null),
+      ).toEqual({ defaultId: null, taskSubprojectId: null, requestedBelongs: false });
+    });
+  });
+
+  it('upsert stores subprojectId on create and does not overwrite it on a later heartbeat', async () => {
+    const user = await seedUser();
+    const a = await seedProject(user.teamId);
+    const id = '019797a0-0000-7000-8000-000000000301';
+    const first = await repo().upsert(
+      { ...createDto(id), projectId: a.projectId },
+      user.id,
+      a.generalId,
+    );
+    expect(first.subprojectId).toBe(a.generalId);
+    const beat = await repo().upsert(
+      { ...createDto(id), projectId: a.projectId },
+      user.id,
+      a.otherId,
+    );
+    expect(beat.subprojectId).toBe(a.generalId); // sync never re-assigns; edits go through PATCH
+  });
+
+  it('upsert with an unknown project id stores null subproject', async () => {
+    const user = await seedUser();
+    const row = await repo().upsert(
+      {
+        ...createDto('019797a0-0000-7000-8000-000000000302'),
+        projectId: '019797a0-0000-7000-8000-0000000000ff',
+      },
+      user.id,
+      null,
+    );
+    expect(row.subprojectId).toBeNull();
+  });
+
+  it('update writes subprojectId and audits it', async () => {
+    const user = await seedUser();
+    const a = await seedProject(user.teamId);
+    const id = '019797a0-0000-7000-8000-000000000303';
+    await repo().upsert(
+      { ...createDto(id, { endTime: '2026-07-11T10:00:00Z' }), projectId: a.projectId },
+      user.id,
+      a.generalId,
+    );
+    const row = await repo().update(
+      id,
+      { subprojectId: a.otherId },
+      { subprojectId: a.generalId },
+      user.id,
+    );
+    expect(row.subprojectId).toBe(a.otherId);
   });
 });
 
