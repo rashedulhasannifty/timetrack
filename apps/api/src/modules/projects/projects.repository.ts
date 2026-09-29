@@ -9,6 +9,7 @@ import {
   WorkTypesRepository,
   catalogConflict,
   isUniqueViolation,
+  lockReconcile,
 } from '../work-types/work-types.repository.js';
 
 /**
@@ -100,6 +101,7 @@ export class ProjectsRepository {
   ): Promise<Project> {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await lockReconcile(tx);
         const project = await tx.project.create({
           data: { teamId, name, color },
           select: PROJECT_SELECT,
@@ -118,7 +120,8 @@ export class ProjectsRepository {
           },
         });
         // The team's work types, in the same transaction (spec §5): a manager who creates a client
-        // still gets them. One project, so Prisma's default transaction timeout is enough (R13).
+        // still gets them. One project, but RECONCILE_TX all the same (overrides plan ruling R13):
+        // the transaction can queue on the reconcile lock behind a whole-org re-sync or import.
         await this.workTypes.reconcile(tx, [project.id], {
           actorId,
           trigger: 'project_create',
@@ -126,7 +129,7 @@ export class ProjectsRepository {
           targetId: project.id,
         });
         return project;
-      });
+      }, RECONCILE_TX);
     } catch (e) {
       if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
       throw e;
@@ -148,7 +151,7 @@ export class ProjectsRepository {
 
   /**
    * The client import (spec §6): every project, its General default, a `project.create` audit row
-   * each, and one reconcile for the lot — all in ONE transaction, with the long timeout (R13).
+   * each, and one reconcile for the lot — all in ONE transaction, with the long timeout.
    */
   async createProjectsBulk(
     teamId: string,
@@ -157,6 +160,7 @@ export class ProjectsRepository {
   ): Promise<Project[]> {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await lockReconcile(tx);
         const projects = await tx.project.createManyAndReturn({
           data: items.map((i) => ({ teamId, name: i.name, color: i.color })),
           select: PROJECT_SELECT,
@@ -362,6 +366,7 @@ export class ProjectsRepository {
   async setTeam(id: string, teamId: string, actorId: string): Promise<Project> {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await lockReconcile(tx);
         const before = await tx.project.findUnique({ where: { id }, select: { teamId: true } });
         const project = await tx.project.update({
           where: { id },
@@ -378,7 +383,8 @@ export class ProjectsRepository {
           },
         });
         // Swap to the new team's work types: the old team's linked rows archive (never delete) and
-        // a move back restores the same rows (spec §5, rule 1 and 4).
+        // a move back restores the same rows (spec §5, rule 1 and 4). RECONCILE_TX, not the
+        // default: it can queue on the reconcile lock behind a re-sync (overrides plan ruling R13).
         await this.workTypes.reconcile(tx, [id], {
           actorId,
           trigger: 'project_team_change',
@@ -386,7 +392,7 @@ export class ProjectsRepository {
           targetId: id,
         });
         return project;
-      });
+      }, RECONCILE_TX);
     } catch (e) {
       if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
       throw e;

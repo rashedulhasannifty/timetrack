@@ -504,9 +504,65 @@ describe.runIf(RUN_E2E)('work types — service', () => {
     for (const r of results) {
       if (r.status === 'rejected') expect(r.reason).toBeInstanceOf(ConflictException);
     }
-    await svc().resync(admin(eng)); // settle whatever a 409 left undone
+    // Asserted BEFORE any re-sync: a settling re-sync would hide a race that left rows wrong.
     for (const p of projects) {
-      expect(await linked(p)).toHaveLength(3);
+      const rows = await linked(p);
+      expect(rows).toHaveLength(3);
+      expect(rows.every((r) => !r.archived)).toBe(true);
+    }
+    // And the state really is settled: a re-sync finds nothing to do.
+    await expect(svc().resync(admin(eng))).resolves.toEqual({
+      projects: 3,
+      created: 0,
+      linked: 0,
+      restored: 0,
+      renamed: 0,
+      archived: 0,
+    });
+  });
+
+  /**
+   * The whole-branch review's I1: reconciles read team_work_types, work_types and subprojects in
+   * separate READ COMMITTED statements, so without serialization a rename racing a save leaves
+   * rows under the old name and a re-sync racing a save archives the rows the save just made.
+   * Asserted against the committed catalog state, with no settling re-sync first.
+   */
+  it('racing saves, renames and re-syncs always leave every project matching the catalog', async () => {
+    for (let round = 0; round < 20; round++) {
+      await truncateAll(db.prisma);
+      const eng = await team('Eng');
+      const projects = await Promise.all(
+        Array.from({ length: 60 }, (_, i) => project(eng, `Client ${i}`)),
+      );
+      const ids = await catalog(eng, 'Payroll', 'AdHoc', 'Audit');
+      const payroll = ids.get('Payroll')!;
+      const adhoc = ids.get('AdHoc')!;
+      const audit = ids.get('Audit')!;
+      await svc().setTeamSelection(eng, { workTypeIds: [payroll] }, admin(eng));
+
+      // Staggered starts sweep the interleavings: each round lands the rename and the re-sync at
+      // a different point inside the save's transaction.
+      const later = <T>(ms: number, run: () => Promise<T>) =>
+        new Promise<void>((r) => setTimeout(r, ms)).then(run);
+      const results = await Promise.allSettled([
+        svc().setTeamSelection(eng, { workTypeIds: [payroll, adhoc, audit] }, admin(eng)),
+        later(round % 10, () => svc().update(adhoc, { name: `AdHoc ${round}` }, admin(eng))),
+        later((round * 3) % 10, () => svc().resync(admin(eng))),
+        later((round * 7) % 10, () => svc().update(audit, { name: `Audit ${round}` }, admin(eng))),
+      ]);
+      for (const r of results) {
+        if (r.status === 'rejected') expect(r.reason).toBeInstanceOf(ConflictException);
+      }
+
+      const selected = await db.prisma.teamWorkType.findMany({
+        where: { teamId: eng, workType: { archived: false } },
+        select: { workType: { select: { id: true, name: true } } },
+      });
+      const want = selected.map((s) => [s.workType.id, s.workType.name]).sort();
+      for (const p of projects) {
+        const active = (await linked(p)).filter((r) => !r.archived);
+        expect(active.map((r) => [r.workTypeId, r.name]).sort(), `round ${round}`).toEqual(want);
+      }
     }
   });
 });

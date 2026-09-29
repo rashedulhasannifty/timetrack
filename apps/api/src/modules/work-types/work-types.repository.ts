@@ -15,11 +15,27 @@ import {
 } from './work-types.reconcile.js';
 
 /**
- * Transaction options for anything that reconciles many projects. Prisma's interactive
- * transaction defaults to 5s, which a whole-org re-sync (≈100 clients × 12 work types) or a
- * 500-client import can exceed — it then P2028-rolls-back while every small-seed test passes.
+ * Transaction options for EVERY transaction that reconciles. Prisma's interactive transaction
+ * defaults to 5s, which a whole-org re-sync (≈100 clients × 12 work types) or a 500-client
+ * import can exceed — it then P2028-rolls-back while every small-seed test passes. A one-project
+ * create or team move needs it too: it queues on the reconcile lock behind such a re-sync.
  */
 export const RECONCILE_TX = { timeout: 60_000, maxWait: 10_000 } as const;
+
+/**
+ * Serializes every reconciling transaction org-wide (transaction-scoped advisory lock; released
+ * at commit/rollback). Reconcile reads the selection, the catalog names and the subprojects in
+ * separate READ COMMITTED statements, so two overlapping reconciles could each act on a view the
+ * other was changing: a rename racing a column save left the save's rows under the old name, and
+ * a re-sync racing a save archived the rows the save had just made.
+ *
+ * Call it as the FIRST statement of the transaction: the triggers read state (the current
+ * selection, the work type before its update) that must not change before they reconcile.
+ * The key is a literal, not a parameter, so it binds as bigint.
+ */
+export async function lockReconcile(tx: Prisma.TransactionClient): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(7311947202601)`;
+}
 
 export const CONCURRENT_CHANGE = 'The catalog changed while saving. Try again.';
 
@@ -46,6 +62,7 @@ export class WorkTypesRepository {
   /**
    * The single sync rule (spec §5). Runs inside the CALLER's transaction so a project create,
    * bulk import, team move, selection save or catalog edit commits together with its subprojects.
+   * The caller must have taken `lockReconcile(tx)` as its transaction's first statement.
    * Writes exactly one `work_type.reconcile` audit row per call, even when nothing changed.
    */
   async reconcile(
@@ -208,6 +225,7 @@ export class WorkTypesRepository {
   ): Promise<WorkType | null> {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await lockReconcile(tx);
         const before = await tx.workType.findUnique({ where: { id }, select: WORK_TYPE_SELECT });
         if (!before) return null;
         const workType = await tx.workType.update({
@@ -266,6 +284,7 @@ export class WorkTypesRepository {
   ): Promise<TeamWorkTypes> {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await lockReconcile(tx);
         const current = await tx.teamWorkType.findMany({
           where: { teamId },
           select: { workTypeId: true, workType: { select: { archived: true } } },
@@ -307,6 +326,7 @@ export class WorkTypesRepository {
   async resync(actorId: string): Promise<ReconcileCounts> {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await lockReconcile(tx);
         const projects = await tx.project.findMany({ select: { id: true } });
         return this.reconcile(
           tx,
