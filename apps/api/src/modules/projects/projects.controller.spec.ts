@@ -57,14 +57,20 @@ describe('ProjectsController role-gating', () => {
 describe('ProjectsController delegation', () => {
   it('list passes the parsed includeArchived flag to the service', async () => {
     const { ctrl, service } = make();
-    await ctrl.list(actor, { includeArchived: true });
-    expect(service.list).toHaveBeenCalledWith(actor, true, undefined);
+    await ctrl.list(actor, { includeArchived: true, allTeams: false });
+    expect(service.list).toHaveBeenCalledWith(actor, true, undefined, false);
   });
 
   it('list forwards an explicit teamId so an ADMIN can read another team', async () => {
     const { ctrl, service } = make();
-    await ctrl.list(actor, { includeArchived: false, teamId: 't2' });
-    expect(service.list).toHaveBeenCalledWith(actor, false, 't2');
+    await ctrl.list(actor, { includeArchived: false, allTeams: false, teamId: 't2' });
+    expect(service.list).toHaveBeenCalledWith(actor, false, 't2', false);
+  });
+
+  it('list forwards allTeams so an ADMIN can read every team in one call', async () => {
+    const { ctrl, service } = make();
+    await ctrl.list(actor, { includeArchived: true, allTeams: true });
+    expect(service.list).toHaveBeenCalledWith(actor, true, undefined, true);
   });
 
   it('update passes id, dto, and actor to the service', async () => {

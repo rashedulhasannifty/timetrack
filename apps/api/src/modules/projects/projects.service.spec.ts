@@ -17,6 +17,7 @@ const FRESHNESS = 300;
 function makeService(overrides: Partial<ProjectsRepository> = {}) {
   const repo = {
     listByTeam: vi.fn(),
+    listAll: vi.fn(),
     createProject: vi.fn(),
     createTask: vi.fn(),
     findForActor: vi.fn(),
@@ -536,6 +537,45 @@ describe('ProjectsService.list team scoping', () => {
     const { svc, repo } = makeService();
     await svc.list(manager, true, 't1');
     expect(repo.listByTeam).toHaveBeenCalledWith('t1', true);
+  });
+
+  describe('allTeams', () => {
+    it('gives an ADMIN every team in one repo call, honouring includeArchived', async () => {
+      const { svc, repo } = makeService();
+      await svc.list(admin, true, undefined, true);
+      expect(repo.listAll).toHaveBeenCalledWith(true);
+      expect(repo.listByTeam).not.toHaveBeenCalled();
+    });
+
+    it('lets allTeams win over a teamId for an ADMIN', async () => {
+      const { svc, repo } = makeService();
+      await svc.list(admin, false, OTHER, true);
+      expect(repo.listAll).toHaveBeenCalledWith(false);
+      expect(repo.listByTeam).not.toHaveBeenCalled();
+    });
+
+    it('403s a MANAGER sending allTeams', async () => {
+      const { svc, repo } = makeService();
+      await expect(svc.list(manager, false, undefined, true)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(repo.listAll).not.toHaveBeenCalled();
+      expect(repo.listByTeam).not.toHaveBeenCalled();
+    });
+
+    it('pins an EMPLOYEE to their own team, ignoring allTeams', async () => {
+      const { svc, repo } = makeService();
+      await svc.list(employee, false, undefined, true);
+      expect(repo.listByTeam).toHaveBeenCalledWith('t1', false);
+      expect(repo.listAll).not.toHaveBeenCalled();
+    });
+
+    it('leaves allTeams=false on the existing per-team path', async () => {
+      const { svc, repo } = makeService();
+      await svc.list(admin, false, OTHER, false);
+      expect(repo.listByTeam).toHaveBeenCalledWith(OTHER, false);
+      expect(repo.listAll).not.toHaveBeenCalled();
+    });
   });
 });
 

@@ -42,7 +42,7 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
     @Query(new ZodValidationPipe(ListProjectsQuerySchema)) query: ListProjectsQuery,
   ): Promise<Project[]> {
-    return this.service.list(user, query.includeArchived, query.teamId);
+    return this.service.list(user, query.includeArchived, query.teamId, query.allTeams);
   }
 
   @Post()

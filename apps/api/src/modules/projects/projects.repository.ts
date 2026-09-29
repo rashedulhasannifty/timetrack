@@ -70,9 +70,21 @@ export class ProjectsRepository {
   ) {}
 
   async listByTeam(teamId: string, includeArchived = false): Promise<Project[]> {
+    return this.findProjects({ teamId }, includeArchived);
+  }
+
+  /** Every team's projects (ADMIN `allTeams`): same select and ordering as `listByTeam`. */
+  async listAll(includeArchived = false): Promise<Project[]> {
+    return this.findProjects({}, includeArchived);
+  }
+
+  private async findProjects(
+    scope: { teamId?: string },
+    includeArchived: boolean,
+  ): Promise<Project[]> {
     // One query, not N+1 (CLAUDE.md §4) — tasks come back via the nested select.
-    const rows = await this.prisma.project.findMany({
-      where: { teamId, ...(includeArchived ? {} : { archived: false }) },
+    return this.prisma.project.findMany({
+      where: { ...scope, ...(includeArchived ? {} : { archived: false }) },
       orderBy: { name: 'asc' },
       select: {
         ...PROJECT_SELECT,
@@ -90,7 +102,6 @@ export class ProjectsRepository {
         },
       },
     });
-    return rows;
   }
 
   async createProject(

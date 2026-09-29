@@ -53,7 +53,18 @@ export class ProjectsService {
    */
   // `async` on purpose: resolveTeam throws, and a synchronous throw from a Promise-returning
   // method surprises every caller that only awaits. Rejecting keeps it uniform with the rest.
-  async list(user: SessionUser, includeArchived = false, teamId?: string): Promise<Project[]> {
+  async list(
+    user: SessionUser,
+    includeArchived = false,
+    teamId?: string,
+    allTeams = false,
+  ): Promise<Project[]> {
+    // `allTeams` is ADMIN-only: an EMPLOYEE is pinned to their own team (ignored, like teamId),
+    // a MANAGER asking for every team is refused rather than silently narrowed.
+    if (allTeams && user.role !== 'EMPLOYEE') {
+      if (user.role !== 'ADMIN') throw this.forbidden();
+      return this.repo.listAll(includeArchived);
+    }
     return this.repo.listByTeam(this.resolveTeam(teamId, user), includeArchived);
   }
 

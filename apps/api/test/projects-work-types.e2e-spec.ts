@@ -274,6 +274,34 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
     }
   });
 
+  it('allTeams: an ADMIN gets every team in one call, a MANAGER is refused, an EMPLOYEE stays pinned', async () => {
+    const eng = await team('Eng');
+    const support = await team('Support');
+    await client(eng, 'Acme');
+    await client(support, 'Initech');
+    const archived = await client(support, 'Old');
+    await db.prisma.project.update({ where: { id: archived.id }, data: { archived: true } });
+
+    const all = await projects().list(admin(eng), false, undefined, true);
+    expect(all.map((p) => p.name)).toEqual(['Acme', 'Initech']);
+    expect(new Set(all.map((p) => p.teamId))).toEqual(new Set([eng, support]));
+    const withArchived = await projects().list(admin(eng), true, undefined, true);
+    expect(withArchived.map((p) => p.name)).toEqual(['Acme', 'Initech', 'Old']);
+    // Same wire shape as the per-team read: General + work types, no workTypeId.
+    for (const s of all[0]?.subprojects ?? []) {
+      expect(Object.keys(s).sort()).toEqual(['archived', 'id', 'isDefault', 'name', 'projectId']);
+    }
+
+    const manager: SessionUser = { id: ADMIN_ID, role: 'MANAGER', teamId: eng };
+    await expect(projects().list(manager, false, undefined, true)).rejects.toBeInstanceOf(
+      HttpException,
+    );
+
+    const employee: SessionUser = { id: ADMIN_ID, role: 'EMPLOYEE', teamId: eng };
+    const pinned = await projects().list(employee, false, undefined, true);
+    expect(pinned.map((p) => p.name)).toEqual(['Acme']);
+  });
+
   it('maps a unique violation from the reconcile to a 409, never a raw error (R9)', async () => {
     const eng = await team('Eng');
     const support = await team('Support');
