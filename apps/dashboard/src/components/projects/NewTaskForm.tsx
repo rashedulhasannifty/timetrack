@@ -1,15 +1,35 @@
 'use client';
 
+import type { Subproject } from '@timetrack/contracts';
 import { useToastAction } from '../ui/useToastAction';
 import { createTaskAction, type ProjectActionState } from '../../app/(app)/projects/actions';
 
 const INITIAL: ProjectActionState = { ok: false };
 
-export function NewTaskForm({ projectId }: { projectId: string }) {
+export function NewTaskForm({
+  projectId,
+  subprojects,
+}: {
+  projectId: string;
+  subprojects: Subproject[];
+}) {
   const [state, formAction, pending] = useToastAction(createTaskAction, INITIAL, 'Task added');
   return (
     <form action={formAction} className="flex flex-wrap items-center gap-2">
       <input type="hidden" name="projectId" value={projectId} />
+      <select
+        name="subprojectId"
+        required
+        defaultValue={subprojects.find((s) => s.isDefault)?.id ?? subprojects[0]?.id}
+        aria-label="Subproject"
+        className="bg-surface border-separator text-text focus:border-accent rounded-md border px-2.5 py-1.5 text-label outline-none"
+      >
+        {subprojects.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
       <input
         name="name"
         required

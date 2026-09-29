@@ -18,6 +18,9 @@ import {
   type CreateProject,
   type ProjectColor,
   TaskSchema,
+  SubprojectSchema,
+  type Subproject,
+  type CreateSubproject,
   type Task,
   type CreateTask,
   UserSchema,
@@ -318,6 +321,14 @@ export const api = {
     get(`/projects/${id}/tasks`, z.array(TaskSchema), token),
   archiveTask: (token: string, id: string, archived: boolean): Promise<Task> =>
     send('PATCH', `/projects/tasks/${id}`, { archived }, TaskSchema, token),
+  listProjectSubprojects: (token: string, id: string): Promise<Subproject[]> =>
+    get(`/projects/${id}/subprojects`, z.array(SubprojectSchema), token),
+  createSubproject: (token: string, dto: CreateSubproject): Promise<Subproject> =>
+    send('POST', '/projects/subprojects', dto, SubprojectSchema, token),
+  archiveSubproject: (token: string, id: string, archived: boolean): Promise<Subproject> =>
+    send('PATCH', `/projects/subprojects/${id}`, { archived }, SubprojectSchema, token),
+  moveTask: (token: string, id: string, subprojectId: string): Promise<Task> =>
+    send('PATCH', `/projects/tasks/${id}`, { subprojectId }, TaskSchema, token),
   exportReportCsv: (token: string, params: URLSearchParams): Promise<Response> =>
     getRaw(`/reports/export.csv?${params}`, token),
 

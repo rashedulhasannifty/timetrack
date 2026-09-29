@@ -8,15 +8,29 @@ import { BarMeter } from '../charts/BarMeter';
 import { ProjectRecolor } from './ProjectRecolor';
 import { ProjectArchiveToggle } from './ProjectArchiveToggle';
 import { NewTaskForm } from './NewTaskForm';
+import { NewSubprojectForm } from './NewSubprojectForm';
+import { SubprojectArchiveToggle } from './SubprojectArchiveToggle';
+import { TaskMoveForm } from './TaskMoveForm';
 import { TaskArchiveToggle } from './TaskArchiveToggle';
 import { ProjectTeamMove } from './ProjectTeamMove';
 import { api, ApiError } from '../../lib/api-client';
 import type { Session } from '../../lib/session';
 import { defaultReportRange } from '../../lib/reports-view';
-import { toTrendBars, toMemberBars, toTaskBars } from '../../lib/project-detail-view';
+import {
+  toTrendBars,
+  toMemberBars,
+  toTaskBars,
+  groupTasksBySubproject,
+} from '../../lib/project-detail-view';
 import { projectColor } from '../../lib/project-color';
 import { formatDuration } from '../../lib/format';
-import type { ProjectDetail, Task, ProjectTopApps, TeamListItem } from '@timetrack/contracts';
+import type {
+  ProjectDetail,
+  Subproject,
+  Task,
+  ProjectTopApps,
+  TeamListItem,
+} from '@timetrack/contracts';
 
 /**
  * One project's detail: a loader and a view, rendered today only by
@@ -65,11 +79,16 @@ export async function loadProjectDetail({
   // Editable task list for the management section. Degradeable: a task-fetch hiccup shows an
   // empty Tasks section rather than blanking the analytics.
   let tasks: Task[] = [];
+  let subprojects: Subproject[] = [];
   if (detail) {
     try {
-      tasks = await api.listProjectTasks(session.accessToken, projectId);
+      [tasks, subprojects] = await Promise.all([
+        api.listProjectTasks(session.accessToken, projectId),
+        api.listProjectSubprojects(session.accessToken, projectId),
+      ]);
     } catch {
       tasks = [];
+      subprojects = [];
     }
   }
 
@@ -93,12 +112,13 @@ export async function loadProjectDetail({
       ? await api.listTeams(session.accessToken).catch((): TeamListItem[] => [])
       : [];
 
-  return { from, to, detail, state, tasks, topApps, teams };
+  return { from, to, detail, state, tasks, subprojects, topApps, teams };
 }
 
 /** The detail body: the not-found / not-permitted copy, or the header, controls and sections. */
 export function ProjectDetailContent({ data }: { data: ProjectDetailData }) {
-  const { from, to, detail, state, tasks, topApps, teams } = data;
+  const { from, to, detail, state, tasks, subprojects, topApps, teams } = data;
+  const active = subprojects.filter((s) => !s.archived);
   const topAppsMax = topApps ? Math.max(1, ...topApps.apps.map((a) => a.trackedSeconds)) : 0;
 
   return detail === null ? (
@@ -193,33 +213,85 @@ export function ProjectDetailContent({ data }: { data: ProjectDetailData }) {
           </section>
         )}
         <section>
-          <div className="mb-3 flex items-center justify-between gap-4">
-            <h2 className="text-text text-h2 font-semibold">Tasks</h2>
-            <NewTaskForm projectId={detail.projectId} />
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-4">
+            <h2 className="text-text text-h2 font-semibold">Subprojects &amp; tasks</h2>
+            <div className="flex flex-wrap items-center gap-4">
+              <NewSubprojectForm projectId={detail.projectId} />
+              <NewTaskForm projectId={detail.projectId} subprojects={active} />
+            </div>
           </div>
-          {tasks.length === 0 ? (
-            <p className="text-text-secondary text-body">No tasks yet.</p>
-          ) : (
-            <ul className="bg-surface-raised border-separator divide-separator divide-y rounded-lg border shadow-e1">
-              {tasks.map((task) => (
-                <li key={task.id} className="flex items-center justify-between gap-4 px-4 py-2.5">
+          <div className="flex flex-col gap-4">
+            {groupTasksBySubproject(subprojects, tasks, detail.subprojects).map((group) => (
+              <div
+                key={group.subproject.id}
+                className="bg-surface-raised border-separator rounded-lg border shadow-e1"
+              >
+                <div className="border-separator flex items-center justify-between gap-4 border-b px-4 py-2.5">
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className="text-text truncate">{task.name}</span>
-                    {task.archived && (
+                    <span className="text-text truncate font-semibold">
+                      {group.subproject.name}
+                    </span>
+                    {group.subproject.isDefault && (
+                      <span className="text-text-secondary border-separator text-caption rounded-full border px-2 py-0.5">
+                        Default
+                      </span>
+                    )}
+                    {group.subproject.archived && (
                       <span className="text-text-secondary border-separator text-caption rounded-full border px-2 py-0.5">
                         Archived
                       </span>
                     )}
                   </span>
-                  <TaskArchiveToggle
-                    id={task.id}
-                    projectId={detail.projectId}
-                    archived={task.archived}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
+                  <span className="flex items-center gap-3">
+                    <span className="tt-numeric text-text-secondary text-label">
+                      {formatDuration(group.trackedSeconds)}
+                    </span>
+                    {!group.subproject.isDefault && (
+                      <SubprojectArchiveToggle
+                        id={group.subproject.id}
+                        projectId={detail.projectId}
+                        archived={group.subproject.archived}
+                      />
+                    )}
+                  </span>
+                </div>
+                {group.tasks.length === 0 ? (
+                  <p className="text-text-secondary text-caption px-4 py-2.5">No tasks yet.</p>
+                ) : (
+                  <ul className="divide-separator divide-y">
+                    {group.tasks.map((task) => (
+                      <li
+                        key={task.id}
+                        className="flex items-center justify-between gap-4 px-4 py-2.5"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="text-text truncate">{task.name}</span>
+                          {task.archived && (
+                            <span className="text-text-secondary border-separator text-caption rounded-full border px-2 py-0.5">
+                              Archived
+                            </span>
+                          )}
+                        </span>
+                        <span className="flex items-center gap-3">
+                          <TaskMoveForm
+                            id={task.id}
+                            projectId={detail.projectId}
+                            currentSubprojectId={task.subprojectId}
+                            subprojects={active}
+                          />
+                          <TaskArchiveToggle
+                            id={task.id}
+                            projectId={detail.projectId}
+                            archived={task.archived}
+                          />
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
         </section>
       </div>
     </>

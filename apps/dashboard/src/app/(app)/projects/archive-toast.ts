@@ -5,6 +5,9 @@ import type { ProjectActionState } from './actions';
  * message depends on which state the row is heading to, so it reads `archived` off the
  * action's own validated result rather than guessing from anything in the client.
  */
-export function archiveToastMessage(noun: 'Project' | 'Task', state: ProjectActionState): string {
+export function archiveToastMessage(
+  noun: 'Project' | 'Subproject' | 'Task',
+  state: ProjectActionState,
+): string {
   return `${noun} ${state.archived ? 'archived' : 'restored'}`;
 }

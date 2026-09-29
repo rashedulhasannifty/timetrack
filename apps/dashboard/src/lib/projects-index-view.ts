@@ -12,6 +12,8 @@ export type ProjectIndexRow = {
   tasks: { id: string; name: string }[];
   /** Always equals `tasks.length`. */
   taskCount: number;
+  /** Active subprojects, including the default. */
+  subprojectCount: number;
   /** Share of the range's total tracked time, 0–100. */
   sharePct: number;
 };
@@ -73,6 +75,7 @@ export function toProjectIndexRows(
       color: p.color ?? projectColor(p.id),
       tasks,
       taskCount: tasks.length,
+      subprojectCount: (p.subprojects ?? []).filter((s) => !s.archived).length,
       sharePct: share(trackedSeconds),
     };
   });

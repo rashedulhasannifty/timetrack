@@ -6,6 +6,8 @@ import {
   UpdateProjectSchema,
   CreateTaskSchema,
   UpdateTaskSchema,
+  CreateSubprojectSchema,
+  UpdateSubprojectSchema,
 } from '@timetrack/contracts';
 import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
@@ -146,7 +148,10 @@ export async function createTaskAction(
 
   const rawProjectId = formData.get('projectId');
   const projectId = typeof rawProjectId === 'string' ? rawProjectId : '';
-  const parsed = CreateTaskSchema.safeParse({ projectId, name: formData.get('name') });
+  const parsed = CreateTaskSchema.safeParse({
+    subprojectId: formData.get('subprojectId'),
+    name: formData.get('name'),
+  });
   if (!parsed.success) return { ok: false, message: 'Enter a task name.' };
 
   try {
@@ -179,5 +184,79 @@ export async function archiveTaskAction(
     return { ok: true, archived };
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
+  }
+}
+
+export async function createSubprojectAction(
+  _prev: ProjectActionState,
+  formData: FormData,
+): Promise<ProjectActionState> {
+  const session = await getSession();
+  if (!session || !canManage(session.role)) return { ok: false, message: 'Not authorized.' };
+
+  const parsed = CreateSubprojectSchema.safeParse({
+    projectId: formData.get('projectId'),
+    name: formData.get('name'),
+  });
+  if (!parsed.success) return { ok: false, message: 'Enter a subproject name.' };
+
+  try {
+    await api.createSubproject(session.accessToken, parsed.data);
+    revalidatePath(`/projects/${parsed.data.projectId}`);
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof ApiError ? e.message : 'Could not add the subproject.',
+    };
+  }
+}
+
+export async function archiveSubprojectAction(
+  _prev: ProjectActionState,
+  formData: FormData,
+): Promise<ProjectActionState> {
+  const session = await getSession();
+  if (!session || !canManage(session.role)) return { ok: false, message: 'Not authorized.' };
+
+  const rawId = formData.get('id');
+  const id = typeof rawId === 'string' ? rawId : '';
+  const rawProjectId = formData.get('projectId');
+  const projectId = typeof rawProjectId === 'string' ? rawProjectId : '';
+  const archived = formData.get('archived') === 'true';
+  const parsed = UpdateSubprojectSchema.safeParse({ archived });
+  if (!id || !parsed.success) return { ok: false, message: 'Invalid request.' };
+
+  try {
+    await api.archiveSubproject(session.accessToken, id, archived);
+    if (projectId) revalidatePath(`/projects/${projectId}`);
+    return { ok: true, archived };
+  } catch (e) {
+    return { ok: false, message: e instanceof ApiError ? e.message : 'Update failed.' };
+  }
+}
+
+export async function moveTaskAction(
+  _prev: ProjectActionState,
+  formData: FormData,
+): Promise<ProjectActionState> {
+  const session = await getSession();
+  if (!session || !canManage(session.role)) return { ok: false, message: 'Not authorized.' };
+
+  const rawId = formData.get('id');
+  const id = typeof rawId === 'string' ? rawId : '';
+  const rawProjectId = formData.get('projectId');
+  const projectId = typeof rawProjectId === 'string' ? rawProjectId : '';
+  const parsed = UpdateTaskSchema.safeParse({ subprojectId: formData.get('subprojectId') });
+  if (!id || !parsed.success || parsed.data.subprojectId === undefined) {
+    return { ok: false, message: 'Pick a subproject.' };
+  }
+
+  try {
+    await api.moveTask(session.accessToken, id, parsed.data.subprojectId);
+    if (projectId) revalidatePath(`/projects/${projectId}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof ApiError ? e.message : 'Move failed.' };
   }
 }
