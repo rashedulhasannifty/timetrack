@@ -80,6 +80,10 @@ public partial class TrayPopupWindow : Window
     public void ShowNearTray()
     {
         _viewModel.ResetPicker();
+
+        // The highlight is keyboard-only state (ruling 6): a stale one surviving a close would
+        // make Enter on the reopened popup activate a row the user cannot see is highlighted.
+        ProjectList.SelectedItem = null;
         Render();
 
         RepositionNearTray();
@@ -296,6 +300,9 @@ public partial class TrayPopupWindow : Window
 
         SearchHint.Visibility = _viewModel.Query.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         SelectionHeader.Text = _viewModel.SelectionLabel;
+        SelectionDot.Fill = _viewModel.Selection is not null
+            ? (Brush)FindResource("Accent")
+            : (Brush)FindResource("TextSecondary");
 
         var rows = _viewModel.PickerRows;
         if (ProjectList.ItemsSource is not IReadOnlyList<PickerRow> shown || !shown.SequenceEqual(rows))
@@ -374,9 +381,19 @@ public partial class TrayPopupWindow : Window
         }
     }
 
-    /// <summary>Esc goes back one level; at the root it hides the popup (plan ruling 7).</summary>
+    /// <summary>
+    /// Esc clears an active search first (the drill-down level is invisible while searching, so
+    /// popping it would look like nothing happened); otherwise it goes back one level, and at the
+    /// root it hides the popup (plan ruling 7).
+    /// </summary>
     private bool HandleEscape()
     {
+        if (PickerSearch.IsSearching(_viewModel.Query))
+        {
+            _viewModel.Query = string.Empty;
+            return true;
+        }
+
         if (_viewModel.Back())
         {
             return true;

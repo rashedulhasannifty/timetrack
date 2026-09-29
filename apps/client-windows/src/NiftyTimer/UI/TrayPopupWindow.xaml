@@ -100,10 +100,17 @@
 
             <TextBlock Text="SWITCH PROJECT" Style="{StaticResource MicroText}" Margin="0,0,0,4" />
             <!-- The current selection as a path, whichever level the list shows (spec §2). -->
-            <TextBlock x:Name="SelectionHeader"
-                       Style="{StaticResource CaptionText}"
-                       TextTrimming="CharacterEllipsis"
-                       Margin="0,0,0,4" />
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <Ellipse x:Name="SelectionDot"
+                         Width="6"
+                         Height="6"
+                         VerticalAlignment="Center"
+                         Margin="0,0,6,0"
+                         Fill="{DynamicResource TextSecondary}" />
+                <TextBlock x:Name="SelectionHeader"
+                           Style="{StaticResource CaptionText}"
+                           TextTrimming="CharacterEllipsis" />
+            </StackPanel>
             <Grid Margin="0,0,0,6">
                 <TextBox x:Name="SearchBox"
                          TextChanged="OnQueryChanged"

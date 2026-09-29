@@ -179,6 +179,39 @@ public class TrayPopupPickerTests
     }
 
     [Fact]
+    public void EscapeWhileSearchingClearsTheQueryAndKeepsTheLevelAndPopup()
+    {
+        var (handled, query, levelBefore, levelAfter, visible) = WithPopup((vm, window) =>
+        {
+            window.Show();
+            vm.Activate(vm.PickerRows[0]);
+            var before = vm.Level;
+            vm.Query = "design";
+            var result = window.HandleEscapeForTest();
+            return (result, vm.Query, before, vm.Level, window.IsVisible);
+        });
+
+        Assert.True(handled);
+        Assert.Equal(string.Empty, query);
+        Assert.Equal(levelBefore, levelAfter);
+        Assert.True(visible);
+    }
+
+    [Fact]
+    public void ReopeningThePopupClearsAStaleKeyboardHighlight()
+    {
+        var highlighted = WithPopup((_, window) =>
+        {
+            var list = (ListBox)window.FindName("ProjectList");
+            list.SelectedIndex = 0;
+            window.ShowNearTray();
+            return list.SelectedItem;
+        });
+
+        Assert.Null(highlighted);
+    }
+
+    [Fact]
     public void EscapeGoesBackOneLevelThenHidesAtTheRoot()
     {
         var (afterFirst, stillVisible, afterSecond, visible) = WithPopup((vm, window) =>
