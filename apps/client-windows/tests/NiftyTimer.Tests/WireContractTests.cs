@@ -88,6 +88,7 @@ public class TimeEntryPayloadTests
         {
             Id = "0192f000-0000-7000-8000-000000000000",
             ProjectId = "p1",
+            SubprojectId = "s1",
             TaskId = "t1",
             StartTime = "2026-08-25T09:00:00Z",
             EndTime = "2026-08-25T09:30:00Z",
@@ -102,8 +103,31 @@ public class TimeEntryPayloadTests
             .ToArray();
 
         Assert.Equal(
-            ["endTime", "id", "note", "projectId", "source", "startTime", "taskId"],
+            ["endTime", "id", "note", "projectId", "source", "startTime", "subprojectId", "taskId"],
             keys);
+    }
+
+    /// <summary><c>subprojectId</c> is nullable on the server, so null is sent explicitly — the server then derives it.</summary>
+    [Fact]
+    public void ANullSubprojectIsSentAsExplicitNull()
+    {
+        var json = Serialize(new TimeEntryPayload
+        {
+            Id = "0192f000-0000-7000-8000-000000000000",
+            StartTime = "2026-08-25T09:00:00Z",
+            Source = "MANUAL",
+        });
+        Assert.Equal(JsonValueKind.Null, JsonDocument.Parse(json).RootElement.GetProperty("subprojectId").ValueKind);
+    }
+
+    /// <summary>A queued payload written by 0.2.x has no subprojectId and must still read back.</summary>
+    [Fact]
+    public void APayloadQueuedBeforeSubprojectsStillDeserializes()
+    {
+        var old = """{"id":"e1","projectId":"p1","taskId":null,"startTime":"2026-08-25T09:00:00Z","endTime":"2026-08-25T09:30:00Z","source":"MANUAL"}""";
+        var payload = JsonSerializer.Deserialize<TimeEntryPayload>(old)!;
+        Assert.Equal("p1", payload.ProjectId);
+        Assert.Null(payload.SubprojectId);
     }
 }
 

@@ -43,6 +43,31 @@ public class LiveSpanStoreTests
         Assert.Equal(T0, span.LastAlive); // starts equal to the start
     }
 
+    [Fact]
+    public void RoundTripsTheSubproject()
+    {
+        using var dir = new TempDirectory();
+        var store = new LiveSpanStore(dir.File("live-span.json"), () => "user-1");
+
+        store.Begin("entry-1", T0, new TimeTracker.Selection("p1", null, SubprojectId: "s2"), TimeTracker.EntrySource.Manual);
+
+        Assert.Equal("s2", store.Load()!.SubprojectId);
+    }
+
+    /// <summary>A live-span.json written by 0.2.x has no subprojectId and must still load.</summary>
+    [Fact]
+    public void ASpanWrittenBeforeSubprojectsStillLoads()
+    {
+        using var dir = new TempDirectory();
+        var path = dir.File("live-span.json");
+        File.WriteAllText(path, """{"entryId":"e1","startTime":"2026-08-25T09:00:00+00:00","projectId":"p1","taskId":null,"source":"MANUAL","lastAlive":"2026-08-25T09:00:00+00:00","userId":null}""");
+
+        var span = new LiveSpanStore(path, () => "user-1").Load()!;
+
+        Assert.Null(span.SubprojectId);
+        Assert.Equal("e1", span.EntryId);
+    }
+
     /// <summary>
     /// The heartbeat is what bounds the cost of a crash: recovery closes at LastAlive, so at most
     /// one interval of real work is lost and no downtime is ever counted.
@@ -139,7 +164,8 @@ public class LiveSpanRecoveryTests
         EntryId = "entry-1",
         StartTime = T0,
         ProjectId = "p1",
-        TaskId = "t1",
+        SubprojectId = "s2",
+        TaskId = null,
         Source = "AUTO",
         LastAlive = T0.AddMinutes(45),
         UserId = userId,
@@ -171,6 +197,14 @@ public class LiveSpanRecoveryTests
         Assert.Equal("AUTO", entry.Source);
         Assert.Equal("p1", entry.ProjectId);
         Assert.Equal(1, store.Cleared);
+    }
+
+    [Fact]
+    public void KeepCarriesTheSubproject()
+    {
+        var (recovery, buffer, _) = New(() => "user-1");
+        recovery.Apply(AwayResolution.Keep, Span());
+        Assert.Equal("s2", Only(buffer).SubprojectId);
     }
 
     /// <summary>

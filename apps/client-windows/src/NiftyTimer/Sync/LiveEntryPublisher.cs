@@ -73,6 +73,7 @@ public sealed class LiveEntryPublisher
             {
                 Id = entryId,
                 ProjectId = selection.ProjectId,
+                SubprojectId = selection.SubprojectId,
                 TaskId = selection.TaskId,
                 StartTime = UuidV7.Iso(start),
                 EndTime = null,
@@ -99,6 +100,7 @@ public sealed class LiveEntryPublisher
             {
                 Id = span.EntryId,
                 ProjectId = span.Selection.ProjectId,
+                SubprojectId = span.Selection.SubprojectId,
                 TaskId = span.Selection.TaskId,
                 StartTime = UuidV7.Iso(span.Start),
                 EndTime = UuidV7.Iso(span.End),

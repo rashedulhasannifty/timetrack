@@ -105,7 +105,7 @@ public sealed class AutoTrackingCoordinator : IIdleMonitorDelegate, ISignalRecei
     public void ShouldStartTracking()
     {
         var selection = _currentSelection();
-        _tracker.Start(selection.ProjectId, selection.TaskId, source: TimeTracker.EntrySource.Auto);
+        _tracker.Start(selection.ProjectId, selection.TaskId, source: TimeTracker.EntrySource.Auto, subprojectId: selection.SubprojectId);
         _onTrackingStateChanged();
     }
 
@@ -128,7 +128,8 @@ public sealed class AutoTrackingCoordinator : IIdleMonitorDelegate, ISignalRecei
                 resume,
                 selection.ProjectId,
                 selection.TaskId,
-                TimeTracker.EntrySource.Auto);
+                TimeTracker.EntrySource.Auto,
+                subprojectId: selection.SubprojectId);
         }
 
         Enqueue(awayStart, resume, keeping ? ResolvedAction.Kept : ResolvedAction.Discarded);

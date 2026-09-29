@@ -160,6 +160,22 @@ public class AutoTrackingCoordinatorTests
     }
 
     [Fact]
+    public void AutoStartAndTheKeepBridgeCarryTheSubproject()
+    {
+        var h = Harness.Build();
+        h.Selection = new TimeTracker.Selection("p1", null, SubprojectId: "s2");
+        h.Coordinator.Activate();
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600);            // auto-stop at the away start
+        h.Now = T0.AddMinutes(40);
+        h.Coordinator.Tick(0);              // back -> prompt
+        h.Resolve!(AwayResolution.Keep);    // bridge span recorded
+
+        Assert.True(h.TimeEntries().Count >= 2);
+        Assert.All(h.TimeEntries(), e => Assert.Equal("s2", e.SubprojectId));
+    }
+
+    [Fact]
     public void DiscardWritesNoBridgeButStillRecordsTheDecision()
     {
         var h = Harness.Build();

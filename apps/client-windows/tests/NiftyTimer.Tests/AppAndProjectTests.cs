@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NiftyTimer.App;
 using NiftyTimer.Policy;
 using NiftyTimer.Projects;
@@ -163,6 +164,48 @@ public class UuidV7Tests
         var local = new DateTimeOffset(2026, 8, 25, 15, 4, 5, 678, TimeSpan.FromHours(6));
 
         Assert.Equal("2026-08-25T09:04:05Z", UuidV7.Iso(local));
+    }
+}
+
+public class SubprojectDecodeTests
+{
+    [Fact]
+    public void ALegacyProjectWithoutSubprojectsDecodes()
+    {
+        var json = """{"id":"p1","teamId":"tm","name":"P","archived":false,"tasks":[{"id":"t1","projectId":"p1","name":"T"}]}""";
+
+        var project = JsonSerializer.Deserialize<Project>(json)!;
+
+        Assert.Null(project.Subprojects);
+        Assert.Null(Assert.Single(project.Tasks!).SubprojectId);
+    }
+
+    [Fact]
+    public void SubprojectsAndATasksSubprojectDecode()
+    {
+        var json = """{"id":"p1","teamId":"tm","name":"P","archived":false,"subprojects":[{"id":"s1","projectId":"p1","name":"General","archived":false,"isDefault":true}],"tasks":[{"id":"t1","projectId":"p1","name":"T","subprojectId":"s1"}]}""";
+
+        var project = JsonSerializer.Deserialize<Project>(json)!;
+
+        Assert.True(Assert.Single(project.Subprojects!).IsDefault);
+        Assert.Equal("s1", Assert.Single(project.Tasks!).SubprojectId);
+    }
+
+    [Fact]
+    public void ALegacyStoredSelectionDecodesWithNoSubproject()
+    {
+        var selection = JsonSerializer.Deserialize<StoredSelection>("""{"projectId":"p1","taskId":"t1"}""")!;
+
+        Assert.Equal("t1", selection.TaskId);
+        Assert.Null(selection.SubprojectId);
+    }
+
+    [Fact]
+    public void TheNewestRecentSelectionCarriesItsSubproject()
+    {
+        var rows = new[] { new RecentEntryRow("2026-08-25T09:00:00Z", "p1", null, "s2") };
+
+        Assert.Equal("s2", RecentSelectionClient.NewestSelection(rows)!.SubprojectId);
     }
 }
 

@@ -41,7 +41,7 @@ public sealed class TimeTracker
     }
 
     /// <summary>What the person says they were doing. Free text, theirs, and optional.</summary>
-    public sealed record Selection(string? ProjectId, string? TaskId, string? Note = null);
+    public sealed record Selection(string? ProjectId, string? TaskId, string? Note = null, string? SubprojectId = null);
 
     /// <summary>
     /// Observer of each closed span. Invoked after the entry is enqueued, on the calling
@@ -75,14 +75,15 @@ public sealed class TimeTracker
         string? taskId,
         string? note = null,
         EntrySource source = EntrySource.Manual,
-        DateTimeOffset? startTime = null)
+        DateTimeOffset? startTime = null,
+        string? subprojectId = null)
     {
         if (State is TrackerState.Tracking)
         {
             return; // Already tracking — ignore a second start.
         }
 
-        Open(new Selection(projectId, taskId, note), source, startTime ?? _clock());
+        Open(new Selection(projectId, taskId, note, subprojectId), source, startTime ?? _clock());
     }
 
     /// <summary>
@@ -164,12 +165,13 @@ public sealed class TimeTracker
         string? taskId,
         EntrySource source,
         string? note = null,
-        string? id = null)
+        string? id = null,
+        string? subprojectId = null)
     {
         var entryId = id ?? _idGen(start);
-        Enqueue(entryId, projectId, taskId, start, end, source, note);
+        Enqueue(entryId, projectId, subprojectId, taskId, start, end, source, note);
         SpanClosed?.Invoke(
-            new ClosedSpan(entryId, start, end, new Selection(projectId, taskId, note), source));
+            new ClosedSpan(entryId, start, end, new Selection(projectId, taskId, note, subprojectId), source));
     }
 
     /// <summary>
@@ -228,6 +230,7 @@ public sealed class TimeTracker
         Enqueue(
             tracking.EntryId,
             tracking.Selection.ProjectId,
+            tracking.Selection.SubprojectId,
             tracking.Selection.TaskId,
             tracking.StartedAt,
             endTime,
@@ -251,6 +254,7 @@ public sealed class TimeTracker
     private void Enqueue(
         string id,
         string? projectId,
+        string? subprojectId,
         string? taskId,
         DateTimeOffset start,
         DateTimeOffset end,
@@ -270,6 +274,7 @@ public sealed class TimeTracker
         {
             Id = id,
             ProjectId = projectId,
+            SubprojectId = subprojectId,
             TaskId = taskId,
             StartTime = UuidV7.Iso(start),
             EndTime = UuidV7.Iso(safeEnd),

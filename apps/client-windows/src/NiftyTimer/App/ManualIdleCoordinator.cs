@@ -130,7 +130,8 @@ public sealed class ManualIdleCoordinator : IManualIdleMonitorDelegate, ISignalR
                     tracking.Selection.TaskId,
                     tracking.Selection.Note,
                     TimeTracker.EntrySource.Manual,
-                    startTime: resume);
+                    startTime: resume,
+                    subprojectId: tracking.Selection.SubprojectId);
                 Enqueue(awayStart, resume, ResolvedAction.Discarded);
 
                 // Tell the display clock to keep reading accumulated WORKED time. The fresh entry's

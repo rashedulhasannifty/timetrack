@@ -23,7 +23,8 @@ public abstract record RecentSelectionOutcome
 public sealed record RecentEntryRow(
     [property: JsonPropertyName("startTime")] string StartTime,
     [property: JsonPropertyName("projectId")] string? ProjectId,
-    [property: JsonPropertyName("taskId")] string? TaskId);
+    [property: JsonPropertyName("taskId")] string? TaskId,
+    [property: JsonPropertyName("subprojectId")] string? SubprojectId = null);
 
 /// <summary>
 /// Fallback for a FRESH INSTALL: which project was this person last tracking against? Ported from
@@ -75,6 +76,6 @@ public sealed class RecentSelectionClient
         rows
             .Where(r => r.ProjectId is not null)
             .OrderByDescending(r => r.StartTime, StringComparer.Ordinal)
-            .Select(r => new StoredSelection(r.ProjectId!, r.TaskId))
+            .Select(r => new StoredSelection(r.ProjectId!, r.TaskId, r.SubprojectId))
             .FirstOrDefault();
 }

@@ -323,7 +323,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     /// person typed about work they chose to record, and attaching it to time the machine started
     /// on their behalf would put words in their mouth.
     /// </summary>
-    public TimeTracker.Selection SelectionForAuto => new(_selection?.ProjectId, _selection?.TaskId);
+    public TimeTracker.Selection SelectionForAuto => new(_selection?.ProjectId, _selection?.TaskId, SubprojectId: _selection?.SubprojectId);
 
     public string TodayLabel => _totals is null ? "—" : WorkTotalFormat.Short(Live(_totals.TodaySeconds));
 
@@ -397,7 +397,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
 
         Notice = null;
         _displayStart = null;
-        _tracker.Start(_selection?.ProjectId, _selection?.TaskId, NoteOrNull());
+        _tracker.Start(_selection?.ProjectId, _selection?.TaskId, NoteOrNull(), subprojectId: _selection?.SubprojectId);
         TrackingStarted?.Invoke();
         RaiseTrackingState();
     }
