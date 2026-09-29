@@ -356,6 +356,13 @@ describe('team-settings + policy', () => {
     expect(ListProjectsQuerySchema.safeParse({ teamId: 'nope' }).success).toBe(false);
   });
 
+  it('ListProjectsQuerySchema parses allTeams as a boolean flag defaulting to false', () => {
+    expect(ListProjectsQuerySchema.parse({}).allTeams).toBe(false);
+    expect(ListProjectsQuerySchema.parse({ allTeams: 'true' }).allTeams).toBe(true);
+    expect(ListProjectsQuerySchema.parse({ allTeams: 'false' }).allTeams).toBe(false);
+    expect(ListProjectsQuerySchema.safeParse({ allTeams: 'maybe' }).success).toBe(false);
+  });
+
   it('RenameTeamSchema takes a name and nothing else', () => {
     expect(RenameTeamSchema.parse({ name: 'Support' })).toEqual({ name: 'Support' });
     expect(RenameTeamSchema.safeParse({ name: '' }).success).toBe(false);

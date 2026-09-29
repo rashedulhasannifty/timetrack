@@ -138,6 +138,14 @@ export const ListProjectsQuerySchema = z.object({
    * project stranded by a team change invisible rather than merely unassignable.
    */
   teamId: z.uuid().optional(),
+  /**
+   * ADMIN only: every team's projects in ONE call, instead of one `teamId` call per team (the
+   * clients & work types page has dozens of teams and tripped the throttler). A MANAGER sending
+   * `allTeams=true` is a 403; an EMPLOYEE is pinned to their own team whatever they send, like
+   * `teamId`. Additive: shipped desktop clients never send it, and the response shape is
+   * unchanged.
+   */
+  allTeams: z.stringbool().default(false),
 });
 
 export const ProjectHoursTrendRowSchema = z.object({
