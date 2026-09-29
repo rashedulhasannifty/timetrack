@@ -3,11 +3,13 @@ import { loadEnv } from '@timetrack/config';
 import { ProjectsController } from './projects.controller.js';
 import { ProjectsService } from './projects.service.js';
 import { ProjectsRepository } from './projects.repository.js';
+import { WorkTypesModule } from '../work-types/work-types.module.js';
 import { TRACKING_FRESHNESS_SECONDS } from './projects.tokens.js';
 
 export { TRACKING_FRESHNESS_SECONDS };
 
 @Module({
+  imports: [WorkTypesModule],
   controllers: [ProjectsController],
   providers: [
     ProjectsService,

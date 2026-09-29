@@ -1,8 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
 import { APP_TIMEZONE, DEFAULT_SUBPROJECT_NAME } from '@timetrack/contracts';
 import type { Project, Subproject, Task } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
+import {
+  CONCURRENT_CHANGE,
+  RECONCILE_TX,
+  WorkTypesRepository,
+  catalogConflict,
+  isConcurrencyConflict,
+  lockReconcile,
+} from '../work-types/work-types.repository.js';
 
 /**
  * The effective end of a time entry. A CLOSED entry ends at its `endTime`. An OPEN entry ends
@@ -54,12 +62,29 @@ const SUBPROJECT_SELECT = {
 /** CLAUDE.md §3 — Prisma lives here. Never select `*` back to the client. */
 @Injectable()
 export class ProjectsRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  // Both params carry explicit tokens: once any param has @Inject, Nest stops reflecting the
+  // others, and vitest's transform drops design:paramtypes (see projects.service.ts).
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(WorkTypesRepository) private readonly workTypes: WorkTypesRepository,
+  ) {}
 
   async listByTeam(teamId: string, includeArchived = false): Promise<Project[]> {
+    return this.findProjects({ teamId }, includeArchived);
+  }
+
+  /** Every team's projects (ADMIN `allTeams`): same select and ordering as `listByTeam`. */
+  async listAll(includeArchived = false): Promise<Project[]> {
+    return this.findProjects({}, includeArchived);
+  }
+
+  private async findProjects(
+    scope: { teamId?: string },
+    includeArchived: boolean,
+  ): Promise<Project[]> {
     // One query, not N+1 (CLAUDE.md §4) — tasks come back via the nested select.
-    const rows = await this.prisma.project.findMany({
-      where: { teamId, ...(includeArchived ? {} : { archived: false }) },
+    return this.prisma.project.findMany({
+      where: { ...scope, ...(includeArchived ? {} : { archived: false }) },
       orderBy: { name: 'asc' },
       select: {
         ...PROJECT_SELECT,
@@ -77,7 +102,6 @@ export class ProjectsRepository {
         },
       },
     });
-    return rows;
   }
 
   async createProject(
@@ -86,26 +110,99 @@ export class ProjectsRepository {
     actorId: string,
     color: string | null = null,
   ): Promise<Project> {
-    return this.prisma.$transaction(async (tx) => {
-      const project = await tx.project.create({
-        data: { teamId, name, color },
-        select: PROJECT_SELECT,
-      });
-      // Every project owns exactly one default subproject (partial unique index), created with it.
-      await tx.subproject.create({
-        data: { projectId: project.id, name: DEFAULT_SUBPROJECT_NAME, isDefault: true },
-      });
-      await tx.auditLog.create({
-        data: {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await lockReconcile(tx);
+        const project = await tx.project.create({
+          data: { teamId, name, color },
+          select: PROJECT_SELECT,
+        });
+        // Every project owns exactly one default subproject (partial unique index), created with it.
+        await tx.subproject.create({
+          data: { projectId: project.id, name: DEFAULT_SUBPROJECT_NAME, isDefault: true },
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: 'project.create',
+            targetType: 'project',
+            targetId: project.id,
+            diff: { teamId, name, color },
+          },
+        });
+        // The team's work types, in the same transaction (spec §5): a manager who creates a client
+        // still gets them. One project, but RECONCILE_TX all the same (overrides plan ruling R13):
+        // the transaction can queue on the reconcile lock behind a whole-org re-sync or import.
+        await this.workTypes.reconcile(tx, [project.id], {
           actorId,
-          action: 'project.create',
+          trigger: 'project_create',
           targetType: 'project',
           targetId: project.id,
-          diff: { teamId, name, color },
-        },
-      });
-      return project;
+        });
+        return project;
+      }, RECONCILE_TX);
+    } catch (e) {
+      if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      throw e;
+    }
+  }
+
+  findTeam(teamId: string): Promise<{ id: string; name: string } | null> {
+    return this.prisma.team.findUnique({ where: { id: teamId }, select: { id: true, name: true } });
+  }
+
+  /** Every project name in the org, with its team's name — the import's org-wide duplicate check. */
+  async listAllProjectNames(): Promise<{ name: string; teamName: string }[]> {
+    const rows = await this.prisma.project.findMany({
+      orderBy: { name: 'asc' },
+      select: { name: true, team: { select: { name: true } } },
     });
+    return rows.map((r) => ({ name: r.name, teamName: r.team.name }));
+  }
+
+  /**
+   * The client import (spec §6): every project, its General default, a `project.create` audit row
+   * each, and one reconcile for the lot — all in ONE transaction, with the long timeout.
+   */
+  async createProjectsBulk(
+    teamId: string,
+    items: readonly { name: string; color: string }[],
+    actorId: string,
+  ): Promise<Project[]> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await lockReconcile(tx);
+        const projects = await tx.project.createManyAndReturn({
+          data: items.map((i) => ({ teamId, name: i.name, color: i.color })),
+          select: PROJECT_SELECT,
+        });
+        await tx.subproject.createMany({
+          data: projects.map((p) => ({
+            projectId: p.id,
+            name: DEFAULT_SUBPROJECT_NAME,
+            isDefault: true,
+          })),
+        });
+        await tx.auditLog.createMany({
+          data: projects.map((p) => ({
+            actorId,
+            action: 'project.create',
+            targetType: 'project',
+            targetId: p.id,
+            diff: { teamId, name: p.name, color: p.color },
+          })),
+        });
+        await this.workTypes.reconcile(
+          tx,
+          projects.map((p) => p.id),
+          { actorId, trigger: 'project_bulk_create', targetType: 'team', targetId: teamId },
+        );
+        return projects;
+      }, RECONCILE_TX);
+    } catch (e) {
+      if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      throw e;
+    }
   }
 
   async createTask(subprojectId: string, name: string, actorId: string): Promise<Task> {
@@ -219,14 +316,38 @@ export class ProjectsRepository {
     });
   }
 
-  async findSubprojectForActor(id: string): Promise<(Subproject & { teamId: string }) | null> {
+  /**
+   * `workTypeId` rides along for the service's "managed by the catalog" check ONLY. It is never
+   * added to SUBPROJECT_SELECT: that select feeds GET /v1/projects, which the shipped clients read.
+   */
+  async findSubprojectForActor(
+    id: string,
+  ): Promise<(Subproject & { teamId: string; workTypeId: string | null }) | null> {
     const sub = await this.prisma.subproject.findUnique({
       where: { id },
-      select: { ...SUBPROJECT_SELECT, project: { select: { teamId: true } } },
+      select: { ...SUBPROJECT_SELECT, workTypeId: true, project: { select: { teamId: true } } },
     });
     if (!sub) return null;
     const { project, ...rest } = sub;
     return { ...rest, teamId: project.teamId };
+  }
+
+  /** `excludeId`: the row being renamed or restored, which never clashes with itself. */
+  async hasActiveSubprojectNamed(
+    projectId: string,
+    name: string,
+    excludeId?: string,
+  ): Promise<boolean> {
+    const hit = await this.prisma.subproject.findFirst({
+      where: {
+        projectId,
+        archived: false,
+        name: { equals: name, mode: 'insensitive' },
+        ...(excludeId !== undefined ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    return hit !== null;
   }
 
   listSubprojectsForProject(projectId: string): Promise<Subproject[]> {
@@ -264,24 +385,39 @@ export class ProjectsRepository {
    * tracked stay with the team whose people tracked them.
    */
   async setTeam(id: string, teamId: string, actorId: string): Promise<Project> {
-    return this.prisma.$transaction(async (tx) => {
-      const before = await tx.project.findUnique({ where: { id }, select: { teamId: true } });
-      const project = await tx.project.update({
-        where: { id },
-        data: { teamId },
-        select: PROJECT_SELECT,
-      });
-      await tx.auditLog.create({
-        data: {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await lockReconcile(tx);
+        const before = await tx.project.findUnique({ where: { id }, select: { teamId: true } });
+        const project = await tx.project.update({
+          where: { id },
+          data: { teamId },
+          select: PROJECT_SELECT,
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: 'project.team_change',
+            targetType: 'project',
+            targetId: id,
+            diff: { from: before?.teamId ?? null, to: teamId },
+          },
+        });
+        // Swap to the new team's work types: the old team's linked rows archive (never delete) and
+        // a move back restores the same rows (spec §5, rule 1 and 4). RECONCILE_TX, not the
+        // default: it can queue on the reconcile lock behind a re-sync (overrides plan ruling R13).
+        await this.workTypes.reconcile(tx, [id], {
           actorId,
-          action: 'project.team_change',
+          trigger: 'project_team_change',
           targetType: 'project',
           targetId: id,
-          diff: { from: before?.teamId ?? null, to: teamId },
-        },
-      });
-      return project;
-    });
+        });
+        return project;
+      }, RECONCILE_TX);
+    } catch (e) {
+      if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      throw e;
+    }
   }
 
   findForActor(id: string): Promise<{

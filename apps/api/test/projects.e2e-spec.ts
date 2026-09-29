@@ -1,6 +1,7 @@
 import './test-env.js'; // must run before anything that calls loadEnv()
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { ProjectsRepository } from '../src/modules/projects/projects.repository.js';
+import { WorkTypesRepository } from '../src/modules/work-types/work-types.repository.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
 
@@ -19,7 +20,8 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
   });
 
   function repo(): ProjectsRepository {
-    return new ProjectsRepository(db.prisma as unknown as PrismaService);
+    const prisma = db.prisma as unknown as PrismaService;
+    return new ProjectsRepository(prisma, new WorkTypesRepository(prisma));
   }
 
   async function seedTeam(name = 'Eng') {
@@ -41,7 +43,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
 
     expect(project).toMatchObject({ teamId: team.id, name: 'Website', archived: false });
     const audit = await db.prisma.auditLog.findFirst({
-      where: { targetType: 'project', targetId: project.id },
+      where: { targetType: 'project', targetId: project.id, action: 'project.create' },
     });
     expect(audit?.action).toBe('project.create');
   });
@@ -142,7 +144,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     expect(unarchived.archived).toBe(false);
 
     const actions = await db.prisma.auditLog.findMany({
-      where: { targetType: 'project', targetId: project.id },
+      where: { targetType: 'project', targetId: project.id, action: { startsWith: 'project.' } },
       orderBy: { timestamp: 'asc' },
       select: { action: true },
     });
@@ -718,7 +720,11 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       const team = await seedTeam();
       const project = await repo().createProject(team.id, 'Website', 'actor1');
       const sub = await repo().createSubproject(project.id, 'Checkout', 'actor1');
-      expect(await repo().findSubprojectForActor(sub.id)).toEqual({ ...sub, teamId: team.id });
+      expect(await repo().findSubprojectForActor(sub.id)).toEqual({
+        ...sub,
+        teamId: team.id,
+        workTypeId: null,
+      });
       expect(
         await repo().findSubprojectForActor('019797a0-0000-7000-8000-0000000000ff'),
       ).toBeNull();

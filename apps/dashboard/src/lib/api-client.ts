@@ -72,6 +72,22 @@ import {
   type TeamActivity,
   TeamAppUsageSchema,
   type TeamAppUsage,
+  WorkTypeSchema,
+  WorkTypeListSchema,
+  type WorkType,
+  type WorkTypeWithTeams,
+  BulkCreateWorkTypesResultSchema,
+  type BulkCreateWorkTypes,
+  type BulkCreateWorkTypesResult,
+  type UpdateWorkType,
+  TeamWorkTypesSchema,
+  type SetTeamWorkTypes,
+  type TeamWorkTypes,
+  ReconcileCountsSchema,
+  type ReconcileCounts,
+  BulkCreateProjectsResultSchema,
+  type BulkCreateProjects,
+  type BulkCreateProjectsResult,
 } from '@timetrack/contracts';
 import { z } from 'zod';
 
@@ -116,12 +132,12 @@ export class ApiError extends Error {
 }
 
 /**
- * Authenticated mutating request (POST/PATCH). Used only from server-side Server Actions —
+ * Authenticated mutating request (POST/PATCH/PUT). Used only from server-side Server Actions —
  * the browser never holds the bearer token. On a non-2xx it throws an ApiError carrying the
  * problem+json `title` so the action can surface a precise, non-leaky message.
  */
 async function send<T>(
-  method: 'POST' | 'PATCH',
+  method: 'POST' | 'PATCH' | 'PUT',
   path: string,
   body: unknown,
   schema: z.ZodType<T>,
@@ -264,14 +280,18 @@ export const api = {
     get(`/screenshots?${params}`, z.array(ScreenshotSchema), token),
   redactScreenshot: (token: string, id: string, dto: RedactScreenshot): Promise<Screenshot> =>
     send('POST', `/screenshots/${id}/redact`, dto, ScreenshotSchema, token),
-  /** `teamId` is ADMIN-only server-side; a MANAGER naming another team gets a 403. */
+  /**
+   * `teamId` and `allTeams` are ADMIN-only server-side; a MANAGER naming another team, or asking
+   * for all of them, gets a 403. `allTeams` returns every team's projects in one call.
+   */
   listProjects: (
     token: string,
-    opts?: { includeArchived?: boolean; teamId?: string },
+    opts?: { includeArchived?: boolean; teamId?: string; allTeams?: boolean },
   ): Promise<Project[]> => {
     const q = new URLSearchParams();
     if (opts?.includeArchived) q.set('includeArchived', 'true');
     if (opts?.teamId) q.set('teamId', opts.teamId);
+    if (opts?.allTeams) q.set('allTeams', 'true');
     const qs = q.toString();
     return get(`/projects${qs ? `?${qs}` : ''}`, z.array(ProjectSchema), token);
   },
@@ -329,6 +349,28 @@ export const api = {
     send('PATCH', `/projects/subprojects/${id}`, { archived }, SubprojectSchema, token),
   moveTask: (token: string, id: string, subprojectId: string): Promise<Task> =>
     send('PATCH', `/projects/tasks/${id}`, { subprojectId }, TaskSchema, token),
+  /** ADMIN-only: the work-type catalog with the teams that selected each entry. */
+  listWorkTypes: (token: string): Promise<WorkTypeWithTeams[]> =>
+    get('/work-types', WorkTypeListSchema, token),
+  bulkCreateWorkTypes: (
+    token: string,
+    dto: BulkCreateWorkTypes,
+  ): Promise<BulkCreateWorkTypesResult> =>
+    send('POST', '/work-types/bulk', dto, BulkCreateWorkTypesResultSchema, token),
+  updateWorkType: (token: string, id: string, dto: UpdateWorkType): Promise<WorkType> =>
+    send('PATCH', `/work-types/${id}`, dto, WorkTypeSchema, token),
+  /** The team's full non-archived selection; the API keeps archived links (ruling R5). */
+  setTeamWorkTypes: (
+    token: string,
+    teamId: string,
+    dto: SetTeamWorkTypes,
+  ): Promise<TeamWorkTypes> =>
+    send('PUT', `/work-types/teams/${teamId}`, dto, TeamWorkTypesSchema, token),
+  resyncWorkTypes: (token: string): Promise<ReconcileCounts> =>
+    send('POST', '/work-types/resync', {}, ReconcileCountsSchema, token),
+  /** ADMIN-only client import into one team. */
+  bulkCreateProjects: (token: string, dto: BulkCreateProjects): Promise<BulkCreateProjectsResult> =>
+    send('POST', '/projects/bulk', dto, BulkCreateProjectsResultSchema, token),
   exportReportCsv: (token: string, params: URLSearchParams): Promise<Response> =>
     getRaw(`/reports/export.csv?${params}`, token),
 

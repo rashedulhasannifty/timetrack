@@ -46,27 +46,27 @@ enum Platform {
 }
 
 model User {
-  id              String    @id @default(uuid(7))
-  email           String    @unique
-  name            String
-  role            Role      @default(EMPLOYEE)
+  id                 String              @id @default(uuid(7))
+  email              String              @unique
+  name               String
+  role               Role                @default(EMPLOYEE)
   /// PRD §6.8 — null for SSO-only users (no password). Password login rejects a null hash.
-  passwordHash    String?
+  passwordHash       String?
   /// PRD §6.8 (slice 4.4) — the OIDC provider + subject an SSO user is linked to. Both null
   /// for password-only users. The composite is unique; Postgres treats any-NULL rows as
   /// distinct, so every password user coexists at (null, null).
-  ssoProvider     String?
-  ssoSubject      String?
+  ssoProvider        String?
+  ssoSubject         String?
   /// PRD §4.1 — null means monitoring MUST NOT run. There is no admin override.
-  monitoringAckAt DateTime?
-  teamId          String
-  team            Team      @relation(fields: [teamId], references: [id])
-  deactivatedAt   DateTime?
-  createdAt       DateTime  @default(now())
-  timeEntries     TimeEntry[]
-  refreshTokens   RefreshToken[]
+  monitoringAckAt    DateTime?
+  teamId             String
+  team               Team                @relation(fields: [teamId], references: [id])
+  deactivatedAt      DateTime?
+  createdAt          DateTime            @default(now())
+  timeEntries        TimeEntry[]
+  refreshTokens      RefreshToken[]
   timesheetApprovals TimesheetApproval[]
-  clientInstalls  ClientInstall[]
+  clientInstalls     ClientInstall[]
 
   @@unique([ssoProvider, ssoSubject])
   @@index([teamId, deactivatedAt])
@@ -113,13 +113,14 @@ model ClientInstall {
 }
 
 model Team {
-  id       String    @id @default(uuid(7))
-  name     String
+  id        String         @id @default(uuid(7))
+  name      String
   /// Validated by TeamSettingsSchema (Zod) on read AND write.
-  settings Json      @default("{}")
-  users    User[]
-  projects Project[]
-  invites  Invite[]
+  settings  Json           @default("{}")
+  users     User[]
+  projects  Project[]
+  invites   Invite[]
+  workTypes TeamWorkType[]
 
   @@map("teams")
 }
@@ -159,17 +160,45 @@ model Project {
 /// Exactly one `isDefault` subproject ("General") per project, enforced by the raw-SQL partial
 /// unique index `subprojects_one_default_per_project` (see migrations). A partial index is
 /// invisible to Prisma's diff, so there is no PSL @@unique here.
+/// `workTypeId` links a row to the work-type catalog; the raw-SQL partial unique index
+/// `subprojects_one_per_work_type` allows at most one linked row per (project, work type).
 model Subproject {
-  id        String  @id @default(uuid(7))
-  projectId String
-  name      String
-  archived  Boolean @default(false)
-  isDefault Boolean @default(false)
-  project   Project @relation(fields: [projectId], references: [id])
-  tasks     Task[]
+  id         String    @id @default(uuid(7))
+  projectId  String
+  name       String
+  archived   Boolean   @default(false)
+  isDefault  Boolean   @default(false)
+  workTypeId String?
+  project    Project   @relation(fields: [projectId], references: [id])
+  workType   WorkType? @relation(fields: [workTypeId], references: [id])
+  tasks      Task[]
 
   @@index([projectId, archived])
   @@map("subprojects")
+}
+
+/// The global catalog of kinds of work (spec 2026-09-29). Names are unique case-insensitively via
+/// the raw-SQL expression index `work_types_name_ci_unique` — invisible to Prisma's diff.
+model WorkType {
+  id          String         @id @default(uuid(7))
+  name        String
+  archived    Boolean        @default(false)
+  teams       TeamWorkType[]
+  subprojects Subproject[]
+
+  @@map("work_types")
+}
+
+/// Which work types a team does. Every project of the team carries one linked subproject per
+/// selected, non-archived work type (kept in step by WorkTypesRepository.reconcile).
+model TeamWorkType {
+  teamId     String
+  workTypeId String
+  team       Team     @relation(fields: [teamId], references: [id])
+  workType   WorkType @relation(fields: [workTypeId], references: [id])
+
+  @@id([teamId, workTypeId])
+  @@map("team_work_types")
 }
 
 model Task {
@@ -193,29 +222,29 @@ model Task {
 /// limitation). A partial index is invisible to Prisma's diff, so no PSL @@unique here.
 model TimeEntry {
   /// UUIDv7 minted on the client — the idempotency key for offline sync (PRD §7.5).
-  id         String      @id
-  userId     String
-  projectId  String?
-  taskId     String?
+  id           String      @id
+  userId       String
+  projectId    String?
+  taskId       String?
   /// Filled by the server (TimeEntriesService.resolveSubproject). Null when the entry has no
   /// project, or names a project that does not exist. No FK and no CHECK, like projectId/taskId:
   /// a constraint here would turn a shipped client's stale project id into a retry-forever 500.
   subprojectId String?
-  startTime  DateTime
-  endTime    DateTime?
-  source     EntrySource
-  note       String?
-  editedById String?
-  editedAt   DateTime?
+  startTime    DateTime
+  endTime      DateTime?
+  source       EntrySource
+  note         String?
+  editedById   String?
+  editedAt     DateTime?
   /// Server-stamped on every upsert. Drives the staleness clamp: an open entry whose client
   /// has stopped heartbeating stops accruing duration (spec §4.3). Null on rows written before
   /// this column existed — readers fall back to `startTime`.
-  heartbeatAt DateTime?
+  heartbeatAt  DateTime?
   /// Which client reported this span, for the per-platform split in "who is tracking now".
   /// Null for every row written before this column existed and for any client too old to
   /// send it, so a reader must never treat "not WINDOWS" as "MACOS".
-  platform   Platform?
-  user       User        @relation(fields: [userId], references: [id])
+  platform     Platform?
+  user         User        @relation(fields: [userId], references: [id])
 
   @@index([userId, startTime])
   @@index([projectId])

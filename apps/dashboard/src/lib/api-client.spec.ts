@@ -519,3 +519,117 @@ describe('api.trends', () => {
     ).toEqual(payload);
   });
 });
+
+describe('api — work types and client import', () => {
+  const WT = {
+    id: '019797a0-0000-7000-8000-0000000000d1',
+    name: 'Payroll',
+    archived: false,
+  };
+  const TEAM = '019797a0-0000-7000-8000-0000000000bb';
+
+  it('listWorkTypes parses the catalog with team ids', async () => {
+    const body = [{ ...WT, teamIds: [TEAM] }];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response(JSON.stringify(body), { status: 200 })),
+    );
+    expect(await api.listWorkTypes('tok')).toEqual(body);
+  });
+
+  it('setTeamWorkTypes PUTs the full set to the team-scoped route', async () => {
+    const fetchMock = vi.fn(
+      (_url: string | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify({ teamId: TEAM, workTypeIds: [WT.id] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await api.setTeamWorkTypes('tok', TEAM, { workTypeIds: [WT.id] });
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain(`/v1/work-types/teams/${TEAM}`);
+    expect(init?.method).toBe('PUT');
+    expect(init?.body).toBe(JSON.stringify({ workTypeIds: [WT.id] }));
+  });
+
+  it('updateWorkType surfaces a 409 title as an ApiError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Response(JSON.stringify({ title: 'A work type with this name already exists' }), {
+            status: 409,
+          }),
+      ),
+    );
+    await expect(api.updateWorkType('tok', WT.id, { name: 'payroll' })).rejects.toMatchObject({
+      status: 409,
+      message: 'A work type with this name already exists',
+    });
+  });
+
+  it('resyncWorkTypes POSTs and parses the counts', async () => {
+    const counts = { projects: 2, created: 1, linked: 0, restored: 0, renamed: 0, archived: 0 };
+    const fetchMock = vi.fn(
+      (_url: string | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify(counts), { status: 201 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await api.resyncWorkTypes('tok')).toEqual(counts);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/v1/work-types/resync');
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('POST');
+  });
+
+  it('bulkCreateWorkTypes and bulkCreateProjects parse created + skipped', async () => {
+    const wtResult = { created: [WT], skipped: [{ name: 'General', reason: 'Reserved name' }] };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response(JSON.stringify(wtResult), { status: 201 })),
+    );
+    expect(await api.bulkCreateWorkTypes('tok', { names: ['Payroll', 'General'] })).toEqual(
+      wtResult,
+    );
+
+    const projectResult = {
+      created: [
+        {
+          id: '019797a0-0000-7000-8000-0000000000e1',
+          teamId: TEAM,
+          name: 'Acme',
+          color: '#007aff',
+          archived: false,
+        },
+      ],
+      skipped: [{ name: 'globex', reason: 'Duplicate in list' }],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response(JSON.stringify(projectResult), { status: 201 })),
+    );
+    expect(await api.bulkCreateProjects('tok', { teamId: TEAM, names: ['Acme'] })).toEqual(
+      projectResult,
+    );
+  });
+});
+
+describe('api.listProjects', () => {
+  function stubFetch() {
+    const fetchMock = vi.fn((_url: string) => new Response('[]', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+  const urlOf = (m: ReturnType<typeof stubFetch>) => String(m.mock.calls[0]?.[0]);
+
+  it('sends allTeams=true only when asked, alongside includeArchived', async () => {
+    const m = stubFetch();
+    await api.listProjects('tok', { includeArchived: true, allTeams: true });
+    expect(urlOf(m)).toContain('/projects?includeArchived=true&allTeams=true');
+  });
+
+  it('omits allTeams when false or absent', async () => {
+    const m = stubFetch();
+    await api.listProjects('tok', { includeArchived: true, allTeams: false });
+    expect(urlOf(m)).toMatch(/\/projects\?includeArchived=true$/);
+    const m2 = stubFetch();
+    await api.listProjects('tok');
+    expect(urlOf(m2)).toMatch(/\/projects$/);
+  });
+});

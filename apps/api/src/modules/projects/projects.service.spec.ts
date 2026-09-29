@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { PROJECT_PALETTE } from '@timetrack/contracts';
 import { ProjectsService } from './projects.service.js';
 import type { ProjectsRepository } from './projects.repository.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
@@ -16,6 +17,7 @@ const FRESHNESS = 300;
 function makeService(overrides: Partial<ProjectsRepository> = {}) {
   const repo = {
     listByTeam: vi.fn(),
+    listAll: vi.fn(),
     createProject: vi.fn(),
     createTask: vi.fn(),
     findForActor: vi.fn(),
@@ -35,6 +37,22 @@ function makeService(overrides: Partial<ProjectsRepository> = {}) {
     listSubprojectsForProject: vi.fn(),
     moveTask: vi.fn(),
     subprojectsForProject: vi.fn().mockResolvedValue([]),
+    findTeam: vi.fn().mockResolvedValue({ id: 't1', name: 'Eng' }),
+    listAllProjectNames: vi.fn().mockResolvedValue([]),
+    createProjectsBulk: vi
+      .fn()
+      .mockImplementation((teamId: string, items: { name: string; color: string }[]) =>
+        Promise.resolve(
+          items.map((i, n) => ({
+            id: `p${n}`,
+            teamId,
+            name: i.name,
+            color: i.color,
+            archived: false,
+          })),
+        ),
+      ),
+    hasActiveSubprojectNamed: vi.fn().mockResolvedValue(false),
     ...overrides,
   } as unknown as ProjectsRepository;
   return { svc: new ProjectsService(repo, FRESHNESS), repo };
@@ -67,6 +85,7 @@ const SUB = {
   name: 'Checkout',
   archived: false,
   isDefault: false,
+  workTypeId: null,
   teamId: 't1',
 };
 const TASK = {
@@ -519,6 +538,45 @@ describe('ProjectsService.list team scoping', () => {
     await svc.list(manager, true, 't1');
     expect(repo.listByTeam).toHaveBeenCalledWith('t1', true);
   });
+
+  describe('allTeams', () => {
+    it('gives an ADMIN every team in one repo call, honouring includeArchived', async () => {
+      const { svc, repo } = makeService();
+      await svc.list(admin, true, undefined, true);
+      expect(repo.listAll).toHaveBeenCalledWith(true);
+      expect(repo.listByTeam).not.toHaveBeenCalled();
+    });
+
+    it('lets allTeams win over a teamId for an ADMIN', async () => {
+      const { svc, repo } = makeService();
+      await svc.list(admin, false, OTHER, true);
+      expect(repo.listAll).toHaveBeenCalledWith(false);
+      expect(repo.listByTeam).not.toHaveBeenCalled();
+    });
+
+    it('403s a MANAGER sending allTeams', async () => {
+      const { svc, repo } = makeService();
+      await expect(svc.list(manager, false, undefined, true)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(repo.listAll).not.toHaveBeenCalled();
+      expect(repo.listByTeam).not.toHaveBeenCalled();
+    });
+
+    it('pins an EMPLOYEE to their own team, ignoring allTeams', async () => {
+      const { svc, repo } = makeService();
+      await svc.list(employee, false, undefined, true);
+      expect(repo.listByTeam).toHaveBeenCalledWith('t1', false);
+      expect(repo.listAll).not.toHaveBeenCalled();
+    });
+
+    it('leaves allTeams=false on the existing per-team path', async () => {
+      const { svc, repo } = makeService();
+      await svc.list(admin, false, OTHER, false);
+      expect(repo.listByTeam).toHaveBeenCalledWith(OTHER, false);
+      expect(repo.listAll).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('ProjectsService.update — moving a project between teams', () => {
@@ -573,5 +631,133 @@ describe('ProjectsService.update — moving a project between teams', () => {
     await expect(svc.update('nope', { teamId: OTHER }, admin)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+describe('ProjectsService.bulkCreate', () => {
+  const TEAM = '01920000-0000-7000-8000-0000000000c1';
+
+  it('404s an unknown team and creates nothing', async () => {
+    const { svc, repo } = makeService({ findTeam: vi.fn().mockResolvedValue(null) });
+    await expect(svc.bulkCreate({ teamId: TEAM, names: ['A'] }, admin)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(repo.createProjectsBulk).not.toHaveBeenCalled();
+  });
+
+  it('skips org-wide existing names with their team, and in-list repeats', async () => {
+    const { svc, repo } = makeService({
+      listAllProjectNames: vi.fn().mockResolvedValue([{ name: 'Acme Ltd', teamName: 'Support' }]),
+    });
+    const out = await svc.bulkCreate(
+      { teamId: TEAM, names: ['acme ltd', 'Globex', 'globex'] },
+      admin,
+    );
+    expect(out.skipped).toEqual([
+      { name: 'acme ltd', reason: 'Already exists in Support' },
+      { name: 'globex', reason: 'Duplicate in list' },
+    ]);
+    expect(repo.createProjectsBulk).toHaveBeenCalledWith(
+      't1',
+      [{ name: 'Globex', color: PROJECT_PALETTE[0] }],
+      'a1',
+    );
+  });
+
+  it('assigns palette colours in turn, wrapping around', async () => {
+    const { svc, repo } = makeService();
+    const names = Array.from({ length: PROJECT_PALETTE.length + 1 }, (_, i) => `Client ${i}`);
+    await svc.bulkCreate({ teamId: TEAM, names }, admin);
+    const items = vi.mocked(repo.createProjectsBulk).mock.calls[0]?.[1] ?? [];
+    expect(items.map((i) => i.color)).toEqual([...PROJECT_PALETTE, PROJECT_PALETTE[0]]);
+  });
+
+  it('bulkCreate skips over-long names instead of failing the batch', async () => {
+    const { svc } = makeService();
+    const long = 'n'.repeat(201);
+    const out = await svc.bulkCreate({ teamId: TEAM, names: [long, 'Ok'] }, admin);
+    expect(out.skipped).toEqual([{ name: long, reason: 'Longer than 200 characters' }]);
+    expect(out.created.map((p) => p.name)).toEqual(['Ok']);
+  });
+
+  it('does not call the repository when every name was skipped', async () => {
+    const { svc, repo } = makeService();
+    await expect(svc.bulkCreate({ teamId: TEAM, names: ['  '] }, admin)).resolves.toEqual({
+      created: [],
+      skipped: [{ name: '  ', reason: 'Empty name' }],
+    });
+    expect(repo.createProjectsBulk).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProjectsService — catalog-managed subprojects', () => {
+  it('409s renaming or archiving a subproject linked to a work type', async () => {
+    const { svc, repo } = makeService({
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, workTypeId: 'w1' }),
+    });
+    for (const dto of [{ name: 'Pay' }, { archived: true }]) {
+      await expect(svc.updateSubproject('s1', dto, manager)).rejects.toMatchObject({
+        response: { title: 'Managed by the work type catalog', status: 409 },
+      });
+    }
+    expect(repo.updateSubproject).not.toHaveBeenCalled();
+  });
+
+  it('409s a new subproject whose name an active one already has', async () => {
+    const { svc, repo } = makeService({
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }),
+      hasActiveSubprojectNamed: vi.fn().mockResolvedValue(true),
+    });
+    await expect(
+      svc.createSubproject({ projectId: 'p1', name: 'payroll' }, manager),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(repo.hasActiveSubprojectNamed).toHaveBeenCalledWith('p1', 'payroll');
+    expect(repo.createSubproject).not.toHaveBeenCalled();
+  });
+
+  it('409s a rename or a restore onto a name another active subproject has, excluding itself', async () => {
+    const DUP = 'This project already has a subproject with that name';
+    const renamed = makeService({ hasActiveSubprojectNamed: vi.fn().mockResolvedValue(true) });
+    renamed.repo.findSubprojectForActor = vi.fn().mockResolvedValue(SUB);
+    await expect(
+      renamed.svc.updateSubproject('s1', { name: ' payroll ' }, manager),
+    ).rejects.toMatchObject({ response: { title: DUP, status: 409 } });
+    expect(renamed.repo.hasActiveSubprojectNamed).toHaveBeenCalledWith('p1', 'payroll', 's1');
+
+    const restored = makeService({
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, archived: true }),
+      hasActiveSubprojectNamed: vi.fn().mockResolvedValue(true),
+    });
+    await expect(
+      restored.svc.updateSubproject('s1', { archived: false }, manager),
+    ).rejects.toMatchObject({ response: { title: DUP, status: 409 } });
+    expect(restored.repo.hasActiveSubprojectNamed).toHaveBeenCalledWith('p1', 'Checkout', 's1');
+    expect(restored.repo.updateSubproject).not.toHaveBeenCalled();
+  });
+
+  it('skips the name check when the row stays archived or is being archived', async () => {
+    const archivedRename = makeService({
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, archived: true }),
+      hasActiveSubprojectNamed: vi.fn().mockResolvedValue(true),
+    });
+    await archivedRename.svc.updateSubproject('s1', { name: 'Payroll' }, manager);
+    await archivedRename.svc.updateSubproject('s1', { name: 'Payroll', archived: true }, manager);
+    expect(archivedRename.repo.hasActiveSubprojectNamed).not.toHaveBeenCalled();
+    expect(archivedRename.repo.updateSubproject).toHaveBeenCalledTimes(2);
+
+    const archiving = makeService({
+      findSubprojectForActor: vi.fn().mockResolvedValue(SUB),
+      hasActiveSubprojectNamed: vi.fn().mockResolvedValue(true),
+    });
+    await archiving.svc.updateSubproject('s1', { archived: true }, manager);
+    expect(archiving.repo.hasActiveSubprojectNamed).not.toHaveBeenCalled();
+  });
+
+  it('checks the trimmed name, so "Payroll " is caught', async () => {
+    const { svc, repo } = makeService({
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }),
+    });
+    await svc.createSubproject({ projectId: 'p1', name: 'Payroll ' }, manager);
+    expect(repo.hasActiveSubprojectNamed).toHaveBeenCalledWith('p1', 'Payroll');
   });
 });

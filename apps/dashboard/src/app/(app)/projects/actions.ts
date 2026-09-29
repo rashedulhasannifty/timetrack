@@ -133,6 +133,8 @@ export async function moveProjectAction(
     await api.moveProject(session.accessToken, id, parsed.data.teamId);
     revalidatePath('/projects');
     revalidatePath(`/projects/${id}`);
+    // The Clients & work types table moves projects with this same control.
+    revalidatePath('/admin/catalog');
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Move failed.' };
