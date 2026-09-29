@@ -166,6 +166,76 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
     await expect(db.prisma.project.count()).resolves.toBe(0);
   });
+
+  it('409s renaming or archiving a catalog-managed subproject; hand-made ones stay editable', async () => {
+    const eng = await team('Eng');
+    await select(eng, 'Payroll');
+    const p = await client(eng, 'Acme');
+    const linked = await db.prisma.subproject.findFirstOrThrow({
+      where: { projectId: p.id, name: 'Payroll' },
+      select: { id: true },
+    });
+
+    expect(await titleOf(projects().updateSubproject(linked.id, { name: 'Pay' }, admin(eng)))).toBe(
+      'Managed by the work type catalog',
+    );
+    expect(
+      await titleOf(projects().updateSubproject(linked.id, { archived: true }, admin(eng))),
+    ).toBe('Managed by the work type catalog');
+
+    const handMade = await projects().createSubproject(
+      { projectId: p.id, name: 'Special' },
+      admin(eng),
+    );
+    await expect(
+      projects().updateSubproject(handMade.id, { archived: true }, admin(eng)),
+    ).resolves.toMatchObject({ archived: true });
+  });
+
+  it('409s a new subproject whose name an active one has, case-insensitively; archived names are free', async () => {
+    const eng = await team('Eng');
+    await select(eng, 'Payroll');
+    const p = await client(eng, 'Acme');
+
+    await expect(
+      projects().createSubproject({ projectId: p.id, name: 'PAYROLL' }, admin(eng)),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      projects().createSubproject({ projectId: p.id, name: 'general' }, admin(eng)),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    const old = await projects().createSubproject({ projectId: p.id, name: 'Old' }, admin(eng));
+    await projects().updateSubproject(old.id, { archived: true }, admin(eng));
+    await expect(
+      projects().createSubproject({ projectId: p.id, name: 'old' }, admin(eng)),
+    ).resolves.toMatchObject({ name: 'old' });
+  });
+
+  it("an EMPLOYEE sees only their team's clients, each with General plus the enabled work types", async () => {
+    const eng = await team('Eng');
+    const support = await team('Support');
+    const ids = await select(eng, 'Payroll', 'AdHoc');
+    await select(support, 'Internal');
+    await client(eng, 'Acme');
+    await client(support, 'Initech');
+    // AdHoc is switched off for Eng afterwards: its rows archive and leave the picker.
+    await catalog().setTeamSelection(eng, { workTypeIds: [ids.get('Payroll')!] }, admin(eng));
+
+    const employee: SessionUser = {
+      id: '01920000-0000-7000-8000-0000000000e1',
+      role: 'EMPLOYEE',
+      teamId: eng,
+    };
+    // Naming another team does not widen an EMPLOYEE's scope.
+    const list = await projects().list(employee, false, support);
+    expect(list.map((p) => p.name)).toEqual(['Acme']);
+    const subs = list[0]?.subprojects ?? [];
+    expect(subs.map((s) => s.name)).toEqual(['General', 'Payroll']);
+    // The /v1 shape the shipped clients read is unchanged: no workTypeId on the wire.
+    for (const s of subs) {
+      expect(Object.keys(s).sort()).toEqual(['archived', 'id', 'isDefault', 'name', 'projectId']);
+    }
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.

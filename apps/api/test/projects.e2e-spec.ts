@@ -720,7 +720,11 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       const team = await seedTeam();
       const project = await repo().createProject(team.id, 'Website', 'actor1');
       const sub = await repo().createSubproject(project.id, 'Checkout', 'actor1');
-      expect(await repo().findSubprojectForActor(sub.id)).toEqual({ ...sub, teamId: team.id });
+      expect(await repo().findSubprojectForActor(sub.id)).toEqual({
+        ...sub,
+        teamId: team.id,
+        workTypeId: null,
+      });
       expect(
         await repo().findSubprojectForActor('019797a0-0000-7000-8000-0000000000ff'),
       ).toBeNull();

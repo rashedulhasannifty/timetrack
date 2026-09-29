@@ -296,14 +296,28 @@ export class ProjectsRepository {
     });
   }
 
-  async findSubprojectForActor(id: string): Promise<(Subproject & { teamId: string }) | null> {
+  /**
+   * `workTypeId` rides along for the service's "managed by the catalog" check ONLY. It is never
+   * added to SUBPROJECT_SELECT: that select feeds GET /v1/projects, which the shipped clients read.
+   */
+  async findSubprojectForActor(
+    id: string,
+  ): Promise<(Subproject & { teamId: string; workTypeId: string | null }) | null> {
     const sub = await this.prisma.subproject.findUnique({
       where: { id },
-      select: { ...SUBPROJECT_SELECT, project: { select: { teamId: true } } },
+      select: { ...SUBPROJECT_SELECT, workTypeId: true, project: { select: { teamId: true } } },
     });
     if (!sub) return null;
     const { project, ...rest } = sub;
     return { ...rest, teamId: project.teamId };
+  }
+
+  async hasActiveSubprojectNamed(projectId: string, name: string): Promise<boolean> {
+    const hit = await this.prisma.subproject.findFirst({
+      where: { projectId, archived: false, name: { equals: name, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    return hit !== null;
   }
 
   listSubprojectsForProject(projectId: string): Promise<Subproject[]> {

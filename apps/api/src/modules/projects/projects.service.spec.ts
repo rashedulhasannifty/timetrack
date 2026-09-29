@@ -84,6 +84,7 @@ const SUB = {
   name: 'Checkout',
   archived: false,
   isDefault: false,
+  workTypeId: null,
   teamId: 't1',
 };
 const TASK = {
@@ -646,5 +647,31 @@ describe('ProjectsService.bulkCreate', () => {
       skipped: [{ name: '  ', reason: 'Empty name' }],
     });
     expect(repo.createProjectsBulk).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProjectsService — catalog-managed subprojects', () => {
+  it('409s renaming or archiving a subproject linked to a work type', async () => {
+    const { svc, repo } = makeService({
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, workTypeId: 'w1' }),
+    });
+    for (const dto of [{ name: 'Pay' }, { archived: true }]) {
+      await expect(svc.updateSubproject('s1', dto, manager)).rejects.toMatchObject({
+        response: { title: 'Managed by the work type catalog', status: 409 },
+      });
+    }
+    expect(repo.updateSubproject).not.toHaveBeenCalled();
+  });
+
+  it('409s a new subproject whose name an active one already has', async () => {
+    const { svc, repo } = makeService({
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }),
+      hasActiveSubprojectNamed: vi.fn().mockResolvedValue(true),
+    });
+    await expect(
+      svc.createSubproject({ projectId: 'p1', name: 'payroll' }, manager),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(repo.hasActiveSubprojectNamed).toHaveBeenCalledWith('p1', 'payroll');
+    expect(repo.createSubproject).not.toHaveBeenCalled();
   });
 });

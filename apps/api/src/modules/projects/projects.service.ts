@@ -114,6 +114,11 @@ export class ProjectsService {
     const project = await this.repo.findForActor(dto.projectId);
     if (!project) throw this.notFound();
     this.assertCanAdminister(project.teamId, actor);
+    // Case-insensitive, active rows only (spec §5): stops a hand-made "payroll" shadowing the
+    // catalog's "Payroll", and a second "General".
+    if (await this.repo.hasActiveSubprojectNamed(dto.projectId, dto.name)) {
+      throw this.conflict('This project already has a subproject with that name');
+    }
     return this.repo.createSubproject(dto.projectId, dto.name, actor.id);
   }
 
@@ -125,6 +130,9 @@ export class ProjectsService {
     const sub = await this.repo.findSubprojectForActor(id);
     if (!sub) throw this.notFound('Subproject not found');
     this.assertCanAdminister(sub.teamId, actor);
+    // Linked rows are renamed/archived only by reconcile; a local edit would be undone by the
+    // next catalog change anyway (spec §5).
+    if (sub.workTypeId !== null) throw this.conflict('Managed by the work type catalog');
     // The default is where entries with no explicit subproject land; archiving it would leave
     // new time with nowhere assignable to go.
     if (dto.archived === true && sub.isDefault) {
