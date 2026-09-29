@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:ui="clr-namespace:NiftyTimer.UI">
 
     <!-- Templates for the stock controls. Stock WPF chrome is Aero-era grey regardless of which
          brushes are bound to it, so recolouring alone does not change how the client reads —
@@ -34,9 +35,11 @@
     <Geometry x:Key="PauseGlyph">M 1,0 H 4 V 10 H 1 Z M 6,0 H 9 V 10 H 6 Z</Geometry>
     <Geometry x:Key="StopGlyph">M 1,1 H 9 V 9 H 1 Z</Geometry>
 
-    <!-- The project picker's checkmark: bound to ListBoxItem.IsSelected via a RelativeSource, not
-         to the row's own data, so it needs no boolean property on PickerChoice. -->
+    <!-- The project picker's checkmark: bound to PickerRow.IsCurrent (the tracked selection), not
+         to ListBoxItem.IsSelected, which is the keyboard highlight. -->
     <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    <ui:PickerRowLeadingGlyphConverter x:Key="PickerRowLeadingGlyph" />
+    <ui:PickerRowTrailingGlyphConverter x:Key="PickerRowTrailingGlyph" />
 
     <!-- The default. Matches the macOS client's .bordered: outlined, quiet, safe to repeat. -->
     <Style x:Key="BorderedButton" TargetType="Button">

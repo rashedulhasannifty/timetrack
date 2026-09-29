@@ -3,10 +3,12 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using NiftyTimer.App;
+using NiftyTimer.Projects;
 
 namespace NiftyTimer.UI;
 
@@ -77,6 +79,7 @@ public partial class TrayPopupWindow : Window
     /// </summary>
     public void ShowNearTray()
     {
+        _viewModel.ResetPicker();
         Render();
 
         RepositionNearTray();
@@ -168,7 +171,8 @@ public partial class TrayPopupWindow : Window
         Render(picker: e.PropertyName is null or ""
             or nameof(MenuViewModel.Projects)
             or nameof(MenuViewModel.Selection)
-            or nameof(MenuViewModel.FilteredChoices));
+            or nameof(MenuViewModel.PickerRows)
+            or nameof(MenuViewModel.Query));
 
     private void Render(bool picker = true)
     {
@@ -271,22 +275,17 @@ public partial class TrayPopupWindow : Window
     }
 
     /// <summary>
-    /// Refill the list from the view model's filtered projection.
+    /// Refill the list from the view model's rows for the current level.
     ///
-    /// Reassigning ItemsSource on every Render is cheap at this size and keeps the window's single
-    /// imperative-push model intact (PR 2 is structural parity, not an MVVM migration). The
-    /// selection is restored by VALUE rather than by reference, because the projection rebuilds its
-    /// records on every read and the old instance is never the new one.
-    ///
-    /// The reassignment is guarded, though: <c>Render()</c> also runs once a second off the
-    /// popup's own tick (<see cref="MenuViewModel.Tick"/> raises <c>ElapsedLabel</c>, which this
-    /// window is subscribed to regardless of tracking state while the popup is visible), and
-    /// <see cref="MenuViewModel.FilteredChoices"/> allocates a fresh list on every read. An
+    /// The reassignment is guarded: <c>Render()</c> also runs once a second off the popup's own
+    /// tick (<see cref="MenuViewModel.Tick"/> raises <c>ElapsedLabel</c>, which this window is
+    /// subscribed to regardless of tracking state while the popup is visible), and
+    /// <see cref="MenuViewModel.PickerRows"/> allocates a fresh list on every read. An
     /// unconditional reassignment would hand the ListBox a new collection every second, which
     /// regenerates its containers and resets the scroll offset to the top — so anyone scrolled
     /// into a long project list would get snapped back to row one while the popup just sits
-    /// there. <c>PickerChoice</c> is a record, so <c>SequenceEqual</c> compares the rows by value
-    /// and only replaces the source when the projection actually changed.
+    /// there. <c>PickerRow</c> is a record, so <c>SequenceEqual</c> compares the rows by value
+    /// and only replaces the source when the rows actually changed.
     /// </summary>
     private void RenderPicker()
     {
@@ -296,18 +295,13 @@ public partial class TrayPopupWindow : Window
         }
 
         SearchHint.Visibility = _viewModel.Query.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        SelectionHeader.Text = _viewModel.SelectionLabel;
 
-        var choices = _viewModel.FilteredChoices;
-        if (ProjectList.ItemsSource is not IReadOnlyList<PickerChoice> shown || !shown.SequenceEqual(choices))
+        var rows = _viewModel.PickerRows;
+        if (ProjectList.ItemsSource is not IReadOnlyList<PickerRow> shown || !shown.SequenceEqual(rows))
         {
-            ProjectList.ItemsSource = choices;
+            ProjectList.ItemsSource = rows;
         }
-
-        // A selection the filter hides shows no row as selected; it is still the selection.
-        var selected = _viewModel.SelectedChoice;
-        ProjectList.SelectedItem = selected is null
-            ? null
-            : choices.FirstOrDefault(c => c.ProjectId == selected.ProjectId && c.TaskId == selected.TaskId);
     }
 
     private void OnQueryChanged(object sender, TextChangedEventArgs e)
@@ -318,15 +312,78 @@ public partial class TrayPopupWindow : Window
         }
     }
 
-    private void OnProjectSelected(object sender, SelectionChangedEventArgs e)
+    /// <summary>
+    /// Rows are activated by a click or Enter, never by SelectionChanged: with drill rows, arrowing
+    /// through the list would otherwise drill or switch tracking on every keypress.
+    /// </summary>
+    private void OnListClicked(object sender, MouseButtonEventArgs e)
     {
-        if (_suppressCallbacks || ProjectList.SelectedItem is not PickerChoice choice)
+        if (e.OriginalSource is DependencyObject source
+            && ItemsControl.ContainerFromElement(ProjectList, source) is ListBoxItem { DataContext: PickerRow row })
         {
-            return;
+            _viewModel.Activate(row);
+        }
+    }
+
+    private void OnListKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            ActivateHighlighted();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            HandleEscape();
+            e.Handled = true;
+        }
+    }
+
+    private void OnSearchKeyDown(object sender, KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case Key.Down when ProjectList.Items.Count > 0:
+                ProjectList.SelectedIndex = 0;
+                (ProjectList.ItemContainerGenerator.ContainerFromIndex(0) as ListBoxItem)?.Focus();
+                e.Handled = true;
+                break;
+            case Key.Enter:
+                ActivateHighlighted();
+                e.Handled = true;
+                break;
+            case Key.Escape:
+                HandleEscape();
+                e.Handled = true;
+                break;
+        }
+    }
+
+    /// <summary>Enter: the highlighted row, or the first one when nothing is highlighted.</summary>
+    private void ActivateHighlighted()
+    {
+        var row = ProjectList.SelectedItem as PickerRow ?? ProjectList.Items.OfType<PickerRow>().FirstOrDefault();
+        if (row is not null)
+        {
+            _viewModel.Activate(row);
+        }
+    }
+
+    /// <summary>Esc goes back one level; at the root it hides the popup (plan ruling 7).</summary>
+    private bool HandleEscape()
+    {
+        if (_viewModel.Back())
+        {
+            return true;
         }
 
-        _viewModel.SelectProject(choice.ProjectId, choice.TaskId);
+        Hide();
+        return false;
     }
+
+    internal void ActivateHighlightedForTest() => ActivateHighlighted();
+
+    internal bool HandleEscapeForTest() => HandleEscape();
 
     private void OnNoteChanged(object sender, TextChangedEventArgs e)
     {
