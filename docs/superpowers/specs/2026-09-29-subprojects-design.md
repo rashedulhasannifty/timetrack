@@ -74,8 +74,9 @@ model TimeEntry {
 
 - **Default subproject:** `isDefault = true`, named "General". Exactly one per project, enforced by a
   hand-authored partial unique index `subprojects_one_default_per_project ON subprojects("projectId")
-WHERE "isDefault"`. Invisible to Prisma's diff (see the partial-index memory); a violation surfaces as
-  P2002 and is mapped to 409 in the repository. The default can be renamed, never archived.
+WHERE "isDefault"`. Invisible to Prisma's diff (see the partial-index memory); nothing can create a second
+  default (only `createProject` inserts one, in its own transaction), so the index is a backstop, not a
+  handled error path. The default can be renamed, never archived.
 - **`Task.projectId` is kept** — shipped clients read it and reports join on it. The service keeps it
   equal to the subproject's project on create and move.
 - **Entry invariant (application-enforced, no DB CHECK):** every entry whose project _exists_ has a
@@ -205,3 +206,33 @@ it for subprojects either — an offline client may legitimately sync time track
 API and migration deploy together; the dashboard deploys with them. Shipped clients need no change:
 they keep sending `{ projectId, taskId }` and receive additive fields. Phase 2 adds the client picker
 and sends `subprojectId` explicitly.
+
+### Deploy/rollback window repair
+
+The deploy script runs `migrate deploy` before the PM2 reload, and a rollback restores code but not
+schema. So OLD API code can briefly (after a rollback, indefinitely) write entries with a project but
+`subprojectId = NULL`, and create projects without a default subproject. Run this idempotent repair
+with psql (one-off `.ts` scripts cannot run in prod) after this release's deploy completes, and after
+any rollback-then-redeploy:
+
+```sql
+BEGIN;
+INSERT INTO "subprojects" ("id", "projectId", "name", "archived", "isDefault")
+SELECT uuidv7()::text, p."id", 'General', false, true
+FROM "projects" p
+WHERE NOT EXISTS (SELECT 1 FROM "subprojects" s WHERE s."projectId" = p."id" AND s."isDefault");
+
+UPDATE "time_entries" te
+SET "subprojectId" = t."subprojectId"
+FROM "tasks" t
+WHERE te."subprojectId" IS NULL AND te."taskId" = t."id" AND te."projectId" = t."projectId";
+
+UPDATE "time_entries" te
+SET "subprojectId" = s."id"
+FROM "subprojects" s
+WHERE te."subprojectId" IS NULL AND s."projectId" = te."projectId" AND s."isDefault";
+COMMIT;
+```
+
+Until the new API is live, an old API creating a TASK returns 500 (`tasks.subprojectId` is NOT NULL).
+This is an admin-only dashboard path with no desktop-client impact.
