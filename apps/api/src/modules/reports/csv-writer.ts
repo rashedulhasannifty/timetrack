@@ -12,6 +12,7 @@ export const CSV_COLUMNS = [
   'durationSeconds',
   'source',
   'note',
+  'subproject',
 ] as const;
 
 const CRLF = '\r\n';
@@ -27,6 +28,7 @@ export interface CsvEntryRow {
   durationSeconds: number;
   source: string;
   note: string | null;
+  subproject: string | null;
 }
 
 /**
@@ -68,6 +70,7 @@ export function formatCsvRow(row: CsvEntryRow): string {
     String(row.durationSeconds),
     row.source, // enum — safe
     textCell(row.note),
+    textCell(row.subproject),
   ];
   return fields.join(',') + CRLF;
 }

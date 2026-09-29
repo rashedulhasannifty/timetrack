@@ -196,6 +196,7 @@ export class AdminRepository {
           id: true,
           projectId: true,
           taskId: true,
+          subprojectId: true,
           startTime: true,
           endTime: true,
           source: true,
