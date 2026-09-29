@@ -22,6 +22,13 @@ const timeEntryShape = {
 const TimeEntryBase = z.object(timeEntryShape);
 
 /**
+ * Optional on every REQUEST body and added per schema — never to `timeEntryShape`, which would
+ * make it required on the sync upsert and 422 every shipped client's upload (permanent → dropped).
+ * The server fills it when absent (TimeEntriesService.resolveSubproject).
+ */
+const requestSubprojectId = z.uuid().nullable().optional();
+
+/**
  * An entry may be zero-length but never negative.
  *
  * Zero is deliberate and load-bearing: the client's interrupted-time recovery writes
@@ -42,6 +49,7 @@ function isInverted(startTime: string, endTime: string | null | undefined): bool
  * to `ZodObject`. Refining here would silently switch strict parsing off for this body.
  */
 export const CreateTimeEntrySchema = TimeEntryBase.extend({
+  subprojectId: requestSubprojectId,
   /**
    * Which client wrote this entry, for the per-platform split in "who is tracking now".
    *
@@ -74,6 +82,7 @@ export const CreateTimeEntrySchema = TimeEntryBase.extend({
  */
 export const UpdateTimeEntrySchema = TimeEntryBase.partial()
   .omit({ id: true })
+  .extend({ subprojectId: requestSubprojectId })
   .check((ctx) => {
     const { startTime, endTime } = ctx.value;
     if (startTime !== undefined && isInverted(startTime, endTime)) {
@@ -107,6 +116,7 @@ export const CreateManualTimeEntrySchema = z
     userId: z.uuid().optional(),
     projectId: z.uuid().nullable(),
     taskId: z.uuid().nullable(),
+    subprojectId: requestSubprojectId,
     startTime: z.iso.datetime(),
     endTime: z.iso.datetime(),
     note: z.string().max(2000).optional(),
@@ -123,6 +133,7 @@ export const CreateManualTimeEntrySchema = z
   });
 
 export const TimeEntrySchema = TimeEntryBase.extend({
+  subprojectId: z.uuid().nullable(),
   userId: z.uuid(),
   editedById: z.uuid().nullable(),
   editedAt: z.iso.datetime().nullable(),

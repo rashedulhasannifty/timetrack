@@ -23,9 +23,22 @@ export const ProjectColorSchema = z
   .toLowerCase();
 export type ProjectColor = z.infer<typeof ProjectColorSchema>;
 
+/** The name every project's default subproject is created with (and the migration backfilled). */
+export const DEFAULT_SUBPROJECT_NAME = 'General';
+
+export const SubprojectSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  name: z.string(),
+  archived: z.boolean(),
+  /** The project's "General" bucket: exactly one per project, never archivable. */
+  isDefault: z.boolean(),
+});
+
 export const TaskSchema = z.object({
   id: z.uuid(),
   projectId: z.uuid(),
+  subprojectId: z.uuid(),
   name: z.string(),
   archived: z.boolean(),
 });
@@ -37,6 +50,7 @@ export const ProjectSchema = z.object({
   color: z.string().nullable(),
   archived: z.boolean(),
   tasks: z.array(TaskSchema).optional(),
+  subprojects: z.array(SubprojectSchema).optional(),
 });
 
 export const CreateProjectSchema = z.object({
@@ -45,14 +59,43 @@ export const CreateProjectSchema = z.object({
   color: ProjectColorSchema,
 });
 
+/** The project is derived from the subproject server-side, so a task can never straddle two. */
 export const CreateTaskSchema = z.object({
+  subprojectId: z.uuid(),
+  name: z.string().min(1).max(200),
+});
+
+/**
+ * PATCH /v1/projects/tasks/:id — archive/restore, and/or move to another subproject of the SAME
+ * project. `.check()` not `.refine()`, so the pipe keeps strict mode.
+ */
+export const UpdateTaskSchema = z
+  .object({
+    archived: z.boolean().optional(),
+    subprojectId: z.uuid().optional(),
+  })
+  .check((ctx) => {
+    if (ctx.value.archived === undefined && ctx.value.subprojectId === undefined) {
+      ctx.issues.push({ code: 'custom', message: 'Nothing to update', input: ctx.value, path: [] });
+    }
+  });
+
+export const CreateSubprojectSchema = z.object({
   projectId: z.uuid(),
   name: z.string().min(1).max(200),
 });
 
-export const UpdateTaskSchema = z.object({
-  archived: z.boolean(),
-});
+/** No `.default()`s anywhere: Zod 4 `.partial()`/optional keys would otherwise inject them. */
+export const UpdateSubprojectSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    archived: z.boolean().optional(),
+  })
+  .check((ctx) => {
+    if (ctx.value.name === undefined && ctx.value.archived === undefined) {
+      ctx.issues.push({ code: 'custom', message: 'Nothing to update', input: ctx.value, path: [] });
+    }
+  });
 
 /**
  * PATCH /v1/projects/:id. `teamId` MOVES the project to another team — ADMIN only, because a
@@ -94,8 +137,15 @@ export const ProjectMemberRowSchema = z.object({
   trackedSeconds: z.number().int().nonnegative(),
 });
 
+export const ProjectSubprojectRowSchema = z.object({
+  subprojectId: z.uuid().nullable(), // null → "No subproject" (entry naming no/unknown subproject)
+  name: z.string(),
+  trackedSeconds: z.number().int().nonnegative(),
+});
+
 export const ProjectTaskRowSchema = z.object({
   taskId: z.uuid().nullable(), // null → the "No task" bucket
+  subprojectId: z.uuid().nullable(), // the task's subproject; null for "No task"
   name: z.string(),
   trackedSeconds: z.number().int().nonnegative(),
 });
@@ -112,6 +162,7 @@ export const ProjectDetailSchema = z.object({
   totalSeconds: z.number().int().nonnegative(),
   trend: z.array(ProjectHoursTrendRowSchema),
   members: z.array(ProjectMemberRowSchema),
+  subprojects: z.array(ProjectSubprojectRowSchema),
   tasks: z.array(ProjectTaskRowSchema),
 });
 
@@ -135,6 +186,10 @@ export const ProjectTopAppsSchema = z.object({
   coveragePct: z.number().int().min(0).max(100),
 });
 
+export type Subproject = z.infer<typeof SubprojectSchema>;
+export type CreateSubproject = z.infer<typeof CreateSubprojectSchema>;
+export type UpdateSubproject = z.infer<typeof UpdateSubprojectSchema>;
+export type ProjectSubprojectRow = z.infer<typeof ProjectSubprojectRowSchema>;
 export type Task = z.infer<typeof TaskSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
 export type CreateProject = z.infer<typeof CreateProjectSchema>;
