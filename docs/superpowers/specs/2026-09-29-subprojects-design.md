@@ -78,8 +78,12 @@ WHERE "isDefault"`. Invisible to Prisma's diff (see the partial-index memory); a
   P2002 and is mapped to 409 in the repository. The default can be renamed, never archived.
 - **`Task.projectId` is kept** — shipped clients read it and reports join on it. The service keeps it
   equal to the subproject's project on create and move.
-- **Entry invariant:** `CHECK ("projectId" IS NULL OR "subprojectId" IS NOT NULL)` on `time_entries`.
-  `time_entries` is not partitioned, so this is a plain constraint.
+- **Entry invariant (application-enforced, no DB CHECK):** every entry whose project _exists_ has a
+  subproject. `time_entries.projectId` has no FK, and shipped clients can hold cached ids of projects
+  that no longer exist (prod was rebuilt fresh on 2026-09-21). A CHECK would turn such a sync into a
+  500, which clients retry forever, wedging their backlog — and would also break an auto-rollback,
+  since the old code writes no `subprojectId`. So an entry naming an unknown project keeps a null
+  subproject. `time_entries.subprojectId` has no FK either, mirroring `projectId`/`taskId`.
 - **Project creation** creates its "General" subproject in the same `$transaction`.
 
 ### Migration (hand-authored; `prisma migrate dev` cannot run non-interactively here)
@@ -91,9 +95,9 @@ One migration, in order:
    `uuidv7()` — Postgres 18 built-in).
 3. `ALTER TABLE tasks ADD "subprojectId"`, backfill to the project's default, `SET NOT NULL`, add FK +
    index.
-4. `ALTER TABLE time_entries ADD "subprojectId"` (nullable) + FK + index; backfill:
-   task's subproject when `taskId` is set, else the project's default when `projectId` is set.
-5. Add the CHECK constraint.
+4. `ALTER TABLE time_entries ADD "subprojectId"` (nullable) + index; backfill
+   (`WHERE "subprojectId" IS NULL`, so it can be re-run after a rollback window): task's subproject
+   when `taskId` names a task of the same project, else the project's default when the project exists.
 
 Applied with `db:deploy`, then `db:generate` and a rebuild of `@timetrack/db`.
 
@@ -102,8 +106,10 @@ Applied with `db:deploy`, then `db:generate` and a rebuild of `@timetrack/db`.
 Applied on create, sync upsert, edit, and the worker's runaway split:
 
 1. `projectId` null → `subprojectId` null.
-2. Request carries `subprojectId` → it must belong to `projectId`, else **422**. Only the new dashboard
-   sends this field, so shipped clients cannot reach this error.
+2. Request carries `subprojectId` → used if it belongs to `projectId`. If it does not:
+   - **dashboard paths** (`POST /time-entries/manual`, `PATCH /time-entries/:id`) → **422**;
+   - **sync path** (`POST /time-entries`) → never rejected; falls through to rules 3–4. A 422 there is
+     permanent to the uploader and would drop recorded time (Phase 2 clients will send this field).
 3. Else `taskId` set **and** the task belongs to `projectId` → the task's subproject.
 4. Else → the project's default subproject.
 
@@ -121,8 +127,9 @@ All additive on responses.
   keeps defaults); cross-field checks use `.check()`, not `.refine()`, to keep strict mode.
 - `CreateTaskSchema` → `{ subprojectId, name }` (projectId derived server-side).
 - `UpdateTaskSchema` + optional `subprojectId` (move within the same project; other project → 422).
-- Time-entry create / sync / edit schemas + optional `subprojectId`; time-entry response +
-  `subprojectId: uuid | null`.
+- Time-entry create / sync / edit schemas + `subprojectId: uuid | null`, **optional**, added per schema
+  via `.extend()` — NOT in the shared `timeEntryShape`, which would make it required on the sync body
+  and 422 every shipped client's upload. Time-entry response + `subprojectId: uuid | null`.
 - `ProjectDetailSchema` + `subprojects: [{ subprojectId, name, trackedSeconds }]`;
   `ProjectTaskRowSchema` + `subprojectId` (nullable for the "No task" bucket).
 
@@ -138,7 +145,11 @@ New routes in the existing `projects` module, same shape as the task routes:
 Changed routes:
 
 - `GET /v1/projects` — each project includes `subprojects` (active only unless `includeArchived`).
-- `GET /v1/projects/:id/tasks` — also returns subprojects.
+- `GET /v1/projects/:id/tasks` — **unchanged** (bare `Task[]`; the dashboard parses it as an array).
+  Subprojects come from a new `GET /v1/projects/:id/subprojects` (MANAGER, ADMIN; includes archived,
+  default first).
+- `GET /v1/projects` nested `tasks` also exclude tasks whose subproject is archived — the only way
+  archiving a subproject reaches the shipped clients' pickers.
 - `POST /v1/projects/tasks` — takes `subprojectId`; archived subproject → 409.
 - `PATCH /v1/projects/tasks/:id` — optional move.
 - `GET /v1/projects/:id/detail` — adds the per-subproject breakdown.
@@ -163,15 +174,21 @@ it for subprojects either — an offline client may legitimately sync time track
   `NewSubprojectForm`; `NewTaskForm` gains a subproject select (defaults to General); per-task
   "Move to…" select. Server actions in `projects/actions.ts`.
 - **Projects index:** unchanged except a subproject count per row.
-- **Time-entry forms (`/me` actions, day view, entries drawer):** Project → Subproject → Task cascade.
-  Picking a project preselects General; picking a task sets its subproject. Labels render
-  `Project / Subproject / Task`, omitting the subproject when it is the default.
+- **Time-entry forms (`/me` actions, day view, entries drawer):** the Project select becomes one grouped
+  "Assign to" select — an optgroup per project, one option per subproject and per task
+  (`Subproject › Task`), value `projectId|subprojectId|taskId`. No client JS. Archived
+  subprojects/tasks are omitted except the entry's current assignment. This also fixes an existing
+  bug: the form had no task field, so every edit sent `taskId: null` and wiped the entry's task.
+  Labels keep the existing `·` separator: `Project · Subproject · Task`, omitting the subproject
+  when it is the default.
 - Types come from `packages/contracts` only.
 
 ## 7. Testing
 
-- **Migration e2e:** after the migration on seeded data, every project has exactly one default, every
-  task has a subproject, and every entry with a project has a subproject.
+- **Migration backfill:** the e2e harness migrates an EMPTY template DB, so no automated test runs the
+  backfill. It is verified by applying the migration to a populated local DB and running four
+  invariant queries (each must return 0 rows), plus `prisma migrate diff` to prove `schema.prisma`
+  matches the hand-written SQL.
 - **Service unit tests:** each resolution rule; 422 on mismatched `subprojectId`; 409 on archiving the
   default; task move within / across projects.
 - **API e2e:** 200 + 403 (manager of another team, employee) for each new or changed write route;
