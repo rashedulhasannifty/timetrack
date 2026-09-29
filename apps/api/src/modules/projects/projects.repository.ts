@@ -3,7 +3,13 @@ import { Prisma } from '@timetrack/db';
 import { APP_TIMEZONE, DEFAULT_SUBPROJECT_NAME } from '@timetrack/contracts';
 import type { Project, Subproject, Task } from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
-import { WorkTypesRepository } from '../work-types/work-types.repository.js';
+import {
+  CONCURRENT_CHANGE,
+  RECONCILE_TX,
+  WorkTypesRepository,
+  catalogConflict,
+  isUniqueViolation,
+} from '../work-types/work-types.repository.js';
 
 /**
  * The effective end of a time entry. A CLOSED entry ends at its `endTime`. An OPEN entry ends
@@ -120,6 +126,63 @@ export class ProjectsRepository {
       });
       return project;
     });
+  }
+
+  findTeam(teamId: string): Promise<{ id: string; name: string } | null> {
+    return this.prisma.team.findUnique({ where: { id: teamId }, select: { id: true, name: true } });
+  }
+
+  /** Every project name in the org, with its team's name — the import's org-wide duplicate check. */
+  async listAllProjectNames(): Promise<{ name: string; teamName: string }[]> {
+    const rows = await this.prisma.project.findMany({
+      orderBy: { name: 'asc' },
+      select: { name: true, team: { select: { name: true } } },
+    });
+    return rows.map((r) => ({ name: r.name, teamName: r.team.name }));
+  }
+
+  /**
+   * The client import (spec §6): every project, its General default, a `project.create` audit row
+   * each, and one reconcile for the lot — all in ONE transaction, with the long timeout (R13).
+   */
+  async createProjectsBulk(
+    teamId: string,
+    items: readonly { name: string; color: string }[],
+    actorId: string,
+  ): Promise<Project[]> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const projects = await tx.project.createManyAndReturn({
+          data: items.map((i) => ({ teamId, name: i.name, color: i.color })),
+          select: PROJECT_SELECT,
+        });
+        await tx.subproject.createMany({
+          data: projects.map((p) => ({
+            projectId: p.id,
+            name: DEFAULT_SUBPROJECT_NAME,
+            isDefault: true,
+          })),
+        });
+        await tx.auditLog.createMany({
+          data: projects.map((p) => ({
+            actorId,
+            action: 'project.create',
+            targetType: 'project',
+            targetId: p.id,
+            diff: { teamId, name: p.name, color: p.color },
+          })),
+        });
+        await this.workTypes.reconcile(
+          tx,
+          projects.map((p) => p.id),
+          { actorId, trigger: 'project_bulk_create', targetType: 'team', targetId: teamId },
+        );
+        return projects;
+      }, RECONCILE_TX);
+    } catch (e) {
+      if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      throw e;
+    }
   }
 
   async createTask(subprojectId: string, name: string, actorId: string): Promise<Task> {

@@ -7,6 +7,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import type {
+  BulkCreateProjects,
+  BulkCreateProjectsResult,
   CreateProject,
   CreateSubproject,
   CreateTask,
@@ -20,8 +22,9 @@ import type {
   UpdateSubproject,
   UpdateTask,
 } from '@timetrack/contracts';
-import { ProjectDetailSchema } from '@timetrack/contracts';
+import { PROJECT_PALETTE, ProjectDetailSchema, nameKey } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
+import { planNameImport } from '../../common/name-import.js';
 import { ProjectsRepository } from './projects.repository.js';
 import { TRACKING_FRESHNESS_SECONDS } from './projects.tokens.js';
 
@@ -73,6 +76,30 @@ export class ProjectsService {
   async createProject(dto: CreateProject, actor: SessionUser): Promise<Project> {
     this.assertCanAdminister(dto.teamId, actor);
     return this.repo.createProject(dto.teamId, dto.name, actor.id, dto.color);
+  }
+
+  /**
+   * ADMIN-only client import (spec §6). A name that exists ANYWHERE in the org — archived or
+   * not, any team — is skipped with the team that has it; repeats within the paste are skipped
+   * too. Colours come from the palette in turn (ruling R15).
+   */
+  async bulkCreate(dto: BulkCreateProjects, actor: SessionUser): Promise<BulkCreateProjectsResult> {
+    const team = await this.repo.findTeam(dto.teamId);
+    if (!team) throw this.notFound('Team not found');
+
+    const taken = new Map<string, string>();
+    for (const p of await this.repo.listAllProjectNames()) {
+      const key = nameKey(p.name);
+      if (!taken.has(key)) taken.set(key, `Already exists in ${p.teamName}`);
+    }
+    const { accepted, skipped } = planNameImport(dto.names, taken);
+    const items = accepted.map((name, i) => ({
+      name,
+      color: PROJECT_PALETTE[i % PROJECT_PALETTE.length] ?? PROJECT_PALETTE[0],
+    }));
+    const created =
+      items.length === 0 ? [] : await this.repo.createProjectsBulk(team.id, items, actor.id);
+    return { created, skipped };
   }
 
   async createTask(dto: CreateTask, actor: SessionUser): Promise<Task> {

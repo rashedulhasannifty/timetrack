@@ -112,6 +112,60 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
       }),
     ).resolves.toEqual({ id: payroll.id, archived: false });
   });
+
+  it("bulk import creates each client with General plus the team's work types, and reports skips", async () => {
+    const eng = await team('Eng');
+    const support = await team('Support');
+    await select(eng, 'Payroll', 'AdHoc');
+    await client(support, 'Acme Ltd');
+    const old = await client(eng, 'Old Client');
+    await projects().update(old.id, { archived: true }, admin(eng));
+
+    const result = await projects().bulkCreate(
+      { teamId: eng, names: ['acme ltd', 'Globex', 'old client', 'Initech', 'globex'] },
+      admin(eng),
+    );
+    expect(result.skipped).toEqual([
+      { name: 'acme ltd', reason: 'Already exists in Support' },
+      { name: 'old client', reason: 'Already exists in Eng' },
+      { name: 'globex', reason: 'Duplicate in list' },
+    ]);
+    const created = [...result.created].sort((a, b) => a.name.localeCompare(b.name));
+    expect(created.map((p) => [p.name, p.teamId, p.color])).toEqual([
+      ['Globex', eng, PROJECT_PALETTE[0]],
+      ['Initech', eng, PROJECT_PALETTE[1]],
+    ]);
+    for (const p of created) {
+      expect(await activeNames(p.id)).toEqual(['General', 'AdHoc', 'Payroll']);
+    }
+
+    const reconciles = await db.prisma.auditLog.findMany({
+      where: { action: 'work_type.reconcile', targetType: 'team', targetId: eng },
+      select: { diff: true },
+    });
+    expect(reconciles.map((r) => r.diff)).toContainEqual({
+      trigger: 'project_bulk_create',
+      projects: 2,
+      created: 4,
+      linked: 0,
+      restored: 0,
+      renamed: 0,
+      archived: 0,
+    });
+    await expect(
+      db.prisma.auditLog.count({
+        where: { action: 'project.create', targetId: { in: created.map((p) => p.id) } },
+      }),
+    ).resolves.toBe(2);
+  });
+
+  it('bulk import 404s an unknown team and creates nothing', async () => {
+    const eng = await team('Eng');
+    await expect(
+      projects().bulkCreate({ teamId: MISSING, names: ['Acme'] }, admin(eng)),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(db.prisma.project.count()).resolves.toBe(0);
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.

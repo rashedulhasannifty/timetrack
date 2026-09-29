@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
+  BulkCreateProjectsSchema,
   CreateProjectSchema,
   CreateSubprojectSchema,
   CreateTaskSchema,
@@ -8,6 +9,8 @@ import {
   UpdateProjectSchema,
   UpdateSubprojectSchema,
   UpdateTaskSchema,
+  type BulkCreateProjects,
+  type BulkCreateProjectsResult,
   type CreateProject,
   type CreateSubproject,
   type CreateTask,
@@ -49,6 +52,16 @@ export class ProjectsController {
     @CurrentUser() actor: SessionUser,
   ): Promise<Project> {
     return this.service.createProject(dto, actor);
+  }
+
+  /** ADMIN only: an import spans the org (its duplicate check reads every team's clients). */
+  @Post('bulk')
+  @Roles('ADMIN')
+  bulkCreate(
+    @Body(new ZodValidationPipe(BulkCreateProjectsSchema)) dto: BulkCreateProjects,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<BulkCreateProjectsResult> {
+    return this.service.bulkCreate(dto, actor);
   }
 
   @Post('tasks')

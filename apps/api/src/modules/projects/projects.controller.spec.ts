@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import 'reflect-metadata';
+import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { ProjectsController } from './projects.controller.js';
 import type { ProjectsService } from './projects.service.js';
+import { RolesGuard } from '../../common/guards/roles.guard.js';
 import { ROLES } from '../../common/decorators/roles.decorator.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 
@@ -11,6 +14,7 @@ function make(overrides: Partial<ProjectsService> = {}) {
   const service = {
     list: vi.fn().mockResolvedValue([]),
     createProject: vi.fn(),
+    bulkCreate: vi.fn(),
     createTask: vi.fn(),
     update: vi.fn(),
     listTasks: vi.fn().mockResolvedValue([]),
@@ -104,5 +108,37 @@ describe('ProjectsController delegation', () => {
     const query = { from: '2026-07-13T00:00:00.000Z', to: '2026-07-19T23:59:59.999Z' };
     await ctrl.topApps('p1', query, actor);
     expect(service.topApps).toHaveBeenCalledWith('p1', query, actor);
+  });
+});
+
+describe('ProjectsController.bulkCreate authorization', () => {
+  const ctx = (user: SessionUser): ExecutionContext =>
+    ({
+      getHandler: () => ProjectsController.prototype.bulkCreate,
+      getClass: () => ProjectsController,
+      switchToHttp: () => ({ getRequest: () => ({ user }) }),
+    }) as unknown as ExecutionContext;
+
+  it('is ADMIN-only (not MANAGER): importing clients spans the org', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const meta = Reflect.getMetadata(ROLES, ProjectsController.prototype.bulkCreate);
+    expect(meta).toEqual(['ADMIN']);
+  });
+
+  it('403s MANAGER and EMPLOYEE through the real RolesGuard', () => {
+    const guard = new RolesGuard(new Reflector());
+    for (const role of ['MANAGER', 'EMPLOYEE'] as const) {
+      expect(() => guard.canActivate(ctx({ id: 'u1', role, teamId: 't1' }))).toThrow(
+        ForbiddenException,
+      );
+    }
+    expect(guard.canActivate(ctx({ id: 'a1', role: 'ADMIN', teamId: 't1' }))).toBe(true);
+  });
+
+  it('passes the dto and actor to the service', async () => {
+    const { ctrl, service } = make();
+    const dto = { teamId: '01920000-0000-7000-8000-0000000000c1', names: ['Acme'] };
+    await ctrl.bulkCreate(dto, actor);
+    expect(service.bulkCreate).toHaveBeenCalledWith(dto, actor);
   });
 });
