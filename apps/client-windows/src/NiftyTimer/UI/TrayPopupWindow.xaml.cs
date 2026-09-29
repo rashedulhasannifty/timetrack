@@ -322,6 +322,7 @@ public partial class TrayPopupWindow : Window
             && ItemsControl.ContainerFromElement(ProjectList, source) is ListBoxItem { DataContext: PickerRow row })
         {
             _viewModel.Activate(row);
+            SearchBox.Focus();
         }
     }
 
@@ -366,6 +367,10 @@ public partial class TrayPopupWindow : Window
         if (row is not null)
         {
             _viewModel.Activate(row);
+
+            // Replacing ItemsSource discards the focused ListBoxItem, which would leave keyboard
+            // focus nowhere; the search box's PreviewKeyDown handles Down/Enter/Esc.
+            SearchBox.Focus();
         }
     }
 

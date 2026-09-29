@@ -148,14 +148,18 @@ public class TrayPopupPickerTests
     [Fact]
     public void MovingTheHighlightDoesNotChangeWhatIsTracked()
     {
-        var selection = WithPopup((vm, window) =>
+        var (selection, levelBefore, levelAfter, highlighted) = WithPopup((vm, window) =>
         {
             var list = (ListBox)window.FindName("ProjectList");
-            list.SelectedIndex = 1;               // keyboard highlight only
-            return vm.Selection;
+            vm.Activate(vm.PickerRows[1]);        // Billing: skips its lone General to the task screen
+            var before = vm.Level;
+            list.SelectedIndex = 1;               // the "(no task)" Track row: highlight only
+            return (vm.Selection, before, vm.Level, list.SelectedItem as PickerRow);
         });
 
+        Assert.Equal(PickerRowKind.Track, highlighted?.Kind);
         Assert.Null(selection);
+        Assert.Equal(levelBefore, levelAfter);
     }
 
     [Fact]
@@ -795,7 +799,12 @@ public class TrayPopupWindowPickerTests
                 // Drill into "Zephyr Migration" (skips its lone General), then pick "Planning".
                 viewModel.Activate((PickerRow)window.ProjectList.Items[2]!);
                 var target = window.ProjectList.Items.Cast<PickerRow>().Single(r => r.Title == "Planning");
-                viewModel.Activate(target);
+
+                // Highlighting alone must not select; the window's own activation path does.
+                window.ProjectList.SelectedItem = target;
+                var afterHighlight = count;
+                window.ActivateHighlightedForTest();
+                Assert.Equal(0, afterHighlight);
 
                 var state = Assert.IsType<TrackerState.Tracking>(tracker.State);
                 return (count, state.Selection.ProjectId);
@@ -815,7 +824,7 @@ public class TrayPopupWindowPickerTests
     /// End to end through the real window: typing into SearchBox reaches
     /// MenuViewModel.Query via OnQueryChanged, and the rendered ListBox narrows and restores
     /// through RenderPicker -- the whole path a person driving the popup actually exercises, not
-    /// just Filter() exercised on the view model in isolation.
+    /// just the view model's PickerRows exercised in isolation.
     /// </summary>
     [Fact]
     public void TypingInTheSearchBoxNarrowsTheRenderedListThroughTheRealHandler()
