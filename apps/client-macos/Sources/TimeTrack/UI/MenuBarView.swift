@@ -219,7 +219,7 @@ struct MenuBarView: View {
                 .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)
             // The current selection as a path, always visible whichever level the list shows.
             HStack(spacing: 6) {
-                Circle().fill(viewModel.selection == nil ? TT.Palette.textSecondary : TT.Palette.accent)
+                Circle().fill(viewModel.hasResolvedSelection ? TT.Palette.accent : TT.Palette.textSecondary)
                     .frame(width: 6, height: 6)
                 Text(viewModel.selectionHeader).font(.ttCaption).lineLimit(1).truncationMode(.middle)
             }

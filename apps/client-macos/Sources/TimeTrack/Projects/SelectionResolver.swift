@@ -4,7 +4,7 @@ import Foundation
 ///
 /// A stored selection is only ever a hint. If the project was archived, deleted, or the user
 /// was moved off that team, restoring it would pre-select something the server will reject on
-/// Start — so an unmatched selection is dropped, never approximated. A stored task that no
+/// Start — so an unmatched PROJECT is dropped, never approximated. A stored task that no
 /// longer exists degrades to its subproject (see `resolve` below).
 enum SelectionResolver {
     /// The unified stale-resolution table (spec §4), identical on Windows:

@@ -134,6 +134,8 @@ final class MenuViewModel: ObservableObject {
             : PickerNavigation.rows(at: level, in: tree)
     }
 
+    /// True when the picker header shows a real selection (drives the header dot's accent).
+    var hasResolvedSelection: Bool { selection != nil }
     var selectionHeader: String { PickerNavigation.headerText(for: selection, in: tree) }
 
     func isCurrent(_ row: PickerRow) -> Bool {
@@ -223,9 +225,12 @@ final class MenuViewModel: ObservableObject {
     /// empty cache would either drop a valid selection or apply one the user has since lost
     /// access to.
     ///
-    /// Only ever fills an EMPTY picker (`selection == nil`): `refreshProjects()` runs both
-    /// at launch and on every menu open, so an unguarded restore would re-run each time and could
-    /// overwrite a selection the user just made by hand.
+    /// An EMPTY picker (`selection == nil`) is filled from the store. An existing selection is
+    /// never reloaded from the store (`refreshProjects()` runs at launch and on every menu open,
+    /// so that could overwrite a pick the user just made by hand); it is only re-resolved in
+    /// memory against the fresh tree, so a task moved to another subproject or a subproject
+    /// archived mid-session stops filing new entries under the stale id. A running span is not
+    /// touched — only future starts, switches and auto spans use the new value.
     ///
     /// A selection that no longer resolves is dropped, but the stored key is cleared only when
     /// there is a non-empty project list to judge it against. `ProjectCache` is a single global
@@ -234,7 +239,18 @@ final class MenuViewModel: ObservableObject {
     /// project was archived". Clearing on an empty list would permanently delete a user's saved
     /// selection on an offline re-login instead of merely deferring the restore.
     func restoreSelection(userId: String) {
-        guard selection == nil else { return }
+        if let current = selection {
+            guard !projects.isEmpty else { return }
+            let resolved = SelectionResolver.resolve(current, in: projects)
+            guard resolved != current else { return }
+            selection = resolved
+            if let resolved {
+                selectionStore.save(resolved, userId: userId)
+            } else {
+                selectionStore.clear(userId: userId)
+            }
+            return
+        }
         guard let stored = selectionStore.load(userId: userId) else { return }
         if let restored = SelectionResolver.resolve(stored, in: projects) {
             selection = restored

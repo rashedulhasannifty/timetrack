@@ -567,6 +567,87 @@ final class MenuViewModelTests: XCTestCase {
         XCTAssertEqual(vm.selection, sel("p1", "s1", nil))
     }
 
+    // Refresh re-resolves an EXISTING selection (not only fills an empty one), otherwise a
+    // subproject archived or a task moved mid-session keeps filing new entries under the stale id.
+    private func projectWith(archivedS2: Bool = false, taskSubproject: String = "s2") -> [Project] {
+        [Project(id: "p1", teamId: "t1", name: "Acme", archived: false,
+                 tasks: [ProjectTask(id: "k1", projectId: "p1", name: "Cart", subprojectId: taskSubproject)],
+                 subprojects: [Subproject(id: "s1", projectId: "p1", name: "General", archived: false, isDefault: true),
+                               Subproject(id: "s2", projectId: "p1", name: "Checkout", archived: archivedS2, isDefault: false),
+                               Subproject(id: "s3", projectId: "p1", name: "Payments", archived: false, isDefault: false)])]
+    }
+
+    func testRefreshReResolvesAnArchivedSubprojectToTheDefault() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.currentUserId = "u1"
+        vm.projects = projectWith()
+        vm.select(sel("p1", "s2", nil))
+
+        vm.projects = projectWith(archivedS2: true)
+        vm.restoreSelection(userId: "u1")
+
+        XCTAssertEqual(vm.selection, sel("p1", "s1", nil))
+        vm.start(); clock.advance(60); vm.stop()
+        XCTAssertEqual(spy.object(at: 0)["subprojectId"] as? String, "s1")
+    }
+
+    func testRefreshReResolvesATaskMovedToAnotherSubproject() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.currentUserId = "u1"
+        vm.projects = projectWith()
+        vm.select(sel("p1", "s2", "k1"))
+
+        vm.projects = projectWith(taskSubproject: "s3")
+        vm.restoreSelection(userId: "u1")
+
+        vm.start(); clock.advance(60); vm.stop()
+        XCTAssertEqual(spy.object(at: 0)["subprojectId"] as? String, "s3")
+        XCTAssertEqual(spy.object(at: 0)["taskId"] as? String, "k1")
+    }
+
+    func testRefreshPersistsAChangedResolutionAndClearsAGoneProject() {
+        let store = makeIsolatedStore()
+        let vm = makeVM(selectionStore: store)
+        vm.currentUserId = "u1"
+        vm.projects = projectWith()
+        vm.select(sel("p1", "s2", nil))
+
+        vm.projects = projectWith(archivedS2: true)
+        vm.restoreSelection(userId: "u1")
+        XCTAssertEqual(store.load(userId: "u1"), sel("p1", "s1", nil))
+
+        vm.projects = [Project(id: "p9", teamId: "t1", name: "Other", archived: false, tasks: nil)]
+        vm.restoreSelection(userId: "u1")
+        XCTAssertNil(vm.selection)
+        XCTAssertNil(store.load(userId: "u1"))
+    }
+
+    func testRefreshLeavesAStillValidHandMadePickAlone() {
+        let vm = makeVM()
+        vm.currentUserId = "u1"
+        vm.projects = projectWith()
+        vm.select(sel("p1", "s3", nil))
+
+        vm.projects = projectWith()
+        vm.restoreSelection(userId: "u1")
+
+        XCTAssertEqual(vm.selection, sel("p1", "s3", nil))
+    }
+
+    func testRefreshWithAnEmptyProjectListLeavesTheSelectionUntouched() {
+        let store = makeIsolatedStore()
+        let vm = makeVM(selectionStore: store)
+        vm.currentUserId = "u1"
+        vm.projects = projectWith()
+        vm.select(sel("p1", "s2", nil))
+
+        vm.projects = []
+        vm.restoreSelection(userId: "u1")
+
+        XCTAssertEqual(vm.selection, sel("p1", "s2", nil))
+        XCTAssertEqual(store.load(userId: "u1"), sel("p1", "s2", nil))
+    }
+
     // Regression: auto tracking writes straight to `TimeTracker` from `AutoTrackingCoordinator`,
     // so no method on this type ever ran when an AUTO span opened or closed. `sync()` — the only
     // thing that moves `phase`/`startedAt` and fires `onPhaseChanged` — is reachable only from
