@@ -143,25 +143,47 @@ model Invite {
 }
 
 model Project {
-  id       String  @id @default(uuid(7))
-  teamId   String
-  name     String
-  color    String?
-  archived Boolean @default(false)
-  team     Team    @relation(fields: [teamId], references: [id])
-  tasks    Task[]
+  id          String       @id @default(uuid(7))
+  teamId      String
+  name        String
+  color       String?
+  archived    Boolean      @default(false)
+  team        Team         @relation(fields: [teamId], references: [id])
+  tasks       Task[]
+  subprojects Subproject[]
 
   @@index([teamId, archived])
   @@map("projects")
 }
 
-model Task {
+/// Exactly one `isDefault` subproject ("General") per project, enforced by the raw-SQL partial
+/// unique index `subprojects_one_default_per_project` (see migrations). A partial index is
+/// invisible to Prisma's diff, so there is no PSL @@unique here.
+model Subproject {
   id        String  @id @default(uuid(7))
   projectId String
   name      String
   archived  Boolean @default(false)
+  isDefault Boolean @default(false)
   project   Project @relation(fields: [projectId], references: [id])
+  tasks     Task[]
 
+  @@index([projectId, archived])
+  @@map("subprojects")
+}
+
+model Task {
+  id           String     @id @default(uuid(7))
+  /// Kept alongside subprojectId: shipped clients read tasks[].projectId and reports join on it.
+  /// The service keeps it equal to the subproject's project.
+  projectId    String
+  subprojectId String
+  name         String
+  archived     Boolean    @default(false)
+  project      Project    @relation(fields: [projectId], references: [id])
+  subproject   Subproject @relation(fields: [subprojectId], references: [id])
+
+  @@index([subprojectId])
   @@map("tasks")
 }
 
@@ -175,6 +197,10 @@ model TimeEntry {
   userId     String
   projectId  String?
   taskId     String?
+  /// Filled by the server (TimeEntriesService.resolveSubproject). Null when the entry has no
+  /// project, or names a project that does not exist. No FK and no CHECK, like projectId/taskId:
+  /// a constraint here would turn a shipped client's stale project id into a retry-forever 500.
+  subprojectId String?
   startTime  DateTime
   endTime    DateTime?
   source     EntrySource
@@ -193,6 +219,7 @@ model TimeEntry {
 
   @@index([userId, startTime])
   @@index([projectId])
+  @@index([subprojectId])
   @@map("time_entries")
 }
 
