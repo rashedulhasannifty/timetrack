@@ -179,6 +179,26 @@ describe.runIf(RUN_E2E)('trim-runaway-entries — real Postgres', () => {
     expect(rows[1]?.source).toBe('MANUAL');
   });
 
+  it('copies project, task and subproject onto every split-off entry', async () => {
+    const user = await seedUser();
+    await seedRunaway(user.id);
+    // No FKs on these columns — arbitrary ids are enough to prove they are carried over.
+    const assignment = {
+      projectId: '019797a0-0000-7000-8000-0000000000a1',
+      taskId: '019797a0-0000-7000-8000-0000000000a2',
+      subprojectId: '019797a0-0000-7000-8000-0000000000a3',
+    };
+    await env.prisma.timeEntry.update({ where: { id: RUNAWAY }, data: assignment });
+
+    await trimRunawayEntries(env.prisma, { minHours: 12, apply: true, now: NOW });
+
+    const rows = await env.prisma.timeEntry.findMany({
+      select: { projectId: true, taskId: true, subprojectId: true },
+    });
+    expect(rows).toHaveLength(2);
+    for (const r of rows) expect(r).toEqual(assignment);
+  });
+
   it('snapshots the original span into an audit row', async () => {
     const user = await seedUser();
     await seedRunaway(user.id);
