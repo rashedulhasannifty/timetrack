@@ -174,18 +174,14 @@ export class TimeEntriesService {
     await this.access.assertCanAccessUser(actor, current.userId);
 
     const { before, after } = diffChangedFields(current, dto);
-    // The subproject is derived, not free-form: re-resolve whenever the assignment is touched.
-    // An explicit subprojectId in the patch is validated (strict); a project/task change without
-    // one re-derives it (task's subproject, else the project's default).
-    if ('projectId' in dto || 'taskId' in dto || 'subprojectId' in dto) {
+    // The subproject is derived, not free-form: re-resolve when the assignment changes (or a
+    // subprojectId is sent explicitly). A save that re-sends an unchanged project/task must not
+    // move the entry. An explicit subprojectId is validated (strict); a real project/task change
+    // without one re-derives it (task's subproject, else the project's default).
+    if ('subprojectId' in dto || 'projectId' in after || 'taskId' in after) {
       const projectId = 'projectId' in dto ? (dto.projectId ?? null) : current.projectId;
       const taskId = 'taskId' in dto ? (dto.taskId ?? null) : current.taskId;
-      const requested =
-        'subprojectId' in dto
-          ? (dto.subprojectId ?? null)
-          : 'projectId' in dto || 'taskId' in dto
-            ? null
-            : current.subprojectId;
+      const requested = 'subprojectId' in dto ? (dto.subprojectId ?? null) : null;
       const resolved = await this.resolveSubproject(
         { projectId, taskId, subprojectId: requested },
         'strict',

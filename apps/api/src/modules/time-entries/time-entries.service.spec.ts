@@ -393,6 +393,68 @@ describe('TimeEntriesService subproject resolution', () => {
     expect(repo.subprojectCandidates).not.toHaveBeenCalled();
   });
 
+  it('edit that re-sends an unchanged assignment keeps the subproject and skips the lookup', async () => {
+    const repo = repoStub({
+      findForEdit: vi
+        .fn()
+        .mockResolvedValue({ ...existing, projectId: 'p1', taskId: null, subprojectId: 'sOther' }),
+    });
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.edit(
+      'e1',
+      { projectId: 'p1', taskId: null, startTime: '2026-07-11T08:00:00Z' },
+      employee,
+    );
+    expect(repo.subprojectCandidates).not.toHaveBeenCalled();
+    expect(repo.update).toHaveBeenCalledWith(
+      'e1',
+      { startTime: '2026-07-11T08:00:00Z' },
+      { startTime: '2026-07-11T09:00:00Z' },
+      'u1',
+    );
+  });
+
+  it('edit with only a subprojectId of another project is a 422', async () => {
+    const repo = repoStub();
+    const svc = new TimeEntriesService(repo, accessStub());
+    await expect(svc.edit('e1', { subprojectId: 'sX' }, employee)).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+  });
+
+  it('edit with only a valid subprojectId writes it', async () => {
+    const repo = repoStub({
+      findForEdit: vi.fn().mockResolvedValue({ ...existing, projectId: 'p1' }),
+      subprojectCandidates: vi
+        .fn()
+        .mockResolvedValue({ defaultId: 'sDef', taskSubprojectId: null, requestedBelongs: true }),
+    });
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.edit('e1', { subprojectId: 'sX' }, employee);
+    expect(repo.update).toHaveBeenCalledWith(
+      'e1',
+      { subprojectId: 'sX' },
+      { subprojectId: null },
+      'u1',
+    );
+  });
+
+  it('createManual passes the resolved subproject to the repository', async () => {
+    const repo = repoStub();
+    const svc = new TimeEntriesService(repo, accessStub());
+    await svc.createManual(
+      {
+        id: 'e9',
+        projectId: 'p1',
+        taskId: null,
+        startTime: '2026-07-11T09:00:00Z',
+        endTime: '2026-07-11T10:00:00Z',
+      },
+      employee,
+    );
+    expect(repo.createManual).toHaveBeenCalledWith(expect.anything(), 'u1', 'u1', 'sDef');
+  });
+
   it('edit sending the SAME assignment is still a no-op 422', async () => {
     const repo = repoStub({
       findForEdit: vi

@@ -149,7 +149,11 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
       },
     });
 
-    const opened = await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b2'), user.id, null);
+    const opened = await repo().upsert(
+      createDto('019797a0-0000-7000-8000-0000000000b2'),
+      user.id,
+      null,
+    );
 
     expect(opened.endTime).toBeNull(); // the new span is open and recorded
     const retired = await db.prisma.timeEntry.findUnique({ where: { id: abandoned } });
@@ -248,9 +252,7 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
         '2026-07-11T10:30:00Z',
         '2026-07-11T12:00:00Z',
       );
-      expect(
-        await repo().hasOverlap(u.id, 'other-id', RANGE_START, RANGE_END),
-      ).toBe(true);
+      expect(await repo().hasOverlap(u.id, 'other-id', RANGE_START, RANGE_END)).toBe(true);
     });
 
     it('detects an OPEN entry that starts inside the range', async () => {
@@ -367,7 +369,12 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
 
     it('a manual entry participates in the overlap check like any other', async () => {
       const u = await seedUser('manual4@example.com');
-      await repo().createManual(manualDto('019797a0-0000-7000-8000-0000000000f4'), u.id, u.id, null);
+      await repo().createManual(
+        manualDto('019797a0-0000-7000-8000-0000000000f4'),
+        u.id,
+        u.id,
+        null,
+      );
       expect(
         await repo().hasOverlap(
           u.id,
@@ -390,7 +397,8 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     // Close it; now nothing is active.
     await repo().upsert(
       createDto('019797a0-0000-7000-8000-0000000000a4', { endTime: '2026-07-11T10:00:00Z' }),
-      user.id, null
+      user.id,
+      null,
     );
     expect(await repo().findActiveByUser(user.id)).toBeNull();
   });
@@ -412,7 +420,8 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
         endTime: '2026-07-11T10:00:00Z',
         note: 'draft',
       }),
-      user.id, null
+      user.id,
+      null,
     );
 
     const after: UpdateTimeEntry = { note: 'client meeting' };
@@ -440,7 +449,8 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     await repo().upsert(createDto('019797a0-0000-7000-8000-0000000000b2'), user.id, null); // open
     const closed = await repo().upsert(
       createDto('019797a0-0000-7000-8000-0000000000b2', { endTime: '2026-07-11T11:00:00Z' }),
-      user.id, null
+      user.id,
+      null,
     ); // close via the sync path, NOT an edit
 
     expect(closed.editedById).toBeNull();
@@ -458,7 +468,8 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     // ...and a closed one we then try to REOPEN (endTime -> null) for the same user.
     await repo().upsert(
       createDto('019797a0-0000-7000-8000-0000000000b4', { endTime: '2026-07-11T10:00:00Z' }),
-      user.id, null
+      user.id,
+      null,
     );
 
     await expect(
@@ -479,7 +490,11 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     await repo().upsert(createDto(id), user.id, null);
 
     // 2. The client closes it.
-    const closed = await repo().upsert(createDto(id, { endTime: '2026-07-11T10:00:00Z' }), user.id, null);
+    const closed = await repo().upsert(
+      createDto(id, { endTime: '2026-07-11T10:00:00Z' }),
+      user.id,
+      null,
+    );
     expect(closed.endTime).toBe('2026-07-11T10:00:00.000Z');
 
     // 3. A stale open payload arrives late (retry, slow network, queued heartbeat).
@@ -566,7 +581,8 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
       const user = await seedUser();
       await repo().upsert(
         { ...createDto(SPANNING), startTime: START, endTime: END },
-        user.id, null
+        user.id,
+        null,
       );
       return user;
     }
@@ -625,7 +641,8 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
           startTime: '2026-07-10T22:00:00.000Z',
           endTime: '2026-07-11T00:00:00.000Z',
         },
-        user.id, null
+        user.id,
+        null,
       );
       expect(await repo().list({ userId: user.id, ...day(11) })).toHaveLength(0);
       expect(await repo().list({ userId: user.id, ...day(10) })).toHaveLength(1);
