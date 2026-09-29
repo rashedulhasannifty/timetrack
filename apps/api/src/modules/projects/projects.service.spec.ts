@@ -674,4 +674,12 @@ describe('ProjectsService — catalog-managed subprojects', () => {
     expect(repo.hasActiveSubprojectNamed).toHaveBeenCalledWith('p1', 'payroll');
     expect(repo.createSubproject).not.toHaveBeenCalled();
   });
+
+  it('checks the trimmed name, so "Payroll " is caught', async () => {
+    const { svc, repo } = makeService({
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }),
+    });
+    await svc.createSubproject({ projectId: 'p1', name: 'Payroll ' }, manager);
+    expect(repo.hasActiveSubprojectNamed).toHaveBeenCalledWith('p1', 'Payroll');
+  });
 });

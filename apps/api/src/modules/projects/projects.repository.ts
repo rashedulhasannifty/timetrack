@@ -98,34 +98,39 @@ export class ProjectsRepository {
     actorId: string,
     color: string | null = null,
   ): Promise<Project> {
-    return this.prisma.$transaction(async (tx) => {
-      const project = await tx.project.create({
-        data: { teamId, name, color },
-        select: PROJECT_SELECT,
-      });
-      // Every project owns exactly one default subproject (partial unique index), created with it.
-      await tx.subproject.create({
-        data: { projectId: project.id, name: DEFAULT_SUBPROJECT_NAME, isDefault: true },
-      });
-      await tx.auditLog.create({
-        data: {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const project = await tx.project.create({
+          data: { teamId, name, color },
+          select: PROJECT_SELECT,
+        });
+        // Every project owns exactly one default subproject (partial unique index), created with it.
+        await tx.subproject.create({
+          data: { projectId: project.id, name: DEFAULT_SUBPROJECT_NAME, isDefault: true },
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: 'project.create',
+            targetType: 'project',
+            targetId: project.id,
+            diff: { teamId, name, color },
+          },
+        });
+        // The team's work types, in the same transaction (spec §5): a manager who creates a client
+        // still gets them. One project, so Prisma's default transaction timeout is enough (R13).
+        await this.workTypes.reconcile(tx, [project.id], {
           actorId,
-          action: 'project.create',
+          trigger: 'project_create',
           targetType: 'project',
           targetId: project.id,
-          diff: { teamId, name, color },
-        },
+        });
+        return project;
       });
-      // The team's work types, in the same transaction (spec §5): a manager who creates a client
-      // still gets them. One project, so Prisma's default transaction timeout is enough (R13).
-      await this.workTypes.reconcile(tx, [project.id], {
-        actorId,
-        trigger: 'project_create',
-        targetType: 'project',
-        targetId: project.id,
-      });
-      return project;
-    });
+    } catch (e) {
+      if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      throw e;
+    }
   }
 
   findTeam(teamId: string): Promise<{ id: string; name: string } | null> {
@@ -355,32 +360,37 @@ export class ProjectsRepository {
    * tracked stay with the team whose people tracked them.
    */
   async setTeam(id: string, teamId: string, actorId: string): Promise<Project> {
-    return this.prisma.$transaction(async (tx) => {
-      const before = await tx.project.findUnique({ where: { id }, select: { teamId: true } });
-      const project = await tx.project.update({
-        where: { id },
-        data: { teamId },
-        select: PROJECT_SELECT,
-      });
-      await tx.auditLog.create({
-        data: {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const before = await tx.project.findUnique({ where: { id }, select: { teamId: true } });
+        const project = await tx.project.update({
+          where: { id },
+          data: { teamId },
+          select: PROJECT_SELECT,
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: 'project.team_change',
+            targetType: 'project',
+            targetId: id,
+            diff: { from: before?.teamId ?? null, to: teamId },
+          },
+        });
+        // Swap to the new team's work types: the old team's linked rows archive (never delete) and
+        // a move back restores the same rows (spec §5, rule 1 and 4).
+        await this.workTypes.reconcile(tx, [id], {
           actorId,
-          action: 'project.team_change',
+          trigger: 'project_team_change',
           targetType: 'project',
           targetId: id,
-          diff: { from: before?.teamId ?? null, to: teamId },
-        },
+        });
+        return project;
       });
-      // Swap to the new team's work types: the old team's linked rows archive (never delete) and
-      // a move back restores the same rows (spec §5, rule 1 and 4).
-      await this.workTypes.reconcile(tx, [id], {
-        actorId,
-        trigger: 'project_team_change',
-        targetType: 'project',
-        targetId: id,
-      });
-      return project;
-    });
+    } catch (e) {
+      if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      throw e;
+    }
   }
 
   findForActor(id: string): Promise<{

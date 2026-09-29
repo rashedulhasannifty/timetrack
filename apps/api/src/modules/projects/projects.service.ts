@@ -116,7 +116,7 @@ export class ProjectsService {
     this.assertCanAdminister(project.teamId, actor);
     // Case-insensitive, active rows only (spec §5): stops a hand-made "payroll" shadowing the
     // catalog's "Payroll", and a second "General".
-    if (await this.repo.hasActiveSubprojectNamed(dto.projectId, dto.name)) {
+    if (await this.repo.hasActiveSubprojectNamed(dto.projectId, dto.name.trim())) {
       throw this.conflict('This project already has a subproject with that name');
     }
     return this.repo.createSubproject(dto.projectId, dto.name, actor.id);

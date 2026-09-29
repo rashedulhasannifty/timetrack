@@ -2,6 +2,7 @@ import './test-env.js'; // must run before anything that calls loadEnv()
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { ConflictException, HttpException, NotFoundException } from '@nestjs/common';
 import { PROJECT_PALETTE } from '@timetrack/contracts';
+import { Prisma } from '@timetrack/db';
 import { ProjectsRepository } from '../src/modules/projects/projects.repository.js';
 import { ProjectsService } from '../src/modules/projects/projects.service.js';
 import { WorkTypesRepository } from '../src/modules/work-types/work-types.repository.js';
@@ -235,6 +236,39 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
     for (const s of subs) {
       expect(Object.keys(s).sort()).toEqual(['archived', 'id', 'isDefault', 'name', 'projectId']);
     }
+  });
+
+  it('maps a unique violation from the reconcile to a 409, never a raw error (R9)', async () => {
+    const eng = await team('Eng');
+    const support = await team('Support');
+    const p = await client(eng, 'Acme');
+    const clash = new Prisma.PrismaClientKnownRequestError('unique', {
+      code: 'P2002',
+      clientVersion: 'test',
+    });
+    const failing = {
+      reconcile: () => Promise.reject(clash),
+    } as unknown as WorkTypesRepository;
+    const repo = new ProjectsRepository(prisma(), failing);
+
+    await expect(repo.createProject(eng, 'Globex', ADMIN_ID)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    await expect(repo.setTeam(p.id, support, ADMIN_ID)).rejects.toBeInstanceOf(ConflictException);
+    // Both transactions rolled back.
+    await expect(db.prisma.project.count({ where: { name: 'Globex' } })).resolves.toBe(0);
+    await expect(
+      db.prisma.project.findUniqueOrThrow({ where: { id: p.id }, select: { teamId: true } }),
+    ).resolves.toEqual({ teamId: eng });
+  });
+
+  it('409s a duplicate subproject name that only differs by surrounding whitespace', async () => {
+    const eng = await team('Eng');
+    await select(eng, 'Payroll');
+    const p = await client(eng, 'Acme');
+    await expect(
+      projects().createSubproject({ projectId: p.id, name: 'Payroll ' }, admin(eng)),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 });
 
