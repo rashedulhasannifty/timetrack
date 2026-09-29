@@ -23,6 +23,40 @@ public class TimeTrackerTests
     private static TimeEntryPayload Decode(byte[] payload) =>
         JsonSerializer.Deserialize<TimeEntryPayload>(payload)!;
 
+    /// <summary>
+    /// A non-default subproject with no task is the one case the server cannot re-derive: the first
+    /// write fixes the entry's subproject, so every path that rebuilds a selection must carry it.
+    /// </summary>
+    [Fact]
+    public void TheSubprojectSurvivesStopNoteEditPauseResumeAndReselect()
+    {
+        var now = T0;
+        var (tracker, buffer, _) = NewTracker(() => now);
+
+        tracker.Start("p1", null, subprojectId: "s2");
+        tracker.SetNote("typing");
+        now = T0.AddMinutes(1);
+        tracker.Pause();
+        tracker.Resume();
+        now = T0.AddMinutes(2);
+        tracker.Pause();
+        tracker.Reselect(new TimeTracker.Selection("p1", null, SubprojectId: "s3"));
+        tracker.Resume();
+        tracker.Stop();
+
+        var payloads = buffer.Entries.Select(e => Decode(e.Payload)).ToList();
+        Assert.Equal(["s2", "s2", "s3"], payloads.Select(p => p.SubprojectId));
+        Assert.Equal("typing", payloads[0].Note);
+    }
+
+    [Fact]
+    public void RecordSpanCarriesTheSubproject()
+    {
+        var (tracker, buffer, _) = NewTracker(() => T0);
+        tracker.RecordSpan(T0, T0.AddMinutes(1), "p1", null, TimeTracker.EntrySource.Auto, subprojectId: "s2");
+        Assert.Equal("s2", Decode(Assert.Single(buffer.Entries).Payload).SubprojectId);
+    }
+
     [Fact]
     public void StartsIdleAndEnqueuesNothing()
     {
@@ -299,13 +333,27 @@ public class LiveEntryPublisherTests
 {
     private static readonly DateTimeOffset T0 = new(2026, 8, 25, 9, 0, 0, TimeSpan.Zero);
 
-    private static readonly TimeTracker.Selection Selection = new("p1", "t1");
+    private static readonly TimeTracker.Selection Selection = new("p1", null, SubprojectId: "s2");
 
     private static Task Publish(LiveEntryPublisher publisher) =>
         publisher.PublishAsync("entry-1", T0, Selection, TimeTracker.EntrySource.Manual);
 
     private static ClosedSpan Closed(string id = "entry-1") =>
         new(id, T0, T0.AddMinutes(20), Selection, TimeTracker.EntrySource.Manual);
+
+    [Fact]
+    public async Task OpenCloseAndHeartbeatAllSendTheSubproject()
+    {
+        var uploader = new FakeUploader();
+        var publisher = new LiveEntryPublisher(uploader);
+
+        await Publish(publisher);
+        await publisher.PublishCloseAsync(Closed());
+        await publisher.HeartbeatAsync(new TrackerState.Tracking("entry-1", T0, Selection, TimeTracker.EntrySource.Manual));
+
+        Assert.All(uploader.Uploads, body =>
+            Assert.Equal("s2", JsonSerializer.Deserialize<TimeEntryPayload>(body)!.SubprojectId));
+    }
 
     [Fact]
     public async Task PublishesACloseWithItsEndTime()

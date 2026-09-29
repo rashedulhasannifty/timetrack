@@ -90,7 +90,7 @@ public class LiveTotalsTests
         rig.ViewModel.Projects = [new Project("p1", "team", "One", false, null), new Project("p2", "team", "Two", false, null)];
 
         rig.ViewModel.Start();
-        rig.ViewModel.SelectProject("p2", null);
+        rig.ViewModel.SelectProject(new StoredSelection("p2", null));
 
         Assert.Equal(0, rig.StoppedCount);
     }

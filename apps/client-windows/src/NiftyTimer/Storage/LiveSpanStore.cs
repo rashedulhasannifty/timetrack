@@ -20,6 +20,10 @@ public sealed record LiveSpan
     [JsonPropertyName("projectId")]
     public string? ProjectId { get; init; }
 
+    /// <summary>Optional so a <c>live-span.json</c> written by 0.2.x still loads.</summary>
+    [JsonPropertyName("subprojectId")]
+    public string? SubprojectId { get; init; }
+
     [JsonPropertyName("taskId")]
     public string? TaskId { get; init; }
 
@@ -98,6 +102,7 @@ public sealed class LiveSpanStore : ILiveSpanRecorder
             EntryId = entryId,
             StartTime = startTime,
             ProjectId = selection.ProjectId,
+            SubprojectId = selection.SubprojectId,
             TaskId = selection.TaskId,
             Source = TimeTracker.SourceToken(source),
             LastAlive = startTime,

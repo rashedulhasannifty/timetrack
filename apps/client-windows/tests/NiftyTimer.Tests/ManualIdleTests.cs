@@ -505,6 +505,23 @@ public class ManualIdleCoordinatorTests
         Assert.Equal("DISCARDED", Assert.Single(h.IdleEvents()).ResolvedAction);
     }
 
+    [Fact]
+    public void DiscardCarriesTheSubprojectToTheFreshEntry()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null, subprojectId: "s2");
+        h.Coordinator.Tick(0);
+
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600);
+        h.Now = T0.AddMinutes(40);
+        h.Coordinator.Tick(0);
+        h.Resolve!(AwayResolution.Discard);
+
+        Assert.Equal("s2", ((TrackerState.Tracking)h.Tracker.State).Selection.SubprojectId);
+        Assert.Equal("s2", h.TimeEntries()[0].SubprojectId);
+    }
+
     /// <summary>
     /// The clock must keep reading WORKED time. Twenty minutes were worked before stepping away, so
     /// after the swap the display counts from twenty minutes before the fresh entry's start —

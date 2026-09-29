@@ -10,7 +10,7 @@ final class TimeEntryPayloadTests: XCTestCase {
     func testOpenEntryEmitsExplicitNullEndTime() throws {
         let json = try encoded(TimeEntryPayload(
             id: "01920000-0000-7000-8000-000000000001",
-            projectId: nil, taskId: nil,
+            projectId: nil, subprojectId: nil, taskId: nil,
             startTime: "2026-08-20T04:00:00Z",
             endTime: nil,
             source: "MANUAL",
@@ -24,7 +24,7 @@ final class TimeEntryPayloadTests: XCTestCase {
     func testClosedEntryEmitsTheEndTime() throws {
         let json = try encoded(TimeEntryPayload(
             id: "01920000-0000-7000-8000-000000000002",
-            projectId: nil, taskId: nil,
+            projectId: nil, subprojectId: nil, taskId: nil,
             startTime: "2026-08-20T04:00:00Z",
             endTime: "2026-08-20T05:00:00Z",
             source: "MANUAL",
@@ -36,7 +36,7 @@ final class TimeEntryPayloadTests: XCTestCase {
     func testNilProjectAndTaskStillEmitExplicitNulls() throws {
         let json = try encoded(TimeEntryPayload(
             id: "01920000-0000-7000-8000-000000000003",
-            projectId: nil, taskId: nil,
+            projectId: nil, subprojectId: nil, taskId: nil,
             startTime: "2026-08-20T04:00:00Z",
             endTime: nil,
             source: "MANUAL",
@@ -49,7 +49,7 @@ final class TimeEntryPayloadTests: XCTestCase {
     func testNilNoteIsOmittedNotNulled() throws {
         let json = try encoded(TimeEntryPayload(
             id: "01920000-0000-7000-8000-000000000004",
-            projectId: nil, taskId: nil,
+            projectId: nil, subprojectId: nil, taskId: nil,
             startTime: "2026-08-20T04:00:00Z",
             endTime: nil,
             source: "MANUAL",
@@ -57,5 +57,18 @@ final class TimeEntryPayloadTests: XCTestCase {
         ))
         // note is .optional() on the server — omitted, not null.
         XCTAssertFalse(json.keys.contains("note"))
+    }
+
+    func testEncodesTheSubprojectAndANilOneAsNull() throws {
+        let withSub = try encoded(TimeEntryPayload(
+            id: "e1", projectId: "p1", subprojectId: "s2", taskId: nil,
+            startTime: "2026-09-29T09:00:00Z", endTime: "2026-09-29T10:00:00Z",
+            source: "MANUAL", note: nil))
+        XCTAssertEqual(withSub["subprojectId"] as? String, "s2")
+
+        let without = try encoded(TimeEntryPayload(
+            id: "e1", projectId: nil, subprojectId: nil, taskId: nil,
+            startTime: "2026-09-29T09:00:00Z", endTime: nil, source: "MANUAL", note: nil))
+        XCTAssertTrue(without["subprojectId"] is NSNull)
     }
 }

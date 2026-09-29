@@ -15,7 +15,7 @@ final class AutoTrackingCoordinatorTests: XCTestCase {
     }
 
     /// Builds a coordinator whose prompt presenter is captured so the test can answer it.
-    private func make(threshold: Int = 300, selection: TimeTracker.Selection = .init(projectId: "p1", taskId: "k1"))
+    private func make(threshold: Int = 300, selection: TimeTracker.Selection = .init(projectId: "p1", subprojectId: "s2", taskId: nil))
         -> (AutoTrackingCoordinator, TimeTracker, BufferSpy, MutableClock, () -> ((AwayResolution) -> Void)?) {
         let clock = MutableClock(t0)
         let spy = BufferSpy()
@@ -129,7 +129,7 @@ final class AutoTrackingCoordinatorTests: XCTestCase {
             tracker: tracker,
             buffer: BufferSpy(),
             thresholdSeconds: 300,
-            currentSelection: { .init(projectId: nil, taskId: nil) },
+            currentSelection: { .init(projectId: nil, subprojectId: nil, taskId: nil) },
             presentAwayPrompt: { _, _ in },
             clock: { Date(timeIntervalSince1970: 5000) },
             onIdleThresholdCrossed: { crossed.append($0) }
@@ -148,7 +148,7 @@ final class AutoTrackingCoordinatorTests: XCTestCase {
             tracker: tracker,
             buffer: BufferSpy(),
             thresholdSeconds: 300,
-            currentSelection: { .init(projectId: nil, taskId: nil) },
+            currentSelection: { .init(projectId: nil, subprojectId: nil, taskId: nil) },
             presentAwayPrompt: { _, _ in },
             clock: { Date(timeIntervalSince1970: 5000) },
             onIdleThresholdCrossed: { crossed.append($0) }
@@ -157,5 +157,19 @@ final class AutoTrackingCoordinatorTests: XCTestCase {
         coordinator.markAway()             // sleep/lock
 
         XCTAssertTrue(crossed.isEmpty)
+    }
+
+    func testAutoStartAndTheKeepBridgeCarryTheSubproject() {
+        let (coordinator, _, spy, clock, resolver) = make(threshold: 300)
+        coordinator.activate()                                   // AUTO entry opens at t0
+        clock.advance(300); coordinator.tick(idleSeconds: 300)   // stops it at the away start
+        clock.advance(120); coordinator.tick(idleSeconds: 5)     // back → prompt
+        resolver()?(.keep)                                       // bridge span is recorded
+
+        let entries = spy.entries.indices
+            .filter { spy.entries[$0].kind == .timeEntry }
+            .map { spy.object(at: $0) }
+        XCTAssertGreaterThanOrEqual(entries.count, 2, "the auto entry and the Keep bridge")
+        XCTAssertTrue(entries.allSatisfy { $0["subprojectId"] as? String == "s2" })
     }
 }

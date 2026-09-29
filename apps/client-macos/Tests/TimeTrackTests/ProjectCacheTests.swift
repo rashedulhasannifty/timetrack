@@ -42,4 +42,36 @@ final class ProjectCacheTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path),
                        "clear() must delete the underlying file")
     }
+
+    /// A projects.json written by 0.6.x has no subproject fields. It must still load — the picker
+    /// works offline from this file until the next successful fetch replaces it.
+    func testLoadsACacheWrittenBeforeSubprojectsExisted() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let legacy = """
+        [{"id":"p1","teamId":"t1","name":"Acme","archived":false,
+          "tasks":[{"id":"k1","projectId":"p1","name":"Design"}]}]
+        """
+        try Data(legacy.utf8).write(to: url)
+
+        let loaded = ProjectCache(fileURL: url).load()
+
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertNil(loaded[0].subprojects)
+        XCTAssertNil(loaded[0].tasks?[0].subprojectId)
+    }
+
+    func testDecodesSubprojectsAndTaskSubprojectIds() throws {
+        let json = """
+        [{"id":"p1","teamId":"t1","name":"Acme","color":null,"archived":false,
+          "tasks":[{"id":"k1","projectId":"p1","subprojectId":"s2","name":"Design","archived":false}],
+          "subprojects":[{"id":"s1","projectId":"p1","name":"General","archived":false,"isDefault":true},
+                         {"id":"s2","projectId":"p1","name":"Checkout","archived":false,"isDefault":false}]}]
+        """
+        let projects = try JSONDecoder().decode([Project].self, from: Data(json.utf8))
+
+        XCTAssertEqual(projects[0].subprojects?.map(\.id), ["s1", "s2"])
+        XCTAssertEqual(projects[0].subprojects?[0].isDefault, true)
+        XCTAssertEqual(projects[0].tasks?[0].subprojectId, "s2")
+    }
 }

@@ -46,35 +46,35 @@ public sealed class SelectionStore
 /// Decides which selection the picker should open on, given what was stored and what the team's
 /// project list actually contains now.
 ///
-/// A stored selection can go stale in three ways between launches: the project was archived, the
-/// project was deleted, or the task was removed. Silently starting the clock against a project
-/// that no longer exists produces entries nobody can find in the dashboard, so each case degrades
-/// one step rather than being carried forward.
+/// A stored selection can go stale in four ways between launches: the project was archived or
+/// deleted, the task was removed or moved to another subproject, or the subproject was archived.
+/// Silently starting the clock against something that no longer exists produces entries nobody
+/// can find in the dashboard, so each case degrades one step rather than being carried forward.
+///
+/// The table is identical on macOS (SelectionResolver.swift), and a task that still exists wins:
+/// a moved task resolves to its CURRENT subproject, never a mismatched pair. The same rule
+/// upgrades a selection stored by 0.2.x, which has no subprojectId.
 /// </summary>
 public static class SelectionResolver
 {
     public static StoredSelection? Resolve(StoredSelection? stored, IReadOnlyList<Project> projects)
     {
-        if (stored is null)
+        if (stored is null || projects.FirstOrDefault(p => p.Id == stored.ProjectId && !p.Archived) is not { } project)
         {
-            return null;
+            return null; // gone or archived — no selection
         }
 
-        var project = projects.FirstOrDefault(p => p.Id == stored.ProjectId && !p.Archived);
-        if (project is null)
+        var node = PickerTree.Node(project);
+        if (stored.TaskId is { } taskId && node.Subprojects.FirstOrDefault(s => s.Tasks.Any(t => t.Id == taskId)) is { } home)
         {
-            return null; // archived or gone — fall back to no selection
+            return new StoredSelection(project.Id, taskId, home.Id);
         }
 
-        if (stored.TaskId is null)
+        if (stored.SubprojectId is { } subprojectId && node.FindSubproject(subprojectId) is not null)
         {
-            return stored;
+            return new StoredSelection(project.Id, null, subprojectId);
         }
 
-        var taskStillExists = project.Tasks?.Any(t => t.Id == stored.TaskId) ?? false;
-
-        // Keep the project, drop the task: the person's project choice is still valid and is the
-        // part that determines where the time lands.
-        return taskStillExists ? stored : new StoredSelection(stored.ProjectId, null);
+        return new StoredSelection(project.Id, null, node.DefaultSubproject?.Id);
     }
 }

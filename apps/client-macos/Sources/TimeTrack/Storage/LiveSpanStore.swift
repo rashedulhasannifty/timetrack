@@ -6,6 +6,7 @@ struct LiveSpan: Codable, Equatable {
     let entryId: String
     let startTime: Date
     let projectId: String?
+    let subprojectId: String?
     let taskId: String?
     let source: String
     var lastAlive: Date
@@ -48,7 +49,8 @@ final class LiveSpanStore: LiveSpanRecording {
 
     func begin(entryId: String, startTime: Date, selection: TimeTracker.Selection, source: TimeTracker.Source) {
         write(LiveSpan(entryId: entryId, startTime: startTime,
-                       projectId: selection.projectId, taskId: selection.taskId,
+                       projectId: selection.projectId, subprojectId: selection.subprojectId,
+                       taskId: selection.taskId,
                        source: source.rawValue, lastAlive: startTime, userId: currentUserId()))
     }
 

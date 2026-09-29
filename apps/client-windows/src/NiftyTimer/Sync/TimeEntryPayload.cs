@@ -6,16 +6,19 @@ namespace NiftyTimer.Sync;
 /// <summary>
 /// Matches <c>CreateTimeEntrySchema</c> in @timetrack/contracts.
 ///
-/// <c>projectId</c>/<c>taskId</c>/<c>endTime</c> are <c>.nullable()</c> on the server (present,
-/// may be null), so a null MUST be written as an explicit JSON null — omitting the key makes the
+/// <c>projectId</c>/<c>subprojectId</c>/<c>taskId</c>/<c>endTime</c> are <c>.nullable()</c> on the
+/// server (present, may be null), so a null MUST be written as an explicit JSON null — omitting the key makes the
 /// strict-mode Zod pipe answer 422. <c>note</c> is <c>.optional()</c>, so a null is omitted
 /// instead. That asymmetry is the whole reason this type spells out its serializer options
 /// rather than setting a blanket <c>DefaultIgnoreCondition</c>.
 ///
+/// <c>subprojectId</c> is <c>.nullable().optional()</c> on the server; an explicit null alongside a
+/// <c>projectId</c> means the server derives it (from the task, else the project default).
+///
 /// A null <c>endTime</c> means the entry is still RUNNING. Only the direct live-entry publish
 /// sends that; buffered records are always closed.
 ///
-/// Nothing else may be added here. Request bodies are parsed in Zod strict mode, so an extra
+/// Nothing else may be added here without adding it to <c>CreateTimeEntrySchema</c> first. Request bodies are parsed in Zod strict mode, so an extra
 /// field — a helpful <c>platform</c>, <c>deviceId</c> or <c>clientVersion</c> — is rejected 422.
 /// </summary>
 public sealed record TimeEntryPayload
@@ -25,6 +28,9 @@ public sealed record TimeEntryPayload
 
     [JsonPropertyName("projectId")]
     public string? ProjectId { get; init; }
+
+    [JsonPropertyName("subprojectId")]
+    public string? SubprojectId { get; init; }
 
     [JsonPropertyName("taskId")]
     public string? TaskId { get; init; }

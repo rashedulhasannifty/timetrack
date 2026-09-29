@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NiftyTimer.App;
 using NiftyTimer.Policy;
 using NiftyTimer.Projects;
@@ -163,6 +164,48 @@ public class UuidV7Tests
         var local = new DateTimeOffset(2026, 8, 25, 15, 4, 5, 678, TimeSpan.FromHours(6));
 
         Assert.Equal("2026-08-25T09:04:05Z", UuidV7.Iso(local));
+    }
+}
+
+public class SubprojectDecodeTests
+{
+    [Fact]
+    public void ALegacyProjectWithoutSubprojectsDecodes()
+    {
+        var json = """{"id":"p1","teamId":"tm","name":"P","archived":false,"tasks":[{"id":"t1","projectId":"p1","name":"T"}]}""";
+
+        var project = JsonSerializer.Deserialize<Project>(json)!;
+
+        Assert.Null(project.Subprojects);
+        Assert.Null(Assert.Single(project.Tasks!).SubprojectId);
+    }
+
+    [Fact]
+    public void SubprojectsAndATasksSubprojectDecode()
+    {
+        var json = """{"id":"p1","teamId":"tm","name":"P","archived":false,"subprojects":[{"id":"s1","projectId":"p1","name":"General","archived":false,"isDefault":true}],"tasks":[{"id":"t1","projectId":"p1","name":"T","subprojectId":"s1"}]}""";
+
+        var project = JsonSerializer.Deserialize<Project>(json)!;
+
+        Assert.True(Assert.Single(project.Subprojects!).IsDefault);
+        Assert.Equal("s1", Assert.Single(project.Tasks!).SubprojectId);
+    }
+
+    [Fact]
+    public void ALegacyStoredSelectionDecodesWithNoSubproject()
+    {
+        var selection = JsonSerializer.Deserialize<StoredSelection>("""{"projectId":"p1","taskId":"t1"}""")!;
+
+        Assert.Equal("t1", selection.TaskId);
+        Assert.Null(selection.SubprojectId);
+    }
+
+    [Fact]
+    public void TheNewestRecentSelectionCarriesItsSubproject()
+    {
+        var rows = new[] { new RecentEntryRow("2026-08-25T09:00:00Z", "p1", null, "s2") };
+
+        Assert.Equal("s2", RecentSelectionClient.NewestSelection(rows)!.SubprojectId);
     }
 }
 
@@ -457,7 +500,7 @@ public class MenuViewModelTests
         vm.Start();
         var firstSpan = RunningEntryId(tracker);
 
-        vm.SelectProject("p2", null); // closes the first span, opens a second
+        vm.SelectProject(new StoredSelection("p2", null)); // closes the first span, opens a second
 
         vm.HandleTrackingConflict(firstSpan); // the late 409 for the span that is already gone
 
@@ -491,7 +534,7 @@ public class MenuViewModelTests
         vm.Projects = [new Project("p1", "team", "One", false, null), new Project("p2", "team", "Two", false, null)];
         vm.Start();
 
-        vm.SelectProject("p2", null);
+        vm.SelectProject(new StoredSelection("p2", null));
 
         Assert.Single(buffer.Entries); // the first span was closed
         Assert.True(vm.IsTracking);
@@ -508,7 +551,7 @@ public class MenuViewModelTests
         var vm = NewViewModel(out _);
         vm.IsReady = true;
         vm.Projects = [new Project("p1", "team", "One", false, null)];
-        vm.SelectProject("p1", null);
+        vm.SelectProject(new StoredSelection("p1", null));
         vm.Totals = new SelfTotals("2026-08-25", "2026-08-24", "2026-08-01", 100, 200, 300);
         vm.PendingCount = 4;
 
@@ -542,76 +585,6 @@ public class MenuViewModelTests
 
         vm.PendingCount = 3;
         Assert.Equal("3 records pending", vm.PendingLabel);
-    }
-
-    private static readonly Project Website = new(
-        "p1", "team", "Website", false, [new ProjectTask("t1", "p1", "Design review")]);
-
-    private static readonly Project Billing = new("p2", "team", "Billing", false, null);
-
-    [Fact]
-    public void ChoicesListEachProjectFollowedByItsTasks()
-    {
-        var vm = NewViewModel(out _);
-        vm.Projects = [Website, Billing];
-
-        Assert.Equal(
-            [
-                new PickerChoice("p1", null, "Website", null),
-                new PickerChoice("p1", "t1", "Website", "Design review"),
-                new PickerChoice("p2", null, "Billing", null),
-            ],
-            vm.Choices);
-    }
-
-    /// <summary>
-    /// The macOS rule: the query may appear anywhere in the project OR the task name, in any case.
-    /// The combo box this replaced matched only a prefix of the combined label, so this exact query
-    /// found nothing.
-    /// </summary>
-    [Fact]
-    public void TheQueryMatchesAnywhereInAProjectOrTaskNameIgnoringCase()
-    {
-        var vm = NewViewModel(out _);
-        vm.Projects = [Website, Billing];
-
-        vm.Query = "REVIEW";
-
-        var match = Assert.Single(vm.FilteredChoices);
-        Assert.Equal("t1", match.TaskId);
-    }
-
-    [Fact]
-    public void AProjectNameMatchKeepsItsTaskRowsToo()
-    {
-        var vm = NewViewModel(out _);
-        vm.Projects = [Website, Billing];
-
-        vm.Query = "site";
-
-        Assert.Equal(["p1", "p1"], vm.FilteredChoices.Select(c => c.ProjectId));
-    }
-
-    [Fact]
-    public void AnEmptyQueryOffersEveryChoice()
-    {
-        var vm = NewViewModel(out _);
-        vm.Projects = [Website, Billing];
-
-        vm.Query = string.Empty;
-
-        Assert.Equal(3, vm.FilteredChoices.Count);
-    }
-
-    [Fact]
-    public void ANonMatchingQueryOffersNothing()
-    {
-        var vm = NewViewModel(out _);
-        vm.Projects = [Website, Billing];
-
-        vm.Query = "payroll";
-
-        Assert.Empty(vm.FilteredChoices);
     }
 
     /// <summary>A search typed by the person leaving must not greet the next one.</summary>

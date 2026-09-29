@@ -101,10 +101,12 @@ public class TrayPopupWindowPositionTests
 [Collection("wpf")]
 public class TrayPopupPickerTests
 {
-    private static readonly Project Website = new(
-        "p1", "team", "Website", false, [new ProjectTask("t1", "p1", "Design review")]);
+    private static readonly Project Website = new("p1", "team", "Website", false,
+        [new ProjectTask("t1", "p1", "Design review", "s2")],
+        [new Subproject("s1", "p1", "General", false, true), new Subproject("s2", "p1", "Checkout", false, false)]);
 
-    private static readonly Project Billing = new("p2", "team", "Billing", false, null);
+    private static readonly Project Billing = new("p2", "team", "Billing", false, [],
+        [new Subproject("s3", "p2", "General", false, true)]);
 
     private static T WithPopup<T>(Func<MenuViewModel, TrayPopupWindow, T> body) =>
         Wpf.Run(() =>
@@ -136,24 +138,121 @@ public class TrayPopupPickerTests
         {
             ((TextBox)window.FindName("SearchBox")).Text = "design";
             var list = (ListBox)window.FindName("ProjectList");
-            return (vm.Query, list.Items.Cast<PickerChoice>().ToList());
+            return (vm.Query, list.Items.Cast<PickerRow>().ToList());
         });
 
         Assert.Equal("design", query);
-        Assert.Equal("t1", Assert.Single(shown).TaskId);
+        Assert.Equal("Website › Checkout › Design review", Assert.Single(shown).Title);
     }
 
     [Fact]
-    public void PickingARowSelectsItsProjectAndTask()
+    public void MovingTheHighlightDoesNotChangeWhatIsTracked()
     {
-        var selection = WithPopup((vm, window) =>
+        var (selection, levelBefore, levelAfter, highlighted) = WithPopup((vm, window) =>
         {
             var list = (ListBox)window.FindName("ProjectList");
-            list.SelectedItem = list.Items.Cast<PickerChoice>().Single(c => c.TaskId == "t1");
-            return vm.Selection;
+            vm.Activate(vm.PickerRows[1]);        // Billing: skips its lone General to the task screen
+            var before = vm.Level;
+            list.SelectedIndex = 1;               // the "(no task)" Track row: highlight only
+            return (vm.Selection, before, vm.Level, list.SelectedItem as PickerRow);
         });
 
-        Assert.Equal(new StoredSelection("p1", "t1"), selection);
+        Assert.Equal(PickerRowKind.Track, highlighted?.Kind);
+        Assert.Null(selection);
+        Assert.Equal(levelBefore, levelAfter);
+    }
+
+    [Fact]
+    public void EnterActivatesTheHighlightedRowAndDrillsIn()
+    {
+        var (level, rows) = WithPopup((vm, window) =>
+        {
+            var list = (ListBox)window.FindName("ProjectList");
+            list.SelectedIndex = 0;               // Website — two subprojects
+            window.ActivateHighlightedForTest();
+            return (vm.Level, list.Items.Cast<PickerRow>().ToList());
+        });
+
+        Assert.Equal(new PickerLevel.ProjectLevel("p1"), level);
+        Assert.Equal(["Website", "General", "Checkout"], rows.Select(r => r.Title));
+        Assert.Equal(PickerRowKind.Back, rows[0].Kind);
+    }
+
+    [Fact]
+    public void EscapeWhileSearchingClearsTheQueryAndKeepsTheLevelAndPopup()
+    {
+        var (handled, query, levelBefore, levelAfter, visible) = WithPopup((vm, window) =>
+        {
+            window.Show();
+            vm.Activate(vm.PickerRows[0]);
+            var before = vm.Level;
+            vm.Query = "design";
+            var result = window.HandleEscapeForTest();
+            return (result, vm.Query, before, vm.Level, window.IsVisible);
+        });
+
+        Assert.True(handled);
+        Assert.Equal(string.Empty, query);
+        Assert.Equal(levelBefore, levelAfter);
+        Assert.True(visible);
+    }
+
+    [Fact]
+    public void ReopeningThePopupClearsAStaleKeyboardHighlight()
+    {
+        var highlighted = WithPopup((_, window) =>
+        {
+            var list = (ListBox)window.FindName("ProjectList");
+            list.SelectedIndex = 0;
+            window.ShowNearTray();
+            return list.SelectedItem;
+        });
+
+        Assert.Null(highlighted);
+    }
+
+    [Fact]
+    public void EscapeGoesBackOneLevelThenHidesAtTheRoot()
+    {
+        var (afterFirst, stillVisible, afterSecond, visible) = WithPopup((vm, window) =>
+        {
+            window.Show();
+            vm.Activate(vm.PickerRows[0]);
+            var first = window.HandleEscapeForTest();
+            var mid = window.IsVisible;
+            var second = window.HandleEscapeForTest();
+            return (first, mid, second, window.IsVisible);
+        });
+
+        Assert.True(afterFirst);
+        Assert.True(stillVisible);
+        Assert.False(afterSecond);
+        Assert.False(visible);
+    }
+
+    [Fact]
+    public void ReopeningThePopupStartsAtTheRoot()
+    {
+        var level = WithPopup((vm, window) =>
+        {
+            vm.Activate(vm.PickerRows[0]);
+            window.ShowNearTray();
+            return vm.Level;
+        });
+
+        Assert.Equal(PickerLevel.Root, level);
+    }
+
+    [Fact]
+    public void TheHeaderStripShowsTheSelectionPath()
+    {
+        var text = WithPopup((vm, window) =>
+        {
+            vm.SelectProject(new StoredSelection("p1", null, "s2"));
+            return ((TextBlock)window.FindName("SelectionHeader")).Text;
+        });
+
+        Assert.Equal("Website › Checkout", text);
     }
 
     /// <summary>The hint is the field's only label, so it must go the moment anything is typed.</summary>
@@ -580,14 +679,14 @@ public class TrayPopupWindowControlsTests
 
 /// <summary>
 /// Task 5 picker rewrite. <see cref="TrayPopupWindow.RenderPicker"/> reassigns
-/// <c>ProjectList.ItemsSource</c> from <see cref="MenuViewModel.FilteredChoices"/>, which
-/// allocates a fresh <c>List&lt;PickerChoice&gt;</c> on every read, and <see cref="MenuViewModel.Tick"/>
+/// <c>ProjectList.ItemsSource</c> from <see cref="MenuViewModel.PickerRows"/>, which
+/// allocates a fresh <c>List&lt;PickerRow&gt;</c> on every read, and <see cref="MenuViewModel.Tick"/>
 /// drives <c>Render()</c> once a second while the popup is visible, regardless of tracking state
 /// (it raises <c>ElapsedLabel</c> unconditionally). An unconditional reassignment there would hand
 /// the ListBox a brand-new collection every second: reassigning <c>ItemsSource</c> regenerates the
 /// item containers and resets the scroll offset to the top, so anyone scrolled into a long project
 /// list would be snapped back to row one once a second while the popup just sits open. The guard,
-/// a <c>SequenceEqual</c> against the previous source (<c>PickerChoice</c> is a record, so this
+/// a <c>SequenceEqual</c> against the previous source (<c>PickerRow</c> is a record, so this
 /// compares by value), exists to prevent exactly that, and is the fix this class covers.
 /// </summary>
 [Collection("wpf")]
@@ -605,9 +704,12 @@ public class TrayPopupWindowPickerTests
         viewModel.IsReady = true;
         viewModel.Projects =
         [
-            new Project("p1", "team", "Acme Website", false, [new ProjectTask("t1", "p1", "Redesign")]),
-            new Project("p2", "team", "Internal Tools", false, []),
-            new Project("p3", "team", "Zephyr Migration", false, [new ProjectTask("t3", "p3", "Planning")]),
+            new Project("p1", "team", "Acme Website", false, [new ProjectTask("t1", "p1", "Redesign")],
+                [new Subproject("s1", "p1", "General", false, true)]),
+            new Project("p2", "team", "Internal Tools", false, [],
+                [new Subproject("s2", "p2", "General", false, true)]),
+            new Project("p3", "team", "Zephyr Migration", false, [new ProjectTask("t3", "p3", "Planning")],
+                [new Subproject("s3", "p3", "General", false, true)]),
         ];
 
         window.ShowNearTray();
@@ -618,7 +720,7 @@ public class TrayPopupWindowPickerTests
     /// <summary>
     /// The fix itself: a Render() pass that leaves the filtered projection unchanged must not hand
     /// the ListBox a new ItemsSource. Without the guard in RenderPicker this fails, because
-    /// FilteredChoices allocates a fresh list on every read even when its contents are identical.
+    /// PickerRows allocates a fresh list on every read even when its contents are identical.
     /// </summary>
     [Fact]
     public void TickDoesNotReassignItemsSourceWhenTheFilteredProjectionIsUnchanged()
@@ -655,19 +757,14 @@ public class TrayPopupWindowPickerTests
     }
 
     /// <summary>
-    /// When the guard above blocks reassignment, ProjectList.ItemsSource still holds the OLD
-    /// FilteredChoices list, but RenderPicker resolves SelectedItem from a FRESH read of
-    /// SelectedChoice against Choices -- an instance allocated on this Render pass, not
-    /// necessarily the same object already sitting in Items. The checkmark itself is driven off
-    /// the ListBoxItem container's own IsSelected (the ControlTemplate.Trigger in
-    /// TrayPopupWindow.xaml), not off object identity, so the real assertion worth making is that
-    /// the container the guard left untouched actually reports selected -- proving the value-based
-    /// resolution in RenderPicker reaches the visible checkmark, not just the SelectedItem field.
+    /// The checkmark follows <see cref="PickerRow.IsCurrent"/> (the tracked selection), not the
+    /// keyboard highlight. Activating a track row must mark exactly that row current in the list,
+    /// and a following Tick must leave the (now changed, then stable) ItemsSource alone.
     /// </summary>
     [Fact]
-    public void SelectedItemResolvesByValueWhenItemsSourceReassignmentIsGuarded()
+    public void ActivatingATrackRowMarksItCurrentAndTickThenLeavesTheSourceAlone()
     {
-        var (sourceUnchanged, selectedProjectId, containerIsSelected) = Wpf.Run(() =>
+        var (currentTitles, sourceUnchangedByTick, highlight) = Wpf.Run(() =>
         {
             var tracker = new TimeTracker(
                 new BufferSpy(),
@@ -676,27 +773,22 @@ public class TrayPopupWindowPickerTests
 
             try
             {
-                viewModel.Start();
+                var project = (PickerRow)window.ProjectList.Items[2]!; // "Zephyr Migration": skips to tasks
+                Assert.Equal("Zephyr Migration", project.Title);
+                viewModel.Activate(project);
 
-                var beforeSource = window.ProjectList.ItemsSource;
-                var target = (PickerChoice)window.ProjectList.Items[2]!; // "Internal Tools", p2
-                Assert.Equal("Internal Tools", target.ProjectName);
-
-                // A real WPF selection change, the same path a click drives, through the actual
-                // ListBox, with the query untouched since the last render, so RenderPicker's guard
-                // is active for the Render() this selection triggers (via SelectProject then
-                // RaiseTrackingState then PropertyChanged).
-                window.ProjectList.SelectedItem = target;
+                var planning = window.ProjectList.Items.Cast<PickerRow>().Single(r => r.Title == "Planning");
+                viewModel.Activate(planning);
                 window.UpdateLayout();
 
-                var afterSource = window.ProjectList.ItemsSource;
-                var selected = (PickerChoice)window.ProjectList.SelectedItem!;
-                var container = (ListBoxItem?)window.ProjectList.ItemContainerGenerator.ContainerFromIndex(2);
+                var titles = window.ProjectList.Items.Cast<PickerRow>()
+                    .Where(r => r.IsCurrent).Select(r => r.Title).ToList();
 
-                return (
-                    ReferenceEquals(beforeSource, afterSource),
-                    selected.ProjectId,
-                    container?.IsSelected ?? false);
+                var beforeTick = window.ProjectList.ItemsSource;
+                viewModel.Tick();
+                var unchanged = ReferenceEquals(beforeTick, window.ProjectList.ItemsSource);
+
+                return (titles, unchanged, window.ProjectList.SelectedItem);
             }
             finally
             {
@@ -705,21 +797,17 @@ public class TrayPopupWindowPickerTests
             }
         });
 
-        // The guard actually held for this selection -- otherwise this test would not be
-        // exercising the case it claims to.
-        Assert.True(sourceUnchanged, "Precondition failed: ItemsSource was reassigned, so the guard was not active for this selection.");
-
-        Assert.Equal("p2", selectedProjectId);
-        Assert.True(containerIsSelected, "The Internal Tools row's container never reported IsSelected -- the checkmark would not have shown.");
+        Assert.Equal(["Planning"], currentTitles);
+        Assert.True(sourceUnchangedByTick);
+        Assert.Null(highlight); // activating never moved the keyboard highlight
     }
 
     /// <summary>
     /// A user selection must reach <see cref="MenuViewModel.SelectProject"/> exactly once: not
     /// zero (the picker would silently ignore clicks), and not twice (SelectProject closes and
     /// reopens a running entry, so a second call would re-attribute a running span a second time
-    /// for one click). RenderPicker's own SelectedItem assignment runs inside Render's
-    /// <c>_suppressCallbacks = true</c> block specifically to prevent that second call; this proves
-    /// it holds through the real handler, not just by inspection.
+    /// for one click). Activation is explicit (click or Enter), so re-rendering the list must not
+    /// re-select anything.
     /// </summary>
     [Fact]
     public void SelectingARowCallsSelectProjectExactlyOnce()
@@ -741,8 +829,15 @@ public class TrayPopupWindowPickerTests
                 var count = 0;
                 viewModel.TrackingStarted += () => count++;
 
-                var target = (PickerChoice)window.ProjectList.Items[2]!; // "Internal Tools", p2
+                // Drill into "Zephyr Migration" (skips its lone General), then pick "Planning".
+                viewModel.Activate((PickerRow)window.ProjectList.Items[2]!);
+                var target = window.ProjectList.Items.Cast<PickerRow>().Single(r => r.Title == "Planning");
+
+                // Highlighting alone must not select; the window's own activation path does.
                 window.ProjectList.SelectedItem = target;
+                var afterHighlight = count;
+                window.ActivateHighlightedForTest();
+                Assert.Equal(0, afterHighlight);
 
                 var state = Assert.IsType<TrackerState.Tracking>(tracker.State);
                 return (count, state.Selection.ProjectId);
@@ -755,14 +850,14 @@ public class TrayPopupWindowPickerTests
         });
 
         Assert.Equal(1, callCount);
-        Assert.Equal("p2", finalProjectId);
+        Assert.Equal("p3", finalProjectId);
     }
 
     /// <summary>
     /// End to end through the real window: typing into SearchBox reaches
     /// MenuViewModel.Query via OnQueryChanged, and the rendered ListBox narrows and restores
     /// through RenderPicker -- the whole path a person driving the popup actually exercises, not
-    /// just Filter() exercised on the view model in isolation.
+    /// just the view model's PickerRows exercised in isolation.
     /// </summary>
     [Fact]
     public void TypingInTheSearchBoxNarrowsTheRenderedListThroughTheRealHandler()
@@ -776,11 +871,11 @@ public class TrayPopupWindowPickerTests
 
             try
             {
-                // 3 projects, 2 of which carry one task each: 5 rows in all.
+                // The root level: one row per project.
                 var full = window.ProjectList.Items.Count;
 
-                // "zephyr" matches ProjectName on both of p3's rows (the project row and its own
-                // task row both carry the project name).
+                // "zephyr" searches every level: p3's no-task row and its task row both carry the
+                // project name in their path.
                 window.SearchBox.Text = "zephyr";
                 var narrowed = window.ProjectList.Items.Count;
 
@@ -796,9 +891,9 @@ public class TrayPopupWindowPickerTests
             }
         });
 
-        Assert.Equal(5, fullCount);
+        Assert.Equal(3, fullCount);
         Assert.Equal(2, narrowedCount);
-        Assert.Equal(5, clearedCount);
+        Assert.Equal(3, clearedCount);
     }
 }
 

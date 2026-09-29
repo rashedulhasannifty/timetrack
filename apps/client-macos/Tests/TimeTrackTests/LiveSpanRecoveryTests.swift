@@ -19,7 +19,7 @@ final class LiveSpanRecoveryTests: XCTestCase {
         LiveSpan(
             entryId: "01920000-0000-7000-8000-000000000030",
             startTime: start,
-            projectId: "p1", taskId: "k1",
+            projectId: "p1", subprojectId: "s2", taskId: nil,
             source: "AUTO",
             lastAlive: start.addingTimeInterval(1800),
             userId: userId
@@ -95,5 +95,11 @@ final class LiveSpanRecoveryTests: XCTestCase {
         let (recovery, buffer, _) = make(currentUserId: "u1")
         recovery.apply(.discard, to: span(userId: nil))
         XCTAssertEqual(buffer.entries.count, 1)
+    }
+
+    func testKeepCarriesTheSubproject() {
+        let (recovery, buffer, _) = make(currentUserId: "u1")
+        recovery.apply(.keep, to: span(userId: "u1"))
+        XCTAssertEqual(buffer.object(at: 0)["subprojectId"] as? String, "s2")
     }
 }

@@ -55,7 +55,8 @@ public sealed class LiveSpanRecovery
                 span.ProjectId,
                 span.TaskId,
                 TimeTracker.SourceFromToken(span.Source),
-                id: span.EntryId);
+                id: span.EntryId,
+                subprojectId: span.SubprojectId);
         }
 
         _store.Clear();

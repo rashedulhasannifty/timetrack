@@ -69,4 +69,18 @@ final class SelectionStoreTests: XCTestCase {
 
         XCTAssertEqual(store.load(userId: "u1"), StoredSelection(projectId: "p2", taskId: nil))
     }
+
+    /// 0.6.x stored `{projectId, taskId}`. It must still decode after the upgrade.
+    func testDecodesASelectionStoredBeforeSubprojectsExisted() throws {
+        let legacy = Data(#"{"projectId":"p1","taskId":"t1"}"#.utf8)
+        let decoded = try JSONDecoder().decode(StoredSelection.self, from: legacy)
+        XCTAssertEqual(decoded, StoredSelection(projectId: "p1", subprojectId: nil, taskId: "t1"))
+    }
+
+    func testRoundTripsASubprojectSelection() {
+        let store = SelectionStore(defaults: defaults)
+        let selection = StoredSelection(projectId: "p1", subprojectId: "s2", taskId: nil)
+        store.save(selection, userId: "u1")
+        XCTAssertEqual(store.load(userId: "u1"), selection)
+    }
 }

@@ -192,11 +192,10 @@ struct MenuBarView: View {
     /// nothing when the tracking header adds the large elapsed timer — SwiftUI shrinks the list
     /// to keep the popover's ideal height ~constant, collapsing the picker to ~2 rows while
     /// tracking (idle shows ~6). A definite height keeps the list stable and lets the popover
-    /// grow to fit the header. Per-row estimate (project rows are single-line; task rows add a
-    /// subtitle and run a little taller), capped so a long list scrolls.
+    /// grow to fit the header. Per-row estimate (every row is single-line), capped so a long list scrolls.
     private var pickerListHeight: CGFloat {
-        let rows = max(viewModel.filteredChoices.count, 1)
-        return min(CGFloat(rows) * 36, 300)
+        let rows = max(viewModel.pickerRows.count, 1)
+        return min(CGFloat(rows) * 32, 300)
     }
 
     /// Free-text "what are you doing". Applied to the running entry as it is typed, so there
@@ -218,44 +217,62 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: TT.Space.x2) {
             Text("SWITCH PROJECT")
                 .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)
+            // The current selection as a path, always visible whichever level the list shows.
+            HStack(spacing: 6) {
+                Circle().fill(viewModel.hasResolvedSelection ? TT.Palette.accent : TT.Palette.textSecondary)
+                    .frame(width: 6, height: 6)
+                Text(viewModel.selectionHeader).font(.ttCaption).lineLimit(1).truncationMode(.middle)
+            }
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(TT.Palette.textSecondary)
                 TextField("Search projects and tasks", text: $viewModel.query)
                     .textFieldStyle(.plain)
+                    .onSubmit { viewModel.activateHighlighted() }
+                    // Verified by hand (Task 5). If the field editor swallows the arrows, move
+                    // these two to the ScrollView below and make it `.focusable()`.
+                    .onKeyPress(.downArrow) { viewModel.moveHighlight(by: 1); return .handled }
+                    .onKeyPress(.upArrow) { viewModel.moveHighlight(by: -1); return .handled }
             }
             .padding(.horizontal, 9).padding(.vertical, 6)
             .background(TT.Palette.surface, in: RoundedRectangle(cornerRadius: TT.Radius.sm))
 
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(viewModel.filteredChoices) { choice in
-                        Button { viewModel.select(choice) } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(choice.projectName).font(.ttLabel)
-                                    if let taskName = choice.taskName {
-                                        Text(taskName).font(.ttCaption)
-                                            .foregroundStyle(TT.Palette.textSecondary)
-                                    }
-                                }
-                                Spacer()
-                                if viewModel.selectedChoice?.id == choice.id {
-                                    Image(systemName: "checkmark").foregroundStyle(TT.Palette.accent)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                            .padding(.horizontal, 8).padding(.vertical, 7)
-                        }
-                        .buttonStyle(.plain)
+                    ForEach(viewModel.pickerRows) { row in
+                        Button { viewModel.activate(row) } label: { pickerRow(row) }
+                            .buttonStyle(.plain)
                     }
                 }
             }
             // Definite height (see pickerListHeight) so the list isn't squeezed to ~2 rows once
-            // the tracking header grows; caps at ~8 rows before it starts scrolling.
+            // the tracking header grows; caps before it starts scrolling.
             .frame(height: pickerListHeight)
         }
         .padding(.horizontal, TT.Space.x4)
         .padding(.vertical, TT.Space.x3)
+    }
+
+    @ViewBuilder private func pickerRow(_ row: PickerRow) -> some View {
+        HStack(spacing: 6) {
+            if case .back = row.action {
+                Image(systemName: "chevron.left").foregroundStyle(TT.Palette.textSecondary)
+            }
+            Text(row.title)
+                .font(row.action == .back ? .ttCaption : .ttLabel)
+                .foregroundStyle(row.action == .back ? TT.Palette.textSecondary : TT.Palette.text)
+                .lineLimit(1).truncationMode(.middle)
+            Spacer()
+            if viewModel.isCurrent(row) {
+                Image(systemName: "checkmark").foregroundStyle(TT.Palette.accent)
+            }
+            if case .open = row.action {
+                Image(systemName: "chevron.right").foregroundStyle(TT.Palette.textSecondary)
+            }
+        }
+        .contentShape(Rectangle())
+        .padding(.horizontal, 8).padding(.vertical, 7)
+        .background(viewModel.highlightedRowId == row.id ? TT.Palette.surface : Color.clear,
+                    in: RoundedRectangle(cornerRadius: TT.Radius.sm))
     }
 
     // MARK: Footer — my data / sign out / quit

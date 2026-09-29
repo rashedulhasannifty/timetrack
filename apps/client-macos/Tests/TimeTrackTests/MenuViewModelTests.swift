@@ -57,8 +57,8 @@ final class MenuViewModelTests: XCTestCase {
         return (vm, spy, clock)
     }
 
-    private func choice(_ id: String) -> Choice {
-        Choice(id: id, projectId: id, taskId: nil, projectName: id, taskName: nil)
+    private func sel(_ projectId: String, _ subprojectId: String? = nil, _ taskId: String? = nil) -> StoredSelection {
+        StoredSelection(projectId: projectId, subprojectId: subprojectId, taskId: taskId)
     }
 
     // Regression: `select` used to only store the pick. TimeTracker captures the selection when
@@ -67,11 +67,11 @@ final class MenuViewModelTests: XCTestCase {
     // from login to the first idle window, so it is hours of work on the wrong project.
     func testSwitchingProjectMidSpanClosesTheOldEntryAndOpensANewOne() {
         let (vm, spy, clock) = makeSwitchableVM()
-        vm.select(choice("p1"))
+        vm.select(sel("p1"))
         vm.start()
         clock.advance(3600)
 
-        vm.select(choice("p2"))
+        vm.select(sel("p2"))
 
         XCTAssertEqual(spy.entries.count, 1, "the running entry should have been closed")
         XCTAssertEqual(spy.object(at: 0)["projectId"] as? String, "p1")
@@ -84,12 +84,12 @@ final class MenuViewModelTests: XCTestCase {
 
     func testSwitchingProjectKeepsTheClockReadingAccumulatedTime() {
         let (vm, _, clock) = makeSwitchableVM()
-        vm.select(choice("p1"))
+        vm.select(sel("p1"))
         vm.start()
         let originalStart = vm.startedAt
         clock.advance(3600)
 
-        vm.select(choice("p2"))
+        vm.select(sel("p2"))
 
         // The new entry starts now; the header must keep counting the session, not reset to 0.
         XCTAssertEqual(vm.startedAt, originalStart)
@@ -97,12 +97,12 @@ final class MenuViewModelTests: XCTestCase {
 
     func testSwitchingProjectWhilePausedChangesWhatResumeOpens() {
         let (vm, spy, clock) = makeSwitchableVM()
-        vm.select(choice("p1"))
+        vm.select(sel("p1"))
         vm.start()
         clock.advance(600)
         vm.pause()
 
-        vm.select(choice("p2"))
+        vm.select(sel("p2"))
         XCTAssertEqual(vm.phase, .paused, "switching must not resume a paused session")
         vm.resume()
         clock.advance(600)
@@ -113,8 +113,8 @@ final class MenuViewModelTests: XCTestCase {
 
     func testSwitchingProjectWhileIdleRecordsNothing() {
         let (vm, spy, _) = makeSwitchableVM()
-        vm.select(choice("p1"))
-        vm.select(choice("p2"))
+        vm.select(sel("p1"))
+        vm.select(sel("p2"))
         XCTAssertTrue(spy.entries.isEmpty)
         XCTAssertEqual(vm.phase, .idle)
     }
@@ -168,11 +168,11 @@ final class MenuViewModelTests: XCTestCase {
 
     func testSwitchingProjectCarriesTheNoteOntoTheNewSpan() {
         let (vm, spy, clock) = makeSwitchableVM()
-        vm.select(choice("p1"))
+        vm.select(sel("p1"))
         vm.start()
         vm.note = "same work, right project"
         clock.advance(600)
-        vm.select(choice("p2"))
+        vm.select(sel("p2"))
         clock.advance(600)
         vm.stop()
 
@@ -209,7 +209,7 @@ final class MenuViewModelTests: XCTestCase {
 
     func testStartIsNoOpUntilReady() {
         let vm = makeVM()
-        vm.select(Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Acme", taskName: nil))
+        vm.select(sel("p1"))
         vm.start()
         XCTAssertEqual(vm.phase, .idle)
     }
@@ -217,7 +217,7 @@ final class MenuViewModelTests: XCTestCase {
     func testStartWhenReadyBeginsTracking() {
         let vm = makeVM()
         vm.markReady()
-        vm.select(Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Acme", taskName: nil))
+        vm.select(sel("p1"))
         vm.start()
         XCTAssertEqual(vm.phase, .tracking)
         XCTAssertNotNil(vm.startedAt)
@@ -257,7 +257,7 @@ final class MenuViewModelTests: XCTestCase {
         var iconStart: Date?
         vm.onPhaseChanged = { _, startedAt in iconStart = startedAt }
         vm.markReady()
-        vm.select(Choice(id: "k1", projectId: "p1", taskId: "k1", projectName: "Acme", taskName: "Design"))
+        vm.select(sel("p1", nil, "k1"))
         vm.start()                                             // entry A at t=1000
         XCTAssertEqual(vm.startedAt, Date(timeIntervalSince1970: 1_000))
 
@@ -275,7 +275,7 @@ final class MenuViewModelTests: XCTestCase {
                        "clock continues from worked time, not the fresh entry's 0")
         XCTAssertEqual(iconStart, Date(timeIntervalSince1970: 1_300),
                        "the status icon gets the same worked-time anchor")
-        XCTAssertEqual(vm.selectedChoice?.id, "k1", "the selected project/task carries over")
+        XCTAssertEqual(vm.selection?.taskId, "k1", "the selected project/task carries over")
     }
 
     // A subsequent explicit user action clears the Discard anchor so a new span reads its real
@@ -316,7 +316,7 @@ final class MenuViewModelTests: XCTestCase {
         vm.markReady()
         XCTAssertTrue(vm.isSignedIn, "precondition: a ready session reads as signed in")
         vm.currentUserId = "u1"
-        vm.select(Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Acme", taskName: nil))
+        vm.select(sel("p1"))
         vm.query = "acme"
         vm.projects = [Project(id: "p1", teamId: "t1", name: "Acme", archived: false, tasks: nil)]
         vm.start()
@@ -329,7 +329,7 @@ final class MenuViewModelTests: XCTestCase {
         // Regression: the dropdown must flip to signed-out so it no longer offers My Data /
         // Sign Out after the user signs out (the reported bug).
         XCTAssertFalse(vm.isSignedIn, "sign-out must clear the signed-in state")
-        XCTAssertNil(vm.selectedChoice)
+        XCTAssertNil(vm.selection)
         XCTAssertEqual(vm.query, "")
         XCTAssertEqual(vm.projects, [])
         XCTAssertNil(vm.currentUserId, "so a subsequent select() before a new sign-in can never write under the old user")
@@ -358,7 +358,7 @@ final class MenuViewModelTests: XCTestCase {
         vm.currentUserId = "u1"
         vm.projects = [Project(id: "p1", teamId: "team", name: "Apollo", archived: false, tasks: nil)]
 
-        vm.select(Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Apollo", taskName: nil))
+        vm.select(sel("p1"))
 
         XCTAssertEqual(store.load(userId: "u1"), StoredSelection(projectId: "p1", taskId: nil))
     }
@@ -370,10 +370,10 @@ final class MenuViewModelTests: XCTestCase {
         let vm = makeVM(selectionStore: store)
         vm.projects = [Project(id: "p1", teamId: "team", name: "Apollo", archived: false, tasks: nil)]
 
-        vm.select(Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Apollo", taskName: nil))
+        vm.select(sel("p1"))
 
         XCTAssertNil(store.load(userId: "u1"))
-        XCTAssertEqual(vm.selectedChoice?.projectId, "p1", "the in-memory selection still applies")
+        XCTAssertEqual(vm.selection?.projectId, "p1", "the in-memory selection still applies")
     }
 
     func testRestoreAppliesAStoredSelectionThatStillExists() {
@@ -384,7 +384,7 @@ final class MenuViewModelTests: XCTestCase {
 
         vm.restoreSelection(userId: "u1")
 
-        XCTAssertEqual(vm.selectedChoice?.projectId, "p1")
+        XCTAssertEqual(vm.selection?.projectId, "p1")
     }
 
     func testRestoreDropsAndClearsASelectionThatIsGone() {
@@ -395,7 +395,7 @@ final class MenuViewModelTests: XCTestCase {
 
         vm.restoreSelection(userId: "u1")
 
-        XCTAssertNil(vm.selectedChoice)
+        XCTAssertNil(vm.selection)
         // The dead key is cleaned up so it can't keep failing every launch.
         XCTAssertNil(store.load(userId: "u1"))
     }
@@ -414,7 +414,7 @@ final class MenuViewModelTests: XCTestCase {
 
         vm.restoreSelection(userId: "u1")
 
-        XCTAssertNil(vm.selectedChoice, "can't resolve against an empty list")
+        XCTAssertNil(vm.selection, "can't resolve against an empty list")
         XCTAssertEqual(store.load(userId: "u1"), StoredSelection(projectId: "p1", taskId: nil),
                        "the saved selection must survive an empty-list restore attempt")
     }
@@ -429,11 +429,11 @@ final class MenuViewModelTests: XCTestCase {
             Project(id: "p1", teamId: "team", name: "Apollo", archived: false, tasks: nil),
             Project(id: "p2", teamId: "team", name: "Beta", archived: false, tasks: nil),
         ]
-        vm.select(Choice(id: "p2", projectId: "p2", taskId: nil, projectName: "Beta", taskName: nil))
+        vm.select(sel("p2"))
 
         vm.restoreSelection(userId: "u1")
 
-        XCTAssertEqual(vm.selectedChoice?.projectId, "p2", "the hand-made selection must win")
+        XCTAssertEqual(vm.selection?.projectId, "p2", "the hand-made selection must win")
     }
 
     func testResetStillClearsTheInMemorySelection() {
@@ -443,11 +443,11 @@ final class MenuViewModelTests: XCTestCase {
         vm.markReady()
         vm.currentUserId = "u1"
         vm.projects = [Project(id: "p1", teamId: "team", name: "Apollo", archived: false, tasks: nil)]
-        vm.select(Choice(id: "p1", projectId: "p1", taskId: nil, projectName: "Apollo", taskName: nil))
+        vm.select(sel("p1"))
 
         vm.reset()
 
-        XCTAssertNil(vm.selectedChoice)
+        XCTAssertNil(vm.selection)
         XCTAssertTrue(vm.projects.isEmpty)
         XCTAssertEqual(vm.query, "")
         XCTAssertNil(vm.currentUserId)
@@ -458,17 +458,194 @@ final class MenuViewModelTests: XCTestCase {
                        "the persisted key deliberately survives sign-out; namespacing is the guard")
     }
 
-    func testFilteredChoicesMatchQuery() {
+    private let tree: [Project] = [
+        Project(id: "p1", teamId: "t1", name: "Acme", archived: false,
+                tasks: [ProjectTask(id: "k1", projectId: "p1", name: "Cart", subprojectId: "s2")],
+                subprojects: [Subproject(id: "s1", projectId: "p1", name: "General", archived: false, isDefault: true),
+                              Subproject(id: "s2", projectId: "p1", name: "Checkout", archived: false, isDefault: false)]),
+        Project(id: "p2", teamId: "t1", name: "Beta", archived: false, tasks: nil,
+                subprojects: [Subproject(id: "s3", projectId: "p2", name: "General", archived: false, isDefault: true)]),
+    ]
+
+    func testDrillingDownAndTrackingASubprojectWithNoTask() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.projects = tree
+        vm.activate(vm.pickerRows[0])                              // Acme → subproject screen
+        XCTAssertEqual(vm.level, .project("p1"))
+        vm.activate(vm.pickerRows.first { $0.title == "Checkout" }!)
+        XCTAssertEqual(vm.pickerRows.map(\.title), ["Acme › Checkout", "Checkout (no task)", "Cart"])
+        vm.activate(vm.pickerRows[1])                              // track Checkout, no task
+
+        XCTAssertEqual(vm.selection, sel("p1", "s2", nil))
+        XCTAssertTrue(vm.isCurrent(vm.pickerRows[1]))
+        XCTAssertEqual(vm.selectionHeader, "Acme › Checkout")
+
+        vm.start(); clock.advance(60); vm.stop()
+        XCTAssertEqual(spy.object(at: 0)["subprojectId"] as? String, "s2")
+        XCTAssertTrue(spy.object(at: 0)["taskId"] is NSNull)
+    }
+
+    func testAProjectWithOnlyGeneralSkipsToItsTasksAndBackReturnsToRoot() {
         let vm = makeVM()
-        vm.projects = [
-            Project(id: "p1", teamId: "t1", name: "Acme", archived: false,
-                    tasks: [ProjectTask(id: "k1", projectId: "p1", name: "Design")]),
-            Project(id: "p2", teamId: "t1", name: "Beta", archived: false, tasks: nil),
-        ]
-        vm.query = "design"
-        XCTAssertEqual(vm.filteredChoices.map(\.id), ["k1"])
+        vm.projects = tree
+        vm.activate(vm.pickerRows[1])                              // Beta
+        XCTAssertEqual(vm.level, .subproject(projectId: "p2", subprojectId: "s3"))
+        vm.activate(vm.pickerRows[0])                              // ‹ Beta
+        XCTAssertEqual(vm.level, .root)
+    }
+
+    func testSearchTracksAResultImmediatelyAndClearingRestoresTheLevel() {
+        let (vm, _, _) = makeSwitchableVM()
+        vm.projects = tree
+        vm.activate(vm.pickerRows[0])                              // at Acme's subproject screen
+        vm.query = "cart"
+        XCTAssertEqual(vm.pickerRows.map(\.title), ["Acme › Checkout › Cart"])
+        vm.activate(vm.pickerRows[0])
+        XCTAssertEqual(vm.selection, sel("p1", "s2", "k1"))
         vm.query = ""
-        XCTAssertEqual(vm.filteredChoices.count, 3) // Acme, Acme›Design, Beta
+        XCTAssertEqual(vm.level, .project("p1"))
+    }
+
+    func testSwitchingWhileTrackingRefilesUnderTheNewSubproject() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.projects = tree
+        vm.select(sel("p1", "s1", nil))
+        vm.start(); clock.advance(60)
+        vm.select(sel("p1", "s2", nil))
+        clock.advance(60); vm.stop()
+        XCTAssertEqual(spy.object(at: 0)["subprojectId"] as? String, "s1")
+        XCTAssertEqual(spy.object(at: 1)["subprojectId"] as? String, "s2")
+    }
+
+    func testSwitchingWhilePausedResumesUnderTheNewSubproject() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.projects = tree
+        vm.select(sel("p1", "s1", nil))
+        vm.start(); clock.advance(60); vm.pause()
+        vm.select(sel("p1", "s2", nil))
+        vm.resume(); clock.advance(60); vm.stop()
+        XCTAssertEqual(spy.object(at: 1)["subprojectId"] as? String, "s2")
+    }
+
+    func testAutoSelectionCarriesTheSubproject() {
+        let vm = makeVM()
+        vm.select(sel("p1", "s2", nil))
+        XCTAssertEqual(vm.selectionForAuto, TimeTracker.Selection(projectId: "p1", subprojectId: "s2", taskId: nil))
+    }
+
+    func testKeyboardHighlightMovesAndReturnActivates() {
+        let vm = makeVM()
+        vm.projects = tree
+        vm.moveHighlight(by: 1)
+        XCTAssertEqual(vm.highlightedRowId, "p:p1")
+        vm.moveHighlight(by: 1)
+        vm.activateHighlighted()                                   // Beta
+        XCTAssertEqual(vm.level, .subproject(projectId: "p2", subprojectId: "s3"))
+        XCTAssertNil(vm.highlightedRowId, "a level change resets the highlight")
+        vm.activateHighlighted()                                   // nothing highlighted → first row (back)
+        XCTAssertEqual(vm.level, .root)
+    }
+
+    func testReopeningStartsAtTheRootAndSignOutClearsTheLevel() {
+        let vm = makeVM()
+        vm.projects = tree
+        vm.activate(vm.pickerRows[0])
+        vm.pickerDidOpen()
+        XCTAssertEqual(vm.level, .root)
+        vm.activate(vm.pickerRows[0])
+        vm.reset()
+        XCTAssertEqual(vm.level, .root)
+        XCTAssertNil(vm.selection)
+    }
+
+    func testRestoreUpgradesAnOldStoredSelectionToTheDefaultSubproject() {
+        let store = makeIsolatedStore()
+        store.save(StoredSelection(projectId: "p1", taskId: nil), userId: "u1")
+        let vm = makeVM(selectionStore: store)
+        vm.projects = tree
+        vm.restoreSelection(userId: "u1")
+        XCTAssertEqual(vm.selection, sel("p1", "s1", nil))
+    }
+
+    // Refresh re-resolves an EXISTING selection (not only fills an empty one), otherwise a
+    // subproject archived or a task moved mid-session keeps filing new entries under the stale id.
+    private func projectWith(archivedS2: Bool = false, taskSubproject: String = "s2") -> [Project] {
+        [Project(id: "p1", teamId: "t1", name: "Acme", archived: false,
+                 tasks: [ProjectTask(id: "k1", projectId: "p1", name: "Cart", subprojectId: taskSubproject)],
+                 subprojects: [Subproject(id: "s1", projectId: "p1", name: "General", archived: false, isDefault: true),
+                               Subproject(id: "s2", projectId: "p1", name: "Checkout", archived: archivedS2, isDefault: false),
+                               Subproject(id: "s3", projectId: "p1", name: "Payments", archived: false, isDefault: false)])]
+    }
+
+    func testRefreshReResolvesAnArchivedSubprojectToTheDefault() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.currentUserId = "u1"
+        vm.projects = projectWith()
+        vm.select(sel("p1", "s2", nil))
+
+        vm.projects = projectWith(archivedS2: true)
+        vm.restoreSelection(userId: "u1")
+
+        XCTAssertEqual(vm.selection, sel("p1", "s1", nil))
+        vm.start(); clock.advance(60); vm.stop()
+        XCTAssertEqual(spy.object(at: 0)["subprojectId"] as? String, "s1")
+    }
+
+    func testRefreshReResolvesATaskMovedToAnotherSubproject() {
+        let (vm, spy, clock) = makeSwitchableVM()
+        vm.currentUserId = "u1"
+        vm.projects = projectWith()
+        vm.select(sel("p1", "s2", "k1"))
+
+        vm.projects = projectWith(taskSubproject: "s3")
+        vm.restoreSelection(userId: "u1")
+
+        vm.start(); clock.advance(60); vm.stop()
+        XCTAssertEqual(spy.object(at: 0)["subprojectId"] as? String, "s3")
+        XCTAssertEqual(spy.object(at: 0)["taskId"] as? String, "k1")
+    }
+
+    func testRefreshPersistsAChangedResolutionAndClearsAGoneProject() {
+        let store = makeIsolatedStore()
+        let vm = makeVM(selectionStore: store)
+        vm.currentUserId = "u1"
+        vm.projects = projectWith()
+        vm.select(sel("p1", "s2", nil))
+
+        vm.projects = projectWith(archivedS2: true)
+        vm.restoreSelection(userId: "u1")
+        XCTAssertEqual(store.load(userId: "u1"), sel("p1", "s1", nil))
+
+        vm.projects = [Project(id: "p9", teamId: "t1", name: "Other", archived: false, tasks: nil)]
+        vm.restoreSelection(userId: "u1")
+        XCTAssertNil(vm.selection)
+        XCTAssertNil(store.load(userId: "u1"))
+    }
+
+    func testRefreshLeavesAStillValidHandMadePickAlone() {
+        let vm = makeVM()
+        vm.currentUserId = "u1"
+        vm.projects = projectWith()
+        vm.select(sel("p1", "s3", nil))
+
+        vm.projects = projectWith()
+        vm.restoreSelection(userId: "u1")
+
+        XCTAssertEqual(vm.selection, sel("p1", "s3", nil))
+    }
+
+    func testRefreshWithAnEmptyProjectListLeavesTheSelectionUntouched() {
+        let store = makeIsolatedStore()
+        let vm = makeVM(selectionStore: store)
+        vm.currentUserId = "u1"
+        vm.projects = projectWith()
+        vm.select(sel("p1", "s2", nil))
+
+        vm.projects = []
+        vm.restoreSelection(userId: "u1")
+
+        XCTAssertEqual(vm.selection, sel("p1", "s2", nil))
+        XCTAssertEqual(store.load(userId: "u1"), sel("p1", "s2", nil))
     }
 
     // Regression: auto tracking writes straight to `TimeTracker` from `AutoTrackingCoordinator`,

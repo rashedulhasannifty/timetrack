@@ -99,9 +99,22 @@
                        Margin="0,0,0,10" />
 
             <TextBlock Text="SWITCH PROJECT" Style="{StaticResource MicroText}" Margin="0,0,0,4" />
+            <!-- The current selection as a path, whichever level the list shows (spec §2). -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <Ellipse x:Name="SelectionDot"
+                         Width="6"
+                         Height="6"
+                         VerticalAlignment="Center"
+                         Margin="0,0,6,0"
+                         Fill="{DynamicResource TextSecondary}" />
+                <TextBlock x:Name="SelectionHeader"
+                           Style="{StaticResource CaptionText}"
+                           TextTrimming="CharacterEllipsis" />
+            </StackPanel>
             <Grid Margin="0,0,0,6">
                 <TextBox x:Name="SearchBox"
                          TextChanged="OnQueryChanged"
+                         PreviewKeyDown="OnSearchKeyDown"
                          AutomationProperties.Name="Search projects and tasks" />
                 <!-- WPF's TextBox has no placeholder. Hit-test-invisible so a click lands in the
                      field underneath. -->
@@ -121,47 +134,32 @@
                  style in Styles.xaml. -->
             <ListBox x:Name="ProjectList"
                      Height="220"
-                     SelectionChanged="OnProjectSelected"
+                     PreviewKeyDown="OnListKeyDown"
+                     MouseLeftButtonUp="OnListClicked"
                      AutomationProperties.Name="Projects and tasks"
                      Margin="0,0,0,12">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <Grid>
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="{Binding ProjectName}" Style="{StaticResource LabelText}" />
-                                <!-- Collapsed for a project row, where TaskName is null, so the row
-                                     stays single-line instead of reserving an empty second line. -->
-                                <TextBlock Text="{Binding TaskName}"
-                                           Margin="0,1,0,0">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding TaskName}" Value="{x:Null}">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+                            <!-- ‹ on the back row, › on rows that drill; set in code from Kind. -->
+                            <TextBlock Grid.Column="0" Text="{Binding Kind, Converter={StaticResource PickerRowLeadingGlyph}}"
+                                       Style="{StaticResource CaptionText}" Margin="0,0,4,0" />
+                            <TextBlock Grid.Column="1" Text="{Binding Title}" Style="{StaticResource LabelText}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                <!-- Checkmark follows IsCurrent, NOT IsSelected (the keyboard highlight). -->
+                                <Path Width="11" Height="9" Stretch="Uniform" VerticalAlignment="Center"
+                                      Data="M 0,5 L 4,9 L 11,1" Stroke="{DynamicResource Accent}" StrokeThickness="1.8"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      Visibility="{Binding IsCurrent, Converter={StaticResource BoolToVisibility}}" />
+                                <TextBlock Text="{Binding Kind, Converter={StaticResource PickerRowTrailingGlyph}}"
+                                           Style="{StaticResource CaptionText}" Margin="6,0,0,0" />
                             </StackPanel>
-
-                            <Path Grid.Column="1"
-                                  Width="11" Height="9"
-                                  Stretch="Uniform"
-                                  VerticalAlignment="Center"
-                                  Data="M 0,5 L 4,9 L 11,1"
-                                  Stroke="{DynamicResource Accent}"
-                                  StrokeThickness="1.8"
-                                  StrokeStartLineCap="Round"
-                                  StrokeEndLineCap="Round"
-                                  Visibility="{Binding IsSelected,
-                                      RelativeSource={RelativeSource AncestorType=ListBoxItem},
-                                      Converter={StaticResource BoolToVisibility}}" />
                         </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>

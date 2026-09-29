@@ -1,154 +1,185 @@
+using System.Text.Json;
 using NiftyTimer.App;
 using NiftyTimer.Projects;
+using NiftyTimer.Storage;
+using NiftyTimer.Sync;
+using NiftyTimer.Tests.Support;
+using NiftyTimer.Tracking;
 using Xunit;
 
 namespace NiftyTimer.Tests;
 
 /// <summary>
-/// The picker projection. macOS gets text search for free from SwiftUI; the Windows popup used to
-/// get it from the stock ComboBox, and dropping that control means the filtering has to live
-/// somewhere testable rather than inside the window.
+/// The picker as the view model drives it: drill-down, search, and what each selection sends.
+/// Ported from the macOS MenuViewModelTests; the pure rows and titles are covered by
+/// <see cref="PickerCoreTests"/>. Every pass-through test uses a NON-default subproject with no
+/// task, the one case the server cannot re-derive from a task.
 /// </summary>
 public class MenuPickerTests
 {
-    private static IReadOnlyList<Project> Sample() =>
+    // Acme has a second subproject (subproject screen shown); Beta has only its default (skipped).
+    private static readonly IReadOnlyList<Project> Tree =
     [
-        new Project("p1", "t1", "Apollo", false,
-        [
-            new ProjectTask("t1a", "p1", "Design"),
-            new ProjectTask("t1b", "p1", "Build"),
-        ]),
-        new Project("p2", "t1", "Borealis", false, null),
+        new Project("p1", "t1", "Acme", false,
+            [new ProjectTask("k1", "p1", "Cart", "s2")],
+            [new Subproject("s1", "p1", "General", false, true), new Subproject("s2", "p1", "Checkout", false, false)]),
+        new Project("p2", "t1", "Beta", false, null, [new Subproject("s3", "p2", "General", false, true)]),
     ];
 
-    [Fact]
-    public void EveryProjectContributesARowAndEachTaskAddsOneBeneathIt()
+    private static MenuViewModel NewViewModel(out BufferSpy buffer, SelectionStore? store = null)
     {
-        var choices = MenuViewModel.ChoicesFor(Sample());
+        buffer = new BufferSpy();
+        var tracker = new TimeTracker(buffer, () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
+        return new MenuViewModel(tracker, store ?? new SelectionStore(new InMemoryUserSettings()));
+    }
 
-        Assert.Equal(4, choices.Count);
-        Assert.Equal(new PickerChoice("p1", null, "Apollo", null), choices[0]);
-        Assert.Equal(new PickerChoice("p1", "t1a", "Apollo", "Design"), choices[1]);
-        Assert.Equal(new PickerChoice("p1", "t1b", "Apollo", "Build"), choices[2]);
-        Assert.Equal(new PickerChoice("p2", null, "Borealis", null), choices[3]);
+    private static TimeEntryPayload Decode(BufferSpy buffer, int index) =>
+        JsonSerializer.Deserialize<TimeEntryPayload>(buffer.Entries[index].Payload)!;
+
+    [Fact]
+    public void DrillingDownAndTrackingASubprojectWithNoTask()
+    {
+        var vm = NewViewModel(out var buffer);
+        vm.IsReady = true;
+        vm.Projects = Tree;
+        vm.Activate(vm.PickerRows[0]); // Acme → subproject screen
+        Assert.Equal(new PickerLevel.ProjectLevel("p1"), vm.Level);
+        vm.Activate(vm.PickerRows.First(r => r.Title == "Checkout"));
+        Assert.Equal(["Acme › Checkout", "Checkout (no task)", "Cart"], vm.PickerRows.Select(r => r.Title));
+        vm.Activate(vm.PickerRows[1]); // track Checkout, no task
+
+        Assert.Equal(new StoredSelection("p1", null, "s2"), vm.Selection);
+        Assert.True(vm.PickerRows[1].IsCurrent);
+        Assert.Equal("Acme › Checkout", vm.SelectionLabel);
+
+        vm.Start();
+        vm.Stop();
+        var payload = Decode(buffer, 0);
+        Assert.Equal("s2", payload.SubprojectId);
+        Assert.Null(payload.TaskId);
     }
 
     [Fact]
-    public void AProjectWithNoTasksStillGetsItsOwnRow()
+    public void AProjectWithOnlyGeneralSkipsToItsTasksAndBackReturnsToRoot()
     {
-        var choices = MenuViewModel.ChoicesFor(Sample());
-
-        Assert.Contains(choices, c => c.ProjectId == "p2" && c.TaskName is null);
+        var vm = NewViewModel(out _);
+        vm.Projects = Tree;
+        vm.Activate(vm.PickerRows[1]); // Beta
+        Assert.Equal(new PickerLevel.SubprojectLevel("p2", "s3"), vm.Level);
+        vm.Activate(vm.PickerRows[0]); // back row: Beta
+        Assert.Equal(PickerLevel.Root, vm.Level);
     }
 
     [Fact]
-    public void AnEmptyQueryReturnsEverything()
+    public void SearchTracksAResultImmediatelyAndClearingRestoresTheLevel()
     {
-        var choices = MenuViewModel.ChoicesFor(Sample());
-
-        Assert.Equal(choices, MenuViewModel.Filter(choices, string.Empty));
-        Assert.Equal(choices, MenuViewModel.Filter(choices, null));
-        Assert.Equal(choices, MenuViewModel.Filter(choices, "   "));
+        var vm = NewViewModel(out _);
+        vm.Projects = Tree;
+        vm.Activate(vm.PickerRows[0]); // at Acme's subproject screen
+        vm.Query = "cart";
+        Assert.Equal(["Acme › Checkout › Cart"], vm.PickerRows.Select(r => r.Title));
+        vm.Activate(vm.PickerRows[0]);
+        Assert.Equal(new StoredSelection("p1", "k1", "s2"), vm.Selection);
+        vm.Query = string.Empty;
+        Assert.Equal(new PickerLevel.ProjectLevel("p1"), vm.Level);
     }
 
     [Fact]
-    public void TheQueryMatchesProjectNames()
+    public void SwitchingWhileTrackingRefilesUnderTheNewSubproject()
     {
-        var choices = MenuViewModel.ChoicesFor(Sample());
+        var vm = NewViewModel(out var buffer);
+        vm.IsReady = true;
+        vm.Projects = Tree;
+        vm.SelectProject(new StoredSelection("p1", null, "s1"));
+        vm.Start();
+        vm.SelectProject(new StoredSelection("p1", null, "s2"));
+        vm.Stop();
 
-        var matched = MenuViewModel.Filter(choices, "borea");
-
-        Assert.Single(matched);
-        Assert.Equal("Borealis", matched[0].ProjectName);
+        Assert.Equal("s1", Decode(buffer, 0).SubprojectId);
+        Assert.Equal("s2", Decode(buffer, 1).SubprojectId);
     }
 
     [Fact]
-    public void TheQueryAlsoMatchesTaskNames()
+    public void SwitchingWhilePausedResumesUnderTheNewSubproject()
     {
-        var choices = MenuViewModel.ChoicesFor(Sample());
+        var vm = NewViewModel(out var buffer);
+        vm.IsReady = true;
+        vm.Projects = Tree;
+        vm.SelectProject(new StoredSelection("p1", null, "s1"));
+        vm.Start();
+        vm.Pause();
+        vm.SelectProject(new StoredSelection("p1", null, "s2"));
+        vm.Resume();
+        vm.Stop();
 
-        var matched = MenuViewModel.Filter(choices, "design");
-
-        Assert.Single(matched);
-        Assert.Equal("Design", matched[0].TaskName);
+        Assert.Equal("s2", Decode(buffer, 1).SubprojectId);
     }
 
     [Fact]
-    public void MatchingIsCaseInsensitive()
+    public void AutoSelectionCarriesTheSubproject()
     {
-        var choices = MenuViewModel.ChoicesFor(Sample());
+        var vm = NewViewModel(out _);
+        vm.SelectProject(new StoredSelection("p1", null, "s2"));
 
-        Assert.Equal(3, MenuViewModel.Filter(choices, "APOLLO").Count);
+        Assert.Equal(new TimeTracker.Selection("p1", null, SubprojectId: "s2"), vm.SelectionForAuto);
     }
 
     [Fact]
-    public void SurroundingWhitespaceIsIgnored()
+    public void ReopeningStartsAtTheRootAndSignOutClearsTheLevel()
     {
-        var choices = MenuViewModel.ChoicesFor(Sample());
-
-        Assert.Single(MenuViewModel.Filter(choices, "  borealis  "));
+        var vm = NewViewModel(out _);
+        vm.Projects = Tree;
+        vm.Activate(vm.PickerRows[0]);
+        vm.ResetPicker();
+        Assert.Equal(PickerLevel.Root, vm.Level);
+        vm.Activate(vm.PickerRows[0]);
+        vm.Reset();
+        Assert.Equal(PickerLevel.Root, vm.Level);
+        Assert.Null(vm.Selection);
     }
 
     [Fact]
-    public void NoMatchReturnsEmptyRatherThanEverything()
+    public void RestoreUpgradesAnOldStoredSelectionToTheDefaultSubproject()
     {
-        var choices = MenuViewModel.ChoicesFor(Sample());
+        var store = new SelectionStore(new InMemoryUserSettings());
+        store.Save(new StoredSelection("p1", null), "u1");
+        var vm = NewViewModel(out _, store);
+        vm.Projects = Tree;
 
-        Assert.Empty(MenuViewModel.Filter(choices, "zzz"));
+        vm.RestoreSelection("u1");
+
+        Assert.Equal(new StoredSelection("p1", null, "s1"), vm.Selection);
     }
 
     [Fact]
-    public void SettingTheQueryRepublishesTheFilteredList()
+    public void BackAtTheRootReportsThatThereIsNowhereToGo()
     {
-        var viewModel = TestMenu.Build();
-        viewModel.Projects = Sample();
-        var raised = new List<string>();
-        viewModel.PropertyChanged += (_, e) => raised.Add(e.PropertyName!);
-
-        viewModel.Query = "borea";
-
-        Assert.Contains(nameof(MenuViewModel.FilteredChoices), raised);
-        Assert.Single(viewModel.FilteredChoices);
+        var vm = new MenuViewModel(new TimeTracker(new BufferSpy()), new SelectionStore(new InMemoryUserSettings()));
+        Assert.False(vm.Back());
     }
 
     [Fact]
-    public void LoadingProjectsRepublishesTheFilteredList()
+    public void DrillingRaisesPickerRowsSoThePopupRerenders()
     {
-        var viewModel = TestMenu.Build();
-        var raised = new List<string>();
-        viewModel.PropertyChanged += (_, e) => raised.Add(e.PropertyName!);
-
-        viewModel.Projects = Sample();
-
-        Assert.Contains(nameof(MenuViewModel.FilteredChoices), raised);
-        Assert.Equal(4, viewModel.FilteredChoices.Count);
-    }
-
-    /// <summary>
-    /// The checkmark reads from the FULL list, not the filtered one: a selection the current query
-    /// hides is still the selection, and losing it here would let a keystroke in the search box
-    /// look like the project had been silently deselected.
-    /// </summary>
-    [Fact]
-    public void TheSelectedChoiceSurvivesAQueryThatFiltersItOut()
-    {
-        var viewModel = TestMenu.Build();
-        viewModel.Projects = Sample();
-        viewModel.SelectProject("p1", "t1a");
-
-        viewModel.Query = "borealis";
-
-        Assert.NotNull(viewModel.SelectedChoice);
-        Assert.Equal("Design", viewModel.SelectedChoice!.TaskName);
-        Assert.DoesNotContain(viewModel.FilteredChoices, c => c.TaskId == "t1a");
+        var vm = new MenuViewModel(new TimeTracker(new BufferSpy()), new SelectionStore(new InMemoryUserSettings()))
+        {
+            Projects = PickerCoreTests.Projects,
+        };
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        vm.Activate(vm.PickerRows[0]);
+        Assert.Contains(nameof(MenuViewModel.PickerRows), raised);
     }
 
     [Fact]
-    public void NothingSelectedMeansNoSelectedChoice()
+    public void OnlyTheCurrentTrackRowIsMarkedCurrent()
     {
-        var viewModel = TestMenu.Build();
-        viewModel.Projects = Sample();
-
-        Assert.Null(viewModel.SelectedChoice);
+        var vm = new MenuViewModel(new TimeTracker(new BufferSpy()), new SelectionStore(new InMemoryUserSettings()))
+        {
+            Projects = PickerCoreTests.Projects,
+        };
+        vm.SelectProject(new StoredSelection("p2", null, "s3"));
+        vm.Activate(vm.PickerRows[1]); // Borealis → its tasks
+        Assert.Equal(["Borealis (no task)"], vm.PickerRows.Where(r => r.IsCurrent).Select(r => r.Title));
     }
 }

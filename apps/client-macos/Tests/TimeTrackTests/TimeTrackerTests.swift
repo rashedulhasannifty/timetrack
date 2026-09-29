@@ -55,7 +55,7 @@ final class TimeTrackerTests: XCTestCase {
 
         XCTAssertTrue(tracker.isRunning)
         XCTAssertEqual(tracker.state, .tracking(entryId: "id-1", startedAt: t0,
-                                                selection: .init(projectId: "p1", taskId: "k1"),
+                                                selection: .init(projectId: "p1", subprojectId: nil, taskId: "k1"),
                                                 source: .manual))
         XCTAssertTrue(spy.entries.isEmpty, "nothing is enqueued until the entry closes")
     }
@@ -103,7 +103,7 @@ final class TimeTrackerTests: XCTestCase {
         tracker.pause()
 
         XCTAssertTrue(tracker.isPaused)
-        XCTAssertEqual(tracker.state, .paused(selection: .init(projectId: "p1", taskId: "k1")))
+        XCTAssertEqual(tracker.state, .paused(selection: .init(projectId: "p1", subprojectId: nil, taskId: "k1")))
         XCTAssertEqual(spy.entries.count, 1)
     }
 
@@ -131,7 +131,7 @@ final class TimeTrackerTests: XCTestCase {
         tracker.start(projectId: "p2", taskId: nil) // ignored
 
         XCTAssertEqual(tracker.state, .tracking(entryId: "id-1", startedAt: t0,
-                                                selection: .init(projectId: "p1", taskId: nil),
+                                                selection: .init(projectId: "p1", subprojectId: nil, taskId: nil),
                                                 source: .manual))
     }
 
@@ -186,7 +186,7 @@ final class TimeTrackerTests: XCTestCase {
 
         XCTAssertEqual(recorder.begins.count, 1)
         XCTAssertEqual(recorder.begins[0], .init(entryId: "id-1", startTime: t0,
-                                                 selection: .init(projectId: "p1", taskId: "k1"),
+                                                 selection: .init(projectId: "p1", subprojectId: nil, taskId: "k1"),
                                                  source: .auto))
         XCTAssertEqual(recorder.clears, 0)
     }
@@ -265,7 +265,7 @@ final class TimeTrackerTests: XCTestCase {
         XCTAssertEqual(opened.count, 1)
         XCTAssertEqual(opened.first?.0, "id-1")
         XCTAssertEqual(opened.first?.1, t0)
-        XCTAssertEqual(opened.first?.2, .init(projectId: "p1", taskId: "k1"))
+        XCTAssertEqual(opened.first?.2, .init(projectId: "p1", subprojectId: nil, taskId: "k1"))
         XCTAssertEqual(opened.first?.3, .auto)
     }
 
@@ -290,7 +290,48 @@ final class TimeTrackerTests: XCTestCase {
         }
         XCTAssertEqual(opened[1].0, "id-2")
         XCTAssertEqual(opened[1].1, t0.addingTimeInterval(60))
-        XCTAssertEqual(opened[1].2, .init(projectId: "p1", taskId: "k1"))
+        XCTAssertEqual(opened[1].2, .init(projectId: "p1", subprojectId: nil, taskId: "k1"))
         XCTAssertEqual(opened[1].3, .manual)   // pause/resume is a manual-only affordance
+    }
+
+    // A non-default subproject with NO task is the one case the server cannot re-derive: the
+    // first write fixes the entry's subproject, so every path must carry it.
+    func testTheSubprojectSurvivesStopNoteEditPauseResumeAndReselect() {
+        let clock = MutableClock(t0)
+        let spy = BufferSpy()
+        let tracker = TimeTracker(buffer: spy, clock: clock.read, idGen: sequentialIdGen())
+
+        tracker.start(projectId: "p1", subprojectId: "s2", taskId: nil)
+        tracker.setNote("typing")                 // rebuilds the Selection in place
+        clock.advance(60)
+        tracker.pause()                           // closes entry #1
+        tracker.resume()                          // opens entry #2 from the paused selection
+        clock.advance(60)
+        tracker.pause()                           // closes entry #2
+        tracker.pause(reselecting: .init(projectId: "p1", subprojectId: "s3", taskId: nil))
+        tracker.resume()
+        tracker.stop()                            // closes entry #3
+
+        XCTAssertEqual(spy.entries.count, 3)
+        XCTAssertEqual(spy.object(at: 0)["subprojectId"] as? String, "s2")
+        XCTAssertEqual(spy.object(at: 0)["note"] as? String, "typing")
+        XCTAssertEqual(spy.object(at: 1)["subprojectId"] as? String, "s2")
+        XCTAssertEqual(spy.object(at: 2)["subprojectId"] as? String, "s3")
+    }
+
+    func testRecordSpanCarriesTheSubproject() {
+        let spy = BufferSpy()
+        let tracker = TimeTracker(buffer: spy, clock: { self.t0 }, idGen: sequentialIdGen())
+        tracker.recordSpan(start: t0, end: t0.addingTimeInterval(60),
+                           projectId: "p1", subprojectId: "s2", taskId: nil, source: .auto)
+        XCTAssertEqual(spy.object(at: 0)["subprojectId"] as? String, "s2")
+    }
+
+    func testANilSubprojectEncodesAsExplicitNull() {
+        let spy = BufferSpy()
+        let tracker = TimeTracker(buffer: spy, clock: { self.t0 }, idGen: sequentialIdGen())
+        tracker.start(projectId: nil, taskId: nil)
+        tracker.stop()
+        XCTAssertTrue(spy.object(at: 0)["subprojectId"] is NSNull, "present as null, like projectId")
     }
 }

@@ -44,6 +44,7 @@ struct LiveSpanRecovery {
                 start: span.startTime,
                 end: action == .keep ? span.lastAlive : span.startTime,
                 projectId: span.projectId,
+                subprojectId: span.subprojectId,
                 taskId: span.taskId,
                 source: TimeTracker.Source(rawValue: span.source) ?? .manual
             )
