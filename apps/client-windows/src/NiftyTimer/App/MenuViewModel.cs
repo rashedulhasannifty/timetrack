@@ -6,9 +6,6 @@ using NiftyTimer.Tracking;
 
 namespace NiftyTimer.App;
 
-/// <summary>One row in the project picker: a project on its own, or one of its tasks.</summary>
-public sealed record PickerChoice(string ProjectId, string? TaskId, string ProjectName, string? TaskName);
-
 /// <summary>
 /// What the tray dropdown shows and what it can do. UI-thread-only.
 ///
@@ -100,7 +97,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public IReadOnlyList<Project> Projects
     {
         get => _projects;
-        set => Set(ref _projects, value, [nameof(Choices), nameof(FilteredChoices), nameof(SelectedChoice)]);
+        set => Set(ref _projects, value, [nameof(PickerRows), nameof(SelectionLabel)]);
     }
 
     /// <summary>
@@ -111,68 +108,67 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public string Query
     {
         get => _query;
-        set => Set(ref _query, value ?? string.Empty, [nameof(FilteredChoices)]);
+        set => Set(ref _query, value ?? string.Empty, [nameof(PickerRows)]);
     }
 
-    /// <summary>Every row the picker can offer: each project, then each of its tasks.</summary>
-    public IReadOnlyList<PickerChoice> Choices => ChoicesFor(_projects);
+    private PickerLevel _level = PickerLevel.Root;
 
-    /// <summary>The rows matching <see cref="Query"/>. See <see cref="Filter"/>.</summary>
-    public IReadOnlyList<PickerChoice> FilteredChoices => Filter(Choices, _query);
-
-    /// <summary>
-    /// The row that carries the checkmark. Resolved against the FULL list rather than the filtered
-    /// one: a selection the current query happens to hide is still the selection.
-    /// </summary>
-    public PickerChoice? SelectedChoice =>
-        _selection is null
-            ? null
-            : Choices.FirstOrDefault(c => c.ProjectId == _selection.ProjectId && c.TaskId == _selection.TaskId);
-
-    /// <summary>
-    /// A row matches when the query appears ANYWHERE in its project or task name, ignoring case —
-    /// the macOS client's rule. The combo box this replaced only matched a prefix of the whole
-    /// label, so "design" could not find "Website · Design review" at all. OrdinalIgnoreCase rather
-    /// than the current culture, so the same query returns the same rows on every machine, and
-    /// surrounding whitespace is ignored so a stray space does not empty the list.
-    /// </summary>
-    public static IReadOnlyList<PickerChoice> Filter(IReadOnlyList<PickerChoice> choices, string? query)
+    /// <summary>Where the drill-down is. Reset to the root each time the popup opens.</summary>
+    public PickerLevel Level
     {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            return choices;
-        }
+        get => _level;
+        private set => Set(ref _level, value, [nameof(PickerRows)]);
+    }
 
-        var trimmed = query.Trim();
-        return choices
-            .Where(c => c.ProjectName.Contains(trimmed, StringComparison.OrdinalIgnoreCase)
-                        || (c.TaskName?.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ?? false))
+    private IReadOnlyList<PickerProject> Tree => PickerTree.Build(_projects);
+
+    /// <summary>
+    /// Search results while searching, else the drill-down level's rows, with the current selection
+    /// marked. The level survives a search, so clearing the text returns to it. Rows are records, so
+    /// the popup's SequenceEqual guard compares them by value.
+    /// </summary>
+    public IReadOnlyList<PickerRow> PickerRows =>
+        (PickerSearch.IsSearching(_query) ? PickerSearch.Results(_query, Tree) : PickerNavigation.Rows(_level, Tree))
+            .Select(r => r.Kind == PickerRowKind.Track && r.Selection == _selection ? r with { IsCurrent = true } : r)
             .ToList();
+
+    public void Activate(PickerRow row)
+    {
+        switch (row.Kind)
+        {
+            case PickerRowKind.Back:
+                Back();
+                break;
+            case PickerRowKind.Open when row.Target is { } target:
+                Level = target;
+                break;
+            case PickerRowKind.Track when row.Selection is { } selection:
+                SelectProject(selection);
+                break;
+        }
     }
 
-    /// <summary>
-    /// Flatten projects into rows. A project always contributes its own row — selecting a project
-    /// without a task is a valid selection, and a project with no tasks would otherwise vanish.
-    /// </summary>
-    internal static List<PickerChoice> ChoicesFor(IReadOnlyList<Project> projects)
+    /// <summary>One level up. False when already at the root — the popup then hides (Esc).</summary>
+    public bool Back()
     {
-        var choices = new List<PickerChoice>();
-        foreach (var project in projects)
+        var normalized = PickerNavigation.Normalize(_level, Tree);
+        if (normalized == PickerLevel.Root)
         {
-            choices.Add(new PickerChoice(project.Id, null, project.Name, null));
-            foreach (var task in project.Tasks ?? [])
-            {
-                choices.Add(new PickerChoice(project.Id, task.Id, project.Name, task.Name));
-            }
+            Level = PickerLevel.Root;
+            return false;
         }
 
-        return choices;
+        Level = PickerNavigation.Back(normalized, Tree);
+        return true;
     }
+
+    /// <summary>Closing and reopening the popup starts at the root (spec §2). The query is kept.</summary>
+    public void ResetPicker() => Level = PickerLevel.Root;
 
     public StoredSelection? Selection
     {
         get => _selection;
-        private set => Set(ref _selection, value, [nameof(SelectionLabel), nameof(SelectedChoice)]);
+        private set => Set(ref _selection, value, [nameof(SelectionLabel), nameof(PickerRows)]);
     }
 
     /// <summary>
@@ -365,28 +361,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
             _totalsFetchedAt,
             _clock());
 
-    public string SelectionLabel
-    {
-        get
-        {
-            if (_selection is null)
-            {
-                return "No project";
-            }
-
-            var project = _projects.FirstOrDefault(p => p.Id == _selection.ProjectId);
-            if (project is null)
-            {
-                return "No project";
-            }
-
-            var task = _selection.TaskId is null
-                ? null
-                : project.Tasks?.FirstOrDefault(t => t.Id == _selection.TaskId);
-
-            return task is null ? project.Name : $"{project.Name} · {task.Name}";
-        }
-    }
+    public string SelectionLabel => PickerNavigation.HeaderText(_selection, Tree);
 
     public void Start()
     {
@@ -507,13 +482,13 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         RaiseTrackingState();
     }
 
-    public void SelectProject(string projectId, string? taskId)
+    public void SelectProject(StoredSelection selection)
     {
         _displayStart = null;
-        Selection = new StoredSelection(projectId, taskId);
+        Selection = selection;
         if (_userId is { } userId)
         {
-            _selectionStore.Save(Selection, userId);
+            _selectionStore.Save(selection, userId);
         }
 
         // A project switch DOES re-attribute the time, so a running span is closed and reopened
@@ -521,12 +496,12 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         if (_tracker.State is TrackerState.Tracking)
         {
             _tracker.Stop();
-            _tracker.Start(projectId, taskId, NoteOrNull());
+            _tracker.Start(selection.ProjectId, selection.TaskId, NoteOrNull(), subprojectId: selection.SubprojectId);
             TrackingStarted?.Invoke();
         }
         else if (_tracker.State is TrackerState.Paused)
         {
-            _tracker.Reselect(new TimeTracker.Selection(projectId, taskId, NoteOrNull()));
+            _tracker.Reselect(new TimeTracker.Selection(selection.ProjectId, selection.TaskId, NoteOrNull(), selection.SubprojectId));
         }
 
         RaiseTrackingState();
@@ -556,6 +531,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         Notice = null;
         Note = string.Empty;
         Query = string.Empty;
+        Level = PickerLevel.Root;
         _displayStart = null;
         RaiseTrackingState();
     }
