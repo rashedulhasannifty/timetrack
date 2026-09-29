@@ -22,7 +22,7 @@ final class LiveEntryPublisherTests: XCTestCase {
         await publisher.publish(
             entryId: "01920000-0000-7000-8000-000000000010",
             start: Date(timeIntervalSince1970: 1_787_000_000),
-            selection: TimeTracker.Selection(projectId: nil, taskId: nil),
+            selection: TimeTracker.Selection(projectId: nil, subprojectId: nil, taskId: nil),
             source: .manual
         )
 
@@ -40,6 +40,7 @@ final class LiveEntryPublisherTests: XCTestCase {
             entryId: "01920000-0000-7000-8000-000000000011",
             startTime: Date(timeIntervalSince1970: 1_787_000_000),
             projectId: "01920000-0000-7000-8000-0000000000aa",
+            subprojectId: nil,
             taskId: nil,
             source: "AUTO",
             lastAlive: Date(timeIntervalSince1970: 1_787_000_600),
@@ -66,7 +67,7 @@ final class LiveEntryPublisherTests: XCTestCase {
         await publisher.publish(
             entryId: "01920000-0000-7000-8000-000000000012",
             start: Date(),
-            selection: TimeTracker.Selection(projectId: nil, taskId: nil),
+            selection: TimeTracker.Selection(projectId: nil, subprojectId: nil, taskId: nil),
             source: .manual
         )
 
@@ -81,7 +82,7 @@ final class LiveEntryPublisherTests: XCTestCase {
         await publisher.publish(
             entryId: "01920000-0000-7000-8000-000000000013",
             start: Date(),
-            selection: TimeTracker.Selection(projectId: nil, taskId: nil),
+            selection: TimeTracker.Selection(projectId: nil, subprojectId: nil, taskId: nil),
             source: .manual
         )
 
@@ -155,9 +156,25 @@ final class LiveEntryPublisherTests: XCTestCase {
         LiveSpan(entryId: "01920000-0000-7000-8000-000000000011",
                  startTime: Date(timeIntervalSince1970: 1_787_000_000),
                  projectId: nil,
+                 subprojectId: nil,
                  taskId: nil,
                  source: "MANUAL",
                  lastAlive: Date(timeIntervalSince1970: 1_787_000_060),
                  userId: "u1")
+    }
+
+    func testBothOverloadsSendTheSubproject() async throws {
+        let spy = SpyUploader()
+        let publisher = LiveEntryPublisher(uploader: spy)
+        await publisher.publish(entryId: "01920000-0000-7000-8000-000000000012",
+                                start: Date(timeIntervalSince1970: 1_787_000_000),
+                                selection: TimeTracker.Selection(projectId: "p1", subprojectId: "s2", taskId: nil),
+                                source: .manual)
+        await publisher.publish(LiveSpan(entryId: "01920000-0000-7000-8000-000000000013",
+                                         startTime: Date(timeIntervalSince1970: 1_787_000_000),
+                                         projectId: "p1", subprojectId: "s2", taskId: nil, source: "AUTO",
+                                         lastAlive: Date(timeIntervalSince1970: 1_787_000_600), userId: nil))
+        XCTAssertEqual(try json(spy.bodies[0])["subprojectId"] as? String, "s2")
+        XCTAssertEqual(try json(spy.bodies[1])["subprojectId"] as? String, "s2")
     }
 }

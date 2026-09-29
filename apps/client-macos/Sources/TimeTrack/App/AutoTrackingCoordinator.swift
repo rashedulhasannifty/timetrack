@@ -75,7 +75,7 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
 
     func idleMonitorShouldStartTracking(_ monitor: IdleMonitor) {
         let s = currentSelection()
-        tracker.start(projectId: s.projectId, taskId: s.taskId, source: .auto)
+        tracker.start(projectId: s.projectId, subprojectId: s.subprojectId, taskId: s.taskId, source: .auto)
         onTrackingStateChanged()
     }
 
@@ -93,7 +93,7 @@ final class AutoTrackingCoordinator: IdleMonitorDelegate {
         if keeping {
             let s = currentSelection()
             tracker.recordSpan(start: awayStart, end: resume,
-                               projectId: s.projectId, taskId: s.taskId, source: .auto)
+                               projectId: s.projectId, subprojectId: s.subprojectId, taskId: s.taskId, source: .auto)
         }
         enqueueIdleEvent(from: awayStart, to: resume, action: keeping ? .kept : .discarded)
     }

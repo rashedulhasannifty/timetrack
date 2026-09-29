@@ -131,7 +131,8 @@ final class ManualIdleCoordinator: ManualIdleMonitorDelegate, AutoTrackingSignal
             tracker.stop(at: awayStart)
             // The replacement opens at the return, not at the answer: the person was working
             // from then, and a prompt answered by policy is answered after they have left again.
-            tracker.start(projectId: selection.projectId, taskId: selection.taskId, note: selection.note,
+            tracker.start(projectId: selection.projectId, subprojectId: selection.subprojectId,
+                          taskId: selection.taskId, note: selection.note,
                           source: .manual, at: resume)
             // Same session, so the monitor stays armed across the swap rather than re-arming on
             // the replacement and forgetting an away window it has already begun.

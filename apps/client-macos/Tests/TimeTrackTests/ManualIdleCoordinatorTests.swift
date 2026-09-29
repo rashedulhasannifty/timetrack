@@ -401,4 +401,19 @@ final class ManualIdleCoordinatorTests: XCTestCase {
         guard case let .tracking(_, startedAt, _, _) = tracker.state else { return XCTFail("running") }
         XCTAssertEqual(startedAt, t0.addingTimeInterval(420))
     }
+
+    func testDiscardRestartKeepsTheSubproject() {
+        let (c, tracker, spy, clock, resolver, _, _) = make(threshold: 300)
+        tracker.start(projectId: "p1", subprojectId: "s2", taskId: nil)
+        c.tick(idleSeconds: 0)
+        clock.advance(300); c.tick(idleSeconds: 300)
+        clock.advance(120); c.tick(idleSeconds: 5)
+        resolver()?(.discard)                                  // trims + reopens at the return
+
+        guard case let .tracking(_, _, selection, _) = tracker.state else {
+            return XCTFail("the replacement entry should be running")
+        }
+        XCTAssertEqual(selection.subprojectId, "s2")
+        XCTAssertEqual(timeEntries(spy).first?["subprojectId"] as? String, "s2")
+    }
 }

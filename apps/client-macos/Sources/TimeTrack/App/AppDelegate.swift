@@ -897,7 +897,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             buffer: BufferStore.shared,
             thresholdSeconds: thresholdMinutes * 60,
             currentSelection: { [weak self] in
-                self?.menuViewModel.selectionForAuto ?? .init(projectId: nil, taskId: nil)
+                self?.menuViewModel.selectionForAuto ?? .init(projectId: nil, subprojectId: nil, taskId: nil)
             },
             presentAwayPrompt: { minutes, resolve in
                 AwayResolutionWindowController.present(minutes: minutes, resolve: resolve)

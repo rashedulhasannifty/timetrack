@@ -124,7 +124,9 @@ final class MenuViewModel: ObservableObject {
     /// The current picker selection as a tracker Selection, for auto-started entries
     /// (they inherit whatever the employee has picked; null if nothing is selected).
     var selectionForAuto: TimeTracker.Selection {
-        TimeTracker.Selection(projectId: selectedChoice?.projectId, taskId: selectedChoice?.taskId)
+        // `Choice` has no subproject; the server derives it (as for shipped clients). Replaced by the subproject picker.
+        TimeTracker.Selection(projectId: selectedChoice?.projectId, subprojectId: nil,
+                              taskId: selectedChoice?.taskId)
     }
 
     var choices: [Choice] {
@@ -177,7 +179,7 @@ final class MenuViewModel: ObservableObject {
         case let .tracking(_, entryStart, _, source):
             let anchor = displayStartOverride ?? entryStart
             tracker.stop()
-            tracker.start(projectId: choice.projectId, taskId: choice.taskId,
+            tracker.start(projectId: choice.projectId, subprojectId: nil, taskId: choice.taskId,
                           note: trimmedNote, source: source)
             displayStartOverride = anchor
             sync()
@@ -185,6 +187,7 @@ final class MenuViewModel: ObservableObject {
             // Nothing is running, so nothing to re-file — but the paused selection is what
             // `resume()` reopens with, so it has to be replaced rather than remembered.
             tracker.pause(reselecting: TimeTracker.Selection(projectId: choice.projectId,
+                                                             subprojectId: nil,
                                                              taskId: choice.taskId,
                                                              note: trimmedNote))
         case .idle:
@@ -226,8 +229,8 @@ final class MenuViewModel: ObservableObject {
     func start() {
         guard isReady else { return }
         displayStartOverride = nil
-        tracker.start(projectId: selectedChoice?.projectId, taskId: selectedChoice?.taskId,
-                      note: trimmedNote)
+        tracker.start(projectId: selectedChoice?.projectId, subprojectId: nil,
+                      taskId: selectedChoice?.taskId, note: trimmedNote)
         sync()
     }
 

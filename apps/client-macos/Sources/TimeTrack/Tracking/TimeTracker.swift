@@ -17,6 +17,11 @@ protocol TimeEntryBuffering {
 final class TimeTracker {
     struct Selection: Equatable {
         let projectId: String?
+        /// Required label, deliberately: `setNote`, `pause(reselecting:)` and every coordinator
+        /// rebuild a Selection, and a defaulted field here would compile while silently dropping
+        /// the subproject — which the server then fixes to General forever (it writes the
+        /// subproject only when it creates the row).
+        let subprojectId: String?
         let taskId: String?
         /// What the person says they were doing. Free text, theirs, and optional.
         ///
@@ -25,8 +30,9 @@ final class TimeTracker {
         /// client type with a REQUIRED parameter breaks all of them in the same task.
         let note: String?
 
-        init(projectId: String?, taskId: String?, note: String? = nil) {
+        init(projectId: String?, subprojectId: String?, taskId: String?, note: String? = nil) {
             self.projectId = projectId
+            self.subprojectId = subprojectId
             self.taskId = taskId
             self.note = note
         }
@@ -77,9 +83,9 @@ final class TimeTracker {
     /// `startTime` backdates the open, the mirror of `stop(at:)`: a Discard on the away prompt
     /// resumes from the moment the person came back, not from when they answered. Defaults to
     /// `clock()`.
-    func start(projectId: String?, taskId: String?, note: String? = nil, source: Source = .manual, at startTime: Date? = nil) {
+    func start(projectId: String?, subprojectId: String? = nil, taskId: String?, note: String? = nil, source: Source = .manual, at startTime: Date? = nil) {
         guard case .tracking = state else {
-            open(Selection(projectId: projectId, taskId: taskId, note: note), source: source, at: startTime ?? clock())
+            open(Selection(projectId: projectId, subprojectId: subprojectId, taskId: taskId, note: note), source: source, at: startTime ?? clock())
             return
         }
         // Already tracking — ignore a second start.
@@ -122,7 +128,8 @@ final class TimeTracker {
         state = .tracking(
             entryId: id,
             startedAt: startedAt,
-            selection: Selection(projectId: selection.projectId, taskId: selection.taskId, note: note),
+            selection: Selection(projectId: selection.projectId, subprojectId: selection.subprojectId,
+                                taskId: selection.taskId, note: note),
             source: source
         )
     }
@@ -130,8 +137,9 @@ final class TimeTracker {
     /// Enqueue one already-complete entry without touching the live state. Used for the
     /// Keep-from-idle bridge span (PRD §6.1): the away window becomes its own AUTO entry.
     func recordSpan(id: String? = nil, start: Date, end: Date,
-                    projectId: String?, taskId: String?, source: Source, note: String? = nil) {
-        enqueue(id: id ?? idGen(start), projectId: projectId, taskId: taskId,
+                    projectId: String?, subprojectId: String? = nil, taskId: String?,
+                    source: Source, note: String? = nil) {
+        enqueue(id: id ?? idGen(start), projectId: projectId, subprojectId: subprojectId, taskId: taskId,
                 start: start, end: end, source: source, note: note)
         onSpanClosed?(start, end)
     }
@@ -146,13 +154,14 @@ final class TimeTracker {
 
     private func close(at endTime: Date) {
         guard case let .tracking(id, startedAt, selection, source) = state else { return }
-        enqueue(id: id, projectId: selection.projectId, taskId: selection.taskId,
+        enqueue(id: id, projectId: selection.projectId, subprojectId: selection.subprojectId,
+                taskId: selection.taskId,
                 start: startedAt, end: endTime, source: source, note: selection.note)
         liveSpan.clear()
         onSpanClosed?(startedAt, endTime)
     }
 
-    private func enqueue(id: String, projectId: String?, taskId: String?,
+    private func enqueue(id: String, projectId: String?, subprojectId: String?, taskId: String?,
                          start: Date, end: Date, source: Source, note: String? = nil) {
         // Never emit an inverted span. Every caller orders its own pair, but `clock()` is the
         // system clock and a backwards STEP mid-span (an NTP correction, a hand-set clock, a
@@ -165,6 +174,7 @@ final class TimeTracker {
         let payload = TimeEntryPayload(
             id: id,
             projectId: projectId,
+            subprojectId: subprojectId,
             taskId: taskId,
             startTime: TimeEntryPayload.iso.string(from: start),
             endTime: TimeEntryPayload.iso.string(from: end),

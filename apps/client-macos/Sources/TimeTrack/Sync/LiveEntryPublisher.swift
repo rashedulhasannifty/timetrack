@@ -44,6 +44,7 @@ final class LiveEntryPublisher {
         await send(TimeEntryPayload(
             id: entryId,
             projectId: selection.projectId,
+            subprojectId: selection.subprojectId,
             taskId: selection.taskId,
             startTime: TimeEntryPayload.iso.string(from: start),
             endTime: nil,
@@ -58,6 +59,7 @@ final class LiveEntryPublisher {
         await send(TimeEntryPayload(
             id: span.entryId,
             projectId: span.projectId,
+            subprojectId: span.subprojectId,
             taskId: span.taskId,
             startTime: TimeEntryPayload.iso.string(from: span.startTime),
             endTime: nil,
