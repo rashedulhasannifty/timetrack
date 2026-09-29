@@ -36,9 +36,68 @@ export type ClientRow = {
 const byName = (a: { name: string }, b: { name: string }): number =>
   a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
 
-/** The id that ties a team column's checkboxes (via their `form` attribute) to its Save form. */
+/** The DOM id of a team column's Save form. */
 export function teamFormId(teamId: string): string {
   return `work-types-team-${teamId}`;
+}
+
+/** Per team, the ticked work type ids (sorted). Held in client state, not in the DOM. */
+export type ColumnTicks = Record<string, string[]>;
+
+/** The server's selection as ticks — every link, archived ones included (they show ticked). */
+export function columnTicks(matrix: CatalogMatrix): ColumnTicks {
+  const ticks: ColumnTicks = {};
+  for (const t of matrix.teams) {
+    ticks[t.id] = matrix.rows
+      .filter((r) => r.cells.some((c) => c.teamId === t.id && c.checked))
+      .map((r) => r.workTypeId)
+      .sort();
+  }
+  return ticks;
+}
+
+/** One checkbox changed. Returns a new object; other columns are untouched. Pure. */
+export function toggleColumnTick(
+  ticks: ColumnTicks,
+  teamId: string,
+  workTypeId: string,
+  checked: boolean,
+): ColumnTicks {
+  const rest = (ticks[teamId] ?? []).filter((id) => id !== workTypeId);
+  return { ...ticks, [teamId]: checked ? [...rest, workTypeId].sort() : rest };
+}
+
+const sameIds = (a: readonly string[] | undefined, b: readonly string[]): boolean =>
+  a !== undefined && a.length === b.length && a.every((id, i) => id === b[i]);
+
+/**
+ * Fresh server props arrived. A column whose SERVER selection changed (its save succeeded, or
+ * someone else saved it) adopts the server's; any other column keeps the admin's unsaved ticks —
+ * which is what keeps them after a failed save, since React resets a form after its action. Pure.
+ */
+export function syncColumnTicks(
+  prevServer: ColumnTicks,
+  nextServer: ColumnTicks,
+  ticks: ColumnTicks,
+): ColumnTicks {
+  const synced: ColumnTicks = {};
+  for (const [teamId, server] of Object.entries(nextServer)) {
+    const kept = ticks[teamId];
+    synced[teamId] = sameIds(prevServer[teamId], server) && kept !== undefined ? kept : server;
+  }
+  return synced;
+}
+
+/** What one column's Save submits: its ticked, non-archived ids, in row order. Pure. */
+export function columnSubmission(
+  matrix: CatalogMatrix,
+  ticks: ColumnTicks,
+  teamId: string,
+): string[] {
+  const ticked = new Set(ticks[teamId] ?? []);
+  return matrix.rows
+    .filter((r) => !r.archived && ticked.has(r.workTypeId))
+    .map((r) => r.workTypeId);
 }
 
 /** Rows are work types (active first, then archived; each by name), columns are teams. Pure. */

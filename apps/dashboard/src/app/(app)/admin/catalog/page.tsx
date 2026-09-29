@@ -16,6 +16,7 @@ import { RenameWorkTypeForm } from './RenameWorkTypeForm';
 import { WorkTypeArchiveToggle } from './WorkTypeArchiveToggle';
 import { ImportClientsForm } from './ImportClientsForm';
 import { ResyncButton } from './ResyncButton';
+import { TeamColumnsProvider, WorkTypeTick } from './TeamColumns';
 
 /**
  * Clients & work types (spec §8). ADMIN only. The catalog is a work-type × team matrix — each
@@ -52,72 +53,72 @@ export default async function AdminCatalogPage() {
             the team gets them as subprojects; unticking archives them (their hours are kept).
           </p>
 
-          <Card padding="none" className="overflow-x-auto">
-            <Table>
-              <THead>
-                <Tr>
-                  <Th>Work type</Th>
-                  {matrix.teams.map((t) => (
-                    <Th key={t.id}>
-                      {t.name} <span className="tt-numeric">({t.selectedCount})</span>
-                    </Th>
-                  ))}
-                  <Th align="right">Actions</Th>
-                </Tr>
-              </THead>
-              <Tbody>
-                {matrix.rows.map((row) => (
-                  <Tr key={row.workTypeId}>
-                    <Td>
-                      <span className={row.archived ? 'text-text-secondary' : ''}>{row.name}</span>
-                      {row.archived ? (
-                        <span className="ml-2">
-                          <Badge tone="neutral">Archived</Badge>
-                        </span>
-                      ) : null}
-                    </Td>
-                    {row.cells.map((cell) => (
-                      <Td key={cell.teamId}>
-                        <input
-                          type="checkbox"
-                          name="workTypeId"
-                          value={row.workTypeId}
-                          form={teamFormId(cell.teamId)}
-                          defaultChecked={cell.checked}
-                          disabled={row.archived}
-                          aria-label={`${row.name} for ${teamName.get(cell.teamId) ?? 'team'}`}
-                          className="accent-accent h-4 w-4"
-                        />
-                      </Td>
-                    ))}
-                    <Td align="right">
-                      <div className="flex items-center justify-end gap-4">
-                        <RenameWorkTypeForm id={row.workTypeId} name={row.name} />
-                        <WorkTypeArchiveToggle id={row.workTypeId} archived={row.archived} />
-                      </div>
-                    </Td>
-                  </Tr>
-                ))}
-                {matrix.rows.length > 0 ? (
+          <TeamColumnsProvider matrix={matrix}>
+            <Card padding="none" className="overflow-x-auto">
+              <Table>
+                <THead>
                   <Tr>
-                    <Td>
-                      <span className="text-text-secondary text-caption">Save a column</span>
-                    </Td>
+                    <Th>Work type</Th>
                     {matrix.teams.map((t) => (
-                      <Td key={t.id}>
-                        <TeamColumnSaveForm
-                          formId={teamFormId(t.id)}
-                          teamId={t.id}
-                          teamName={t.name}
-                        />
-                      </Td>
+                      <Th key={t.id}>
+                        {t.name} <span className="tt-numeric">({t.selectedCount})</span>
+                      </Th>
                     ))}
-                    <Td>{null}</Td>
+                    <Th align="right">Actions</Th>
                   </Tr>
-                ) : null}
-              </Tbody>
-            </Table>
-          </Card>
+                </THead>
+                <Tbody>
+                  {matrix.rows.map((row) => (
+                    <Tr key={row.workTypeId}>
+                      <Td>
+                        <span className={row.archived ? 'text-text-secondary' : ''}>
+                          {row.name}
+                        </span>
+                        {row.archived ? (
+                          <span className="ml-2">
+                            <Badge tone="neutral">Archived</Badge>
+                          </span>
+                        ) : null}
+                      </Td>
+                      {row.cells.map((cell) => (
+                        <Td key={cell.teamId}>
+                          <WorkTypeTick
+                            teamId={cell.teamId}
+                            workTypeId={row.workTypeId}
+                            disabled={row.archived}
+                            label={`${row.name} for ${teamName.get(cell.teamId) ?? 'team'}`}
+                          />
+                        </Td>
+                      ))}
+                      <Td align="right">
+                        <div className="flex items-center justify-end gap-4">
+                          <RenameWorkTypeForm id={row.workTypeId} name={row.name} />
+                          <WorkTypeArchiveToggle id={row.workTypeId} archived={row.archived} />
+                        </div>
+                      </Td>
+                    </Tr>
+                  ))}
+                  {matrix.rows.length > 0 ? (
+                    <Tr>
+                      <Td>
+                        <span className="text-text-secondary text-caption">Save a column</span>
+                      </Td>
+                      {matrix.teams.map((t) => (
+                        <Td key={t.id}>
+                          <TeamColumnSaveForm
+                            formId={teamFormId(t.id)}
+                            teamId={t.id}
+                            teamName={t.name}
+                          />
+                        </Td>
+                      ))}
+                      <Td>{null}</Td>
+                    </Tr>
+                  ) : null}
+                </Tbody>
+              </Table>
+            </Card>
+          </TeamColumnsProvider>
 
           <AddWorkTypesForm />
         </section>

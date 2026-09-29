@@ -3,6 +3,10 @@ import type { Project, WorkTypeWithTeams } from '@timetrack/contracts';
 import {
   buildCatalogMatrix,
   clientRows,
+  columnSubmission,
+  columnTicks,
+  syncColumnTicks,
+  toggleColumnTick,
   describeCounts,
   describeTeamSave,
   teamFormId,
@@ -136,5 +140,63 @@ describe('clientRows', () => {
 
   it('labels a project whose team is not in the list', () => {
     expect(clientRows([], [P('p1', 'Lost', 't-gone')])[0]?.teamName).toBe('Unknown team');
+  });
+});
+
+describe('team column ticks (kept in client state so a failed save keeps them)', () => {
+  const matrix = buildCatalogMatrix(CATALOG, [ENG, OPS]);
+
+  it('starts from the server selection, per team, including archived links', () => {
+    expect(columnTicks(matrix)).toEqual({
+      't-eng': ['w-adh', 'w-old', 'w-pay'],
+      't-ops': ['w-adh'],
+    });
+  });
+
+  it('ticks and unticks one cell without touching the other columns', () => {
+    const ticks = columnTicks(matrix);
+    const added = toggleColumnTick(ticks, 't-ops', 'w-aud', true);
+    expect(added).toEqual({ 't-eng': ['w-adh', 'w-old', 'w-pay'], 't-ops': ['w-adh', 'w-aud'] });
+    expect(toggleColumnTick(added, 't-ops', 'w-adh', false)['t-ops']).toEqual(['w-aud']);
+    expect(toggleColumnTick(added, 't-ops', 'w-aud', true)).toEqual(added);
+    expect(ticks['t-ops']).toEqual(['w-adh']); // not mutated
+  });
+
+  it('keeps unsaved ticks while the server selection is unchanged (a failed save)', () => {
+    const server = columnTicks(matrix);
+    const ticked = toggleColumnTick(server, 't-ops', 'w-aud', true);
+    // A failed save does not change the server state; an unrelated revalidation re-sends it.
+    expect(syncColumnTicks(server, columnTicks(matrix), ticked)).toEqual(ticked);
+  });
+
+  it("adopts the server's column once that team's selection changed (a successful save)", () => {
+    const server = columnTicks(matrix);
+    const ticked = toggleColumnTick(
+      toggleColumnTick(server, 't-ops', 'w-aud', true),
+      't-eng',
+      'w-pay',
+      false,
+    );
+    const saved = buildCatalogMatrix(
+      CATALOG.map((w) => (w.id === 'w-aud' ? { ...w, teamIds: ['t-ops'] } : w)),
+      [ENG, OPS],
+    );
+    // Ops saved and changed on the server; Eng's unsaved untick survives.
+    expect(syncColumnTicks(server, columnTicks(saved), ticked)).toEqual({
+      't-eng': ['w-adh', 'w-old'],
+      't-ops': ['w-adh', 'w-aud'],
+    });
+  });
+
+  it('picks up a team that is new on the server', () => {
+    const server = columnTicks(matrix);
+    const next = { ...server, 't-new': ['w-pay'] };
+    expect(syncColumnTicks(server, next, server)['t-new']).toEqual(['w-pay']);
+  });
+
+  it('submits only ticked, non-archived ids, in row order', () => {
+    const ticks = toggleColumnTick(columnTicks(matrix), 't-eng', 'w-aud', true);
+    expect(columnSubmission(matrix, ticks, 't-eng')).toEqual(['w-adh', 'w-aud', 'w-pay']);
+    expect(columnSubmission(matrix, ticks, 't-missing')).toEqual([]);
   });
 });
