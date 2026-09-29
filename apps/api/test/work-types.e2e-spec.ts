@@ -2,10 +2,17 @@ import './test-env.js'; // must run before anything that calls loadEnv()
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
 import {
+  CONCURRENT_CHANGE,
   WorkTypesRepository,
   RECONCILE_TX,
 } from '../src/modules/work-types/work-types.repository.js';
-import { ConflictException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  ConflictException,
+  HttpException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { Prisma } from '@timetrack/db';
 import { WorkTypesService } from '../src/modules/work-types/work-types.service.js';
 import type { SessionUser } from '../src/common/decorators/current-user.decorator.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
@@ -315,6 +322,14 @@ describe.runIf(RUN_E2E)('work types — service', () => {
     const { created } = await svc().bulkCreate({ names }, admin(teamId));
     return new Map(created.map((w) => [w.name, w.id] as const));
   }
+  async function titleOf(p: Promise<unknown>): Promise<string | undefined> {
+    try {
+      await p;
+      return undefined;
+    } catch (e) {
+      return e instanceof HttpException ? (e.getResponse() as { title?: string }).title : undefined;
+    }
+  }
   const linked = (projectId: string) =>
     db.prisma.subproject.findMany({
       where: { projectId, workTypeId: { not: null } },
@@ -363,6 +378,67 @@ describe.runIf(RUN_E2E)('work types — service', () => {
     await expect(svc().update(adhoc, { name: 'ADHOC' }, admin(eng))).resolves.toMatchObject({
       name: 'ADHOC',
     });
+  });
+
+  it('maps a deadlock or serialization failure (P2034) in the reconcile to the concurrent-change 409', async () => {
+    const eng = await team('Eng');
+    await project(eng, 'Acme');
+    const payroll = (await catalog(eng, 'Payroll')).get('Payroll')!;
+    const repo = new WorkTypesRepository(db.prisma as unknown as PrismaService);
+    repo.reconcile = () =>
+      Promise.reject(
+        new Prisma.PrismaClientKnownRequestError('write conflict', {
+          code: 'P2034',
+          clientVersion: 'test',
+        }),
+      );
+
+    for (const attempt of [
+      () => repo.setTeamSelection(eng, [payroll], ADMIN_ID),
+      () => repo.update(payroll, { name: 'Pay' }, ADMIN_ID),
+      () => repo.resync(ADMIN_ID),
+    ]) {
+      expect(await titleOf(attempt())).toBe(CONCURRENT_CHANGE);
+    }
+    // Every transaction rolled back.
+    await expect(db.prisma.teamWorkType.count()).resolves.toBe(0);
+    await expect(
+      db.prisma.workType.findUniqueOrThrow({ where: { id: payroll }, select: { name: true } }),
+    ).resolves.toEqual({ name: 'Payroll' });
+  });
+
+  it('update keeps the duplicate-name title for the name index only', async () => {
+    const eng = await team('Eng');
+    const ids = await catalog(eng, 'Payroll', 'AdHoc');
+    const repo = new WorkTypesRepository(db.prisma as unknown as PrismaService);
+    // Straight to the repository, past the service's pre-check: the index itself answers.
+    expect(await titleOf(repo.update(ids.get('AdHoc')!, { name: 'PAYROLL' }, ADMIN_ID))).toBe(
+      'A work type with this name already exists',
+    );
+
+    // A unique violation raised by the reconcile (another index, or no index named) is a race.
+    const otherIndex = new Prisma.PrismaClientKnownRequestError('unique', {
+      code: 'P2002',
+      clientVersion: 'test',
+      meta: {
+        driverAdapterError: {
+          cause: {
+            kind: 'UniqueConstraintViolation',
+            constraint: { index: 'subprojects_one_per_work_type' },
+          },
+        },
+      },
+    });
+    const bare = new Prisma.PrismaClientKnownRequestError('unique', {
+      code: 'P2002',
+      clientVersion: 'test',
+    });
+    for (const clash of [otherIndex, bare]) {
+      repo.reconcile = () => Promise.reject(clash);
+      expect(await titleOf(repo.update(ids.get('AdHoc')!, { name: 'Ad hoc' }, ADMIN_ID))).toBe(
+        CONCURRENT_CHANGE,
+      );
+    }
   });
 
   it('lists work types by name with the teams that selected them', async () => {

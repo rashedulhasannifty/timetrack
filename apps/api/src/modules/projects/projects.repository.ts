@@ -8,7 +8,7 @@ import {
   RECONCILE_TX,
   WorkTypesRepository,
   catalogConflict,
-  isUniqueViolation,
+  isConcurrencyConflict,
   lockReconcile,
 } from '../work-types/work-types.repository.js';
 
@@ -131,7 +131,7 @@ export class ProjectsRepository {
         return project;
       }, RECONCILE_TX);
     } catch (e) {
-      if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
       throw e;
     }
   }
@@ -189,7 +189,7 @@ export class ProjectsRepository {
         return projects;
       }, RECONCILE_TX);
     } catch (e) {
-      if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
       throw e;
     }
   }
@@ -394,7 +394,7 @@ export class ProjectsRepository {
         return project;
       }, RECONCILE_TX);
     } catch (e) {
-      if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
       throw e;
     }
   }

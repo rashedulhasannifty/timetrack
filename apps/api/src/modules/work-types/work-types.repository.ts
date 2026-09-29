@@ -43,6 +43,33 @@ export function isUniqueViolation(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
 }
 
+/**
+ * What a reconciling transaction raises when another write won a race: a unique violation
+ * (P2002), or a deadlock / serialization failure (P2034 — the pg adapter's mapping of 40P01 and
+ * 40001). Either way the whole trigger rolled back, so the caller gets a safe "try again" 409.
+ */
+export function isConcurrencyConflict(e: unknown): boolean {
+  return (
+    e instanceof Prisma.PrismaClientKnownRequestError && (e.code === 'P2002' || e.code === 'P2034')
+  );
+}
+
+const WORK_TYPE_NAME_INDEX = 'work_types_name_ci_unique';
+
+/**
+ * A P2002 on the catalog's case-insensitive name index specifically. The pg adapter names the
+ * index in `meta.driverAdapterError.cause.constraint.index`; the message is the fallback.
+ */
+function isNameIndexViolation(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== 'P2002') return false;
+  const meta = e.meta as
+    { driverAdapterError?: { cause?: { constraint?: { index?: unknown } } } } | undefined;
+  return (
+    meta?.driverAdapterError?.cause?.constraint?.index === WORK_TYPE_NAME_INDEX ||
+    e.message.includes(WORK_TYPE_NAME_INDEX)
+  );
+}
+
 export function catalogConflict(title: string): ConflictException {
   return new ConflictException({
     type: 'https://timetrack.internal/errors/conflict',
@@ -267,7 +294,11 @@ export class WorkTypesRepository {
         return workType;
       }, RECONCILE_TX);
     } catch (e) {
-      if (isUniqueViolation(e)) throw catalogConflict('A work type with this name already exists');
+      // Only the name index means "that name is taken"; anything else is the reconcile losing a race.
+      if (isNameIndexViolation(e)) {
+        throw catalogConflict('A work type with this name already exists');
+      }
+      if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
       throw e;
     }
   }
@@ -317,7 +348,7 @@ export class WorkTypesRepository {
         return { teamId, workTypeIds: next };
       }, RECONCILE_TX);
     } catch (e) {
-      if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
       throw e;
     }
   }
@@ -335,7 +366,7 @@ export class WorkTypesRepository {
         );
       }, RECONCILE_TX);
     } catch (e) {
-      if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
       throw e;
     }
   }

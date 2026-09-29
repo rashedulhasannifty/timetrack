@@ -5,7 +5,10 @@ import { PROJECT_PALETTE } from '@timetrack/contracts';
 import { Prisma } from '@timetrack/db';
 import { ProjectsRepository } from '../src/modules/projects/projects.repository.js';
 import { ProjectsService } from '../src/modules/projects/projects.service.js';
-import { WorkTypesRepository } from '../src/modules/work-types/work-types.repository.js';
+import {
+  CONCURRENT_CHANGE,
+  WorkTypesRepository,
+} from '../src/modules/work-types/work-types.repository.js';
 import { WorkTypesService } from '../src/modules/work-types/work-types.service.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import type { SessionUser } from '../src/common/decorators/current-user.decorator.js';
@@ -260,6 +263,28 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
     await expect(
       db.prisma.project.findUniqueOrThrow({ where: { id: p.id }, select: { teamId: true } }),
     ).resolves.toEqual({ teamId: eng });
+  });
+
+  it('maps a deadlock or serialization failure (P2034) in the reconcile to the concurrent-change 409', async () => {
+    const eng = await team('Eng');
+    const support = await team('Support');
+    const p = await client(eng, 'Acme');
+    const deadlock = new Prisma.PrismaClientKnownRequestError('write conflict', {
+      code: 'P2034',
+      clientVersion: 'test',
+    });
+    const failing = {
+      reconcile: () => Promise.reject(deadlock),
+    } as unknown as WorkTypesRepository;
+    const repo = new ProjectsRepository(prisma(), failing);
+
+    for (const attempt of [
+      () => repo.createProject(eng, 'Globex', ADMIN_ID),
+      () => repo.createProjectsBulk(eng, [{ name: 'Initech', color: '#007aff' }], ADMIN_ID),
+      () => repo.setTeam(p.id, support, ADMIN_ID),
+    ]) {
+      expect(await titleOf(attempt())).toBe(CONCURRENT_CHANGE);
+    }
   });
 
   it('409s a duplicate subproject name that only differs by surrounding whitespace', async () => {
