@@ -523,11 +523,13 @@ describe('projects — UpdateProjectSchema + ListProjectsQuerySchema', () => {
     // z.stringbool(), NOT z.coerce.boolean() — the string "false" must be false.
     expect(ListProjectsQuerySchema.parse({ includeArchived: 'true' })).toEqual({
       includeArchived: true,
+      allTeams: false,
     });
     expect(ListProjectsQuerySchema.parse({ includeArchived: 'false' })).toEqual({
       includeArchived: false,
+      allTeams: false,
     });
-    expect(ListProjectsQuerySchema.parse({})).toEqual({ includeArchived: false });
+    expect(ListProjectsQuerySchema.parse({})).toEqual({ includeArchived: false, allTeams: false });
   });
 });
 
