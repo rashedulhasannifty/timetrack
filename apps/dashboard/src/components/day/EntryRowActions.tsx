@@ -117,7 +117,11 @@ export function EntryRowActions({
               day,
               start: entry.startClock,
               end: entry.endClock ?? entry.startClock,
-              projectId: entry.projectId,
+              assignment: {
+                projectId: entry.projectId,
+                subprojectId: entry.subprojectId,
+                taskId: entry.taskId,
+              },
               note: entry.note ?? '',
             }}
           />

@@ -1,7 +1,8 @@
 import type { Project } from '@timetrack/contracts';
+import { assignmentGroups, encodeAssignment, type Assignment } from '../../lib/entry-form';
 
 /**
- * The four inputs an entry is made of, shared by the add form and the per-row edit form so the
+ * The inputs an entry is made of (date, times, one grouped "Assign to" select, note), shared by the add form and the per-row edit form so the
  * two can never drift into accepting different things.
  *
  * `day`/`start`/`end` are wall-clock in APP_TIMEZONE; the Server Action converts them through
@@ -13,7 +14,13 @@ export function EntryFormFields({
   defaults,
 }: {
   projects: Project[];
-  defaults: { day: string; start: string; end: string; projectId: string | null; note: string };
+  defaults: {
+    day: string;
+    start: string;
+    end: string;
+    assignment: Assignment | null;
+    note: string;
+  };
 }) {
   return (
     <>
@@ -50,17 +57,21 @@ export function EntryFormFields({
         </label>
       </div>
       <label className="flex flex-col gap-1">
-        <span className="text-caption text-text-secondary">Project</span>
+        <span className="text-caption text-text-secondary">Assign to</span>
         <select
-          name="projectId"
-          defaultValue={defaults.projectId ?? ''}
+          name="assignment"
+          defaultValue={defaults.assignment ? encodeAssignment(defaults.assignment) : ''}
           className="border-separator bg-surface text-text rounded-md border px-2.5 py-1.5 text-[13px]"
         >
           <option value="">No project</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
+          {assignmentGroups(projects, defaults.assignment).map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </label>

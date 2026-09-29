@@ -5,7 +5,13 @@ import { revalidatePath } from 'next/cache';
 import { IdleEventSchema, RedactScreenshotSchema } from '@timetrack/contracts';
 import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
-import { optionalId, optionalText, parseEntryTimes, textField } from '../../../lib/entry-form';
+import {
+  optionalId,
+  optionalText,
+  parseAssignment,
+  parseEntryTimes,
+  textField,
+} from '../../../lib/entry-form';
 
 export type RedactResult = { ok: true } | { ok: false; error: string };
 
@@ -123,6 +129,8 @@ export async function createManualEntryAction(
     textField(formData.get('end')),
   );
   if (!times.ok) return { ok: false, message: times.message };
+  const assignment = parseAssignment(formData.get('assignment'));
+  if (!assignment) return { ok: false, message: 'Pick a project.' };
 
   // Whose day this is. Absent means the signed-in user; the API authorizes anything else
   // through the same self / manager-of-team / admin rule an edit uses.
@@ -132,8 +140,9 @@ export async function createManualEntryAction(
     await api.createManualTimeEntry(session.accessToken, {
       id: randomUUID(),
       ...(userId ? { userId } : {}),
-      projectId: optionalId(formData.get('projectId')),
-      taskId: optionalId(formData.get('taskId')),
+      projectId: assignment.projectId,
+      subprojectId: assignment.subprojectId,
+      taskId: assignment.taskId,
       startTime: times.startTime,
       endTime: times.endTime,
       ...(optionalText(formData.get('note')) !== undefined
@@ -164,11 +173,14 @@ export async function updateEntryAction(
     textField(formData.get('end')),
   );
   if (!times.ok) return { ok: false, message: times.message };
+  const assignment = parseAssignment(formData.get('assignment'));
+  if (!assignment) return { ok: false, message: 'Pick a project.' };
 
   try {
     await api.updateTimeEntry(session.accessToken, id, {
-      projectId: optionalId(formData.get('projectId')),
-      taskId: optionalId(formData.get('taskId')),
+      projectId: assignment.projectId,
+      subprojectId: assignment.subprojectId,
+      taskId: assignment.taskId,
       startTime: times.startTime,
       endTime: times.endTime,
       note: optionalText(formData.get('note')) ?? '',

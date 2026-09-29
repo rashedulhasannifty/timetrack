@@ -66,10 +66,12 @@ export interface DayEntryRow {
   startClock: string;
   endClock: string | null;
   projectId: string | null;
+  subprojectId: string | null;
   taskId: string | null;
   note: string | null;
   /** Resolved from `projects`; null when the entry has no id or the id is not in the list. */
   projectName: string | null;
+  subprojectName: string | null;
   taskName: string | null;
   source: TimeEntry['source'];
   /** What the day's samples say about this entry's own span — see `entryActivity`. */
@@ -262,12 +264,15 @@ function entryActivity(entrySamples: ActivitySample[]): EntryActivity {
 function entryLabel(
   entry: TimeEntry,
   projectNames: Map<string, string>,
+  subprojectNames: Map<string, string>,
   taskNames: Map<string, string>,
 ): string {
   if (entry.note) return entry.note;
   const parts: string[] = [];
   const projectName = entry.projectId ? projectNames.get(entry.projectId) : undefined;
   if (projectName) parts.push(projectName);
+  const subprojectName = entry.subprojectId ? subprojectNames.get(entry.subprojectId) : undefined;
+  if (subprojectName) parts.push(subprojectName);
   const taskName = entry.taskId ? taskNames.get(entry.taskId) : undefined;
   if (taskName) parts.push(taskName);
   return parts.length > 0 ? parts.join(' · ') : 'Untitled entry';
@@ -278,6 +283,12 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
 
   const projects = input.projects ?? [];
   const projectNames = new Map(projects.map((p) => [p.id, p.name]));
+  // Only NON-default subprojects are named: "Website · General" is noise, not information.
+  const subprojectNames = new Map(
+    projects.flatMap((p) =>
+      (p.subprojects ?? []).filter((s) => !s.isDefault).map((s) => [s.id, s.name] as const),
+    ),
+  );
   const taskNames = new Map(
     projects.flatMap((p) => (p.tasks ?? []).map((t) => [t.id, t.name] as const)),
   );
@@ -435,7 +446,7 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
         id: p.entry.id,
         startMs: p.startMs,
         endMs: p.endMs,
-        label: entryLabel(p.entry, projectNames, taskNames),
+        label: entryLabel(p.entry, projectNames, subprojectNames, taskNames),
         durationSeconds,
         // Gated the same way as `recordingNow` — a stale open entry's duration is frozen, so
         // its "running" label must not keep claiming otherwise.
@@ -443,9 +454,13 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
         startClock: clockOf(new Date(p.startMs)),
         endClock: p.endMs === null ? null : clockOf(new Date(p.endMs)),
         projectId: p.entry.projectId,
+        subprojectId: p.entry.subprojectId,
         taskId: p.entry.taskId,
         note: p.entry.note ?? null,
         projectName: p.entry.projectId ? (projectNames.get(p.entry.projectId) ?? null) : null,
+        subprojectName: p.entry.subprojectId
+          ? (subprojectNames.get(p.entry.subprojectId) ?? null)
+          : null,
         taskName: p.entry.taskId ? (taskNames.get(p.entry.taskId) ?? null) : null,
         source: p.entry.source,
         // Windowed on the same `effectiveEnd` as the duration and the ribbon, so an open entry
@@ -475,7 +490,7 @@ export function personDayView(input: PersonDayInput): PersonDayViewModel {
           startPct,
           widthPct,
           category: seg.category,
-          label: entryLabel(p.entry, projectNames, taskNames),
+          label: entryLabel(p.entry, projectNames, subprojectNames, taskNames),
           startMs: seg.startMs,
           endMs: running ? null : seg.endMs,
           running,

@@ -95,6 +95,12 @@ function EntryDetail({ entry }: { entry: DayEntryRow }) {
         </dd>
         <dt className="text-text-secondary text-caption self-center">Project</dt>
         <dd className="m-0">{entry.projectName ?? 'No project'}</dd>
+        {entry.subprojectName ? (
+          <>
+            <dt className="text-text-secondary text-caption self-center">Subproject</dt>
+            <dd className="m-0">{entry.subprojectName}</dd>
+          </>
+        ) : null}
         {entry.taskName ? (
           <>
             <dt className="text-text-secondary text-caption self-center">Task</dt>

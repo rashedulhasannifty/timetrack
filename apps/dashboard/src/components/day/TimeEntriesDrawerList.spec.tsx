@@ -13,9 +13,11 @@ const row = (over: Partial<DayEntryRow> = {}): DayEntryRow => ({
   startClock: '09:00',
   endClock: '10:00',
   projectId: 'p1',
+  subprojectId: null,
   taskId: null,
   note: null,
   projectName: 'Energy Reporting',
+  subprojectName: null,
   taskName: null,
   source: 'AUTO',
   activity: {
