@@ -1,13 +1,23 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import type {
   CreateProject,
+  CreateSubproject,
   CreateTask,
   Project,
   ProjectDetail,
   ProjectDetailQuery,
   ProjectTopApps,
+  Subproject,
   Task,
   UpdateProject,
+  UpdateSubproject,
   UpdateTask,
 } from '@timetrack/contracts';
 import { ProjectDetailSchema } from '@timetrack/contracts';
@@ -66,10 +76,45 @@ export class ProjectsService {
   }
 
   async createTask(dto: CreateTask, actor: SessionUser): Promise<Task> {
+    const sub = await this.repo.findSubprojectForActor(dto.subprojectId);
+    if (!sub) throw this.notFound('Subproject not found');
+    this.assertCanAdminister(sub.teamId, actor);
+    if (sub.archived) throw this.conflict('Cannot add a task to an archived subproject');
+    return this.repo.createTask(dto.subprojectId, dto.name, actor.id);
+  }
+
+  async createSubproject(dto: CreateSubproject, actor: SessionUser): Promise<Subproject> {
     const project = await this.repo.findForActor(dto.projectId);
     if (!project) throw this.notFound();
     this.assertCanAdminister(project.teamId, actor);
-    return this.repo.createTask(dto.projectId, dto.name, actor.id);
+    return this.repo.createSubproject(dto.projectId, dto.name, actor.id);
+  }
+
+  async updateSubproject(
+    id: string,
+    dto: UpdateSubproject,
+    actor: SessionUser,
+  ): Promise<Subproject> {
+    const sub = await this.repo.findSubprojectForActor(id);
+    if (!sub) throw this.notFound('Subproject not found');
+    this.assertCanAdminister(sub.teamId, actor);
+    // The default is where entries with no explicit subproject land; archiving it would leave
+    // new time with nowhere assignable to go.
+    if (dto.archived === true && sub.isDefault) {
+      throw this.conflict('The default subproject cannot be archived');
+    }
+    // exactOptionalPropertyTypes: pass only the keys the caller actually sent.
+    const patch: { name?: string; archived?: boolean } = {};
+    if (dto.name !== undefined) patch.name = dto.name;
+    if (dto.archived !== undefined) patch.archived = dto.archived;
+    return this.repo.updateSubproject(id, patch, actor.id);
+  }
+
+  async listSubprojects(projectId: string, actor: SessionUser): Promise<Subproject[]> {
+    const project = await this.repo.findForActor(projectId);
+    if (!project) throw this.notFound();
+    this.assertCanAdminister(project.teamId, actor);
+    return this.repo.listSubprojectsForProject(projectId);
   }
 
   async listTasks(id: string, actor: SessionUser): Promise<Task[]> {
@@ -79,11 +124,30 @@ export class ProjectsService {
     return this.repo.listTasksForProject(id);
   }
 
-  async setTaskArchived(taskId: string, dto: UpdateTask, actor: SessionUser): Promise<Task> {
-    const task = await this.repo.findTaskForActor(taskId);
-    if (!task) throw this.notFound();
-    this.assertCanAdminister(task.teamId, actor);
-    return this.repo.setTaskArchived(taskId, dto.archived, actor.id);
+  async updateTask(taskId: string, dto: UpdateTask, actor: SessionUser): Promise<Task> {
+    const found = await this.repo.findTaskForActor(taskId);
+    if (!found) throw this.notFound('Task not found');
+    this.assertCanAdminister(found.teamId, actor);
+    const { teamId: _teamId, ...task } = found;
+
+    let result: Task = task;
+    if (dto.subprojectId !== undefined && dto.subprojectId !== task.subprojectId) {
+      const target = await this.repo.findSubprojectForActor(dto.subprojectId);
+      // Same project only: moving across projects would silently re-attribute the task's hours.
+      if (!target || target.projectId !== task.projectId) {
+        throw new UnprocessableEntityException({
+          type: 'https://timetrack.internal/errors/unprocessable',
+          title: "Subproject is not in this task's project",
+          status: 422,
+        });
+      }
+      if (target.archived) throw this.conflict('Cannot move a task into an archived subproject');
+      result = await this.repo.moveTask(taskId, dto.subprojectId, actor.id);
+    }
+    if (dto.archived !== undefined) {
+      result = await this.repo.setTaskArchived(taskId, dto.archived, actor.id);
+    }
+    return result;
   }
 
   async update(id: string, dto: UpdateProject, actor: SessionUser): Promise<Project> {
@@ -112,10 +176,11 @@ export class ProjectsService {
 
     const from = new Date(query.from);
     const to = new Date(query.to);
-    const [trend, members, tasks] = await Promise.all([
+    const [trend, members, tasks, subprojects] = await Promise.all([
       this.repo.hoursByDay(id, from, to, this.trackingFreshnessSeconds),
       this.repo.membersForProject(id, from, to, this.trackingFreshnessSeconds),
       this.repo.tasksForProject(id, from, to, this.trackingFreshnessSeconds),
+      this.repo.subprojectsForProject(id, from, to, this.trackingFreshnessSeconds),
     ]);
     const totalSeconds = members.reduce((sum, m) => sum + m.trackedSeconds, 0);
 
@@ -132,6 +197,7 @@ export class ProjectsService {
       trend,
       members,
       tasks,
+      subprojects,
     });
   }
 
@@ -171,10 +237,18 @@ export class ProjectsService {
     });
   }
 
-  private notFound(): NotFoundException {
+  private conflict(title: string): ConflictException {
+    return new ConflictException({
+      type: 'https://timetrack.internal/errors/conflict',
+      title,
+      status: 409,
+    });
+  }
+
+  private notFound(title = 'Project not found'): NotFoundException {
     return new NotFoundException({
       type: 'https://timetrack.internal/errors/not-found',
-      title: 'Project not found',
+      title,
       status: 404,
     });
   }

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { ProjectsService } from './projects.service.js';
 import type { ProjectsRepository } from './projects.repository.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
@@ -24,6 +29,12 @@ function makeService(overrides: Partial<ProjectsRepository> = {}) {
     findTaskForActor: vi.fn(),
     setTaskArchived: vi.fn(),
     setTeam: vi.fn(),
+    createSubproject: vi.fn(),
+    updateSubproject: vi.fn(),
+    findSubprojectForActor: vi.fn(),
+    listSubprojectsForProject: vi.fn(),
+    moveTask: vi.fn(),
+    subprojectsForProject: vi.fn().mockResolvedValue([]),
     ...overrides,
   } as unknown as ProjectsRepository;
   return { svc: new ProjectsService(repo, FRESHNESS), repo };
@@ -50,34 +61,180 @@ describe('ProjectsService.createProject', () => {
   });
 });
 
+const SUB = {
+  id: 's1',
+  projectId: 'p1',
+  name: 'Checkout',
+  archived: false,
+  isDefault: false,
+  teamId: 't1',
+};
+const TASK = {
+  id: 'k1',
+  projectId: 'p1',
+  subprojectId: 's0',
+  name: 'Pay',
+  archived: false,
+  teamId: 't1',
+};
+
 describe('ProjectsService.createTask', () => {
-  it('404 when the project does not exist', async () => {
-    const { svc } = makeService({ findForActor: vi.fn().mockResolvedValue(null) });
-    await expect(svc.createTask({ projectId: 'p9', name: 'T' }, manager)).rejects.toBeInstanceOf(
+  it('404 when the subproject does not exist', async () => {
+    const { svc } = makeService({ findSubprojectForActor: vi.fn().mockResolvedValue(null) });
+    await expect(svc.createTask({ subprojectId: 's9', name: 'T' }, manager)).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
 
-  it('403 when the project belongs to another team', async () => {
+  it("403 when the subproject is in another team's project", async () => {
     const { svc, repo } = makeService({
-      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't2', archived: false }),
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, teamId: 't2' }),
     });
-    await expect(svc.createTask({ projectId: 'p1', name: 'T' }, manager)).rejects.toBeInstanceOf(
+    await expect(svc.createTask({ subprojectId: 's1', name: 'T' }, manager)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
     expect(repo.createTask).not.toHaveBeenCalled();
   });
 
-  it('creates the task with (projectId, name, actorId) when the team matches', async () => {
-    const created = { id: 'task1', projectId: 'p1', name: 'T' };
-    const { svc, repo } = makeService({
-      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1', archived: false }),
-      createTask: vi.fn().mockResolvedValue(created),
+  it('409 when the subproject is archived', async () => {
+    const { svc } = makeService({
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, archived: true }),
     });
-    await expect(svc.createTask({ projectId: 'p1', name: 'T' }, manager)).resolves.toEqual(created);
-    expect(repo.createTask).toHaveBeenCalledWith('p1', 'T', 'm1');
+    await expect(svc.createTask({ subprojectId: 's1', name: 'T' }, manager)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('creates with (subprojectId, name, actorId)', async () => {
+    const { svc, repo } = makeService({ findSubprojectForActor: vi.fn().mockResolvedValue(SUB) });
+    await svc.createTask({ subprojectId: 's1', name: 'T' }, manager);
+    expect(repo.createTask).toHaveBeenCalledWith('s1', 'T', 'm1');
   });
 });
+
+describe('ProjectsService subprojects', () => {
+  it('createSubproject 404s a missing project and 403s another team', async () => {
+    const missing = makeService({ findForActor: vi.fn().mockResolvedValue(null) });
+    await expect(
+      missing.svc.createSubproject({ projectId: 'p9', name: 'X' }, manager),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    const other = makeService({
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't2' }),
+    });
+    await expect(
+      other.svc.createSubproject({ projectId: 'p1', name: 'X' }, manager),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(other.repo.createSubproject).not.toHaveBeenCalled();
+  });
+
+  it('createSubproject creates own-team', async () => {
+    const { svc, repo } = makeService({
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }),
+    });
+    await svc.createSubproject({ projectId: 'p1', name: 'X' }, manager);
+    expect(repo.createSubproject).toHaveBeenCalledWith('p1', 'X', 'm1');
+  });
+
+  it('updateSubproject 404 / 403 / 409-on-archiving-default / ok', async () => {
+    const missing = makeService({ findSubprojectForActor: vi.fn().mockResolvedValue(null) });
+    await expect(
+      missing.svc.updateSubproject('s9', { archived: true }, manager),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    const other = makeService({
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, teamId: 't2' }),
+    });
+    await expect(
+      other.svc.updateSubproject('s1', { archived: true }, manager),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    const dflt = makeService({
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, isDefault: true }),
+    });
+    await expect(
+      dflt.svc.updateSubproject('s1', { archived: true }, manager),
+    ).rejects.toBeInstanceOf(ConflictException);
+    // renaming the default is allowed
+    await dflt.svc.updateSubproject('s1', { name: 'Misc' }, manager);
+    expect(dflt.repo.updateSubproject).toHaveBeenCalledWith('s1', { name: 'Misc' }, 'm1');
+  });
+
+  it('listSubprojects 404 / 403 / ok', async () => {
+    const other = makeService({
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't2' }),
+    });
+    await expect(other.svc.listSubprojects('p1', manager)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    const own = makeService({
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }),
+      listSubprojectsForProject: vi.fn().mockResolvedValue([SUB]),
+    });
+    await expect(own.svc.listSubprojects('p1', manager)).resolves.toEqual([SUB]);
+  });
+});
+
+describe('ProjectsService.updateTask — moving', () => {
+  it('moves to another subproject of the same project', async () => {
+    const { svc, repo } = makeService({
+      findTaskForActor: vi.fn().mockResolvedValue(TASK),
+      findSubprojectForActor: vi.fn().mockResolvedValue(SUB),
+    });
+    await svc.updateTask('k1', { subprojectId: 's1' }, manager);
+    expect(repo.moveTask).toHaveBeenCalledWith('k1', 's1', 'm1');
+  });
+
+  it('422 when the target subproject is in another project', async () => {
+    const { svc, repo } = makeService({
+      findTaskForActor: vi.fn().mockResolvedValue(TASK),
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, projectId: 'p2' }),
+    });
+    await expect(svc.updateTask('k1', { subprojectId: 's1' }, manager)).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+    expect(repo.moveTask).not.toHaveBeenCalled();
+  });
+
+  it('422 when the target subproject does not exist', async () => {
+    const { svc } = makeService({
+      findTaskForActor: vi.fn().mockResolvedValue(TASK),
+      findSubprojectForActor: vi.fn().mockResolvedValue(null),
+    });
+    await expect(svc.updateTask('k1', { subprojectId: 's9' }, manager)).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
+    );
+  });
+
+  it('409 when the target subproject is archived', async () => {
+    const { svc } = makeService({
+      findTaskForActor: vi.fn().mockResolvedValue(TASK),
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, archived: true }),
+    });
+    await expect(svc.updateTask('k1', { subprojectId: 's1' }, manager)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('a move to the current subproject is a no-op returning the task', async () => {
+    const { svc, repo } = makeService({ findTaskForActor: vi.fn().mockResolvedValue(TASK) });
+    const { teamId: _t, ...plain } = TASK;
+    await expect(svc.updateTask('k1', { subprojectId: 's0' }, manager)).resolves.toEqual(plain);
+    expect(repo.moveTask).not.toHaveBeenCalled();
+  });
+
+  it("403 moving a task in another team's project", async () => {
+    const { svc } = makeService({
+      findTaskForActor: vi.fn().mockResolvedValue({ ...TASK, teamId: 't2' }),
+    });
+    await expect(svc.updateTask('k1', { subprojectId: 's1' }, manager)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+});
+
+const SUBPROJECT_ROWS = [
+  { subprojectId: '55555555-5555-4555-8555-555555555555', name: 'General', trackedSeconds: 60 },
+];
 
 describe('ProjectsService.update', () => {
   it("403 when updating another team's project", async () => {
@@ -175,7 +332,10 @@ describe('ProjectsService.detail', () => {
       ]),
       tasksForProject: vi
         .fn()
-        .mockResolvedValue([{ taskId: null, name: 'No task', trackedSeconds: 4321 }]),
+        .mockResolvedValue([
+          { taskId: null, subprojectId: null, name: 'No task', trackedSeconds: 4321 },
+        ]),
+      subprojectsForProject: vi.fn().mockResolvedValue(SUBPROJECT_ROWS),
     });
     const result = await svc.detail(projectId, query, { id: 'a1', role: 'ADMIN', teamId: 't1' });
     expect(result.projectId).toBe(projectId);
@@ -184,7 +344,13 @@ describe('ProjectsService.detail', () => {
     expect(result.color).toBe('#34c759');
     expect(result.totalSeconds).toBe(9000);
     expect(result.members).toHaveLength(2);
-    expect(result.tasks[0]).toEqual({ taskId: null, name: 'No task', trackedSeconds: 4321 });
+    expect(result.tasks[0]).toEqual({
+      taskId: null,
+      subprojectId: null,
+      name: 'No task',
+      trackedSeconds: 4321,
+    });
+    expect(result.subprojects).toEqual(SUBPROJECT_ROWS);
     expect(result.from).toBe(query.from);
   });
 });
@@ -286,18 +452,18 @@ describe('ProjectsService.topApps', () => {
   });
 });
 
-describe('ProjectsService.setTaskArchived', () => {
+describe('ProjectsService.updateTask — archive', () => {
   it('404 when the task does not exist', async () => {
     const { svc } = makeService({ findTaskForActor: vi.fn().mockResolvedValue(null) });
-    await expect(svc.setTaskArchived('t9', { archived: true }, manager)).rejects.toBeInstanceOf(
+    await expect(svc.updateTask('t9', { archived: true }, manager)).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
   it("403 for a task in another team's project", async () => {
     const { svc, repo } = makeService({
-      findTaskForActor: vi.fn().mockResolvedValue({ projectId: 'p1', teamId: 't2' }),
+      findTaskForActor: vi.fn().mockResolvedValue({ ...TASK, teamId: 't2' }),
     });
-    await expect(svc.setTaskArchived('t1', { archived: true }, manager)).rejects.toBeInstanceOf(
+    await expect(svc.updateTask('t1', { archived: true }, manager)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
     expect(repo.setTaskArchived).not.toHaveBeenCalled();
@@ -305,10 +471,10 @@ describe('ProjectsService.setTaskArchived', () => {
   it('archives when own-team', async () => {
     const updated = { id: 't1', projectId: 'p1', name: 'A', archived: true };
     const { svc, repo } = makeService({
-      findTaskForActor: vi.fn().mockResolvedValue({ projectId: 'p1', teamId: 't1' }),
+      findTaskForActor: vi.fn().mockResolvedValue(TASK),
       setTaskArchived: vi.fn().mockResolvedValue(updated),
     });
-    await expect(svc.setTaskArchived('t1', { archived: true }, manager)).resolves.toEqual(updated);
+    await expect(svc.updateTask('t1', { archived: true }, manager)).resolves.toEqual(updated);
     expect(repo.setTaskArchived).toHaveBeenCalledWith('t1', true, 'm1');
   });
 });

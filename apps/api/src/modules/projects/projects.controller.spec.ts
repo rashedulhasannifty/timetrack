@@ -14,7 +14,10 @@ function make(overrides: Partial<ProjectsService> = {}) {
     createTask: vi.fn(),
     update: vi.fn(),
     listTasks: vi.fn().mockResolvedValue([]),
-    setTaskArchived: vi.fn(),
+    updateTask: vi.fn(),
+    createSubproject: vi.fn(),
+    updateSubproject: vi.fn(),
+    listSubprojects: vi.fn(),
     topApps: vi.fn(),
     ...overrides,
   } as unknown as ProjectsService;
@@ -28,8 +31,11 @@ describe('ProjectsController role-gating', () => {
     'createProject',
     'createTask',
     'update',
-    'setTaskArchived',
+    'updateTask',
     'listTasks',
+    'createSubproject',
+    'updateSubproject',
+    'listSubprojects',
     'topApps',
   ] as const)('gates %s to MANAGER/ADMIN', (handler) => {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -63,10 +69,28 @@ describe('ProjectsController delegation', () => {
     expect(service.update).toHaveBeenCalledWith('p1', { archived: true }, actor);
   });
 
-  it('setTaskArchived passes id, dto, and actor to the service', async () => {
+  it('updateTask passes id, dto, and actor to the service', async () => {
     const { ctrl, service } = make();
-    await ctrl.setTaskArchived('t1', { archived: true }, actor);
-    expect(service.setTaskArchived).toHaveBeenCalledWith('t1', { archived: true }, actor);
+    await ctrl.updateTask('t1', { archived: true }, actor);
+    expect(service.updateTask).toHaveBeenCalledWith('t1', { archived: true }, actor);
+  });
+
+  it('createSubproject passes dto and actor to the service', async () => {
+    const { ctrl, service } = make();
+    await ctrl.createSubproject({ projectId: 'p1', name: 'X' }, actor);
+    expect(service.createSubproject).toHaveBeenCalledWith({ projectId: 'p1', name: 'X' }, actor);
+  });
+
+  it('updateSubproject passes id, dto, and actor to the service', async () => {
+    const { ctrl, service } = make();
+    await ctrl.updateSubproject('s1', { archived: true }, actor);
+    expect(service.updateSubproject).toHaveBeenCalledWith('s1', { archived: true }, actor);
+  });
+
+  it('listSubprojects passes id and user to the service', async () => {
+    const { ctrl, service } = make();
+    await ctrl.listSubprojects('p1', actor);
+    expect(service.listSubprojects).toHaveBeenCalledWith('p1', actor);
   });
 
   it('listTasks passes id and user to the service', async () => {
