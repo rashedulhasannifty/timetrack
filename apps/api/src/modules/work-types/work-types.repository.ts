@@ -1,6 +1,11 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@timetrack/db';
-import type { ReconcileCounts } from '@timetrack/contracts';
+import type {
+  ReconcileCounts,
+  TeamWorkTypes,
+  WorkType,
+  WorkTypeWithTeams,
+} from '@timetrack/contracts';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import {
   groupRenames,
@@ -29,6 +34,8 @@ export function catalogConflict(title: string): ConflictException {
     status: 409,
   });
 }
+
+const WORK_TYPE_SELECT = { id: true, name: true, archived: true } as const;
 
 /** CLAUDE.md §3 — Prisma lives here. Never select `*` back to the client. */
 @Injectable()
@@ -134,5 +141,182 @@ export class WorkTypesRepository {
       },
     });
     return counts;
+  }
+
+  async listWithTeams(): Promise<WorkTypeWithTeams[]> {
+    const rows = await this.prisma.workType.findMany({
+      orderBy: { name: 'asc' },
+      select: {
+        ...WORK_TYPE_SELECT,
+        teams: { select: { teamId: true }, orderBy: { teamId: 'asc' } },
+      },
+    });
+    return rows.map(({ teams, ...wt }) => ({ ...wt, teamIds: teams.map((t) => t.teamId) }));
+  }
+
+  listAll(): Promise<WorkType[]> {
+    return this.prisma.workType.findMany({ orderBy: { name: 'asc' }, select: WORK_TYPE_SELECT });
+  }
+
+  async findByIds(ids: readonly string[]): Promise<WorkType[]> {
+    if (ids.length === 0) return [];
+    return this.prisma.workType.findMany({
+      where: { id: { in: [...ids] } },
+      select: WORK_TYPE_SELECT,
+    });
+  }
+
+  async teamExists(teamId: string): Promise<boolean> {
+    const team = await this.prisma.team.findUnique({ where: { id: teamId }, select: { id: true } });
+    return team !== null;
+  }
+
+  /** New catalog entries. No team has selected them yet, so there is nothing to reconcile. */
+  async createMany(names: readonly string[], actorId: string): Promise<WorkType[]> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const created = await tx.workType.createManyAndReturn({
+          data: names.map((name) => ({ name })),
+          select: WORK_TYPE_SELECT,
+        });
+        await tx.auditLog.createMany({
+          data: created.map((w) => ({
+            actorId,
+            action: 'work_type.create',
+            targetType: 'work_type',
+            targetId: w.id,
+            diff: { name: w.name },
+          })),
+        });
+        return created;
+      });
+    } catch (e) {
+      // work_types_name_ci_unique: a concurrent create of the same name won the race.
+      if (isUniqueViolation(e)) throw catalogConflict('A work type with this name already exists');
+      throw e;
+    }
+  }
+
+  /**
+   * Rename and/or archive/restore, audit it, and reconcile every project of every team that has
+   * it — one transaction. Returns null when the work type is gone (service → 404).
+   */
+  async update(
+    id: string,
+    patch: { name?: string; archived?: boolean },
+    actorId: string,
+  ): Promise<WorkType | null> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const before = await tx.workType.findUnique({ where: { id }, select: WORK_TYPE_SELECT });
+        if (!before) return null;
+        const workType = await tx.workType.update({
+          where: { id },
+          data: {
+            ...(patch.name !== undefined ? { name: patch.name } : {}),
+            ...(patch.archived !== undefined ? { archived: patch.archived } : {}),
+          },
+          select: WORK_TYPE_SELECT,
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: 'work_type.update',
+            targetType: 'work_type',
+            targetId: id,
+            diff: {
+              before: { name: before.name, archived: before.archived },
+              after: { name: workType.name, archived: workType.archived },
+            },
+          },
+        });
+        const teams = await tx.teamWorkType.findMany({
+          where: { workTypeId: id },
+          select: { teamId: true },
+        });
+        const projects =
+          teams.length === 0
+            ? []
+            : await tx.project.findMany({
+                where: { teamId: { in: teams.map((t) => t.teamId) } },
+                select: { id: true },
+              });
+        await this.reconcile(
+          tx,
+          projects.map((p) => p.id),
+          { actorId, trigger: 'work_type_update', targetType: 'work_type', targetId: id },
+        );
+        return workType;
+      }, RECONCILE_TX);
+    } catch (e) {
+      if (isUniqueViolation(e)) throw catalogConflict('A work type with this name already exists');
+      throw e;
+    }
+  }
+
+  /**
+   * Replace the team's NON-archived selection with `workTypeIds`; links to archived work types
+   * are kept so a Restore brings them back for the same teams (plan ruling R5). Deleting a
+   * selection row is audited in the same transaction, then every project of the team reconciles.
+   */
+  async setTeamSelection(
+    teamId: string,
+    workTypeIds: readonly string[],
+    actorId: string,
+  ): Promise<TeamWorkTypes> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const current = await tx.teamWorkType.findMany({
+          where: { teamId },
+          select: { workTypeId: true, workType: { select: { archived: true } } },
+        });
+        const keptArchived = current.filter((c) => c.workType.archived).map((c) => c.workTypeId);
+        const next = [...new Set([...workTypeIds, ...keptArchived])].sort();
+
+        await tx.teamWorkType.deleteMany({ where: { teamId, workTypeId: { notIn: next } } });
+        if (workTypeIds.length > 0) {
+          await tx.teamWorkType.createMany({
+            data: workTypeIds.map((workTypeId) => ({ teamId, workTypeId })),
+            skipDuplicates: true,
+          });
+        }
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: 'team.work_types_set',
+            targetType: 'team',
+            targetId: teamId,
+            diff: { before: current.map((c) => c.workTypeId).sort(), after: next },
+          },
+        });
+        const projects = await tx.project.findMany({ where: { teamId }, select: { id: true } });
+        await this.reconcile(
+          tx,
+          projects.map((p) => p.id),
+          { actorId, trigger: 'team_selection', targetType: 'team', targetId: teamId },
+        );
+        return { teamId, workTypeIds: next };
+      }, RECONCILE_TX);
+    } catch (e) {
+      if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      throw e;
+    }
+  }
+
+  /** The admin safety net (spec §8.3): reconcile every project in the org. */
+  async resync(actorId: string): Promise<ReconcileCounts> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const projects = await tx.project.findMany({ select: { id: true } });
+        return this.reconcile(
+          tx,
+          projects.map((p) => p.id),
+          { actorId, trigger: 'resync', targetType: 'work_type', targetId: 'all' },
+        );
+      }, RECONCILE_TX);
+    } catch (e) {
+      if (isUniqueViolation(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      throw e;
+    }
   }
 }

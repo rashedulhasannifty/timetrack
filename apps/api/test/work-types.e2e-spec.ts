@@ -5,6 +5,9 @@ import {
   WorkTypesRepository,
   RECONCILE_TX,
 } from '../src/modules/work-types/work-types.repository.js';
+import { ConflictException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { WorkTypesService } from '../src/modules/work-types/work-types.service.js';
+import type { SessionUser } from '../src/common/decorators/current-user.decorator.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 
 const RUN_E2E = process.env.RUN_E2E === '1';
@@ -276,6 +279,235 @@ describe.runIf(RUN_E2E)('work types — reconcile', () => {
 
   it('accepts an empty project list', async () => {
     await expect(reconcile([])).resolves.toEqual({ ...ZERO, projects: 0 });
+  });
+});
+
+describe.runIf(RUN_E2E)('work types — service', () => {
+  let db: TestDb;
+  beforeAll(async () => {
+    db = await startTestDb();
+  });
+  afterAll(async () => {
+    await db.close();
+  });
+  afterEach(async () => {
+    await truncateAll(db.prisma);
+  });
+
+  const ADMIN_ID = '01920000-0000-7000-8000-0000000000a1';
+  const MISSING = '01920000-0000-7000-8000-0000000000ff';
+  const svc = () =>
+    new WorkTypesService(new WorkTypesRepository(db.prisma as unknown as PrismaService));
+  const admin = (teamId: string): SessionUser => ({ id: ADMIN_ID, role: 'ADMIN', teamId });
+
+  async function team(name: string): Promise<string> {
+    const t = await db.prisma.team.create({ data: { name, settings: {} }, select: { id: true } });
+    return t.id;
+  }
+  async function project(teamId: string, name: string): Promise<string> {
+    const p = await db.prisma.project.create({ data: { teamId, name }, select: { id: true } });
+    await db.prisma.subproject.create({
+      data: { projectId: p.id, name: 'General', isDefault: true },
+    });
+    return p.id;
+  }
+  async function catalog(teamId: string, ...names: string[]) {
+    const { created } = await svc().bulkCreate({ names }, admin(teamId));
+    return new Map(created.map((w) => [w.name, w.id] as const));
+  }
+  const linked = (projectId: string) =>
+    db.prisma.subproject.findMany({
+      where: { projectId, workTypeId: { not: null } },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, archived: true, workTypeId: true },
+    });
+
+  it('bulk-creates, and skips reserved, existing, repeated and over-long names', async () => {
+    const eng = await team('Eng');
+    await catalog(eng, 'Payroll');
+    const long = 'x'.repeat(201);
+
+    const result = await svc().bulkCreate(
+      { names: ['Bookkeeping', 'payroll', 'General', 'Bookkeeping ', 'AdHoc', long] },
+      admin(eng),
+    );
+    expect(result.created.map((w) => w.name).sort()).toEqual(['AdHoc', 'Bookkeeping']);
+    expect(result.skipped).toEqual([
+      { name: 'payroll', reason: 'Already in the catalog' },
+      { name: 'General', reason: 'Reserved name' },
+      { name: 'Bookkeeping', reason: 'Duplicate in list' },
+      { name: long, reason: 'Longer than 200 characters' },
+    ]);
+    await expect(db.prisma.auditLog.count({ where: { action: 'work_type.create' } })).resolves.toBe(
+      3,
+    );
+  });
+
+  it('the index backstops a case-insensitive duplicate the service did not see', async () => {
+    const eng = await team('Eng');
+    await catalog(eng, 'Payroll');
+    const repo = new WorkTypesRepository(db.prisma as unknown as PrismaService);
+    await expect(repo.createMany(['PAYROLL'], ADMIN_ID)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('409s a rename to "General" and to another work type’s name, case-insensitively', async () => {
+    const eng = await team('Eng');
+    const ids = await catalog(eng, 'Payroll', 'AdHoc');
+    const adhoc = ids.get('AdHoc')!;
+    await expect(svc().update(adhoc, { name: 'GENERAL' }, admin(eng))).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    await expect(svc().update(adhoc, { name: 'payroll' }, admin(eng))).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    await expect(svc().update(adhoc, { name: 'ADHOC' }, admin(eng))).resolves.toMatchObject({
+      name: 'ADHOC',
+    });
+  });
+
+  it('lists work types by name with the teams that selected them', async () => {
+    const eng = await team('Eng');
+    const ids = await catalog(eng, 'Payroll', 'AdHoc');
+    await svc().setTeamSelection(eng, { workTypeIds: [ids.get('Payroll')!] }, admin(eng));
+
+    await expect(svc().list()).resolves.toEqual([
+      { id: ids.get('AdHoc'), name: 'AdHoc', archived: false, teamIds: [] },
+      { id: ids.get('Payroll'), name: 'Payroll', archived: false, teamIds: [eng] },
+    ]);
+  });
+
+  it("saving a team's selection creates rows on its projects and archives dropped ones", async () => {
+    const eng = await team('Eng');
+    const a = await project(eng, 'Acme');
+    const b = await project(eng, 'Globex');
+    const ids = await catalog(eng, 'Payroll', 'AdHoc');
+    const payroll = ids.get('Payroll')!;
+    const adhoc = ids.get('AdHoc')!;
+
+    const saved = await svc().setTeamSelection(eng, { workTypeIds: [payroll, adhoc] }, admin(eng));
+    expect(saved).toEqual({ teamId: eng, workTypeIds: [payroll, adhoc].sort() });
+    for (const p of [a, b]) {
+      expect((await linked(p)).map((r) => r.name)).toEqual(['AdHoc', 'Payroll']);
+    }
+
+    await svc().setTeamSelection(eng, { workTypeIds: [payroll] }, admin(eng));
+    const rows = await linked(a);
+    expect(rows.find((r) => r.workTypeId === adhoc)?.archived).toBe(true);
+    expect(rows.find((r) => r.workTypeId === payroll)?.archived).toBe(false);
+
+    // Sorted, not ordered by timestamp: both rows of one save share the transaction's now().
+    const actions = await db.prisma.auditLog.findMany({
+      where: { targetType: 'team', targetId: eng },
+      select: { action: true },
+    });
+    expect(actions.map((x) => x.action).sort()).toEqual([
+      'team.work_types_set',
+      'team.work_types_set',
+      'work_type.reconcile',
+      'work_type.reconcile',
+    ]);
+  });
+
+  it('404s an unknown team or work type and 422s an archived one, writing nothing', async () => {
+    const eng = await team('Eng');
+    const ids = await catalog(eng, 'Payroll');
+    const payroll = ids.get('Payroll')!;
+    await svc().update(payroll, { archived: true }, admin(eng));
+    const auditBefore = await db.prisma.auditLog.count();
+
+    await expect(
+      svc().setTeamSelection(MISSING, { workTypeIds: [] }, admin(eng)),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      svc().setTeamSelection(eng, { workTypeIds: [MISSING] }, admin(eng)),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      svc().setTeamSelection(eng, { workTypeIds: [payroll] }, admin(eng)),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    await expect(db.prisma.auditLog.count()).resolves.toBe(auditBefore);
+  });
+
+  it('an archived selection survives a column save and restore brings back the same rows', async () => {
+    const eng = await team('Eng');
+    const a = await project(eng, 'Acme');
+    const ids = await catalog(eng, 'Payroll', 'AdHoc');
+    const payroll = ids.get('Payroll')!;
+    const adhoc = ids.get('AdHoc')!;
+    await svc().setTeamSelection(eng, { workTypeIds: [payroll, adhoc] }, admin(eng));
+    const original = (await linked(a)).find((r) => r.workTypeId === payroll);
+
+    await svc().update(payroll, { archived: true }, admin(eng));
+    // The dashboard never submits an archived row's checkbox (ruling R5).
+    const saved = await svc().setTeamSelection(eng, { workTypeIds: [adhoc] }, admin(eng));
+    expect(saved.workTypeIds).toEqual([payroll, adhoc].sort());
+
+    await svc().update(payroll, { archived: false }, admin(eng));
+    const restored = (await linked(a)).find((r) => r.workTypeId === payroll);
+    expect(restored).toEqual({ ...original, archived: false });
+  });
+
+  it('renaming a work type renames every linked row; archiving it archives them', async () => {
+    const eng = await team('Eng');
+    const support = await team('Support');
+    const a = await project(eng, 'Acme');
+    const c = await project(support, 'Initech');
+    const vat = (await catalog(eng, 'VAT Filling')).get('VAT Filling')!;
+    await svc().setTeamSelection(eng, { workTypeIds: [vat] }, admin(eng));
+    await svc().setTeamSelection(support, { workTypeIds: [vat] }, admin(eng));
+
+    await svc().update(vat, { name: 'VAT/TAX Filling' }, admin(eng));
+    for (const p of [a, c]) {
+      expect((await linked(p)).map((r) => r.name)).toEqual(['VAT/TAX Filling']);
+    }
+    await svc().update(vat, { archived: true }, admin(eng));
+    for (const p of [a, c]) {
+      expect((await linked(p)).map((r) => r.archived)).toEqual([true]);
+    }
+  });
+
+  it('re-sync repairs a project made by old code, and a second run returns all zeros', async () => {
+    const eng = await team('Eng');
+    await project(eng, 'Acme');
+    const payroll = (await catalog(eng, 'Payroll')).get('Payroll')!;
+    await svc().setTeamSelection(eng, { workTypeIds: [payroll] }, admin(eng));
+    const late = await project(eng, 'Created during the deploy window');
+
+    await expect(svc().resync(admin(eng))).resolves.toEqual({
+      projects: 2,
+      created: 1,
+      linked: 0,
+      restored: 0,
+      renamed: 0,
+      archived: 0,
+    });
+    expect((await linked(late)).map((r) => r.name)).toEqual(['Payroll']);
+    await expect(svc().resync(admin(eng))).resolves.toEqual({
+      projects: 2,
+      created: 0,
+      linked: 0,
+      restored: 0,
+      renamed: 0,
+      archived: 0,
+    });
+  });
+
+  it('concurrent saves never duplicate or 500', async () => {
+    const eng = await team('Eng');
+    const projects = await Promise.all(['A', 'B', 'C'].map((n) => project(eng, n)));
+    const ids = [...(await catalog(eng, 'Payroll', 'AdHoc', 'Audit')).values()];
+
+    const results = await Promise.allSettled([
+      svc().setTeamSelection(eng, { workTypeIds: ids }, admin(eng)),
+      svc().setTeamSelection(eng, { workTypeIds: ids }, admin(eng)),
+      svc().resync(admin(eng)),
+    ]);
+    for (const r of results) {
+      if (r.status === 'rejected') expect(r.reason).toBeInstanceOf(ConflictException);
+    }
+    await svc().resync(admin(eng)); // settle whatever a 409 left undone
+    for (const p of projects) {
+      expect(await linked(p)).toHaveLength(3);
+    }
   });
 });
 

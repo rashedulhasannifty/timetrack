@@ -22,6 +22,7 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 import { TeamsModule } from './modules/teams/teams.module.js';
 import { ProjectsModule } from './modules/projects/projects.module.js';
+import { WorkTypesModule } from './modules/work-types/work-types.module.js';
 import { PolicyModule } from './modules/policy/policy.module.js';
 import { TimeEntriesModule } from './modules/time-entries/time-entries.module.js';
 import { ActivityModule } from './modules/activity/activity.module.js';
@@ -69,6 +70,7 @@ const env = loadEnv();
     UsersModule,
     TeamsModule,
     ProjectsModule,
+    WorkTypesModule,
     PolicyModule,
     TimeEntriesModule,
     ActivityModule,

@@ -2,6 +2,7 @@ import './test-env.js'; // sets env before AppModule's module-load loadEnv() run
 import { describe, expect, it } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module.js';
+import { WorkTypesService } from '../src/modules/work-types/work-types.service.js';
 import { QueueService } from '../src/infra/queue/queue.module.js';
 
 // Compiling the DI graph needs no containers (compile() does not open connections). This
@@ -20,6 +21,12 @@ describe('AppModule DI graph', () => {
   it('registers QueueService (proves QueueModule is imported, not just @Global)', async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     expect(moduleRef.get(QueueService, { strict: false })).toBeInstanceOf(QueueService);
+    await moduleRef.close();
+  });
+
+  it('registers WorkTypesService (proves WorkTypesModule is wired into AppModule)', async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    expect(moduleRef.get(WorkTypesService, { strict: false })).toBeInstanceOf(WorkTypesService);
     await moduleRef.close();
   });
 });
