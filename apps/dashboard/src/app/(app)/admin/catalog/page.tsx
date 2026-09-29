@@ -31,13 +31,15 @@ export default async function AdminCatalogPage() {
   if (session.role !== 'ADMIN') return <Forbidden />;
 
   const token = session.accessToken;
-  const [workTypes, teams] = await Promise.all([api.listWorkTypes(token), api.listTeams(token)]);
-  // One call per team, in parallel (spec §8.2): GET /projects is team-scoped by design.
-  const projectsByTeam = await Promise.all(
-    teams.map((t) => api.listProjects(token, { includeArchived: true, teamId: t.id })),
-  );
+  const [workTypes, teams, projects] = await Promise.all([
+    api.listWorkTypes(token),
+    api.listTeams(token),
+    // ONE call for every team (ADMIN `allTeams`): a call per team tripped the API throttler once
+    // an org had dozens of teams. clientRows joins the team names from the list above.
+    api.listProjects(token, { includeArchived: true, allTeams: true }),
+  ]);
   const matrix = buildCatalogMatrix(workTypes, teams);
-  const clients = clientRows(teams, projectsByTeam.flat());
+  const clients = clientRows(teams, projects);
   const teamName = new Map(teams.map((t) => [t.id, t.name] as const));
 
   return (

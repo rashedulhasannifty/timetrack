@@ -280,14 +280,18 @@ export const api = {
     get(`/screenshots?${params}`, z.array(ScreenshotSchema), token),
   redactScreenshot: (token: string, id: string, dto: RedactScreenshot): Promise<Screenshot> =>
     send('POST', `/screenshots/${id}/redact`, dto, ScreenshotSchema, token),
-  /** `teamId` is ADMIN-only server-side; a MANAGER naming another team gets a 403. */
+  /**
+   * `teamId` and `allTeams` are ADMIN-only server-side; a MANAGER naming another team, or asking
+   * for all of them, gets a 403. `allTeams` returns every team's projects in one call.
+   */
   listProjects: (
     token: string,
-    opts?: { includeArchived?: boolean; teamId?: string },
+    opts?: { includeArchived?: boolean; teamId?: string; allTeams?: boolean },
   ): Promise<Project[]> => {
     const q = new URLSearchParams();
     if (opts?.includeArchived) q.set('includeArchived', 'true');
     if (opts?.teamId) q.set('teamId', opts.teamId);
+    if (opts?.allTeams) q.set('allTeams', 'true');
     const qs = q.toString();
     return get(`/projects${qs ? `?${qs}` : ''}`, z.array(ProjectSchema), token);
   },

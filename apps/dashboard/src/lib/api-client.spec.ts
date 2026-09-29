@@ -609,3 +609,27 @@ describe('api — work types and client import', () => {
     );
   });
 });
+
+describe('api.listProjects', () => {
+  function stubFetch() {
+    const fetchMock = vi.fn((_url: string) => new Response('[]', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+  const urlOf = (m: ReturnType<typeof stubFetch>) => String(m.mock.calls[0]?.[0]);
+
+  it('sends allTeams=true only when asked, alongside includeArchived', async () => {
+    const m = stubFetch();
+    await api.listProjects('tok', { includeArchived: true, allTeams: true });
+    expect(urlOf(m)).toContain('/projects?includeArchived=true&allTeams=true');
+  });
+
+  it('omits allTeams when false or absent', async () => {
+    const m = stubFetch();
+    await api.listProjects('tok', { includeArchived: true, allTeams: false });
+    expect(urlOf(m)).toMatch(/\/projects\?includeArchived=true$/);
+    const m2 = stubFetch();
+    await api.listProjects('tok');
+    expect(urlOf(m2)).toMatch(/\/projects$/);
+  });
+});
