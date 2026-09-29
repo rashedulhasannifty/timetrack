@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import type { Subproject } from '@timetrack/contracts';
 import {
   toTrendBars,
   toMemberBars,
   toTaskBars,
   groupTasksBySubproject,
+  taskMoveOptions,
 } from './project-detail-view';
 
 describe('toTrendBars', () => {
@@ -76,5 +78,36 @@ describe('groupTasksBySubproject', () => {
         [],
       )[0]?.tasks,
     ).toEqual([]);
+  });
+});
+
+describe('taskMoveOptions', () => {
+  const sp = (id: string, name: string, archived: boolean): Subproject => ({
+    id,
+    projectId: 'p',
+    name,
+    archived,
+    isDefault: false,
+  });
+  const list = [
+    sp('a', 'General', false),
+    sp('b', 'Old', true),
+    sp('c', 'Older', true),
+    sp('d', 'Build', false),
+  ];
+
+  it('includes the current archived subproject, labelled, and excludes other archived ones', () => {
+    expect(taskMoveOptions(list, 'b')).toEqual([
+      { id: 'a', label: 'General' },
+      { id: 'b', label: 'Old (archived)' },
+      { id: 'd', label: 'Build' },
+    ]);
+  });
+
+  it('offers only active subprojects when the current one is active', () => {
+    expect(taskMoveOptions(list, 'a')).toEqual([
+      { id: 'a', label: 'General' },
+      { id: 'd', label: 'Build' },
+    ]);
   });
 });

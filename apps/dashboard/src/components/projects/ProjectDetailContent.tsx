@@ -277,7 +277,7 @@ export function ProjectDetailContent({ data }: { data: ProjectDetailData }) {
                             id={task.id}
                             projectId={detail.projectId}
                             currentSubprojectId={task.subprojectId}
-                            subprojects={active}
+                            subprojects={subprojects}
                           />
                           <TaskArchiveToggle
                             id={task.id}

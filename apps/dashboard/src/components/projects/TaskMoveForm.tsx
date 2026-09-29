@@ -1,6 +1,7 @@
 'use client';
 
 import type { Subproject } from '@timetrack/contracts';
+import { taskMoveOptions } from '../../lib/project-detail-view';
 import { useToastAction } from '../ui/useToastAction';
 import { moveTaskAction, type ProjectActionState } from '../../app/(app)/projects/actions';
 
@@ -28,9 +29,9 @@ export function TaskMoveForm({
         defaultValue={currentSubprojectId}
         className="bg-surface border-separator text-text focus:border-accent rounded-md border px-2 py-0.5 text-caption outline-none"
       >
-        {subprojects.map((s) => (
+        {taskMoveOptions(subprojects, currentSubprojectId).map((s) => (
           <option key={s.id} value={s.id}>
-            {s.name}
+            {s.label}
           </option>
         ))}
       </select>

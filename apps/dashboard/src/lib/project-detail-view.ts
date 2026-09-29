@@ -38,3 +38,13 @@ export function groupTasksBySubproject(
     tasks: tasks.filter((t) => t.subprojectId === subproject.id),
   }));
 }
+
+/** Move-select options: active subprojects plus the task's current one (labelled when archived). */
+export function taskMoveOptions(
+  subprojects: Subproject[],
+  currentSubprojectId: string,
+): { id: string; label: string }[] {
+  return subprojects
+    .filter((s) => !s.archived || s.id === currentSubprojectId)
+    .map((s) => ({ id: s.id, label: s.archived ? `${s.name} (archived)` : s.name }));
+}
