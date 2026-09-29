@@ -40,4 +40,11 @@ final class RecentSelectionClientTests: XCTestCase {
         [{"id":"a","startTime":"2026-08-20T04:00:00.000Z","projectId":null,"taskId":null}]
         """))
     }
+
+    func testCarriesTheSubprojectWhenTheServerSendsOne() {
+        let selection = decode("""
+        [{"id":"b","startTime":"2026-08-20T04:00:00.000Z","projectId":"p1","subprojectId":"s2","taskId":null}]
+        """)
+        XCTAssertEqual(selection, StoredSelection(projectId: "p1", subprojectId: "s2", taskId: nil))
+    }
 }

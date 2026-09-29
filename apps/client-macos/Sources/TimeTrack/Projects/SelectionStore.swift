@@ -1,9 +1,19 @@
 import Foundation
 
 /// The picker selection worth remembering across launches. Ids only — never names or titles.
+///
+/// `subprojectId` is optional so a selection stored by 0.6.x (`{projectId, taskId}`) still
+/// decodes; `SelectionResolver` upgrades it against the current project list.
 struct StoredSelection: Codable, Equatable {
     let projectId: String
+    let subprojectId: String?
     let taskId: String?
+
+    init(projectId: String, subprojectId: String? = nil, taskId: String?) {
+        self.projectId = projectId
+        self.subprojectId = subprojectId
+        self.taskId = taskId
+    }
 }
 
 /// Persists the last picker selection so the employee doesn't re-pick their project every day

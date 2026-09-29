@@ -69,6 +69,7 @@ final class RecentSelectionClient {
         struct Row: Decodable {
             let startTime: String
             let projectId: String?
+            let subprojectId: String?
             let taskId: String?
         }
         guard let rows = try? JSONDecoder().decode([Row].self, from: data) else { return nil }
@@ -76,7 +77,7 @@ final class RecentSelectionClient {
             .filter { $0.projectId != nil }
             .max { $0.startTime < $1.startTime }
             .flatMap { row in
-                row.projectId.map { StoredSelection(projectId: $0, taskId: row.taskId) }
+                row.projectId.map { StoredSelection(projectId: $0, subprojectId: row.subprojectId, taskId: row.taskId) }
             }
     }
 }
