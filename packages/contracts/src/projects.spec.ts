@@ -17,6 +17,8 @@ import {
   UpdateSubprojectSchema,
   CreateTaskSchema,
   DEFAULT_SUBPROJECT_NAME,
+  BulkCreateProjectsSchema,
+  BulkCreateProjectsResultSchema,
 } from './projects.js';
 
 describe('ProjectDetailSchema', () => {
@@ -267,5 +269,40 @@ describe('task schemas with subprojects', () => {
   it('TaskSchema carries subprojectId', () => {
     const t = { id: U1, projectId: U2, subprojectId: U2, name: 'T', archived: false };
     expect(TaskSchema.parse(t)).toEqual(t);
+  });
+});
+
+describe('BulkCreateProjectsSchema', () => {
+  const TEAM = '018f9c1e-0000-7000-8000-0000000000c1';
+
+  it('accepts 1–500 names for a team', () => {
+    expect(BulkCreateProjectsSchema.safeParse({ teamId: TEAM, names: ['Acme'] }).success).toBe(
+      true,
+    );
+    const max = Array.from({ length: 500 }, (_, i) => `C${i}`);
+    expect(BulkCreateProjectsSchema.safeParse({ teamId: TEAM, names: max }).success).toBe(true);
+  });
+
+  it('rejects no names, 501 names, and a non-uuid team', () => {
+    expect(BulkCreateProjectsSchema.safeParse({ teamId: TEAM, names: [] }).success).toBe(false);
+    const over = Array.from({ length: 501 }, (_, i) => `C${i}`);
+    expect(BulkCreateProjectsSchema.safeParse({ teamId: TEAM, names: over }).success).toBe(false);
+    expect(BulkCreateProjectsSchema.safeParse({ teamId: 'x', names: ['A'] }).success).toBe(false);
+  });
+
+  it('parses the result with created projects and skips', () => {
+    const value = {
+      created: [
+        {
+          id: '018f9c1e-0000-7000-8000-000000000001',
+          teamId: TEAM,
+          name: 'Acme',
+          color: '#007aff',
+          archived: false,
+        },
+      ],
+      skipped: [{ name: 'acme', reason: 'Duplicate in list' }],
+    };
+    expect(BulkCreateProjectsResultSchema.parse(value)).toEqual(value);
   });
 });

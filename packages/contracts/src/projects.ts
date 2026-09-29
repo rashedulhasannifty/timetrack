@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ImportNameSchema, NameSkipSchema } from './name-list.js';
 
 // The preset swatches (dashboard imports this) and the fallback color for a project with none.
 // Presets, not a whitelist: any #rrggbb is a valid project color (see ProjectColorSchema).
@@ -57,6 +58,19 @@ export const CreateProjectSchema = z.object({
   teamId: z.uuid(),
   name: z.string().min(1).max(200),
   color: ProjectColorSchema,
+});
+
+/**
+ * POST /v1/projects/bulk (ADMIN) — import clients into one team. Raw names: the API normalizes
+ * each and skips org-wide duplicates (`Already exists in <team>`) and in-list repeats.
+ */
+export const BulkCreateProjectsSchema = z.object({
+  teamId: z.uuid(),
+  names: z.array(ImportNameSchema).min(1).max(500),
+});
+export const BulkCreateProjectsResultSchema = z.object({
+  created: z.array(ProjectSchema),
+  skipped: z.array(NameSkipSchema),
 });
 
 /** The project is derived from the subproject server-side, so a task can never straddle two. */
@@ -204,3 +218,5 @@ export type ProjectDetail = z.infer<typeof ProjectDetailSchema>;
 export type ProjectDetailQuery = z.infer<typeof ProjectDetailQuerySchema>;
 export type ProjectTopAppRow = z.infer<typeof ProjectTopAppRowSchema>;
 export type ProjectTopApps = z.infer<typeof ProjectTopAppsSchema>;
+export type BulkCreateProjects = z.infer<typeof BulkCreateProjectsSchema>;
+export type BulkCreateProjectsResult = z.infer<typeof BulkCreateProjectsResultSchema>;

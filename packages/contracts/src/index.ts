@@ -16,3 +16,5 @@ export * from './policy.js';
 export * from './admin.js';
 export * from './approvals.js';
 export * from './clients.js';
+export * from './name-list.js';
+export * from './work-types.js';
