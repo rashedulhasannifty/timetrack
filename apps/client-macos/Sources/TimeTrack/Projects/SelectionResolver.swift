@@ -5,16 +5,8 @@ import Foundation
 /// A stored selection is only ever a hint. If the project was archived, deleted, or the user
 /// was moved off that team, restoring it would pre-select something the server will reject on
 /// Start — so an unmatched selection is dropped, never approximated. A stored task that no
-/// longer exists does NOT silently degrade to its project: the employee never chose the
-/// project on its own.
-///
-/// The `Choice` overload is being retired; the `[Project]` overload is the unified table.
+/// longer exists degrades to its subproject (see `resolve` below).
 enum SelectionResolver {
-    static func resolve(_ stored: StoredSelection?, in choices: [Choice]) -> Choice? {
-        guard let stored else { return nil }
-        return choices.first { $0.projectId == stored.projectId && $0.taskId == stored.taskId }
-    }
-
     /// The unified stale-resolution table (spec §4), identical on Windows:
     /// nothing gone → as stored; task gone → same subproject, no task; subproject gone → the
     /// project's default, no task; project gone or archived → nil. A task that still exists wins

@@ -517,6 +517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// per throttle window.
     /// Everything that should be re-checked because a person is looking at the menu right now.
     @MainActor private func menuDidOpen() {
+        menuViewModel.pickerDidOpen()
         refreshProjectsOnMenuOpen()
         refreshTotalsOnMenuOpen()
         refreshPendingSyncCount()

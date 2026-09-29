@@ -1,15 +1,6 @@
 import Foundation
 import SwiftUI
 
-/// One flattened project/task the picker can select. `taskId == nil` is the project itself.
-struct Choice: Identifiable, Equatable {
-    let id: String        // taskId ?? projectId
-    let projectId: String
-    let taskId: String?
-    let projectName: String
-    let taskName: String?
-}
-
 /// The single seam between the SwiftUI dropdown and the tracking logic. The view observes
 /// this; the view has no logic and `TimeTracker` has no UI. Manual tracking is gated here by
 /// `isReady` (set by AppDelegate once the launch ack flow resolves) — NOT by AckGate
@@ -26,9 +17,14 @@ final class MenuViewModel: ObservableObject {
     @Published private(set) var isSignedIn = false
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var startedAt: Date?
-    @Published private(set) var selectedChoice: Choice?
+    /// The picker's current selection. Always resolved against the current tree (spec §4).
+    @Published private(set) var selection: StoredSelection?
+    /// Where the drill-down is. Reset to the root each time the dropdown opens.
+    @Published private(set) var level: PickerLevel = .root { didSet { highlightedRowId = nil } }
+    /// Keyboard highlight (Up/Down); Return activates it.
+    @Published private(set) var highlightedRowId: String?
     @Published var projects: [Project] = []
-    @Published var query: String = ""
+    @Published var query: String = "" { didSet { highlightedRowId = nil } }
 
     /// What the person says they were doing. Typed at any point during a span and applied to
     /// the RUNNING entry in place — a note does not re-attribute time the way a project switch
@@ -124,29 +120,50 @@ final class MenuViewModel: ObservableObject {
     /// The current picker selection as a tracker Selection, for auto-started entries
     /// (they inherit whatever the employee has picked; null if nothing is selected).
     var selectionForAuto: TimeTracker.Selection {
-        // `Choice` has no subproject; the server derives it (as for shipped clients). Replaced by the subproject picker.
-        TimeTracker.Selection(projectId: selectedChoice?.projectId, subprojectId: nil,
-                              taskId: selectedChoice?.taskId)
+        TimeTracker.Selection(projectId: selection?.projectId, subprojectId: selection?.subprojectId,
+                              taskId: selection?.taskId)
     }
 
-    var choices: [Choice] {
-        projects.flatMap { p -> [Choice] in
-            let projectOnly = Choice(id: p.id, projectId: p.id, taskId: nil,
-                                     projectName: p.name, taskName: nil)
-            let tasks = (p.tasks ?? []).map {
-                Choice(id: $0.id, projectId: p.id, taskId: $0.id,
-                       projectName: p.name, taskName: $0.name)
-            }
-            return [projectOnly] + tasks
+    private var tree: [PickerProject] { PickerTree.build(projects) }
+
+    /// Search results while searching, else the drill-down level's rows. The level survives a
+    /// search, so clearing the text returns to it.
+    var pickerRows: [PickerRow] {
+        PickerSearch.isSearching(query)
+            ? PickerSearch.results(for: query, in: tree)
+            : PickerNavigation.rows(at: level, in: tree)
+    }
+
+    var selectionHeader: String { PickerNavigation.headerText(for: selection, in: tree) }
+
+    func isCurrent(_ row: PickerRow) -> Bool {
+        if case let .track(s) = row.action { return s == selection }
+        return false
+    }
+
+    func activate(_ row: PickerRow) {
+        switch row.action {
+        case .back: level = PickerNavigation.back(from: level, in: tree)
+        case let .open(target): level = target
+        case let .track(s): select(s)
         }
     }
 
-    var filteredChoices: [Choice] {
-        guard !query.isEmpty else { return choices }
-        let q = query.lowercased()
-        return choices.filter {
-            $0.projectName.lowercased().contains(q) || ($0.taskName?.lowercased().contains(q) ?? false)
-        }
+    func moveHighlight(by delta: Int) {
+        highlightedRowId = PickerNavigation.moveHighlight(highlightedRowId, by: delta, in: pickerRows)
+    }
+
+    /// Return: the highlighted row, or the first one when nothing is highlighted.
+    func activateHighlighted() {
+        let rows = pickerRows
+        guard let row = rows.first(where: { $0.id == highlightedRowId }) ?? rows.first else { return }
+        activate(row)
+    }
+
+    /// Closing and reopening the dropdown starts at the root (spec §2). The query is kept.
+    func pickerDidOpen() {
+        level = .root
+        highlightedRowId = nil
     }
 
     func markReady() {
@@ -171,34 +188,34 @@ final class MenuViewModel: ObservableObject {
     /// The display clock is anchored to the OLD start, so the header keeps reading accumulated
     /// worked time instead of snapping back to 0 — the same treatment the manual-idle Discard
     /// trim gets. The entry itself starts now; only the readout continues.
-    func select(_ choice: Choice) {
-        selectedChoice = choice
-        persist(choice)
+    func select(_ selection: StoredSelection) {
+        self.selection = selection
+        persist(selection)
 
         switch tracker.state {
         case let .tracking(_, entryStart, _, source):
             let anchor = displayStartOverride ?? entryStart
             tracker.stop()
-            tracker.start(projectId: choice.projectId, subprojectId: nil, taskId: choice.taskId,
+            tracker.start(projectId: selection.projectId, subprojectId: selection.subprojectId,
+                          taskId: selection.taskId,
                           note: trimmedNote, source: source)
             displayStartOverride = anchor
             sync()
         case .paused:
             // Nothing is running, so nothing to re-file — but the paused selection is what
             // `resume()` reopens with, so it has to be replaced rather than remembered.
-            tracker.pause(reselecting: TimeTracker.Selection(projectId: choice.projectId,
-                                                             subprojectId: nil,
-                                                             taskId: choice.taskId,
+            tracker.pause(reselecting: TimeTracker.Selection(projectId: selection.projectId,
+                                                             subprojectId: selection.subprojectId,
+                                                             taskId: selection.taskId,
                                                              note: trimmedNote))
         case .idle:
             break
         }
     }
 
-    private func persist(_ choice: Choice) {
+    private func persist(_ selection: StoredSelection) {
         guard let currentUserId else { return }
-        selectionStore.save(StoredSelection(projectId: choice.projectId, taskId: choice.taskId),
-                            userId: currentUserId)
+        selectionStore.save(selection, userId: currentUserId)
     }
 
     /// Apply the persisted selection for `userId`, if it still exists in the CURRENT project
@@ -206,7 +223,7 @@ final class MenuViewModel: ObservableObject {
     /// empty cache would either drop a valid selection or apply one the user has since lost
     /// access to.
     ///
-    /// Only ever fills an EMPTY picker (`selectedChoice == nil`): `refreshProjects()` runs both
+    /// Only ever fills an EMPTY picker (`selection == nil`): `refreshProjects()` runs both
     /// at launch and on every menu open, so an unguarded restore would re-run each time and could
     /// overwrite a selection the user just made by hand.
     ///
@@ -217,11 +234,11 @@ final class MenuViewModel: ObservableObject {
     /// project was archived". Clearing on an empty list would permanently delete a user's saved
     /// selection on an offline re-login instead of merely deferring the restore.
     func restoreSelection(userId: String) {
-        guard selectedChoice == nil else { return }
+        guard selection == nil else { return }
         guard let stored = selectionStore.load(userId: userId) else { return }
-        if let restored = SelectionResolver.resolve(stored, in: choices) {
-            selectedChoice = restored
-        } else if !choices.isEmpty {
+        if let restored = SelectionResolver.resolve(stored, in: projects) {
+            selection = restored
+        } else if !projects.isEmpty {
             selectionStore.clear(userId: userId)
         }
     }
@@ -229,8 +246,8 @@ final class MenuViewModel: ObservableObject {
     func start() {
         guard isReady else { return }
         displayStartOverride = nil
-        tracker.start(projectId: selectedChoice?.projectId, subprojectId: nil,
-                      taskId: selectedChoice?.taskId, note: trimmedNote)
+        tracker.start(projectId: selection?.projectId, subprojectId: selection?.subprojectId,
+                      taskId: selection?.taskId, note: trimmedNote)
         sync()
     }
 
@@ -305,7 +322,9 @@ final class MenuViewModel: ObservableObject {
         stop()
         isReady = false
         isSignedIn = false
-        selectedChoice = nil
+        selection = nil
+        level = .root
+        highlightedRowId = nil
         query = ""
         projects = []
         currentUserId = nil
