@@ -97,7 +97,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
     public IReadOnlyList<Project> Projects
     {
         get => _projects;
-        set => Set(ref _projects, value, [nameof(PickerRows), nameof(SelectionLabel)]);
+        set => Set(ref _projects, value, [nameof(PickerRows), nameof(WorkingOn), nameof(Breadcrumb)]);
     }
 
     /// <summary>
@@ -113,32 +113,47 @@ public sealed class MenuViewModel : INotifyPropertyChanged
 
     private PickerLevel _level = PickerLevel.Root;
 
-    /// <summary>Where the drill-down is. Reset to the root each time the popup opens.</summary>
+    /// <summary>Where the drill-down is. Set to the current selection's level each time the popup opens.</summary>
     public PickerLevel Level
     {
         get => _level;
-        private set => Set(ref _level, value, [nameof(PickerRows)]);
+        private set => Set(ref _level, value, [nameof(PickerRows), nameof(Breadcrumb)]);
     }
 
     private IReadOnlyList<PickerProject> Tree => PickerTree.Build(_projects);
 
     /// <summary>
-    /// Search results while searching, else the drill-down level's rows, with the current selection
-    /// marked. The level survives a search, so clearing the text returns to it. Rows are records, so
-    /// the popup's SequenceEqual guard compares them by value.
+    /// Search results while searching, else the drill-down level's rows, with the path to the
+    /// current selection marked at every level (<c>IsOnPath</c>) and the choice itself checked
+    /// (<c>IsCurrent</c>). The level survives a search, so clearing the text returns to it. Rows are
+    /// records, so the popup's SequenceEqual guard compares them by value.
     /// </summary>
-    public IReadOnlyList<PickerRow> PickerRows =>
-        (PickerSearch.IsSearching(_query) ? PickerSearch.Results(_query, Tree) : PickerNavigation.Rows(_level, Tree))
-            .Select(r => r.Kind == PickerRowKind.Track && r.Selection == _selection ? r with { IsCurrent = true } : r)
-            .ToList();
+    public IReadOnlyList<PickerRow> PickerRows
+    {
+        get
+        {
+            var tree = Tree;
+            return (PickerSearch.IsSearching(_query) ? PickerSearch.Results(_query, tree) : PickerNavigation.Rows(_level, tree))
+                .Select(r => PickerNavigation.IsOnCurrentPath(r, _selection, tree)
+                    ? r with { IsOnPath = true, IsCurrent = r.Kind == PickerRowKind.Track }
+                    : r)
+                .ToList();
+        }
+    }
+
+    /// <summary>The bar above the list; empty at the root.</summary>
+    public IReadOnlyList<PickerCrumb> Breadcrumb => PickerNavigation.Breadcrumb(_level, Tree);
+
+    /// <summary>The "Working on" card. Null when nothing (resolvable) is selected.</summary>
+    public PickerWorkingOn? WorkingOn => PickerNavigation.WorkingOn(_selection, Tree);
+
+    /// <summary>A breadcrumb crumb was clicked.</summary>
+    public void Navigate(PickerLevel level) => Level = level;
 
     public void Activate(PickerRow row)
     {
         switch (row.Kind)
         {
-            case PickerRowKind.Back:
-                Back();
-                break;
             case PickerRowKind.Open when row.Target is { } target:
                 Level = target;
                 break;
@@ -162,13 +177,16 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         return true;
     }
 
-    /// <summary>Closing and reopening the popup starts at the root (spec §2). The query is kept.</summary>
-    public void ResetPicker() => Level = PickerLevel.Root;
+    /// <summary>
+    /// Reopening the popup shows the level holding the current choice, so the first thing seen is
+    /// where you are. The query is kept.
+    /// </summary>
+    public void ResetPicker() => Level = PickerNavigation.Home(_selection, Tree);
 
     public StoredSelection? Selection
     {
         get => _selection;
-        private set => Set(ref _selection, value, [nameof(SelectionLabel), nameof(PickerRows)]);
+        private set => Set(ref _selection, value, [nameof(WorkingOn), nameof(PickerRows)]);
     }
 
     /// <summary>
@@ -360,8 +378,6 @@ public sealed class MenuViewModel : INotifyPropertyChanged
             _tracker.State is TrackerState.Tracking t ? t.StartedAt : null,
             _totalsFetchedAt,
             _clock());
-
-    public string SelectionLabel => PickerNavigation.HeaderText(_selection, Tree);
 
     public void Start()
     {

@@ -44,13 +44,14 @@ public class MenuPickerTests
         vm.Projects = Tree;
         vm.Activate(vm.PickerRows[0]); // Acme → subproject screen
         Assert.Equal(new PickerLevel.ProjectLevel("p1"), vm.Level);
-        vm.Activate(vm.PickerRows.First(r => r.Title == "Checkout"));
-        Assert.Equal(["Acme › Checkout", "Checkout (no task)", "Cart"], vm.PickerRows.Select(r => r.Title));
-        vm.Activate(vm.PickerRows[1]); // track Checkout, no task
+        vm.Activate(vm.PickerRows.First(r => r.Title == "Checkout")); // has a task → opens
+        Assert.Equal(["Checkout (no task)", "Cart"], vm.PickerRows.Select(r => r.Title));
+        Assert.Equal(["All projects", "Acme", "Checkout"], vm.Breadcrumb.Select(c => c.Title));
+        vm.Activate(vm.PickerRows[0]); // track Checkout, no task
 
         Assert.Equal(new StoredSelection("p1", null, "s2"), vm.Selection);
-        Assert.True(vm.PickerRows[1].IsCurrent);
-        Assert.Equal("Acme › Checkout", vm.SelectionLabel);
+        Assert.True(vm.PickerRows[0].IsCurrent);
+        Assert.Equal(new PickerWorkingOn("Acme", "Checkout"), vm.WorkingOn);
 
         vm.Start();
         vm.Stop();
@@ -60,14 +61,40 @@ public class MenuPickerTests
     }
 
     [Fact]
-    public void AProjectWithOnlyGeneralSkipsToItsTasksAndBackReturnsToRoot()
+    public void AProjectWithOnlyGeneralAndNoTasksIsPickedFromTheRoot()
     {
         var vm = NewViewModel(out _);
         vm.Projects = Tree;
-        vm.Activate(vm.PickerRows[1]); // Beta
-        Assert.Equal(new PickerLevel.SubprojectLevel("p2", "s3"), vm.Level);
-        vm.Activate(vm.PickerRows[0]); // back row: Beta
+        vm.Activate(vm.PickerRows[1]); // Beta — nothing below it
         Assert.Equal(PickerLevel.Root, vm.Level);
+        Assert.Equal(new StoredSelection("p2", null, "s3"), vm.Selection);
+        Assert.Equal(new PickerWorkingOn("Beta", null), vm.WorkingOn);
+    }
+
+    [Fact]
+    public void TheBreadcrumbAndBackGoUp()
+    {
+        var vm = NewViewModel(out _);
+        vm.Projects = Tree;
+        vm.Activate(vm.PickerRows[0]); // Acme
+        vm.Activate(vm.PickerRows.First(r => r.Title == "Checkout"));
+        vm.Navigate(vm.Breadcrumb[1].Level); // "Acme"
+        Assert.Equal(new PickerLevel.ProjectLevel("p1"), vm.Level);
+        Assert.True(vm.Back());
+        Assert.Equal(PickerLevel.Root, vm.Level);
+        Assert.Empty(vm.Breadcrumb);
+    }
+
+    [Fact]
+    public void RowsOnTheCurrentPathAreMarkedAndOnlyTheChoiceIsChecked()
+    {
+        var vm = NewViewModel(out _);
+        vm.Projects = Tree;
+        vm.SelectProject(new StoredSelection("p1", null, "s1"));
+        Assert.Equal(["Acme"], vm.PickerRows.Where(r => r.IsOnPath).Select(r => r.Title));
+        Assert.Empty(vm.PickerRows.Where(r => r.IsCurrent)); // Acme opens a level: no checkmark
+        vm.Activate(vm.PickerRows[0]);
+        Assert.Equal(["General"], vm.PickerRows.Where(r => r.IsCurrent).Select(r => r.Title));
     }
 
     [Fact]
@@ -125,13 +152,17 @@ public class MenuPickerTests
     }
 
     [Fact]
-    public void ReopeningStartsAtTheRootAndSignOutClearsTheLevel()
+    public void ReopeningShowsWhereTheSelectionIsAndSignOutClearsTheLevel()
     {
         var vm = NewViewModel(out _);
         vm.Projects = Tree;
         vm.Activate(vm.PickerRows[0]);
         vm.ResetPicker();
-        Assert.Equal(PickerLevel.Root, vm.Level);
+        Assert.Equal(PickerLevel.Root, vm.Level); // nothing selected yet: the top of the list
+        vm.SelectProject(new StoredSelection("p1", null, "s2"));
+        vm.Navigate(PickerLevel.Root);
+        vm.ResetPicker();
+        Assert.Equal(new PickerLevel.ProjectLevel("p1"), vm.Level); // opens at the chosen project
         vm.Activate(vm.PickerRows[0]);
         vm.Reset();
         Assert.Equal(PickerLevel.Root, vm.Level);

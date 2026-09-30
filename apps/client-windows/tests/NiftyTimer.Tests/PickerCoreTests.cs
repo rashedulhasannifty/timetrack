@@ -81,32 +81,31 @@ public class PickerCoreTests
         Assert.Equal(new PickerLevel.SubprojectLevel("p2", "s3"), rows[1].Target);
     }
 
+    // Back is the breadcrumb bar now, not a row that looks like something to pick.
     [Fact]
-    public void ProjectScreenListsBackThenSubprojects()
+    public void ProjectScreenListsOnlySubprojects()
     {
         var rows = PickerNavigation.Rows(new PickerLevel.ProjectLevel("p1"), Tree);
-        Assert.Equal(["Acme", "General", "checkout"], rows.Select(r => r.Title));
-        Assert.Equal(PickerRowKind.Back, rows[0].Kind);
-        Assert.Equal(PickerRowKind.Open, rows[2].Kind);
-        Assert.Equal(new PickerLevel.SubprojectLevel("p1", "s2"), rows[2].Target);
+        Assert.Equal(["General", "checkout"], rows.Select(r => r.Title));
+        Assert.Equal(PickerRowKind.Open, rows[1].Kind);
+        Assert.Equal(new PickerLevel.SubprojectLevel("p1", "s2"), rows[1].Target);
     }
 
     [Fact]
     public void TaskScreenOfAShownSubproject()
     {
         var rows = PickerNavigation.Rows(new PickerLevel.SubprojectLevel("p1", "s2"), Tree);
-        Assert.Equal(["Acme › checkout", "checkout (no task)", "Cart", "pay form"], rows.Select(r => r.Title));
-        Assert.Equal(PickerRowKind.Back, rows[0].Kind);
-        Assert.Equal(PickerRowKind.Track, rows[1].Kind);
-        Assert.Equal(new StoredSelection("p1", null, "s2"), rows[1].Selection);
-        Assert.Equal(new StoredSelection("p1", "k3", "s2"), rows[2].Selection);
+        Assert.Equal(["checkout (no task)", "Cart", "pay form"], rows.Select(r => r.Title));
+        Assert.Equal(PickerRowKind.Track, rows[0].Kind);
+        Assert.Equal(new StoredSelection("p1", null, "s2"), rows[0].Selection);
+        Assert.Equal(new StoredSelection("p1", "k3", "s2"), rows[1].Selection);
     }
 
     [Fact]
     public void TaskScreenOfASkippedProjectIsTitledWithTheProject()
     {
         var rows = PickerNavigation.Rows(new PickerLevel.SubprojectLevel("p2", "s3"), Tree);
-        Assert.Equal(["Borealis", "Borealis (no task)", "Hero copy"], rows.Select(r => r.Title));
+        Assert.Equal(["Borealis (no task)", "Hero copy"], rows.Select(r => r.Title));
     }
 
     [Fact]
@@ -133,15 +132,118 @@ public class PickerCoreTests
             PickerNavigation.Rows(new PickerLevel.ProjectLevel("gone"), Tree).Select(r => r.Title));
     }
 
+    // task-free projects (what production has: work types, no tasks)
+
+    // Energy: two subprojects, no tasks. Solo: only its default, no tasks.
+    private static readonly IReadOnlyList<Project> TaskFreeProjects =
+    [
+        new Project("e1", "t", "Energy", false, [],
+            [new Subproject("d1", "e1", "General", false, true), new Subproject("d2", "e1", "Software", false, false)]),
+        new Project("o1", "t", "Solo", false, [], [new Subproject("d3", "o1", "General", false, true)]),
+    ];
+
+    private static IReadOnlyList<PickerProject> FreeTree => PickerTree.Build(TaskFreeProjects);
+
+    // A subproject with nothing under it is the choice itself: one click, not a screen whose only
+    // useful row is "(no task)".
     [Fact]
-    public void HeaderText()
+    public void ASubprojectWithoutTasksIsPickedInOneClick()
     {
-        Assert.Equal("No project", PickerNavigation.HeaderText(null, Tree));
-        Assert.Equal("No project", PickerNavigation.HeaderText(new StoredSelection("gone", null), Tree));
-        Assert.Equal("Acme › checkout › Cart", PickerNavigation.HeaderText(new StoredSelection("p1", "k3", "s2"), Tree));
-        Assert.Equal("Acme › General", PickerNavigation.HeaderText(new StoredSelection("p1", null, "s1"), Tree));
-        Assert.Equal("Borealis › Hero copy", PickerNavigation.HeaderText(new StoredSelection("p2", "k4", "s3"), Tree));
-        Assert.Equal("Acme › checkout", PickerNavigation.HeaderText(new StoredSelection("p1", "gone", "s2"), Tree));
+        var rows = PickerNavigation.Rows(new PickerLevel.ProjectLevel("e1"), FreeTree);
+        Assert.Equal(["General", "Software"], rows.Select(r => r.Title));
+        Assert.Equal(PickerRowKind.Track, rows[1].Kind);
+        Assert.Equal(new StoredSelection("e1", null, "d2"), rows[1].Selection);
+    }
+
+    [Fact]
+    public void AProjectWithOnlyItsDefaultAndNoTasksIsPickedFromTheRoot()
+    {
+        var rows = PickerNavigation.Rows(PickerLevel.Root, FreeTree);
+        Assert.Equal(PickerRowKind.Open, rows[0].Kind);
+        Assert.Equal(new PickerLevel.ProjectLevel("e1"), rows[0].Target);
+        Assert.Equal(PickerRowKind.Track, rows[1].Kind);
+        Assert.Equal(new StoredSelection("o1", null, "d3"), rows[1].Selection);
+    }
+
+    // breadcrumb
+
+    [Fact]
+    public void BreadcrumbNamesEachLevelAndSkipsTheOmittedScreen()
+    {
+        var root = new PickerCrumb("All projects", PickerLevel.Root);
+        Assert.Empty(PickerNavigation.Breadcrumb(PickerLevel.Root, Tree));
+        Assert.Equal(
+            [root, new PickerCrumb("Acme", new PickerLevel.ProjectLevel("p1"))],
+            PickerNavigation.Breadcrumb(new PickerLevel.ProjectLevel("p1"), Tree));
+        Assert.Equal(
+            [root, new PickerCrumb("Acme", new PickerLevel.ProjectLevel("p1")),
+                new PickerCrumb("checkout", new PickerLevel.SubprojectLevel("p1", "s2"))],
+            PickerNavigation.Breadcrumb(new PickerLevel.SubprojectLevel("p1", "s2"), Tree));
+        Assert.Equal(
+            [root, new PickerCrumb("Borealis", new PickerLevel.SubprojectLevel("p2", "s3"))],
+            PickerNavigation.Breadcrumb(new PickerLevel.SubprojectLevel("p2", "s3"), Tree));
+    }
+
+    // where you are
+
+    [Fact]
+    public void TheCurrentPathIsMarkedAtEveryLevel()
+    {
+        var sel = new StoredSelection("e1", null, "d2");
+        var root = PickerNavigation.Rows(PickerLevel.Root, FreeTree);
+        Assert.Equal([true, false], root.Select(r => PickerNavigation.IsOnCurrentPath(r, sel, FreeTree)));
+        var subs = PickerNavigation.Rows(new PickerLevel.ProjectLevel("e1"), FreeTree);
+        Assert.Equal([false, true], subs.Select(r => PickerNavigation.IsOnCurrentPath(r, sel, FreeTree)));
+        Assert.False(PickerNavigation.IsOnCurrentPath(root[0], null, FreeTree));
+    }
+
+    // A task sits under its subproject: that subproject row (which opens the tasks) is on the path.
+    [Fact]
+    public void ATaskSelectionMarksItsSubprojectAndTheTask()
+    {
+        var sel = new StoredSelection("p1", "k3", "s2");
+        var subs = PickerNavigation.Rows(new PickerLevel.ProjectLevel("p1"), Tree);
+        Assert.Equal([false, true], subs.Select(r => PickerNavigation.IsOnCurrentPath(r, sel, Tree)));
+        var tasks = PickerNavigation.Rows(new PickerLevel.SubprojectLevel("p1", "s2"), Tree);
+        Assert.Equal([false, true, false], tasks.Select(r => PickerNavigation.IsOnCurrentPath(r, sel, Tree)));
+    }
+
+    // A selection stored without a subproject means the project's default.
+    [Fact]
+    public void ASelectionWithoutASubprojectMeansTheDefault()
+    {
+        var sel = new StoredSelection("e1", null);
+        var subs = PickerNavigation.Rows(new PickerLevel.ProjectLevel("e1"), FreeTree);
+        Assert.Equal([true, false], subs.Select(r => PickerNavigation.IsOnCurrentPath(r, sel, FreeTree)));
+    }
+
+    [Fact]
+    public void ThePickerOpensWhereTheSelectionIs()
+    {
+        Assert.Equal(PickerLevel.Root, PickerNavigation.Home(null, Tree));
+        Assert.Equal(PickerLevel.Root, PickerNavigation.Home(new StoredSelection("gone", null), Tree));
+        Assert.Equal(new PickerLevel.ProjectLevel("e1"), PickerNavigation.Home(new StoredSelection("e1", null, "d2"), FreeTree));
+        // Nothing to show below a lone-default project without tasks: the root is where it is picked.
+        Assert.Equal(PickerLevel.Root, PickerNavigation.Home(new StoredSelection("o1", null, "d3"), FreeTree));
+        Assert.Equal(
+            new PickerLevel.SubprojectLevel("p1", "s2"),
+            PickerNavigation.Home(new StoredSelection("p1", "k3", "s2"), Tree));
+    }
+
+    [Fact]
+    public void WorkingOnSplitsTheProjectFromWhatIsUnderIt()
+    {
+        Assert.Null(PickerNavigation.WorkingOn(null, Tree));
+        Assert.Null(PickerNavigation.WorkingOn(new StoredSelection("gone", null), Tree));
+        Assert.Equal(new PickerWorkingOn("Energy", "Software"),
+            PickerNavigation.WorkingOn(new StoredSelection("e1", null, "d2"), FreeTree));
+        Assert.Equal(new PickerWorkingOn("Acme", "checkout › Cart"),
+            PickerNavigation.WorkingOn(new StoredSelection("p1", "k3", "s2"), Tree));
+        Assert.Equal(new PickerWorkingOn("Solo", null),
+            PickerNavigation.WorkingOn(new StoredSelection("o1", null, "d3"), FreeTree));
+        // A task deleted since it was picked: the subproject still names the place.
+        Assert.Equal(new PickerWorkingOn("Acme", "checkout"),
+            PickerNavigation.WorkingOn(new StoredSelection("p1", "gone", "s2"), Tree));
     }
 
     // search
