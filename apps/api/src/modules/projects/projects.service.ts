@@ -29,9 +29,9 @@ import { ProjectsRepository } from './projects.repository.js';
 import { TRACKING_FRESHNESS_SECONDS } from './projects.tokens.js';
 
 /**
- * CLAUDE.md §4 — own-team-only for BOTH MANAGER and ADMIN (the `setActive` precedent).
- * Projects are team-scoped, not user-scoped, so there is no `@ResourceScope`; the rule
- * lives here. Cross-team existing resource → 403; missing → 404.
+ * CLAUDE.md §4 — linked-team authorization (`project_teams`, home or shared): ADMIN is org-wide,
+ * a MANAGER acts on projects linked to their team. Projects are team-scoped, not user-scoped, so
+ * there is no `@ResourceScope`; the rule lives here. Unlinked existing resource → 403; missing → 404.
  */
 @Injectable()
 export class ProjectsService {
@@ -75,17 +75,32 @@ export class ProjectsService {
   }
 
   /**
-   * A project belongs to a team, and ADMIN is an org-wide role while a MANAGER manages their
-   * own team. Every project-administration path routes through here so that rule is decided
-   * once — it used to be seven copies of the same comparison, which is how they would drift.
+   * USE a project (its subprojects and tasks, its detail): ADMIN org-wide, or a MANAGER whose
+   * team is linked to it (home or shared, spec §5.2). The single place this rule lives.
    */
-  private assertCanAdminister(projectTeamId: string, actor: SessionUser): void {
+  private assertCanUse(teamIds: readonly string[], actor: SessionUser): void {
     if (actor.role === 'ADMIN') return;
-    if (projectTeamId !== actor.teamId) throw this.forbidden();
+    if (!teamIds.includes(actor.teamId)) throw this.forbidden();
+  }
+
+  /**
+   * OWN a project (archive, recolor): as USE, but a SHARED project belongs to more than one
+   * team's manager, so only an ADMIN may change it — one team must not archive a client another
+   * team is tracking.
+   */
+  private assertCanOwn(teamIds: readonly string[], actor: SessionUser): void {
+    this.assertCanUse(teamIds, actor);
+    if (actor.role !== 'ADMIN' && teamIds.length > 1) {
+      throw new ForbiddenException({
+        type: 'https://timetrack.internal/errors/forbidden',
+        title: 'Only an admin can change a shared client',
+        status: 403,
+      });
+    }
   }
 
   async createProject(dto: CreateProject, actor: SessionUser): Promise<Project> {
-    this.assertCanAdminister(dto.teamId, actor);
+    this.assertCanUse([dto.teamId], actor);
     return this.repo.createProject(dto.teamId, dto.name, actor.id, dto.color);
   }
 
@@ -116,7 +131,7 @@ export class ProjectsService {
   async createTask(dto: CreateTask, actor: SessionUser): Promise<Task> {
     const sub = await this.repo.findSubprojectForActor(dto.subprojectId);
     if (!sub) throw this.notFound('Subproject not found');
-    this.assertCanAdminister(sub.teamId, actor);
+    this.assertCanUse(sub.teamIds, actor);
     if (sub.archived) throw this.conflict('Cannot add a task to an archived subproject');
     return this.repo.createTask(dto.subprojectId, dto.name, actor.id);
   }
@@ -124,7 +139,7 @@ export class ProjectsService {
   async createSubproject(dto: CreateSubproject, actor: SessionUser): Promise<Subproject> {
     const project = await this.repo.findForActor(dto.projectId);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
     // Case-insensitive, active rows only (spec §5): stops a hand-made "payroll" shadowing the
     // catalog's "Payroll", and a second "General".
     if (await this.repo.hasActiveSubprojectNamed(dto.projectId, dto.name.trim())) {
@@ -140,7 +155,7 @@ export class ProjectsService {
   ): Promise<Subproject> {
     const sub = await this.repo.findSubprojectForActor(id);
     if (!sub) throw this.notFound('Subproject not found');
-    this.assertCanAdminister(sub.teamId, actor);
+    this.assertCanUse(sub.teamIds, actor);
     // Linked rows are renamed/archived only by reconcile; a local edit would be undone by the
     // next catalog change anyway (spec §5).
     if (sub.workTypeId !== null) throw this.conflict('Managed by the work type catalog');
@@ -170,22 +185,22 @@ export class ProjectsService {
   async listSubprojects(projectId: string, actor: SessionUser): Promise<Subproject[]> {
     const project = await this.repo.findForActor(projectId);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
     return this.repo.listSubprojectsForProject(projectId);
   }
 
   async listTasks(id: string, actor: SessionUser): Promise<Task[]> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
     return this.repo.listTasksForProject(id);
   }
 
   async updateTask(taskId: string, dto: UpdateTask, actor: SessionUser): Promise<Task> {
     const found = await this.repo.findTaskForActor(taskId);
     if (!found) throw this.notFound('Task not found');
-    this.assertCanAdminister(found.teamId, actor);
-    const { teamId: _teamId, ...task } = found;
+    this.assertCanUse(found.teamIds, actor);
+    const { teamIds: _teamIds, ...task } = found;
 
     let result: Task = task;
     if (dto.subprojectId !== undefined && dto.subprojectId !== task.subprojectId) {
@@ -210,7 +225,10 @@ export class ProjectsService {
   async update(id: string, dto: UpdateProject, actor: SessionUser): Promise<Project> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
+    if (dto.archived !== undefined || dto.color !== undefined) {
+      this.assertCanOwn(project.teamIds, actor);
+    }
 
     // Form submits one field per action; an empty body is a harmless no-op.
     let result: Project = project;
@@ -229,7 +247,7 @@ export class ProjectsService {
   async detail(id: string, query: ProjectDetailQuery, actor: SessionUser): Promise<ProjectDetail> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
 
     const from = new Date(query.from);
     const to = new Date(query.to);
@@ -261,7 +279,7 @@ export class ProjectsService {
   async topApps(id: string, dto: ProjectDetailQuery, actor: SessionUser): Promise<ProjectTopApps> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
 
     const { apps, totalSeconds } = await this.repo.topAppsForProject(
       id,

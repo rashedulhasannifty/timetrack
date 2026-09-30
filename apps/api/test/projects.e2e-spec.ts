@@ -105,7 +105,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       subprojectId: await generalOf(project.id),
       name: 'Homepage',
       archived: false,
-      teamId: team.id,
+      teamIds: [team.id],
     });
     expect(await repo().findTaskForActor('019797a0-0000-7000-8000-0000000000ff')).toBeNull();
   });
@@ -161,6 +161,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
     expect(await repo().findForActor(project.id)).toEqual({
       id: project.id,
       teamId: team.id,
+      teamIds: [team.id],
       name: 'Website',
       color: null,
       archived: false,
@@ -722,7 +723,7 @@ describe.runIf(RUN_E2E)('projects repository — real Postgres', () => {
       const sub = await repo().createSubproject(project.id, 'Checkout', 'actor1');
       expect(await repo().findSubprojectForActor(sub.id)).toEqual({
         ...sub,
-        teamId: team.id,
+        teamIds: [team.id],
         workTypeId: null,
       });
       expect(

@@ -47,13 +47,15 @@ export async function linkedProjectIds(
   teamIds: readonly string[],
 ): Promise<string[]> {
   if (teamIds.length === 0) return [];
-  const [rows, homes] = await Promise.all([
-    tx.projectTeam.findMany({
-      where: { teamId: { in: [...teamIds] } },
-      select: { projectId: true },
-    }),
-    tx.project.findMany({ where: { teamId: { in: [...teamIds] } }, select: { id: true } }),
-  ]);
+  // Sequential on purpose: parallel queries inside an interactive transaction are discouraged.
+  const rows = await tx.projectTeam.findMany({
+    where: { teamId: { in: [...teamIds] } },
+    select: { projectId: true },
+  });
+  const homes = await tx.project.findMany({
+    where: { teamId: { in: [...teamIds] } },
+    select: { id: true },
+  });
   return [...new Set([...rows.map((r) => r.projectId), ...homes.map((h) => h.id)])];
 }
 

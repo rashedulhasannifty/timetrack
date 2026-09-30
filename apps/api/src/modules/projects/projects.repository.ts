@@ -59,6 +59,18 @@ const SUBPROJECT_SELECT = {
   isDefault: true,
 } as const;
 
+/**
+ * Linked team ids with the home team first (Prisma cannot order a nested select that way). The
+ * home team is always included, even with no link row (a project made by old code).
+ */
+function homeFirst(homeTeamId: string, links: readonly { teamId: string }[]): string[] {
+  const rest = links
+    .map((l) => l.teamId)
+    .filter((t) => t !== homeTeamId)
+    .sort();
+  return [homeTeamId, ...rest];
+}
+
 /** CLAUDE.md §3 — Prisma lives here. Never select `*` back to the client. */
 @Injectable()
 export class ProjectsRepository {
@@ -70,7 +82,12 @@ export class ProjectsRepository {
   ) {}
 
   async listByTeam(teamId: string, includeArchived = false): Promise<Project[]> {
-    return this.findProjects({ teamId }, includeArchived);
+    // LINKED to the team, home or shared (spec §5.1). The home team always counts, with or
+    // without a link row, so a project made by old code during a deploy is still listed.
+    return this.findProjects(
+      { OR: [{ teamId }, { teams: { some: { teamId } } }] },
+      includeArchived,
+    );
   }
 
   /** Every team's projects (ADMIN `allTeams`): same select and ordering as `listByTeam`. */
@@ -79,15 +96,16 @@ export class ProjectsRepository {
   }
 
   private async findProjects(
-    scope: { teamId?: string },
+    scope: Prisma.ProjectWhereInput,
     includeArchived: boolean,
   ): Promise<Project[]> {
     // One query, not N+1 (CLAUDE.md §4) — tasks come back via the nested select.
-    return this.prisma.project.findMany({
+    const rows = await this.prisma.project.findMany({
       where: { ...scope, ...(includeArchived ? {} : { archived: false }) },
       orderBy: { name: 'asc' },
       select: {
         ...PROJECT_SELECT,
+        teams: { select: { teamId: true } },
         subprojects: {
           where: includeArchived ? {} : { archived: false },
           orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
@@ -102,6 +120,7 @@ export class ProjectsRepository {
         },
       },
     });
+    return rows.map(({ teams, ...p }) => ({ ...p, teamIds: homeFirst(p.teamId, teams) }));
   }
 
   async createProject(
@@ -242,14 +261,17 @@ export class ProjectsRepository {
     });
   }
 
-  async findTaskForActor(taskId: string): Promise<(Task & { teamId: string }) | null> {
+  async findTaskForActor(taskId: string): Promise<(Task & { teamIds: string[] }) | null> {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
-      select: { ...TASK_SELECT, project: { select: { teamId: true } } },
+      select: {
+        ...TASK_SELECT,
+        project: { select: { teamId: true, teams: { select: { teamId: true } } } },
+      },
     });
     if (!task) return null;
     const { project, ...rest } = task;
-    return { ...rest, teamId: project.teamId };
+    return { ...rest, teamIds: homeFirst(project.teamId, project.teams) };
   }
 
   async moveTask(taskId: string, subprojectId: string, actorId: string): Promise<Task> {
@@ -328,14 +350,18 @@ export class ProjectsRepository {
    */
   async findSubprojectForActor(
     id: string,
-  ): Promise<(Subproject & { teamId: string; workTypeId: string | null }) | null> {
+  ): Promise<(Subproject & { teamIds: string[]; workTypeId: string | null }) | null> {
     const sub = await this.prisma.subproject.findUnique({
       where: { id },
-      select: { ...SUBPROJECT_SELECT, workTypeId: true, project: { select: { teamId: true } } },
+      select: {
+        ...SUBPROJECT_SELECT,
+        workTypeId: true,
+        project: { select: { teamId: true, teams: { select: { teamId: true } } } },
+      },
     });
     if (!sub) return null;
     const { project, ...rest } = sub;
-    return { ...rest, teamId: project.teamId };
+    return { ...rest, teamIds: homeFirst(project.teamId, project.teams) };
   }
 
   /** `excludeId`: the row being renamed or restored, which never clashes with itself. */
@@ -435,17 +461,21 @@ export class ProjectsRepository {
     }
   }
 
-  findForActor(id: string): Promise<{
+  async findForActor(id: string): Promise<{
     id: string;
     teamId: string;
+    teamIds: string[];
     name: string;
     color: string | null;
     archived: boolean;
   } | null> {
-    return this.prisma.project.findUnique({
+    const row = await this.prisma.project.findUnique({
       where: { id },
-      select: { id: true, teamId: true, name: true, color: true, archived: true },
+      select: { ...PROJECT_SELECT, teams: { select: { teamId: true } } },
     });
+    if (!row) return null;
+    const { teams, ...p } = row;
+    return { ...p, teamIds: homeFirst(p.teamId, teams) };
   }
 
   async hoursByDay(

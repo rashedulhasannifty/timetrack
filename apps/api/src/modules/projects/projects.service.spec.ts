@@ -70,7 +70,14 @@ describe('ProjectsService.createProject', () => {
   });
 
   it('creates when the team matches the actor, threading color', async () => {
-    const created = { id: 'p1', teamId: 't1', name: 'X', color: '#007aff', archived: false };
+    const created = {
+      id: 'p1',
+      teamId: 't1',
+      teamIds: ['t1'],
+      name: 'X',
+      color: '#007aff',
+      archived: false,
+    };
     const { svc, repo } = makeService({ createProject: vi.fn().mockResolvedValue(created) });
     await expect(
       svc.createProject({ teamId: 't1', name: 'X', color: '#007aff' }, manager),
@@ -86,7 +93,7 @@ const SUB = {
   archived: false,
   isDefault: false,
   workTypeId: null,
-  teamId: 't1',
+  teamIds: ['t1'],
 };
 const TASK = {
   id: 'k1',
@@ -94,7 +101,7 @@ const TASK = {
   subprojectId: 's0',
   name: 'Pay',
   archived: false,
-  teamId: 't1',
+  teamIds: ['t1'],
 };
 
 describe('ProjectsService.createTask', () => {
@@ -107,7 +114,7 @@ describe('ProjectsService.createTask', () => {
 
   it("403 when the subproject is in another team's project", async () => {
     const { svc, repo } = makeService({
-      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, teamId: 't2' }),
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, teamIds: ['t2'] }),
     });
     await expect(svc.createTask({ subprojectId: 's1', name: 'T' }, manager)).rejects.toBeInstanceOf(
       ForbiddenException,
@@ -138,7 +145,7 @@ describe('ProjectsService subprojects', () => {
       missing.svc.createSubproject({ projectId: 'p9', name: 'X' }, manager),
     ).rejects.toBeInstanceOf(NotFoundException);
     const other = makeService({
-      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't2' }),
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't2', teamIds: ['t2'] }),
     });
     await expect(
       other.svc.createSubproject({ projectId: 'p1', name: 'X' }, manager),
@@ -148,7 +155,7 @@ describe('ProjectsService subprojects', () => {
 
   it('createSubproject creates own-team', async () => {
     const { svc, repo } = makeService({
-      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }),
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1', teamIds: ['t1'] }),
     });
     await svc.createSubproject({ projectId: 'p1', name: 'X' }, manager);
     expect(repo.createSubproject).toHaveBeenCalledWith('p1', 'X', 'm1');
@@ -161,7 +168,7 @@ describe('ProjectsService subprojects', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
 
     const other = makeService({
-      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, teamId: 't2' }),
+      findSubprojectForActor: vi.fn().mockResolvedValue({ ...SUB, teamIds: ['t2'] }),
     });
     await expect(
       other.svc.updateSubproject('s1', { archived: true }, manager),
@@ -180,13 +187,13 @@ describe('ProjectsService subprojects', () => {
 
   it('listSubprojects 404 / 403 / ok', async () => {
     const other = makeService({
-      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't2' }),
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't2', teamIds: ['t2'] }),
     });
     await expect(other.svc.listSubprojects('p1', manager)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
     const own = makeService({
-      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }),
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1', teamIds: ['t1'] }),
       listSubprojectsForProject: vi.fn().mockResolvedValue([SUB]),
     });
     await expect(own.svc.listSubprojects('p1', manager)).resolves.toEqual([SUB]);
@@ -236,14 +243,14 @@ describe('ProjectsService.updateTask — moving', () => {
 
   it('a move to the current subproject is a no-op returning the task', async () => {
     const { svc, repo } = makeService({ findTaskForActor: vi.fn().mockResolvedValue(TASK) });
-    const { teamId: _t, ...plain } = TASK;
+    const { teamIds: _t, ...plain } = TASK;
     await expect(svc.updateTask('k1', { subprojectId: 's0' }, manager)).resolves.toEqual(plain);
     expect(repo.moveTask).not.toHaveBeenCalled();
   });
 
   it("403 moving a task in another team's project", async () => {
     const { svc } = makeService({
-      findTaskForActor: vi.fn().mockResolvedValue({ ...TASK, teamId: 't2' }),
+      findTaskForActor: vi.fn().mockResolvedValue({ ...TASK, teamIds: ['t2'] }),
     });
     await expect(svc.updateTask('k1', { subprojectId: 's1' }, manager)).rejects.toBeInstanceOf(
       ForbiddenException,
@@ -258,9 +265,14 @@ const SUBPROJECT_ROWS = [
 describe('ProjectsService.update', () => {
   it("403 when updating another team's project", async () => {
     const { svc, repo } = makeService({
-      findForActor: vi
-        .fn()
-        .mockResolvedValue({ id: 'p1', teamId: 't2', name: 'X', color: null, archived: false }),
+      findForActor: vi.fn().mockResolvedValue({
+        id: 'p1',
+        teamId: 't2',
+        teamIds: ['t2'],
+        name: 'X',
+        color: null,
+        archived: false,
+      }),
     });
     await expect(svc.update('p1', { archived: true }, manager)).rejects.toBeInstanceOf(
       ForbiddenException,
@@ -276,11 +288,23 @@ describe('ProjectsService.update', () => {
   });
 
   it('dispatches archived → setArchived', async () => {
-    const updated = { id: 'p1', teamId: 't1', name: 'X', color: null, archived: true };
+    const updated = {
+      id: 'p1',
+      teamId: 't1',
+      teamIds: ['t1'],
+      name: 'X',
+      color: null,
+      archived: true,
+    };
     const { svc, repo } = makeService({
-      findForActor: vi
-        .fn()
-        .mockResolvedValue({ id: 'p1', teamId: 't1', name: 'X', color: null, archived: false }),
+      findForActor: vi.fn().mockResolvedValue({
+        id: 'p1',
+        teamId: 't1',
+        teamIds: ['t1'],
+        name: 'X',
+        color: null,
+        archived: false,
+      }),
       setArchived: vi.fn().mockResolvedValue(updated),
     });
     await expect(svc.update('p1', { archived: true }, manager)).resolves.toEqual(updated);
@@ -289,11 +313,23 @@ describe('ProjectsService.update', () => {
   });
 
   it('dispatches color → setColor', async () => {
-    const updated = { id: 'p1', teamId: 't1', name: 'X', color: '#ff2d55', archived: false };
+    const updated = {
+      id: 'p1',
+      teamId: 't1',
+      teamIds: ['t1'],
+      name: 'X',
+      color: '#ff2d55',
+      archived: false,
+    };
     const { svc, repo } = makeService({
-      findForActor: vi
-        .fn()
-        .mockResolvedValue({ id: 'p1', teamId: 't1', name: 'X', color: null, archived: false }),
+      findForActor: vi.fn().mockResolvedValue({
+        id: 'p1',
+        teamId: 't1',
+        teamIds: ['t1'],
+        name: 'X',
+        color: null,
+        archived: false,
+      }),
       setColor: vi.fn().mockResolvedValue(updated),
     });
     await expect(svc.update('p1', { color: '#ff2d55' }, manager)).resolves.toEqual(updated);
@@ -322,7 +358,7 @@ describe('ProjectsService.detail', () => {
     const { svc, repo } = makeService({
       findForActor: vi
         .fn()
-        .mockResolvedValue({ id: 'p1', teamId: 't2', name: 'X', archived: false }),
+        .mockResolvedValue({ id: 'p1', teamId: 't2', teamIds: ['t2'], name: 'X', archived: false }),
     });
     await expect(svc.detail('p1', query, manager)).rejects.toBeInstanceOf(ForbiddenException);
     expect(repo.membersForProject).not.toHaveBeenCalled();
@@ -337,6 +373,7 @@ describe('ProjectsService.detail', () => {
       findForActor: vi.fn().mockResolvedValue({
         id: projectId,
         teamId,
+        teamIds: [teamId],
         name: 'Website',
         color: '#34c759',
         archived: false,
@@ -381,9 +418,14 @@ describe('ProjectsService.listTasks', () => {
   });
   it("403 for another team's project", async () => {
     const { svc, repo } = makeService({
-      findForActor: vi
-        .fn()
-        .mockResolvedValue({ id: 'p1', teamId: 't2', name: 'X', color: null, archived: false }),
+      findForActor: vi.fn().mockResolvedValue({
+        id: 'p1',
+        teamId: 't2',
+        teamIds: ['t2'],
+        name: 'X',
+        color: null,
+        archived: false,
+      }),
     });
     await expect(svc.listTasks('p1', manager)).rejects.toBeInstanceOf(ForbiddenException);
     expect(repo.listTasksForProject).not.toHaveBeenCalled();
@@ -391,9 +433,14 @@ describe('ProjectsService.listTasks', () => {
   it('returns the project tasks when own-team', async () => {
     const tasks = [{ id: 't1', projectId: 'p1', name: 'A', archived: false }];
     const { svc, repo } = makeService({
-      findForActor: vi
-        .fn()
-        .mockResolvedValue({ id: 'p1', teamId: 't1', name: 'X', color: null, archived: false }),
+      findForActor: vi.fn().mockResolvedValue({
+        id: 'p1',
+        teamId: 't1',
+        teamIds: ['t1'],
+        name: 'X',
+        color: null,
+        archived: false,
+      }),
       listTasksForProject: vi.fn().mockResolvedValue(tasks),
     });
     await expect(svc.listTasks('p1', manager)).resolves.toEqual(tasks);
@@ -411,9 +458,14 @@ describe('ProjectsService.topApps', () => {
 
   it("403 for another team's project", async () => {
     const { svc, repo } = makeService({
-      findForActor: vi
-        .fn()
-        .mockResolvedValue({ id: 'p1', teamId: 't2', name: 'X', color: null, archived: false }),
+      findForActor: vi.fn().mockResolvedValue({
+        id: 'p1',
+        teamId: 't2',
+        teamIds: ['t2'],
+        name: 'X',
+        color: null,
+        archived: false,
+      }),
     });
     await expect(svc.topApps('p1', query, manager)).rejects.toBeInstanceOf(ForbiddenException);
     expect(repo.topAppsForProject).not.toHaveBeenCalled();
@@ -429,6 +481,7 @@ describe('ProjectsService.topApps', () => {
       findForActor: vi.fn().mockResolvedValue({
         id: projectId,
         teamId: 't1',
+        teamIds: ['t1'],
         name: 'Website',
         color: '#34c759',
         archived: false,
@@ -459,6 +512,7 @@ describe('ProjectsService.topApps', () => {
       findForActor: vi.fn().mockResolvedValue({
         id: projectId,
         teamId: 't1',
+        teamIds: ['t1'],
         name: 'Website',
         color: null,
         archived: false,
@@ -480,7 +534,7 @@ describe('ProjectsService.updateTask — archive', () => {
   });
   it("403 for a task in another team's project", async () => {
     const { svc, repo } = makeService({
-      findTaskForActor: vi.fn().mockResolvedValue({ ...TASK, teamId: 't2' }),
+      findTaskForActor: vi.fn().mockResolvedValue({ ...TASK, teamIds: ['t2'] }),
     });
     await expect(svc.updateTask('t1', { archived: true }, manager)).rejects.toBeInstanceOf(
       ForbiddenException,
@@ -580,12 +634,19 @@ describe('ProjectsService.list team scoping', () => {
 });
 
 describe('ProjectsService.update — moving a project between teams', () => {
-  const project = { id: 'p1', teamId: 't1', name: 'Apollo', color: null, archived: false };
+  const project = {
+    id: 'p1',
+    teamId: 't1',
+    teamIds: ['t1'],
+    name: 'Apollo',
+    color: null,
+    archived: false,
+  };
 
   it('moves the project when an ADMIN asks', async () => {
     const { svc, repo } = makeService({
       findForActor: vi.fn().mockResolvedValue(project),
-      setTeam: vi.fn().mockResolvedValue({ ...project, teamId: OTHER }),
+      setTeam: vi.fn().mockResolvedValue({ ...project, teamId: OTHER, teamIds: [OTHER] }),
     });
     const out = await svc.update('p1', { teamId: OTHER }, admin);
     expect(repo.setTeam).toHaveBeenCalledWith('p1', OTHER, 'a1');
@@ -610,7 +671,7 @@ describe('ProjectsService.update — moving a project between teams', () => {
     // The un-stranding case: the admin moved themselves to t2, the project stayed in t1.
     // Before, this 403'd and the project could not be recovered through any surface.
     const { svc, repo } = makeService({
-      findForActor: vi.fn().mockResolvedValue({ ...project, teamId: 't1' }),
+      findForActor: vi.fn().mockResolvedValue({ ...project, teamId: 't1', teamIds: ['t1'] }),
       setArchived: vi.fn().mockResolvedValue({ ...project, archived: true }),
     });
     await svc.update('p1', { archived: true }, { id: 'a1', role: 'ADMIN', teamId: OTHER });
@@ -619,7 +680,7 @@ describe('ProjectsService.update — moving a project between teams', () => {
 
   it('still 403s a MANAGER administering another team’s project', async () => {
     const { svc } = makeService({
-      findForActor: vi.fn().mockResolvedValue({ ...project, teamId: OTHER }),
+      findForActor: vi.fn().mockResolvedValue({ ...project, teamId: OTHER, teamIds: [OTHER] }),
     });
     await expect(svc.update('p1', { archived: true }, manager)).rejects.toBeInstanceOf(
       ForbiddenException,
@@ -705,7 +766,7 @@ describe('ProjectsService — catalog-managed subprojects', () => {
 
   it('409s a new subproject whose name an active one already has', async () => {
     const { svc, repo } = makeService({
-      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }),
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1', teamIds: ['t1'] }),
       hasActiveSubprojectNamed: vi.fn().mockResolvedValue(true),
     });
     await expect(
@@ -755,9 +816,22 @@ describe('ProjectsService — catalog-managed subprojects', () => {
 
   it('checks the trimmed name, so "Payroll " is caught', async () => {
     const { svc, repo } = makeService({
-      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }),
+      findForActor: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1', teamIds: ['t1'] }),
     });
     await svc.createSubproject({ projectId: 'p1', name: 'Payroll ' }, manager);
     expect(repo.hasActiveSubprojectNamed).toHaveBeenCalledWith('p1', 'Payroll');
+  });
+});
+
+describe('shared projects (assertCanOwn)', () => {
+  it('403s a MANAGER archiving a project linked to two teams, with the shared title', async () => {
+    const { svc } = makeService({
+      findForActor: vi
+        .fn()
+        .mockResolvedValue({ id: 'p1', teamId: 't1', teamIds: ['t1', 't2'], name: 'X' }),
+    });
+    await expect(svc.update('p1', { archived: true }, manager)).rejects.toMatchObject({
+      response: { title: 'Only an admin can change a shared client' },
+    });
   });
 });

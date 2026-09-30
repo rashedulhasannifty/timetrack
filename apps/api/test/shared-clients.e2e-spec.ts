@@ -124,6 +124,101 @@ describe.runIf(RUN_E2E)('shared clients — real Postgres', () => {
     await catalog().resync(admin(eng));
     expect(await activeNames(p.id)).toEqual(['General', 'Payroll']);
   });
+
+  it('the picker lists a shared client for both teams, home team first in teamIds', async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    const acme = await client(eng, 'Acme');
+    await link(acme.id, ops);
+
+    const E1 = '01920000-0000-7000-8000-0000000000e1';
+    const forOps = await projects().list(employee(E1, ops));
+    expect(forOps.map((p) => [p.name, p.teamId, p.teamIds])).toEqual([['Acme', eng, [eng, ops]]]);
+    const forEng = await projects().list(employee(E1, eng));
+    expect(forEng.map((p) => p.name)).toEqual(['Acme']);
+  });
+
+  it('a project with no link row is still listed for its home team, teamIds [home]', async () => {
+    const eng = await team('Eng');
+    await db.prisma.project.create({ data: { teamId: eng, name: 'Old code' } });
+
+    const rows = await projects().list(employee('01920000-0000-7000-8000-0000000000e1', eng));
+    expect(rows.map((p) => [p.name, p.teamIds])).toEqual([['Old code', [eng]]]);
+  });
+
+  it('a project with no link row still receives its home team selection change', async () => {
+    const eng = await team('Eng');
+    const p = await db.prisma.project.create({
+      data: { teamId: eng, name: 'Old code' },
+      select: { id: true },
+    });
+    await db.prisma.subproject.create({
+      data: { projectId: p.id, name: 'General', isDefault: true },
+    });
+
+    await select(eng, 'Payroll');
+    expect(await activeNames(p.id)).toContain('Payroll');
+  });
+
+  it('moving a shared project keeps its other links and drops the old home link', async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    const fin = await team('Fin');
+    const acme = await client(eng, 'Acme');
+    await link(acme.id, ops);
+
+    await projects().update(acme.id, { teamId: fin }, admin(eng));
+
+    const links = await db.prisma.projectTeam.findMany({
+      where: { projectId: acme.id },
+      select: { teamId: true },
+    });
+    expect(links.map((l) => l.teamId).sort()).toEqual([ops, fin].sort());
+  });
+
+  it('a manager of a linked non-home team may add a subproject but not archive or recolor', async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    const acme = await client(eng, 'Acme');
+    await link(acme.id, ops);
+    const opsMgr = manager('01920000-0000-7000-8000-0000000000b2', ops);
+
+    await expect(
+      projects().createSubproject({ projectId: acme.id, name: 'Onboarding' }, opsMgr),
+    ).resolves.toMatchObject({ name: 'Onboarding' });
+    expect(await titleOf(projects().update(acme.id, { archived: true }, opsMgr))).toBe(
+      'Only an admin can change a shared client',
+    );
+    expect(await titleOf(projects().update(acme.id, { color: '#ff9500' }, opsMgr))).toBe(
+      'Only an admin can change a shared client',
+    );
+  });
+
+  it("the home team's manager also loses archive once the client is shared, and keeps it when not", async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    const engMgr = manager('01920000-0000-7000-8000-0000000000b1', eng);
+    const solo = await client(eng, 'Solo');
+    await expect(projects().update(solo.id, { archived: true }, engMgr)).resolves.toMatchObject({
+      archived: true,
+    });
+
+    const acme = await client(eng, 'Acme');
+    await link(acme.id, ops);
+    expect(await titleOf(projects().update(acme.id, { archived: true }, engMgr))).toBe(
+      'Only an admin can change a shared client',
+    );
+  });
+
+  it('a manager of an unlinked team is still refused', async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    const acme = await client(eng, 'Acme');
+    const opsMgr = manager('01920000-0000-7000-8000-0000000000b2', ops);
+    expect(
+      await titleOf(projects().createSubproject({ projectId: acme.id, name: 'X' }, opsMgr)),
+    ).toBe('Cannot manage a project in another team');
+  });
 });
 
 describe('shared clients e2e harness', () => {
