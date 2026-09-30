@@ -26,7 +26,13 @@ export default async function PersonPage({
 
   const { date: rawDate, panel: rawPanel } = await searchParams;
   // Shared with the Overview drawer that intercepts this URL — see PersonDayContent.
-  const day = await loadPersonDay({ token: session.accessToken, userId, rawDate, rawPanel });
+  const day = await loadPersonDay({
+    token: session.accessToken,
+    userId,
+    rawDate,
+    rawPanel,
+    viewerRole: session.role,
+  });
 
   return (
     <>

@@ -28,7 +28,13 @@ export async function PersonDrawerPage({
   if (!session) redirect(refreshBackTo(`/people/${userId}`));
 
   const { date: rawDate, panel: rawPanel } = await searchParams;
-  const day = await loadPersonDay({ token: session.accessToken, userId, rawDate, rawPanel });
+  const day = await loadPersonDay({
+    token: session.accessToken,
+    userId,
+    rawDate,
+    rawPanel,
+    viewerRole: session.role,
+  });
 
   return (
     <RouteDrawer title={day.title} size="wide">
