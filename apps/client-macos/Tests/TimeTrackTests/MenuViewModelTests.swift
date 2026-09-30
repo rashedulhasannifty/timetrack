@@ -554,8 +554,19 @@ final class MenuViewModelTests: XCTestCase {
         vm.activateHighlighted()                                   // Acme
         XCTAssertEqual(vm.level, .project("p1"))
         XCTAssertNil(vm.highlightedRowId, "a level change resets the highlight")
-        vm.activateHighlighted()                                   // nothing highlighted → first row
-        XCTAssertEqual(vm.selection, sel("p1", "s1", nil))
+        // Regression guard: the first row here SELECTS (General has no tasks), and the picker now
+        // opens at the current project — so a bare Return must not silently re-file the clock.
+        vm.activateHighlighted()                                   // nothing highlighted, no search
+        XCTAssertNil(vm.selection)
+        XCTAssertEqual(vm.level, .project("p1"))
+    }
+
+    func testReturnWhileSearchingTracksTheFirstResult() {
+        let vm = makeVM()
+        vm.projects = tree
+        vm.query = "cart"
+        vm.activateHighlighted()
+        XCTAssertEqual(vm.selection, sel("p1", "s2", "k1"))
     }
 
     func testReopeningShowsWhereTheSelectionIsAndSignOutClearsTheLevel() {

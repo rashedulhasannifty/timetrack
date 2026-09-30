@@ -160,10 +160,14 @@ final class MenuViewModel: ObservableObject {
         highlightedRowId = PickerNavigation.moveHighlight(highlightedRowId, by: delta, in: pickerRows)
     }
 
-    /// Return: the highlighted row, or the first one when nothing is highlighted.
+    /// Return: the highlighted row; while searching, the first result when nothing is highlighted.
+    /// Outside a search a bare Return does nothing — the first row often SELECTS (a subproject
+    /// with no tasks) and the picker opens at the current project, so falling back to it would
+    /// silently re-file the running clock under whatever sorts first.
     func activateHighlighted() {
         let rows = pickerRows
-        guard let row = rows.first(where: { $0.id == highlightedRowId }) ?? rows.first else { return }
+        let fallback = PickerSearch.isSearching(query) ? rows.first : nil
+        guard let row = rows.first(where: { $0.id == highlightedRowId }) ?? fallback else { return }
         activate(row)
     }
 

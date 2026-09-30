@@ -178,6 +178,35 @@ public class TrayPopupPickerTests
         Assert.Equal(PickerRowKind.Open, rows[1].Kind);
     }
 
+    // Regression guard: the first row often SELECTS (General has no tasks) and the popup opens at
+    // the current project, so a bare Enter must not silently re-file the running clock.
+    [Fact]
+    public void EnterWithNothingHighlightedAndNoSearchChangesNothing()
+    {
+        var (selection, level) = WithPopup((vm, window) =>
+        {
+            vm.Activate(vm.PickerRows[0]); // Website: General (selects) is the first row
+            window.ActivateHighlightedForTest();
+            return (vm.Selection, vm.Level);
+        });
+
+        Assert.Null(selection);
+        Assert.Equal(new PickerLevel.ProjectLevel("p1"), level);
+    }
+
+    [Fact]
+    public void EnterWhileSearchingTracksTheFirstResult()
+    {
+        var selection = WithPopup((vm, window) =>
+        {
+            vm.Query = "design";
+            window.ActivateHighlightedForTest();
+            return vm.Selection;
+        });
+
+        Assert.Equal(new StoredSelection("p1", "t1", "s2"), selection);
+    }
+
     [Fact]
     public void EscapeWhileSearchingClearsTheQueryAndKeepsTheLevelAndPopup()
     {

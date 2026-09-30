@@ -92,7 +92,7 @@ public class MenuPickerTests
         vm.Projects = Tree;
         vm.SelectProject(new StoredSelection("p1", null, "s1"));
         Assert.Equal(["Acme"], vm.PickerRows.Where(r => r.IsOnPath).Select(r => r.Title));
-        Assert.Empty(vm.PickerRows.Where(r => r.IsCurrent)); // Acme opens a level: no checkmark
+        Assert.DoesNotContain(vm.PickerRows, r => r.IsCurrent); // Acme opens a level: no checkmark
         vm.Activate(vm.PickerRows[0]);
         Assert.Equal(["General"], vm.PickerRows.Where(r => r.IsCurrent).Select(r => r.Title));
     }

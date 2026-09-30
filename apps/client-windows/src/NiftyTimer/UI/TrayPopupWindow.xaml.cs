@@ -381,15 +381,19 @@ public partial class TrayPopupWindow : Window
             var crumb = crumbs[i];
             if (i == crumbs.Count - 1)
             {
-                BreadcrumbBar.Children.Add(new TextBlock
+                var here = new TextBlock
                 {
                     Text = crumb.Title,
                     Style = (Style)FindResource("CaptionText"),
-                    Foreground = (Brush)FindResource("Text"),
                     FontWeight = FontWeights.SemiBold,
                     TextTrimming = TextTrimming.CharacterEllipsis,
                     VerticalAlignment = VerticalAlignment.Center,
-                });
+                };
+
+                // A resource reference, not a one-off read: the crumbs are cached across renders,
+                // so a live light/dark switch must still recolour this label.
+                here.SetResourceReference(TextBlock.ForegroundProperty, "Text");
+                BreadcrumbBar.Children.Add(here);
             }
             else
             {
@@ -465,10 +469,18 @@ public partial class TrayPopupWindow : Window
         }
     }
 
-    /// <summary>Enter: the highlighted row, or the first one when nothing is highlighted.</summary>
+    /// <summary>
+    /// Enter: the highlighted row; while searching, the first result when nothing is highlighted.
+    /// Outside a search a bare Enter does nothing — the first row often SELECTS (a subproject with
+    /// no tasks) and the popup opens at the current project, so falling back to it would silently
+    /// re-file the running clock under whatever sorts first.
+    /// </summary>
     private void ActivateHighlighted()
     {
-        var row = ProjectList.SelectedItem as PickerRow ?? ProjectList.Items.OfType<PickerRow>().FirstOrDefault();
+        var fallback = PickerSearch.IsSearching(_viewModel.Query)
+            ? ProjectList.Items.OfType<PickerRow>().FirstOrDefault()
+            : null;
+        var row = ProjectList.SelectedItem as PickerRow ?? fallback;
         if (row is not null)
         {
             _viewModel.Activate(row);
