@@ -141,6 +141,7 @@ export default async function ProjectsPage({
             residualSeconds={view.residualSeconds}
             totalSeconds={view.totalSeconds}
             rangeLabel={rangeLabel}
+            role={session.role}
           />
         </div>
       )}

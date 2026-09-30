@@ -8,6 +8,7 @@ const row = (over: Partial<ProjectIndexRow> = {}): ProjectIndexRow => ({
   projectId: 'p1',
   name: 'Alpha',
   archived: false,
+  teamIds: ['t1'],
   trackedSeconds: 3600,
   color: '#007aff',
   tasks: [],
@@ -17,7 +18,7 @@ const row = (over: Partial<ProjectIndexRow> = {}): ProjectIndexRow => ({
   ...over,
 });
 
-const render = (rows: ProjectIndexRow[]) =>
+const render = (rows: ProjectIndexRow[], role = 'ADMIN') =>
   renderToStaticMarkup(
     <ToastProvider>
       <ProjectsList
@@ -26,6 +27,7 @@ const render = (rows: ProjectIndexRow[]) =>
         residualSeconds={0}
         totalSeconds={7200}
         rangeLabel="Jun 29 – Jul 5, 2026"
+        role={role}
       />
     </ToastProvider>,
   );
@@ -54,6 +56,15 @@ describe('ProjectsList (closed state)', () => {
   it('flags an archived project', () => {
     const html = render([row({ archived: true })]);
     expect(html).toContain('Archived');
+  });
+
+  it('badges a shared client, and hides Archive from a MANAGER but not an ADMIN', () => {
+    const shared = row({ teamIds: ['t1', 't2'] });
+    expect(render([shared], 'MANAGER')).toContain('Shared');
+    expect(render([shared], 'MANAGER')).not.toContain('Archive');
+    expect(render([shared], 'ADMIN')).toContain('Archive');
+    expect(render([row()], 'MANAGER')).not.toContain('Shared');
+    expect(render([row()], 'MANAGER')).toContain('Archive');
   });
 
   it('does not render the drawer while nothing is open', () => {

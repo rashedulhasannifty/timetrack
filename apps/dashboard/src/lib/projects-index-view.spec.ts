@@ -24,6 +24,7 @@ describe('toProjectIndexRows', () => {
         projectId: 'p2',
         name: 'Beta',
         archived: false,
+        teamIds: ['018f9c1e-0000-7000-8000-0000000000aa'],
         trackedSeconds: 7200,
         color: projectColor('p2'),
         tasks: [],
@@ -35,6 +36,7 @@ describe('toProjectIndexRows', () => {
         projectId: 'p1',
         name: 'Alpha',
         archived: false,
+        teamIds: ['018f9c1e-0000-7000-8000-0000000000aa'],
         trackedSeconds: 3600,
         color: projectColor('p1'),
         tasks: [],
@@ -42,6 +44,15 @@ describe('toProjectIndexRows', () => {
         subprojectCount: 0,
         sharePct: (3600 / 10_800) * 100,
       },
+    ]);
+  });
+
+  it('carries teamIds, falling back to the home team when the API omits them', () => {
+    const shared: Project = { ...P('p1', 'Alpha'), teamIds: ['t1', 't2'] };
+    const { rows } = toProjectIndexRows([shared, P('p2', 'Beta')], []);
+    expect(rows.find((r) => r.projectId === 'p1')?.teamIds).toEqual(['t1', 't2']);
+    expect(rows.find((r) => r.projectId === 'p2')?.teamIds).toEqual([
+      '018f9c1e-0000-7000-8000-0000000000aa',
     ]);
   });
 

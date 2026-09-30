@@ -5,6 +5,8 @@ export type ProjectIndexRow = {
   projectId: string;
   name: string;
   archived: boolean;
+  /** Every team the project is linked to (`Project.teamIds`, else just the home team). */
+  teamIds: string[];
   trackedSeconds: number;
   color: string;
   /** Non-archived tasks on the project, from the nested `tasks` the list endpoint returns, in
@@ -71,6 +73,7 @@ export function toProjectIndexRows(
       projectId: p.id,
       name: p.name,
       archived: p.archived,
+      teamIds: p.teamIds ?? [p.teamId],
       trackedSeconds,
       color: p.color ?? projectColor(p.id),
       tasks,
