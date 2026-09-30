@@ -64,23 +64,23 @@ final class PickerCoreTests: XCTestCase {
         XCTAssertEqual(rows[1].action, .open(.subproject(projectId: "p2", subprojectId: "s3")))
     }
 
-    func testProjectScreenListsBackThenSubprojects() {
+    // Back is the breadcrumb bar now, not a row that looks like something to pick.
+    func testProjectScreenListsOnlySubprojects() {
         let rows = PickerNavigation.rows(at: .project("p1"), in: tree)
-        XCTAssertEqual(rows.map(\.title), ["Acme", "General", "checkout"])
-        XCTAssertEqual(rows[0].action, .back)
-        XCTAssertEqual(rows[2].action, .open(.subproject(projectId: "p1", subprojectId: "s2")))
+        XCTAssertEqual(rows.map(\.title), ["General", "checkout"])
+        XCTAssertEqual(rows[1].action, .open(.subproject(projectId: "p1", subprojectId: "s2")))
     }
 
     func testTaskScreenOfAShownSubproject() {
         let rows = PickerNavigation.rows(at: .subproject(projectId: "p1", subprojectId: "s2"), in: tree)
-        XCTAssertEqual(rows.map(\.title), ["Acme › checkout", "checkout (no task)", "Cart", "pay form"])
-        XCTAssertEqual(rows[1].action, .track(StoredSelection(projectId: "p1", subprojectId: "s2", taskId: nil)))
-        XCTAssertEqual(rows[2].action, .track(StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "k3")))
+        XCTAssertEqual(rows.map(\.title), ["checkout (no task)", "Cart", "pay form"])
+        XCTAssertEqual(rows[0].action, .track(StoredSelection(projectId: "p1", subprojectId: "s2", taskId: nil)))
+        XCTAssertEqual(rows[1].action, .track(StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "k3")))
     }
 
     func testTaskScreenOfASkippedProjectIsTitledWithTheProject() {
         let rows = PickerNavigation.rows(at: .subproject(projectId: "p2", subprojectId: "s3"), in: tree)
-        XCTAssertEqual(rows.map(\.title), ["Borealis", "Borealis (no task)", "Hero copy"])
+        XCTAssertEqual(rows.map(\.title), ["Borealis (no task)", "Hero copy"])
     }
 
     func testBackGoesUpOneLevelAndSkipsTheOmittedScreen() {
@@ -97,19 +97,6 @@ final class PickerCoreTests: XCTestCase {
         XCTAssertEqual(PickerNavigation.rows(at: .project("gone"), in: tree).map(\.title), ["Acme", "Borealis", "Legacy"])
     }
 
-    func testHeaderText() {
-        XCTAssertEqual(PickerNavigation.headerText(for: nil, in: tree), "No project")
-        XCTAssertEqual(PickerNavigation.headerText(for: StoredSelection(projectId: "gone", taskId: nil), in: tree), "No project")
-        XCTAssertEqual(PickerNavigation.headerText(for: StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "k3"), in: tree),
-                       "Acme › checkout › Cart")
-        XCTAssertEqual(PickerNavigation.headerText(for: StoredSelection(projectId: "p1", subprojectId: "s1", taskId: nil), in: tree),
-                       "Acme › General")
-        XCTAssertEqual(PickerNavigation.headerText(for: StoredSelection(projectId: "p2", subprojectId: "s3", taskId: "k4"), in: tree),
-                       "Borealis › Hero copy")
-        XCTAssertEqual(PickerNavigation.headerText(for: StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "gone"), in: tree),
-                       "Acme › checkout")
-    }
-
     func testMoveHighlightClampsAndStartsAtAnEnd() {
         let rows = PickerNavigation.rows(at: .root, in: tree)   // p:p1, p:p2, p:p3
         XCTAssertEqual(PickerNavigation.moveHighlight(nil, by: 1, in: rows), rows[0].id)
@@ -117,6 +104,100 @@ final class PickerCoreTests: XCTestCase {
         XCTAssertEqual(PickerNavigation.moveHighlight(rows[2].id, by: 1, in: rows), rows[2].id)
         XCTAssertEqual(PickerNavigation.moveHighlight(rows[1].id, by: -1, in: rows), rows[0].id)
         XCTAssertNil(PickerNavigation.moveHighlight(nil, by: 1, in: []))
+    }
+
+    // MARK: task-free projects (what production has: work types, no tasks)
+
+    // Energy: two subprojects, no tasks. Solo: only its default, no tasks.
+    private let taskFree: [Project] = [
+        Project(id: "e1", teamId: "t", name: "Energy", archived: false, tasks: [],
+                subprojects: [Subproject(id: "d1", projectId: "e1", name: "General", archived: false, isDefault: true),
+                              Subproject(id: "d2", projectId: "e1", name: "Software", archived: false, isDefault: false)]),
+        Project(id: "o1", teamId: "t", name: "Solo", archived: false, tasks: [],
+                subprojects: [Subproject(id: "d3", projectId: "o1", name: "General", archived: false, isDefault: true)]),
+    ]
+    private var freeTree: [PickerProject] { PickerTree.build(taskFree) }
+
+    // A subproject with nothing under it is the choice itself: one click, not a screen whose
+    // only useful row is "(no task)".
+    func testASubprojectWithoutTasksIsPickedInOneClick() {
+        let rows = PickerNavigation.rows(at: .project("e1"), in: freeTree)
+        XCTAssertEqual(rows.map(\.title), ["General", "Software"])
+        XCTAssertEqual(rows[1].action, .track(StoredSelection(projectId: "e1", subprojectId: "d2", taskId: nil)))
+    }
+
+    func testAProjectWithOnlyItsDefaultAndNoTasksIsPickedFromTheRoot() {
+        let rows = PickerNavigation.rows(at: .root, in: freeTree)
+        XCTAssertEqual(rows[0].action, .open(.project("e1")))
+        XCTAssertEqual(rows[1].action, .track(StoredSelection(projectId: "o1", subprojectId: "d3", taskId: nil)))
+    }
+
+    // MARK: breadcrumb
+
+    func testBreadcrumbNamesEachLevelAndSkipsTheOmittedScreen() {
+        XCTAssertEqual(PickerNavigation.breadcrumb(at: .root, in: tree), [])
+        XCTAssertEqual(PickerNavigation.breadcrumb(at: .project("p1"), in: tree),
+                       [PickerCrumb(title: "All projects", level: .root), PickerCrumb(title: "Acme", level: .project("p1"))])
+        XCTAssertEqual(PickerNavigation.breadcrumb(at: .subproject(projectId: "p1", subprojectId: "s2"), in: tree),
+                       [PickerCrumb(title: "All projects", level: .root),
+                        PickerCrumb(title: "Acme", level: .project("p1")),
+                        PickerCrumb(title: "checkout", level: .subproject(projectId: "p1", subprojectId: "s2"))])
+        XCTAssertEqual(PickerNavigation.breadcrumb(at: .subproject(projectId: "p2", subprojectId: "s3"), in: tree),
+                       [PickerCrumb(title: "All projects", level: .root),
+                        PickerCrumb(title: "Borealis", level: .subproject(projectId: "p2", subprojectId: "s3"))])
+    }
+
+    // MARK: where you are
+
+    func testTheCurrentPathIsMarkedAtEveryLevel() {
+        let sel = StoredSelection(projectId: "e1", subprojectId: "d2", taskId: nil)
+        let root = PickerNavigation.rows(at: .root, in: freeTree)
+        XCTAssertEqual(root.map { PickerNavigation.isOnCurrentPath($0, selection: sel, in: freeTree) }, [true, false])
+        let subs = PickerNavigation.rows(at: .project("e1"), in: freeTree)
+        XCTAssertEqual(subs.map { PickerNavigation.isOnCurrentPath($0, selection: sel, in: freeTree) }, [false, true])
+        XCTAssertFalse(PickerNavigation.isOnCurrentPath(root[0], selection: nil, in: freeTree))
+    }
+
+    // A task sits under its subproject: that subproject row (which opens the tasks) is on the path.
+    func testATaskSelectionMarksItsSubprojectAndTheTask() {
+        let sel = StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "k3")
+        let subs = PickerNavigation.rows(at: .project("p1"), in: tree)
+        XCTAssertEqual(subs.map { PickerNavigation.isOnCurrentPath($0, selection: sel, in: tree) }, [false, true])
+        let tasks = PickerNavigation.rows(at: .subproject(projectId: "p1", subprojectId: "s2"), in: tree)
+        XCTAssertEqual(tasks.map { PickerNavigation.isOnCurrentPath($0, selection: sel, in: tree) }, [false, true, false])
+    }
+
+    // A selection stored without a subproject means the project's default.
+    func testASelectionWithoutASubprojectMeansTheDefault() {
+        let sel = StoredSelection(projectId: "e1", subprojectId: nil, taskId: nil)
+        let subs = PickerNavigation.rows(at: .project("e1"), in: freeTree)
+        XCTAssertEqual(subs.map { PickerNavigation.isOnCurrentPath($0, selection: sel, in: freeTree) }, [true, false])
+    }
+
+    func testThePickerOpensWhereTheSelectionIs() {
+        XCTAssertEqual(PickerNavigation.home(for: nil, in: tree), .root)
+        XCTAssertEqual(PickerNavigation.home(for: StoredSelection(projectId: "gone", taskId: nil), in: tree), .root)
+        XCTAssertEqual(PickerNavigation.home(for: StoredSelection(projectId: "e1", subprojectId: "d2", taskId: nil), in: freeTree),
+                       .project("e1"))
+        // Nothing to show below a lone-default project without tasks: the root is where it is picked.
+        XCTAssertEqual(PickerNavigation.home(for: StoredSelection(projectId: "o1", subprojectId: "d3", taskId: nil), in: freeTree),
+                       .root)
+        XCTAssertEqual(PickerNavigation.home(for: StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "k3"), in: tree),
+                       .subproject(projectId: "p1", subprojectId: "s2"))
+    }
+
+    func testWorkingOnSplitsTheProjectFromWhatIsUnderIt() {
+        XCTAssertNil(PickerNavigation.workingOn(nil, in: tree))
+        XCTAssertNil(PickerNavigation.workingOn(StoredSelection(projectId: "gone", taskId: nil), in: tree))
+        XCTAssertEqual(PickerNavigation.workingOn(StoredSelection(projectId: "e1", subprojectId: "d2", taskId: nil), in: freeTree),
+                       PickerWorkingOn(project: "Energy", detail: "Software"))
+        XCTAssertEqual(PickerNavigation.workingOn(StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "k3"), in: tree),
+                       PickerWorkingOn(project: "Acme", detail: "checkout › Cart"))
+        XCTAssertEqual(PickerNavigation.workingOn(StoredSelection(projectId: "o1", subprojectId: "d3", taskId: nil), in: freeTree),
+                       PickerWorkingOn(project: "Solo", detail: nil))
+        // A task deleted since it was picked: the subproject still names the place.
+        XCTAssertEqual(PickerNavigation.workingOn(StoredSelection(projectId: "p1", subprojectId: "s2", taskId: "gone"), in: tree),
+                       PickerWorkingOn(project: "Acme", detail: "checkout"))
     }
 
     // MARK: search

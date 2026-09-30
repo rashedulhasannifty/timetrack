@@ -14,6 +14,8 @@ struct MenuBarView: View {
                     header
                     controls
                     Divider()
+                    workingOnCard
+                    Divider()
                     noteField
                     Divider()
                     picker
@@ -213,16 +215,90 @@ struct MenuBarView: View {
         .padding(.vertical, TT.Space.x3)
     }
 
+    /// What the time is being filed under, in its own section right under the clock — separate
+    /// from the switcher below, so "where am I" never has to be read out of the list.
+    @ViewBuilder private var workingOnCard: some View {
+        VStack(alignment: .leading, spacing: TT.Space.x2) {
+            Text("WORKING ON")
+                .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)
+            HStack(spacing: TT.Space.x2) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(viewModel.workingOn == nil ? TT.Palette.categoryUnproductive : TT.Palette.accent)
+                    .frame(width: 3)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let working = viewModel.workingOn {
+                        Text(working.project)
+                            .font(.ttLabel.weight(.semibold)).foregroundStyle(TT.Palette.text)
+                            .lineLimit(1).truncationMode(.middle)
+                        if let detail = working.detail {
+                            Text(detail)
+                                .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                    } else {
+                        Text("No project")
+                            .font(.ttLabel.weight(.semibold)).foregroundStyle(TT.Palette.text)
+                        Text("Pick one below")
+                            .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background((viewModel.workingOn == nil ? TT.Palette.categoryUnproductive : TT.Palette.accent)
+                            .opacity(0.10),
+                        in: RoundedRectangle(cornerRadius: TT.Radius.sm))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(workingOnAccessibilityLabel)
+        }
+        .padding(.horizontal, TT.Space.x4)
+        .padding(.vertical, TT.Space.x3)
+    }
+
+    private var workingOnAccessibilityLabel: String {
+        guard let working = viewModel.workingOn else { return "Working on: no project" }
+        return "Working on: " + ([working.project] + (working.detail.map { [$0] } ?? []))
+            .joined(separator: ", ")
+    }
+
+    /// Navigation, not a row to pick: a back chevron and the path to this level, each crumb but
+    /// the last clickable. Absent at the root, where there is nowhere to go back to.
+    @ViewBuilder private var breadcrumbBar: some View {
+        let crumbs = viewModel.breadcrumb
+        if !crumbs.isEmpty, !PickerSearch.isSearching(viewModel.query) {
+            HStack(spacing: 4) {
+                Button(action: viewModel.goBack) {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(TT.Palette.accent)
+                .help("Back")
+                ForEach(Array(crumbs.enumerated()), id: \.offset) { index, crumb in
+                    if index > 0 {
+                        Text("/").foregroundStyle(TT.Palette.textSecondary)
+                    }
+                    if index == crumbs.count - 1 {
+                        Text(crumb.title).foregroundStyle(TT.Palette.text).fontWeight(.semibold)
+                            .lineLimit(1).truncationMode(.middle)
+                    } else {
+                        Button(crumb.title) { viewModel.navigate(to: crumb.level) }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(TT.Palette.accent)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .font(.ttCaption)
+            .padding(.vertical, 2)
+        }
+    }
+
     @ViewBuilder private var picker: some View {
         VStack(alignment: .leading, spacing: TT.Space.x2) {
             Text("SWITCH PROJECT")
                 .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)
-            // The current selection as a path, always visible whichever level the list shows.
-            HStack(spacing: 6) {
-                Circle().fill(viewModel.hasResolvedSelection ? TT.Palette.accent : TT.Palette.textSecondary)
-                    .frame(width: 6, height: 6)
-                Text(viewModel.selectionHeader).font(.ttCaption).lineLimit(1).truncationMode(.middle)
-            }
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(TT.Palette.textSecondary)
                 TextField("Search projects and tasks", text: $viewModel.query)
@@ -235,6 +311,8 @@ struct MenuBarView: View {
             }
             .padding(.horizontal, 9).padding(.vertical, 6)
             .background(TT.Palette.surface, in: RoundedRectangle(cornerRadius: TT.Radius.sm))
+
+            breadcrumbBar
 
             ScrollView {
                 VStack(spacing: 0) {
@@ -252,17 +330,20 @@ struct MenuBarView: View {
         .padding(.vertical, TT.Space.x3)
     }
 
+    /// A row on the way to the current choice is tinted with an accent dot at every level; the
+    /// choice itself also gets the checkmark. Rows that open a level keep their chevron.
     @ViewBuilder private func pickerRow(_ row: PickerRow) -> some View {
+        let onPath = viewModel.isOnCurrentPath(row)
         HStack(spacing: 6) {
-            if case .back = row.action {
-                Image(systemName: "chevron.left").foregroundStyle(TT.Palette.textSecondary)
-            }
+            Circle()
+                .fill(onPath ? TT.Palette.accent : Color.clear)
+                .frame(width: 6, height: 6)
             Text(row.title)
-                .font(row.action == .back ? .ttCaption : .ttLabel)
-                .foregroundStyle(row.action == .back ? TT.Palette.textSecondary : TT.Palette.text)
+                .font(onPath ? .ttLabel.weight(.semibold) : .ttLabel)
+                .foregroundStyle(TT.Palette.text)
                 .lineLimit(1).truncationMode(.middle)
             Spacer()
-            if viewModel.isCurrent(row) {
+            if case .track = row.action, onPath {
                 Image(systemName: "checkmark").foregroundStyle(TT.Palette.accent)
             }
             if case .open = row.action {
@@ -271,8 +352,13 @@ struct MenuBarView: View {
         }
         .contentShape(Rectangle())
         .padding(.horizontal, 8).padding(.vertical, 7)
-        .background(viewModel.highlightedRowId == row.id ? TT.Palette.surface : Color.clear,
-                    in: RoundedRectangle(cornerRadius: TT.Radius.sm))
+        .background(rowBackground(row, onPath: onPath), in: RoundedRectangle(cornerRadius: TT.Radius.sm))
+        .accessibilityAddTraits(onPath ? .isSelected : [])
+    }
+
+    private func rowBackground(_ row: PickerRow, onPath: Bool) -> Color {
+        if viewModel.highlightedRowId == row.id { return TT.Palette.surface }
+        return onPath ? TT.Palette.accent.opacity(0.10) : Color.clear
     }
 
     // MARK: Footer — my data / sign out / quit

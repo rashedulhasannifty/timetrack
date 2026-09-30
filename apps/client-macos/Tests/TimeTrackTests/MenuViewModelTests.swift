@@ -472,26 +472,39 @@ final class MenuViewModelTests: XCTestCase {
         vm.projects = tree
         vm.activate(vm.pickerRows[0])                              // Acme → subproject screen
         XCTAssertEqual(vm.level, .project("p1"))
-        vm.activate(vm.pickerRows.first { $0.title == "Checkout" }!)
-        XCTAssertEqual(vm.pickerRows.map(\.title), ["Acme › Checkout", "Checkout (no task)", "Cart"])
-        vm.activate(vm.pickerRows[1])                              // track Checkout, no task
+        vm.activate(vm.pickerRows.first { $0.title == "Checkout" }!)   // has a task → opens
+        XCTAssertEqual(vm.pickerRows.map(\.title), ["Checkout (no task)", "Cart"])
+        XCTAssertEqual(vm.breadcrumb.map(\.title), ["All projects", "Acme", "Checkout"])
+        vm.activate(vm.pickerRows[0])                              // track Checkout, no task
 
         XCTAssertEqual(vm.selection, sel("p1", "s2", nil))
-        XCTAssertTrue(vm.isCurrent(vm.pickerRows[1]))
-        XCTAssertEqual(vm.selectionHeader, "Acme › Checkout")
+        XCTAssertTrue(vm.isOnCurrentPath(vm.pickerRows[0]))
+        XCTAssertEqual(vm.workingOn, PickerWorkingOn(project: "Acme", detail: "Checkout"))
 
         vm.start(); clock.advance(60); vm.stop()
         XCTAssertEqual(spy.object(at: 0)["subprojectId"] as? String, "s2")
         XCTAssertTrue(spy.object(at: 0)["taskId"] is NSNull)
     }
 
-    func testAProjectWithOnlyGeneralSkipsToItsTasksAndBackReturnsToRoot() {
+    func testAProjectWithOnlyGeneralAndNoTasksIsPickedFromTheRoot() {
         let vm = makeVM()
         vm.projects = tree
-        vm.activate(vm.pickerRows[1])                              // Beta
-        XCTAssertEqual(vm.level, .subproject(projectId: "p2", subprojectId: "s3"))
-        vm.activate(vm.pickerRows[0])                              // ‹ Beta
+        vm.activate(vm.pickerRows[1])                              // Beta — nothing below it
         XCTAssertEqual(vm.level, .root)
+        XCTAssertEqual(vm.selection, sel("p2", "s3", nil))
+        XCTAssertEqual(vm.workingOn, PickerWorkingOn(project: "Beta", detail: nil))
+    }
+
+    func testTheBreadcrumbAndBackChevronGoUp() {
+        let vm = makeVM()
+        vm.projects = tree
+        vm.activate(vm.pickerRows[0])                              // Acme
+        vm.activate(vm.pickerRows.first { $0.title == "Checkout" }!)
+        vm.navigate(to: vm.breadcrumb[1].level)                    // "Acme"
+        XCTAssertEqual(vm.level, .project("p1"))
+        vm.goBack()
+        XCTAssertEqual(vm.level, .root)
+        XCTAssertEqual(vm.breadcrumb, [])
     }
 
     func testSearchTracksAResultImmediatelyAndClearingRestoresTheLevel() {
@@ -538,20 +551,23 @@ final class MenuViewModelTests: XCTestCase {
         vm.projects = tree
         vm.moveHighlight(by: 1)
         XCTAssertEqual(vm.highlightedRowId, "p:p1")
-        vm.moveHighlight(by: 1)
-        vm.activateHighlighted()                                   // Beta
-        XCTAssertEqual(vm.level, .subproject(projectId: "p2", subprojectId: "s3"))
+        vm.activateHighlighted()                                   // Acme
+        XCTAssertEqual(vm.level, .project("p1"))
         XCTAssertNil(vm.highlightedRowId, "a level change resets the highlight")
-        vm.activateHighlighted()                                   // nothing highlighted → first row (back)
-        XCTAssertEqual(vm.level, .root)
+        vm.activateHighlighted()                                   // nothing highlighted → first row
+        XCTAssertEqual(vm.selection, sel("p1", "s1", nil))
     }
 
-    func testReopeningStartsAtTheRootAndSignOutClearsTheLevel() {
+    func testReopeningShowsWhereTheSelectionIsAndSignOutClearsTheLevel() {
         let vm = makeVM()
         vm.projects = tree
         vm.activate(vm.pickerRows[0])
         vm.pickerDidOpen()
-        XCTAssertEqual(vm.level, .root)
+        XCTAssertEqual(vm.level, .root, "nothing selected yet: the top of the list")
+        vm.select(sel("p1", "s2", nil))
+        vm.navigate(to: .root)
+        vm.pickerDidOpen()
+        XCTAssertEqual(vm.level, .project("p1"), "opens at the chosen project's subprojects")
         vm.activate(vm.pickerRows[0])
         vm.reset()
         XCTAssertEqual(vm.level, .root)
