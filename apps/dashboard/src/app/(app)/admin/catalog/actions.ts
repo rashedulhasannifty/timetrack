@@ -4,13 +4,20 @@ import { revalidatePath } from 'next/cache';
 import { UpdateWorkTypeSchema, parseNameList, type NameSkip } from '@timetrack/contracts';
 import { getSession } from '../../../../lib/session';
 import { api, ApiError } from '../../../../lib/api-client';
-import { describeCounts, describeTeamSave, teamSaveDiff } from '../../../../lib/catalog-view';
+import {
+  describeCounts,
+  describeImport,
+  describeTeamSave,
+  teamSaveDiff,
+} from '../../../../lib/catalog-view';
 
 /** Result of a catalog form, surfaced through useToastAction. */
 export interface CatalogState {
   ok: boolean;
   message?: string;
   created?: string[];
+  /** Import only: existing clients of other teams that were shared into the chosen team. */
+  shared?: { name: string; homeTeam: string }[];
   skipped?: NameSkip[];
 }
 
@@ -132,10 +139,23 @@ export async function importClientsAction(
     const result = await api.bulkCreateProjects(token, { teamId, names });
     revalidatePath(PATH);
     revalidatePath('/projects');
+    // The home team's name for each shared client; one extra read, only when something was shared.
+    const teamName =
+      result.shared.length === 0
+        ? new Map<string, string>()
+        : new Map((await api.listTeams(token)).map((t) => [t.id, t.name] as const));
     return {
       ok: true,
-      message: `${result.created.length} imported, ${result.skipped.length} skipped`,
+      message: describeImport({
+        created: result.created.length,
+        shared: result.shared.length,
+        skipped: result.skipped.length,
+      }),
       created: result.created.map((p) => p.name),
+      shared: result.shared.map((p) => ({
+        name: p.name,
+        homeTeam: teamName.get(p.teamId) ?? 'another team',
+      })),
       skipped: result.skipped,
     };
   } catch (e) {

@@ -2,6 +2,7 @@ import type {
   ProjectHoursTrendRow,
   ProjectMemberRow,
   ProjectSubprojectRow,
+  ProjectTeamRow,
   ProjectTaskRow,
   Subproject,
   Task,
@@ -47,4 +48,22 @@ export function taskMoveOptions(
   return subprojects
     .filter((s) => !s.archived || s.id === currentSubprojectId)
     .map((s) => ({ id: s.id, label: s.archived ? `${s.name} (archived)` : s.name }));
+}
+
+/** The client's time by team, for the split table (spec §6). Share is of the whole client. */
+export function toTeamSplitRows(
+  byTeam: ProjectTeamRow[],
+  totalSeconds: number,
+): { key: string; name: string; seconds: number; pct: number }[] {
+  return byTeam.map((t) => ({
+    key: t.teamId ?? 'unassigned',
+    name: t.teamName,
+    seconds: t.trackedSeconds,
+    pct: totalSeconds === 0 ? 0 : (t.trackedSeconds / totalSeconds) * 100,
+  }));
+}
+
+/** Mirrors the API's assertCanOwn: a shared client is ADMIN-only to archive or recolor. */
+export function canOwnProject(role: string, teamIds: readonly string[]): boolean {
+  return role === 'ADMIN' || teamIds.length <= 1;
 }

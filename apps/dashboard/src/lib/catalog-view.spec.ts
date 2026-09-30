@@ -8,6 +8,7 @@ import {
   syncColumnTicks,
   toggleColumnTick,
   describeCounts,
+  describeImport,
   describeTeamSave,
   teamFormId,
   teamSaveDiff,
@@ -198,5 +199,45 @@ describe('team column ticks (kept in client state so a failed save keeps them)',
     const ticks = toggleColumnTick(columnTicks(matrix), 't-eng', 'w-aud', true);
     expect(columnSubmission(matrix, ticks, 't-eng')).toEqual(['w-adh', 'w-aud', 'w-pay']);
     expect(columnSubmission(matrix, ticks, 't-missing')).toEqual([]);
+  });
+});
+
+describe('clientRows with shared clients', () => {
+  const teams = [
+    { id: 't1', name: 'Eng' },
+    { id: 't2', name: 'Ops' },
+  ];
+  const project = (over: Partial<Project>): Project => ({
+    id: 'p1',
+    teamId: 't1',
+    name: 'Acme',
+    color: null,
+    archived: false,
+    ...over,
+  });
+  it('lists linked teams home first and marks 2+ as shared', () => {
+    const [row] = clientRows(teams, [project({ teamIds: ['t1', 't2'] })]);
+    expect(row).toMatchObject({
+      teams: [
+        { id: 't1', name: 'Eng' },
+        { id: 't2', name: 'Ops' },
+      ],
+      shared: true,
+    });
+  });
+  it('falls back to the home team when teamIds is absent', () => {
+    const [row] = clientRows(teams, [project({})]);
+    expect(row).toMatchObject({ teams: [{ id: 't1', name: 'Eng' }], shared: false });
+  });
+});
+
+describe('describeImport', () => {
+  it('counts created, shared and skipped clients', () => {
+    expect(describeImport({ created: 2, shared: 1, skipped: 0 })).toBe(
+      '2 imported, 1 shared with this team, 0 skipped',
+    );
+  });
+  it('leaves out the shared count when nothing was shared', () => {
+    expect(describeImport({ created: 1, shared: 0, skipped: 3 })).toBe('1 imported, 3 skipped');
   });
 });

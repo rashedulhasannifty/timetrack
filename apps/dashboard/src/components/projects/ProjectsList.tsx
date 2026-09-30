@@ -11,6 +11,7 @@ import { IconInfo } from '../ui/icons';
 import { startedOnInteractive } from '../../lib/row-click';
 import { formatDuration } from '../../lib/format';
 import { ProjectArchiveToggle } from './ProjectArchiveToggle';
+import { canOwnProject } from '../../lib/project-detail-view';
 import type { ProjectIndexRow } from '../../lib/projects-index-view';
 
 /**
@@ -25,12 +26,14 @@ export function ProjectsList({
   residualSeconds,
   totalSeconds,
   rangeLabel,
+  role,
 }: {
   rows: ProjectIndexRow[];
   noProjectSeconds: number;
   residualSeconds: number;
   totalSeconds: number;
   rangeLabel: string;
+  role: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   // Derived from props, not stored: if the open project's row vanishes from `rows` on a
@@ -70,6 +73,7 @@ export function ProjectsList({
                     Archived
                   </span>
                 )}
+                {row.teamIds.length > 1 && <Badge tone="neutral">Shared</Badge>}
                 <span className="text-text-secondary text-caption min-w-[190px]">
                   {row.subprojectCount} {row.subprojectCount === 1 ? 'subproject' : 'subprojects'} ·{' '}
                   {row.taskCount === 0
@@ -83,7 +87,9 @@ export function ProjectsList({
                 <span className="tt-numeric text-neutral w-10 shrink-0 text-right text-caption">
                   {Math.round(row.sharePct)}%
                 </span>
-                <ProjectArchiveToggle id={row.projectId} archived={row.archived} />
+                {canOwnProject(role, row.teamIds) && (
+                  <ProjectArchiveToggle id={row.projectId} archived={row.archived} />
+                )}
                 <button
                   type="button"
                   onClick={() => setOpenId(row.projectId)}
@@ -143,7 +149,9 @@ export function ProjectsList({
               >
                 Open project
               </Link>
-              <ProjectArchiveToggle id={openRow.projectId} archived={openRow.archived} />
+              {canOwnProject(role, openRow.teamIds) && (
+                <ProjectArchiveToggle id={openRow.projectId} archived={openRow.archived} />
+              )}
             </div>
           ) : undefined
         }
@@ -158,6 +166,7 @@ export function ProjectsList({
               />
               <span className="text-body font-bold">{openRow.name}</span>
               {openRow.archived ? <Badge tone="neutral">Archived</Badge> : null}
+              {openRow.teamIds.length > 1 ? <Badge tone="neutral">Shared</Badge> : null}
             </div>
 
             <div className="text-text-secondary text-caption">{rangeLabel}</div>

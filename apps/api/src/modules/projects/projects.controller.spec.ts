@@ -23,6 +23,7 @@ function make(overrides: Partial<ProjectsService> = {}) {
     updateSubproject: vi.fn(),
     listSubprojects: vi.fn(),
     topApps: vi.fn(),
+    setTeams: vi.fn(),
     ...overrides,
   } as unknown as ProjectsService;
   return { ctrl: new ProjectsController(service), service };
@@ -146,5 +147,37 @@ describe('ProjectsController.bulkCreate authorization', () => {
     const dto = { teamId: '01920000-0000-7000-8000-0000000000c1', names: ['Acme'] };
     await ctrl.bulkCreate(dto, actor);
     expect(service.bulkCreate).toHaveBeenCalledWith(dto, actor);
+  });
+});
+
+describe('ProjectsController.setTeams authorization', () => {
+  const ctx = (user: SessionUser): ExecutionContext =>
+    ({
+      getHandler: () => ProjectsController.prototype.setTeams,
+      getClass: () => ProjectsController,
+      switchToHttp: () => ({ getRequest: () => ({ user }) }),
+    }) as unknown as ExecutionContext;
+
+  it('is ADMIN-only', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const meta = Reflect.getMetadata(ROLES, ProjectsController.prototype.setTeams);
+    expect(meta).toEqual(['ADMIN']);
+  });
+
+  it('403s MANAGER and EMPLOYEE through the real RolesGuard', () => {
+    const guard = new RolesGuard(new Reflector());
+    for (const role of ['MANAGER', 'EMPLOYEE'] as const) {
+      expect(() => guard.canActivate(ctx({ id: 'u1', role, teamId: 't1' }))).toThrow(
+        ForbiddenException,
+      );
+    }
+    expect(guard.canActivate(ctx({ id: 'a1', role: 'ADMIN', teamId: 't1' }))).toBe(true);
+  });
+
+  it('passes the id, dto and actor to the service', async () => {
+    const { ctrl, service } = make();
+    const dto = { teamIds: ['01920000-0000-7000-8000-0000000000c1'] };
+    await ctrl.setTeams('p1', dto, actor);
+    expect(service.setTeams).toHaveBeenCalledWith('p1', dto, actor);
   });
 });

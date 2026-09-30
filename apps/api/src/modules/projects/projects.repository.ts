@@ -59,6 +59,28 @@ const SUBPROJECT_SELECT = {
   isDefault: true,
 } as const;
 
+/**
+ * Linked team ids with the home team first (Prisma cannot order a nested select that way). The
+ * home team is always included, even with no link row (a project made by old code).
+ */
+function homeFirst(homeTeamId: string, links: readonly { teamId: string }[]): string[] {
+  const rest = links
+    .map((l) => l.teamId)
+    .filter((t) => t !== homeTeamId)
+    .sort();
+  return [homeTeamId, ...rest];
+}
+
+/** A client as the share-aware import sees it: linked teams home first. */
+export type ImportCandidate = {
+  id: string;
+  name: string;
+  teamId: string;
+  teamName: string;
+  archived: boolean;
+  teamIds: string[];
+};
+
 /** CLAUDE.md §3 — Prisma lives here. Never select `*` back to the client. */
 @Injectable()
 export class ProjectsRepository {
@@ -70,7 +92,12 @@ export class ProjectsRepository {
   ) {}
 
   async listByTeam(teamId: string, includeArchived = false): Promise<Project[]> {
-    return this.findProjects({ teamId }, includeArchived);
+    // LINKED to the team, home or shared (spec §5.1). The home team always counts, with or
+    // without a link row, so a project made by old code during a deploy is still listed.
+    return this.findProjects(
+      { OR: [{ teamId }, { teams: { some: { teamId } } }] },
+      includeArchived,
+    );
   }
 
   /** Every team's projects (ADMIN `allTeams`): same select and ordering as `listByTeam`. */
@@ -79,15 +106,16 @@ export class ProjectsRepository {
   }
 
   private async findProjects(
-    scope: { teamId?: string },
+    scope: Prisma.ProjectWhereInput,
     includeArchived: boolean,
   ): Promise<Project[]> {
     // One query, not N+1 (CLAUDE.md §4) — tasks come back via the nested select.
-    return this.prisma.project.findMany({
+    const rows = await this.prisma.project.findMany({
       where: { ...scope, ...(includeArchived ? {} : { archived: false }) },
       orderBy: { name: 'asc' },
       select: {
         ...PROJECT_SELECT,
+        teams: { select: { teamId: true } },
         subprojects: {
           where: includeArchived ? {} : { archived: false },
           orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
@@ -102,6 +130,7 @@ export class ProjectsRepository {
         },
       },
     });
+    return rows.map(({ teams, ...p }) => ({ ...p, teamIds: homeFirst(p.teamId, teams) }));
   }
 
   async createProject(
@@ -117,6 +146,8 @@ export class ProjectsRepository {
           data: { teamId, name, color },
           select: PROJECT_SELECT,
         });
+        // Before reconcile: reconcile reads project_teams.
+        await tx.projectTeam.create({ data: { projectId: project.id, teamId } });
         // Every project owns exactly one default subproject (partial unique index), created with it.
         await tx.subproject.create({
           data: { projectId: project.id, name: DEFAULT_SUBPROJECT_NAME, isDefault: true },
@@ -151,53 +182,111 @@ export class ProjectsRepository {
     return this.prisma.team.findUnique({ where: { id: teamId }, select: { id: true, name: true } });
   }
 
-  /** Every project name in the org, with its team's name — the import's org-wide duplicate check. */
-  async listAllProjectNames(): Promise<{ name: string; teamName: string }[]> {
+  /** Every project in the org with what the share-aware import needs to decide (spec §6). */
+  async listProjectsForImport(): Promise<ImportCandidate[]> {
     const rows = await this.prisma.project.findMany({
       orderBy: { name: 'asc' },
-      select: { name: true, team: { select: { name: true } } },
+      select: {
+        id: true,
+        name: true,
+        teamId: true,
+        archived: true,
+        team: { select: { name: true } },
+        teams: { select: { teamId: true } },
+      },
     });
-    return rows.map((r) => ({ name: r.name, teamName: r.team.name }));
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      teamId: r.teamId,
+      teamName: r.team.name,
+      archived: r.archived,
+      teamIds: homeFirst(r.teamId, r.teams),
+    }));
   }
 
   /**
-   * The client import (spec §6): every project, its General default, a `project.create` audit row
-   * each, and one reconcile for the lot — all in ONE transaction, with the long timeout.
+   * The client import (spec §6), in ONE transaction with the long timeout:
+   * - `items` become new projects of the team, each with its General default and a
+   *   `project.create` audit row;
+   * - `shareIds` (existing clients of other teams) gain a link to the team, each with a
+   *   `project.teams_set` audit row, exactly as the set-teams route writes it;
+   * - then one reconcile for all of them. Links are written first: reconcile reads project_teams.
    */
-  async createProjectsBulk(
+  async importProjects(
     teamId: string,
     items: readonly { name: string; color: string }[],
+    shareIds: readonly string[],
     actorId: string,
-  ): Promise<Project[]> {
+  ): Promise<{ created: Project[]; shared: Project[] }> {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await lockReconcile(tx);
-        const projects = await tx.project.createManyAndReturn({
-          data: items.map((i) => ({ teamId, name: i.name, color: i.color })),
-          select: PROJECT_SELECT,
-        });
-        await tx.subproject.createMany({
-          data: projects.map((p) => ({
-            projectId: p.id,
-            name: DEFAULT_SUBPROJECT_NAME,
-            isDefault: true,
-          })),
-        });
-        await tx.auditLog.createMany({
-          data: projects.map((p) => ({
-            actorId,
-            action: 'project.create',
-            targetType: 'project',
-            targetId: p.id,
-            diff: { teamId, name: p.name, color: p.color },
-          })),
-        });
+        const created =
+          items.length === 0
+            ? []
+            : await tx.project.createManyAndReturn({
+                data: items.map((i) => ({ teamId, name: i.name, color: i.color })),
+                select: PROJECT_SELECT,
+              });
+        if (created.length > 0) {
+          await tx.projectTeam.createMany({
+            data: created.map((p) => ({ projectId: p.id, teamId })),
+          });
+          await tx.subproject.createMany({
+            data: created.map((p) => ({
+              projectId: p.id,
+              name: DEFAULT_SUBPROJECT_NAME,
+              isDefault: true,
+            })),
+          });
+          await tx.auditLog.createMany({
+            data: created.map((p) => ({
+              actorId,
+              action: 'project.create',
+              targetType: 'project',
+              targetId: p.id,
+              diff: { teamId, name: p.name, color: p.color },
+            })),
+          });
+        }
+
+        const toShare =
+          shareIds.length === 0
+            ? []
+            : await tx.project.findMany({
+                where: { id: { in: [...shareIds] } },
+                select: { ...PROJECT_SELECT, teams: { select: { teamId: true } } },
+              });
+        const shared: Project[] = [];
+        if (toShare.length > 0) {
+          await tx.projectTeam.createMany({
+            data: toShare.map((p) => ({ projectId: p.id, teamId })),
+            skipDuplicates: true,
+          });
+          await tx.auditLog.createMany({
+            data: toShare.map((p) => {
+              const from = homeFirst(p.teamId, p.teams).sort();
+              return {
+                actorId,
+                action: 'project.teams_set',
+                targetType: 'project',
+                targetId: p.id,
+                diff: { from, to: [...new Set([...from, teamId])].sort() },
+              };
+            }),
+          });
+          for (const { teams, ...p } of toShare) {
+            shared.push({ ...p, teamIds: homeFirst(p.teamId, [...teams, { teamId }]) });
+          }
+        }
+
         await this.workTypes.reconcile(
           tx,
-          projects.map((p) => p.id),
+          [...created.map((p) => p.id), ...toShare.map((p) => p.id)],
           { actorId, trigger: 'project_bulk_create', targetType: 'team', targetId: teamId },
         );
-        return projects;
+        return { created, shared };
       }, RECONCILE_TX);
     } catch (e) {
       if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
@@ -236,14 +325,17 @@ export class ProjectsRepository {
     });
   }
 
-  async findTaskForActor(taskId: string): Promise<(Task & { teamId: string }) | null> {
+  async findTaskForActor(taskId: string): Promise<(Task & { teamIds: string[] }) | null> {
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
-      select: { ...TASK_SELECT, project: { select: { teamId: true } } },
+      select: {
+        ...TASK_SELECT,
+        project: { select: { teamId: true, teams: { select: { teamId: true } } } },
+      },
     });
     if (!task) return null;
     const { project, ...rest } = task;
-    return { ...rest, teamId: project.teamId };
+    return { ...rest, teamIds: homeFirst(project.teamId, project.teams) };
   }
 
   async moveTask(taskId: string, subprojectId: string, actorId: string): Promise<Task> {
@@ -322,14 +414,18 @@ export class ProjectsRepository {
    */
   async findSubprojectForActor(
     id: string,
-  ): Promise<(Subproject & { teamId: string; workTypeId: string | null }) | null> {
+  ): Promise<(Subproject & { teamIds: string[]; workTypeId: string | null }) | null> {
     const sub = await this.prisma.subproject.findUnique({
       where: { id },
-      select: { ...SUBPROJECT_SELECT, workTypeId: true, project: { select: { teamId: true } } },
+      select: {
+        ...SUBPROJECT_SELECT,
+        workTypeId: true,
+        project: { select: { teamId: true, teams: { select: { teamId: true } } } },
+      },
     });
     if (!sub) return null;
     const { project, ...rest } = sub;
-    return { ...rest, teamId: project.teamId };
+    return { ...rest, teamIds: homeFirst(project.teamId, project.teams) };
   }
 
   /** `excludeId`: the row being renamed or restored, which never clashes with itself. */
@@ -381,8 +477,8 @@ export class ProjectsRepository {
   /**
    * Move a project to another team and audit it in the same transaction, mirroring
    * `user.team_change`. Tasks follow by FK; time entries are deliberately left alone — they
-   * reference the project by id and reports scope by the entry's user, so hours already
-   * tracked stay with the team whose people tracked them.
+   * reference the project by id and split by their stamped `teamId`, so hours already tracked
+   * stay with the team they were stamped with, not the entry's user's current team.
    */
   async setTeam(id: string, teamId: string, actorId: string): Promise<Project> {
     try {
@@ -403,6 +499,15 @@ export class ProjectsRepository {
             diff: { from: before?.teamId ?? null, to: teamId },
           },
         });
+        // The home link follows the move; other (shared) links stay. To keep the old team, share
+        // it again afterwards (spec §5.4). Before reconcile: reconcile reads project_teams.
+        if (before && before.teamId !== teamId) {
+          await tx.projectTeam.deleteMany({ where: { projectId: id, teamId: before.teamId } });
+        }
+        await tx.projectTeam.createMany({
+          data: [{ projectId: id, teamId }],
+          skipDuplicates: true,
+        });
         // Swap to the new team's work types: the old team's linked rows archive (never delete) and
         // a move back restores the same rows (spec §5, rule 1 and 4). RECONCILE_TX, not the
         // default: it can queue on the reconcile lock behind a re-sync (overrides plan ruling R13).
@@ -420,17 +525,77 @@ export class ProjectsRepository {
     }
   }
 
-  findForActor(id: string): Promise<{
+  async countTeams(ids: readonly string[]): Promise<number> {
+    return this.prisma.team.count({ where: { id: { in: [...ids] } } });
+  }
+
+  /**
+   * Replace a project's linked teams (spec §5.3), audit it, and reconcile the project — ONE
+   * transaction. Links change BEFORE reconcile, which reads them. The service has already checked
+   * that `teamIds` holds the home team and only real teams.
+   */
+  async setTeams(id: string, teamIds: readonly string[], actorId: string): Promise<Project> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await lockReconcile(tx);
+        const before = await tx.projectTeam.findMany({
+          where: { projectId: id },
+          select: { teamId: true },
+        });
+        const next = [...new Set(teamIds)].sort();
+        await tx.projectTeam.deleteMany({ where: { projectId: id, teamId: { notIn: next } } });
+        await tx.projectTeam.createMany({
+          data: next.map((teamId) => ({ projectId: id, teamId })),
+          skipDuplicates: true,
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: 'project.teams_set',
+            targetType: 'project',
+            targetId: id,
+            diff: { from: before.map((b) => b.teamId).sort(), to: next },
+          },
+        });
+        await this.workTypes.reconcile(tx, [id], {
+          actorId,
+          trigger: 'project_teams_set',
+          targetType: 'project',
+          targetId: id,
+        });
+        const project = await tx.project.findUniqueOrThrow({
+          where: { id },
+          select: PROJECT_SELECT,
+        });
+        return {
+          ...project,
+          teamIds: homeFirst(
+            project.teamId,
+            next.map((teamId) => ({ teamId })),
+          ),
+        };
+      }, RECONCILE_TX);
+    } catch (e) {
+      if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      throw e;
+    }
+  }
+
+  async findForActor(id: string): Promise<{
     id: string;
     teamId: string;
+    teamIds: string[];
     name: string;
     color: string | null;
     archived: boolean;
   } | null> {
-    return this.prisma.project.findUnique({
+    const row = await this.prisma.project.findUnique({
       where: { id },
-      select: { id: true, teamId: true, name: true, color: true, archived: true },
+      select: { ...PROJECT_SELECT, teams: { select: { teamId: true } } },
     });
+    if (!row) return null;
+    const { teams, ...p } = row;
+    return { ...p, teamIds: homeFirst(p.teamId, teams) };
   }
 
   async hoursByDay(
@@ -458,11 +623,16 @@ export class ProjectsRepository {
     return rows.map((r) => ({ day: r.day, trackedSeconds: Number(r.trackedSeconds) }));
   }
 
+  /**
+   * Per-person time on the client. `teamId` narrows to entries stamped with that team: a MANAGER
+   * on a shared client sees only their own team's people (spec §5.6).
+   */
   async membersForProject(
     projectId: string,
     from: Date,
     to: Date,
     freshnessSeconds: number,
+    teamId?: string,
   ): Promise<{ userId: string; name: string; trackedSeconds: number }[]> {
     const rows = await this.prisma.$queryRaw<
       Array<{ userId: string; name: string; trackedSeconds: number | bigint }>
@@ -478,12 +648,44 @@ export class ProjectsRepository {
         AND te."startTime" < ${to}::timestamptz
         AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
         AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+        ${teamId !== undefined ? Prisma.sql`AND te."teamId" = ${teamId}` : Prisma.empty}
       GROUP BY te."userId", u.name
       ORDER BY "trackedSeconds" DESC, u.name ASC
     `;
     return rows.map((r) => ({
       userId: r.userId,
       name: r.name,
+      trackedSeconds: Number(r.trackedSeconds),
+    }));
+  }
+
+  /** The client's time split by the team stamped on each entry (spec §5.6); null → Unassigned. */
+  async teamsForProject(
+    projectId: string,
+    from: Date,
+    to: Date,
+    freshnessSeconds: number,
+  ): Promise<{ teamId: string | null; teamName: string; trackedSeconds: number }[]> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{ teamId: string | null; teamName: string; trackedSeconds: number | bigint }>
+    >`
+      SELECT te."teamId" AS "teamId", COALESCE(t.name, 'Unassigned') AS "teamName",
+             FLOOR(SUM(GREATEST(EXTRACT(EPOCH FROM (
+               LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz)
+               - GREATEST(te."startTime", ${from}::timestamptz)
+             )), 0)))::int AS "trackedSeconds"
+      FROM time_entries te
+      LEFT JOIN teams t ON t.id = te."teamId"
+      WHERE te."projectId" = ${projectId}
+        AND te."startTime" < ${to}::timestamptz
+        AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
+        AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+      GROUP BY te."teamId", t.name
+      ORDER BY "trackedSeconds" DESC, "teamId" ASC NULLS LAST
+    `;
+    return rows.map((r) => ({
+      teamId: r.teamId,
+      teamName: r.teamName,
       trackedSeconds: Number(r.trackedSeconds),
     }));
   }

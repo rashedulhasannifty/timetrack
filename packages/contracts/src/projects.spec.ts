@@ -19,6 +19,8 @@ import {
   DEFAULT_SUBPROJECT_NAME,
   BulkCreateProjectsSchema,
   BulkCreateProjectsResultSchema,
+  SetProjectTeamsSchema,
+  ProjectTeamRowSchema,
 } from './projects.js';
 
 describe('ProjectDetailSchema', () => {
@@ -28,10 +30,18 @@ describe('ProjectDetailSchema', () => {
       to: '2026-07-19T23:59:59.999Z',
       projectId: '018f9c1e-0000-7000-8000-000000000001',
       teamId: '018f9c1e-0000-7000-8000-0000000000c1',
+      teamIds: ['018f9c1e-0000-7000-8000-0000000000c1'],
       name: 'Website',
       color: '#007aff',
       archived: false,
       totalSeconds: 9000,
+      byTeam: [
+        {
+          teamId: '018f9c1e-0000-7000-8000-0000000000c1',
+          teamName: 'Eng',
+          trackedSeconds: 9000,
+        },
+      ],
       trend: [{ day: '2026-07-13', trackedSeconds: 5400 }],
       members: [
         { userId: '018f9c1e-0000-7000-8000-0000000000a1', name: 'Jane', trackedSeconds: 5400 },
@@ -63,10 +73,12 @@ describe('ProjectDetailSchema', () => {
       to: '2026-07-19T23:59:59.999Z',
       projectId: '018f9c1e-0000-7000-8000-000000000001',
       teamId: '018f9c1e-0000-7000-8000-0000000000c1',
+      teamIds: ['018f9c1e-0000-7000-8000-0000000000c1'],
       name: 'Website',
       color: null,
       archived: false,
       totalSeconds: 60,
+      byTeam: [],
       trend: [],
       members: [],
       subprojects: [{ subprojectId: null, name: 'No subproject', trackedSeconds: 60 }],
@@ -301,8 +313,67 @@ describe('BulkCreateProjectsSchema', () => {
           archived: false,
         },
       ],
+      shared: [],
       skipped: [{ name: 'acme', reason: 'Duplicate in list' }],
     };
     expect(BulkCreateProjectsResultSchema.parse(value)).toEqual(value);
+  });
+
+  it('parses existing clients the import shared into the team, with their linked teams', () => {
+    const shared = {
+      id: '018f9c1e-0000-7000-8000-000000000002',
+      teamId: '018f9c1e-0000-7000-8000-0000000000c2',
+      teamIds: ['018f9c1e-0000-7000-8000-0000000000c2', TEAM],
+      name: 'Globex',
+      color: null,
+      archived: false,
+    };
+    const value = { created: [], shared: [shared], skipped: [] };
+    expect(BulkCreateProjectsResultSchema.parse(value)).toEqual(value);
+    expect(BulkCreateProjectsResultSchema.safeParse({ created: [], skipped: [] }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('SetProjectTeamsSchema', () => {
+  const A = '018f9c1e-0000-7000-8000-0000000000a1';
+  const B = '018f9c1e-0000-7000-8000-0000000000b1';
+  it('accepts a list of unique team ids', () => {
+    expect(SetProjectTeamsSchema.parse({ teamIds: [A, B] })).toEqual({ teamIds: [A, B] });
+  });
+  it('rejects an empty list, a repeat, and a non-uuid', () => {
+    expect(SetProjectTeamsSchema.safeParse({ teamIds: [] }).success).toBe(false);
+    expect(SetProjectTeamsSchema.safeParse({ teamIds: [A, A] }).success).toBe(false);
+    expect(SetProjectTeamsSchema.safeParse({ teamIds: ['x'] }).success).toBe(false);
+  });
+  it('stays a strict-able ZodObject (the pipe needs .strict())', () => {
+    expect(SetProjectTeamsSchema.strict().safeParse({ teamIds: [A], extra: 1 }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('ProjectTeamRowSchema', () => {
+  it('allows a null team for the Unassigned bucket', () => {
+    expect(
+      ProjectTeamRowSchema.parse({ teamId: null, teamName: 'Unassigned', trackedSeconds: 0 }),
+    ).toMatchObject({ teamId: null });
+  });
+});
+
+describe('ProjectSchema.teamIds', () => {
+  it('is optional so shipped clients and old responses still parse', () => {
+    const base = {
+      id: '018f9c1e-0000-7000-8000-000000000001',
+      teamId: '018f9c1e-0000-7000-8000-0000000000c1',
+      name: 'Acme',
+      color: null,
+      archived: false,
+    };
+    expect(ProjectSchema.safeParse(base).success).toBe(true);
+    expect(
+      ProjectSchema.parse({ ...base, teamIds: ['018f9c1e-0000-7000-8000-0000000000c1'] }).teamIds,
+    ).toHaveLength(1);
   });
 });

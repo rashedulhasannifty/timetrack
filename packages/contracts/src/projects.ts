@@ -50,6 +50,11 @@ export const ProjectSchema = z.object({
   name: z.string(),
   color: z.string().nullable(),
   archived: z.boolean(),
+  /**
+   * Every team linked to the project, home (`teamId`) first. Additive: shipped desktop clients
+   * decode `teamId` only. More than one entry means the client is shared.
+   */
+  teamIds: z.array(z.uuid()).optional(),
   tasks: z.array(TaskSchema).optional(),
   subprojects: z.array(SubprojectSchema).optional(),
 });
@@ -62,7 +67,9 @@ export const CreateProjectSchema = z.object({
 
 /**
  * POST /v1/projects/bulk (ADMIN) — import clients into one team. Raw names: the API normalizes
- * each and skips org-wide duplicates (`Already exists in <team>`) and in-list repeats.
+ * each. A name that is a new client is CREATED in the team; a name that is an active client of
+ * another team is SHARED into the team (one client record, time split by team). Skipped: names
+ * already in the team, archived clients, names several clients have, and in-list repeats.
  */
 export const BulkCreateProjectsSchema = z.object({
   teamId: z.uuid(),
@@ -70,6 +77,8 @@ export const BulkCreateProjectsSchema = z.object({
 });
 export const BulkCreateProjectsResultSchema = z.object({
   created: z.array(ProjectSchema),
+  /** Existing clients of other teams now linked to this team too, with their `teamIds`. */
+  shared: z.array(ProjectSchema),
   skipped: z.array(NameSkipSchema),
 });
 
@@ -126,6 +135,30 @@ export const UpdateProjectSchema = z.object({
   teamId: z.uuid().optional(),
 });
 
+/**
+ * PUT /v1/projects/:id/teams (ADMIN) — the FULL set of teams linked to the project. Must include
+ * the home team (the API 422s otherwise). `.check()` not `.refine()`, so the pipe keeps strict mode.
+ */
+export const SetProjectTeamsSchema = z
+  .object({ teamIds: z.array(z.uuid()).min(1).max(100) })
+  .check((ctx) => {
+    if (new Set(ctx.value.teamIds).size !== ctx.value.teamIds.length) {
+      ctx.issues.push({
+        code: 'custom',
+        message: 'Each team may appear once',
+        input: ctx.value,
+        path: ['teamIds'],
+      });
+    }
+  });
+
+/** One team's share of a client's time. `teamId` null → "Unassigned" (no team stamped). */
+export const ProjectTeamRowSchema = z.object({
+  teamId: z.uuid().nullable(),
+  teamName: z.string(),
+  trackedSeconds: z.number().int().nonnegative(),
+});
+
 // Query for GET /projects. z.stringbool() parses "true"/"false" correctly;
 // z.coerce.boolean() would turn the string "false" into true. .default(false)
 // makes the field optional and defaults a missing flag to "assignable only".
@@ -178,10 +211,14 @@ export const ProjectDetailSchema = z.object({
   projectId: z.uuid(),
   /** The team that owns the project now — what the admin "move to team" control starts from. */
   teamId: z.uuid(),
+  /** Linked teams, home first. More than one → shared. */
+  teamIds: z.array(z.uuid()),
   name: z.string(),
   color: z.string().nullable(),
   archived: z.boolean(),
   totalSeconds: z.number().int().nonnegative(),
+  /** The total split by the team each entry was tracked under; sums to `totalSeconds`. */
+  byTeam: z.array(ProjectTeamRowSchema),
   trend: z.array(ProjectHoursTrendRowSchema),
   members: z.array(ProjectMemberRowSchema),
   subprojects: z.array(ProjectSubprojectRowSchema),
@@ -218,6 +255,8 @@ export type CreateProject = z.infer<typeof CreateProjectSchema>;
 export type CreateTask = z.infer<typeof CreateTaskSchema>;
 export type UpdateTask = z.infer<typeof UpdateTaskSchema>;
 export type UpdateProject = z.infer<typeof UpdateProjectSchema>;
+export type SetProjectTeams = z.infer<typeof SetProjectTeamsSchema>;
+export type ProjectTeamRow = z.infer<typeof ProjectTeamRowSchema>;
 export type ListProjectsQuery = z.infer<typeof ListProjectsQuerySchema>;
 export type ProjectHoursTrendRow = z.infer<typeof ProjectHoursTrendRowSchema>;
 export type ProjectMemberRow = z.infer<typeof ProjectMemberRowSchema>;

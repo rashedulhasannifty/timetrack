@@ -6,6 +6,7 @@ import { Badge } from '../../../../components/ui/Badge';
 import { Table, THead, Tbody, Tr, Th, Td } from '../../../../components/ui/Table';
 import { AdminTabs } from '../../../../components/ui/AdminTabs';
 import { SetPageTitle } from '../../../../components/ui/PageTitleContext';
+import { ProjectShareTeams } from '../../../../components/projects/ProjectShareTeams';
 import { ProjectTeamMove } from '../../../../components/projects/ProjectTeamMove';
 import { getSession } from '../../../../lib/session';
 import { api } from '../../../../lib/api-client';
@@ -143,23 +144,39 @@ export default async function AdminCatalogPage() {
                   <Tr key={c.id}>
                     <Td>{c.name}</Td>
                     <Td>
-                      {teams.length < 2 ? (
-                        c.teamName
-                      ) : (
-                        <ProjectTeamMove
+                      <div className="flex flex-wrap items-center gap-2">
+                        {teams.length < 2 ? (
+                          c.teamName
+                        ) : (
+                          <ProjectTeamMove
+                            id={c.id}
+                            projectName={c.name}
+                            teamId={c.teamId}
+                            teams={teams}
+                          />
+                        )}
+                        {c.teams.slice(1).map((t) => (
+                          <Badge key={t.id} tone="neutral">
+                            {t.name}
+                          </Badge>
+                        ))}
+                        <ProjectShareTeams
                           id={c.id}
-                          projectName={c.name}
-                          teamId={c.teamId}
+                          homeTeamId={c.teamId}
+                          linkedTeamIds={c.teams.map((t) => t.id)}
                           teams={teams}
                         />
-                      )}
+                      </div>
                     </Td>
                     <Td>
-                      {c.archived ? (
-                        <Badge tone="neutral">Archived</Badge>
-                      ) : (
-                        <Badge tone="good">Active</Badge>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {c.archived ? (
+                          <Badge tone="neutral">Archived</Badge>
+                        ) : (
+                          <Badge tone="good">Active</Badge>
+                        )}
+                        {c.shared ? <Badge tone="neutral">Shared</Badge> : null}
+                      </div>
                     </Td>
                   </Tr>
                 ))}

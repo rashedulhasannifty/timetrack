@@ -179,6 +179,29 @@ describe.runIf(RUN_E2E)('trim-runaway-entries — real Postgres', () => {
     expect(rows[1]?.source).toBe('MANUAL');
   });
 
+  it('keeps the original team on every piece after the user moves teams', async () => {
+    const user = await seedUser();
+    await seedRunaway(user.id);
+    const original = await env.prisma.timeEntry.findUniqueOrThrow({
+      where: { id: RUNAWAY },
+      select: { teamId: true },
+    });
+    expect(original.teamId).not.toBeNull();
+    // Moving a person does not move their history: the entry stays stamped with team A.
+    const teamB = await env.prisma.team.create({
+      data: { name: 'Ops', settings: { idleThresholdMinutes: 5 } },
+      select: { id: true },
+    });
+    await env.prisma.user.update({ where: { id: user.id }, data: { teamId: teamB.id } });
+
+    await trimRunawayEntries(env.prisma, { minHours: 12, apply: true, now: NOW });
+
+    const rows = await env.prisma.timeEntry.findMany({ select: { teamId: true } });
+    expect(rows).toHaveLength(2);
+    for (const r of rows) expect(r.teamId).toBe(original.teamId);
+    expect(original.teamId).not.toBe(teamB.id);
+  });
+
   it('copies project, task and subproject onto every split-off entry', async () => {
     const user = await seedUser();
     await seedRunaway(user.id);

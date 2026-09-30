@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import {
   BulkCreateProjectsSchema,
   CreateProjectSchema,
@@ -6,6 +6,7 @@ import {
   CreateTaskSchema,
   ListProjectsQuerySchema,
   ProjectDetailQuerySchema,
+  SetProjectTeamsSchema,
   UpdateProjectSchema,
   UpdateSubprojectSchema,
   UpdateTaskSchema,
@@ -19,6 +20,7 @@ import {
   type ProjectDetail,
   type ProjectDetailQuery,
   type ProjectTopApps,
+  type SetProjectTeams,
   type Subproject,
   type Task,
   type UpdateProject,
@@ -135,6 +137,17 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
   ): Promise<Subproject[]> {
     return this.service.listSubprojects(id, user);
+  }
+
+  /** ADMIN only: share or unshare a client across teams (spec §5.3). */
+  @Put(':id/teams')
+  @Roles('ADMIN')
+  setTeams(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(SetProjectTeamsSchema)) dto: SetProjectTeams,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<Project> {
+    return this.service.setTeams(id, dto, actor);
   }
 
   @Patch(':id')

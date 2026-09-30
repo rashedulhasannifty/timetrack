@@ -722,6 +722,31 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     );
     expect(row.subprojectId).toBe(a.otherId);
   });
+
+  describe('teamId stamping (trigger)', () => {
+    it('stamps the user team on insert and never changes it after the user moves', async () => {
+      const user = await seedUser();
+      const other = await db.prisma.team.create({
+        data: { name: 'Ops', settings: {} },
+        select: { id: true },
+      });
+      const id = '01920000-0000-7000-8000-00000000e501';
+      await repo().upsert(createDto(id), user.id, null);
+      const first = await db.prisma.timeEntry.findUniqueOrThrow({
+        where: { id },
+        select: { teamId: true },
+      });
+      expect(first.teamId).toBe(user.teamId);
+
+      await db.prisma.user.update({ where: { id: user.id }, data: { teamId: other.id } });
+      await repo().upsert(createDto(id, { endTime: '2026-07-11T10:00:00Z' }), user.id, null);
+      const after = await db.prisma.timeEntry.findUniqueOrThrow({
+        where: { id },
+        select: { teamId: true },
+      });
+      expect(after.teamId).toBe(user.teamId);
+    });
+  });
 });
 
 // Keeps the file a valid, non-empty suite when e2e is disabled.

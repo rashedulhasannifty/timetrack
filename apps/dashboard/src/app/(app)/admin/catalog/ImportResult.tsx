@@ -1,6 +1,6 @@
 import type { CatalogState } from './actions';
 
-/** What an import created and skipped (with reasons), or its error. */
+/** What an import created, shared (with the client's home team) and skipped, or its error. */
 export function ImportResult({ state }: { state: CatalogState }) {
   if (!state.ok) {
     return state.message ? (
@@ -10,10 +10,14 @@ export function ImportResult({ state }: { state: CatalogState }) {
     ) : null;
   }
   const created = state.created ?? [];
+  const shared = state.shared ?? [];
   const skipped = state.skipped ?? [];
-  if (created.length === 0 && skipped.length === 0) return null;
+  if (created.length === 0 && shared.length === 0 && skipped.length === 0) return null;
   return (
-    <div className="text-caption grid gap-3 sm:grid-cols-2" role="status">
+    <div
+      className={`text-caption grid gap-3 ${shared.length > 0 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}
+      role="status"
+    >
       <div>
         <p className="text-text-secondary mb-1">Created ({created.length})</p>
         <ul className="flex flex-col gap-0.5">
@@ -22,6 +26,18 @@ export function ImportResult({ state }: { state: CatalogState }) {
           ))}
         </ul>
       </div>
+      {shared.length > 0 ? (
+        <div>
+          <p className="text-text-secondary mb-1">Shared ({shared.length})</p>
+          <ul className="flex flex-col gap-0.5">
+            {shared.map((s) => (
+              <li key={s.name}>
+                {s.name} <span className="text-text-secondary">— shared with {s.homeTeam}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div>
         <p className="text-text-secondary mb-1">Skipped ({skipped.length})</p>
         <ul className="flex flex-col gap-0.5">

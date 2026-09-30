@@ -117,11 +117,11 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
     ).resolves.toEqual({ id: payroll.id, archived: false });
   });
 
-  it("bulk import creates each client with General plus the team's work types, and reports skips", async () => {
+  it("bulk import creates new clients, shares another team's client, and reports skips", async () => {
     const eng = await team('Eng');
     const support = await team('Support');
     await select(eng, 'Payroll', 'AdHoc');
-    await client(support, 'Acme Ltd');
+    const acme = await client(support, 'Acme Ltd');
     const old = await client(eng, 'Old Client');
     await projects().update(old.id, { archived: true }, admin(eng));
 
@@ -130,10 +130,20 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
       admin(eng),
     );
     expect(result.skipped).toEqual([
-      { name: 'acme ltd', reason: 'Already exists in Support' },
-      { name: 'old client', reason: 'Already exists in Eng' },
+      { name: 'old client', reason: 'Already in Eng' },
       { name: 'globex', reason: 'Duplicate in list' },
     ]);
+    // Support's active client is shared into Eng, not skipped: one client, Eng's work types too.
+    expect(result.shared.map((p) => [p.id, p.teamId, p.teamIds])).toEqual([
+      [acme.id, support, [support, eng]],
+    ]);
+    expect(await activeNames(acme.id)).toEqual(['General', 'AdHoc', 'Payroll']);
+    await expect(
+      db.prisma.auditLog.findFirst({
+        where: { action: 'project.teams_set', targetId: acme.id },
+        select: { diff: true },
+      }),
+    ).resolves.toEqual({ diff: { from: [support], to: [eng, support].sort() } });
     const created = [...result.created].sort((a, b) => a.name.localeCompare(b.name));
     expect(created.map((p) => [p.name, p.teamId, p.color])).toEqual([
       ['Globex', eng, PROJECT_PALETTE[0]],
@@ -149,8 +159,8 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
     });
     expect(reconciles.map((r) => r.diff)).toContainEqual({
       trigger: 'project_bulk_create',
-      projects: 2,
-      created: 4,
+      projects: 3,
+      created: 6,
       linked: 0,
       restored: 0,
       renamed: 0,
@@ -341,7 +351,7 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
 
     for (const attempt of [
       () => repo.createProject(eng, 'Globex', ADMIN_ID),
-      () => repo.createProjectsBulk(eng, [{ name: 'Initech', color: '#007aff' }], ADMIN_ID),
+      () => repo.importProjects(eng, [{ name: 'Initech', color: '#007aff' }], [], ADMIN_ID),
       () => repo.setTeam(p.id, support, ADMIN_ID),
     ]) {
       expect(await titleOf(attempt())).toBe(CONCURRENT_CHANGE);

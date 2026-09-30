@@ -16,6 +16,7 @@ import type {
   ProjectDetail,
   ProjectDetailQuery,
   ProjectTopApps,
+  SetProjectTeams,
   Subproject,
   Task,
   UpdateProject,
@@ -25,13 +26,13 @@ import type {
 import { PROJECT_PALETTE, ProjectDetailSchema, nameKey } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { planNameImport } from '../../common/name-import.js';
-import { ProjectsRepository } from './projects.repository.js';
+import { ProjectsRepository, type ImportCandidate } from './projects.repository.js';
 import { TRACKING_FRESHNESS_SECONDS } from './projects.tokens.js';
 
 /**
- * CLAUDE.md §4 — own-team-only for BOTH MANAGER and ADMIN (the `setActive` precedent).
- * Projects are team-scoped, not user-scoped, so there is no `@ResourceScope`; the rule
- * lives here. Cross-team existing resource → 403; missing → 404.
+ * CLAUDE.md §4 — linked-team authorization (`project_teams`, home or shared): ADMIN is org-wide,
+ * a MANAGER acts on projects linked to their team. Projects are team-scoped, not user-scoped, so
+ * there is no `@ResourceScope`; the rule lives here. Unlinked existing resource → 403; missing → 404.
  */
 @Injectable()
 export class ProjectsService {
@@ -74,49 +75,112 @@ export class ProjectsService {
     throw this.forbidden();
   }
 
+  /** ADMIN-only (the controller's @Roles is the gate): the full set of teams linked to a client. */
+  async setTeams(id: string, dto: SetProjectTeams, actor: SessionUser): Promise<Project> {
+    const project = await this.repo.findForActor(id);
+    if (!project) throw this.notFound();
+    if (!dto.teamIds.includes(project.teamId)) {
+      throw this.unprocessable('The home team must stay linked; move the client to change it');
+    }
+    if ((await this.repo.countTeams(dto.teamIds)) !== dto.teamIds.length) {
+      throw this.unprocessable('Unknown team');
+    }
+    return this.repo.setTeams(id, dto.teamIds, actor.id);
+  }
+
+  private unprocessable(title: string): UnprocessableEntityException {
+    return new UnprocessableEntityException({
+      type: 'https://timetrack.internal/errors/unprocessable',
+      title,
+      status: 422,
+    });
+  }
+
   /**
-   * A project belongs to a team, and ADMIN is an org-wide role while a MANAGER manages their
-   * own team. Every project-administration path routes through here so that rule is decided
-   * once — it used to be seven copies of the same comparison, which is how they would drift.
+   * USE a project (its subprojects and tasks, its detail): ADMIN org-wide, or a MANAGER whose
+   * team is linked to it (home or shared, spec §5.2). The single place this rule lives.
    */
-  private assertCanAdminister(projectTeamId: string, actor: SessionUser): void {
+  private assertCanUse(teamIds: readonly string[], actor: SessionUser): void {
     if (actor.role === 'ADMIN') return;
-    if (projectTeamId !== actor.teamId) throw this.forbidden();
+    if (!teamIds.includes(actor.teamId)) throw this.forbidden();
+  }
+
+  /**
+   * OWN a project (archive, recolor): as USE, but a SHARED project belongs to more than one
+   * team's manager, so only an ADMIN may change it — one team must not archive a client another
+   * team is tracking.
+   */
+  private assertCanOwn(teamIds: readonly string[], actor: SessionUser): void {
+    this.assertCanUse(teamIds, actor);
+    if (actor.role !== 'ADMIN' && teamIds.length > 1) {
+      throw new ForbiddenException({
+        type: 'https://timetrack.internal/errors/forbidden',
+        title: 'Only an admin can change a shared client',
+        status: 403,
+      });
+    }
   }
 
   async createProject(dto: CreateProject, actor: SessionUser): Promise<Project> {
-    this.assertCanAdminister(dto.teamId, actor);
+    this.assertCanUse([dto.teamId], actor);
     return this.repo.createProject(dto.teamId, dto.name, actor.id, dto.color);
   }
 
   /**
-   * ADMIN-only client import (spec §6). A name that exists ANYWHERE in the org — archived or
-   * not, any team — is skipped with the team that has it; repeats within the paste are skipped
-   * too. Colours come from the palette in turn (ruling R15).
+   * ADMIN-only client import (spec §6), share-aware: a pasted name that is an ACTIVE client of
+   * another team is shared into this team (one client, time split by team) rather than skipped.
+   * Skipped: names already usable by this team, archived clients (sharing would not make them
+   * usable), names several clients have (which one is meant is a guess), and in-list repeats.
+   * Colours for NEW clients come from the palette in turn (ruling R15).
    */
   async bulkCreate(dto: BulkCreateProjects, actor: SessionUser): Promise<BulkCreateProjectsResult> {
     const team = await this.repo.findTeam(dto.teamId);
     if (!team) throw this.notFound('Team not found');
 
-    const taken = new Map<string, string>();
-    for (const p of await this.repo.listAllProjectNames()) {
+    const byKey = new Map<string, ImportCandidate[]>();
+    for (const p of await this.repo.listProjectsForImport()) {
       const key = nameKey(p.name);
-      if (!taken.has(key)) taken.set(key, `Already exists in ${p.teamName}`);
+      const list = byKey.get(key);
+      if (list) list.push(p);
+      else byKey.set(key, [p]);
     }
+    const taken = new Map<string, string>();
+    const shareIdByKey = new Map<string, string>();
+    for (const [key, matches] of byKey) {
+      const [only] = matches;
+      if (matches.some((m) => m.teamIds.includes(team.id))) {
+        taken.set(key, `Already in ${team.name}`);
+      } else if (matches.length > 1 || !only) {
+        taken.set(key, 'Several clients have this name');
+      } else if (only.archived) {
+        taken.set(key, `Archived client in ${only.teamName}`);
+      } else {
+        shareIdByKey.set(key, only.id);
+      }
+    }
+
     const { accepted, skipped } = planNameImport(dto.names, taken);
-    const items = accepted.map((name, i) => ({
+    const shareIds: string[] = [];
+    const newNames: string[] = [];
+    for (const name of accepted) {
+      const id = shareIdByKey.get(nameKey(name));
+      if (id !== undefined) shareIds.push(id);
+      else newNames.push(name);
+    }
+    if (newNames.length === 0 && shareIds.length === 0) return { created: [], shared: [], skipped };
+
+    const items = newNames.map((name, i) => ({
       name,
       color: PROJECT_PALETTE[i % PROJECT_PALETTE.length] ?? PROJECT_PALETTE[0],
     }));
-    const created =
-      items.length === 0 ? [] : await this.repo.createProjectsBulk(team.id, items, actor.id);
-    return { created, skipped };
+    const { created, shared } = await this.repo.importProjects(team.id, items, shareIds, actor.id);
+    return { created, shared, skipped };
   }
 
   async createTask(dto: CreateTask, actor: SessionUser): Promise<Task> {
     const sub = await this.repo.findSubprojectForActor(dto.subprojectId);
     if (!sub) throw this.notFound('Subproject not found');
-    this.assertCanAdminister(sub.teamId, actor);
+    this.assertCanUse(sub.teamIds, actor);
     if (sub.archived) throw this.conflict('Cannot add a task to an archived subproject');
     return this.repo.createTask(dto.subprojectId, dto.name, actor.id);
   }
@@ -124,7 +188,7 @@ export class ProjectsService {
   async createSubproject(dto: CreateSubproject, actor: SessionUser): Promise<Subproject> {
     const project = await this.repo.findForActor(dto.projectId);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
     // Case-insensitive, active rows only (spec §5): stops a hand-made "payroll" shadowing the
     // catalog's "Payroll", and a second "General".
     if (await this.repo.hasActiveSubprojectNamed(dto.projectId, dto.name.trim())) {
@@ -140,7 +204,7 @@ export class ProjectsService {
   ): Promise<Subproject> {
     const sub = await this.repo.findSubprojectForActor(id);
     if (!sub) throw this.notFound('Subproject not found');
-    this.assertCanAdminister(sub.teamId, actor);
+    this.assertCanUse(sub.teamIds, actor);
     // Linked rows are renamed/archived only by reconcile; a local edit would be undone by the
     // next catalog change anyway (spec §5).
     if (sub.workTypeId !== null) throw this.conflict('Managed by the work type catalog');
@@ -170,33 +234,29 @@ export class ProjectsService {
   async listSubprojects(projectId: string, actor: SessionUser): Promise<Subproject[]> {
     const project = await this.repo.findForActor(projectId);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
     return this.repo.listSubprojectsForProject(projectId);
   }
 
   async listTasks(id: string, actor: SessionUser): Promise<Task[]> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
     return this.repo.listTasksForProject(id);
   }
 
   async updateTask(taskId: string, dto: UpdateTask, actor: SessionUser): Promise<Task> {
     const found = await this.repo.findTaskForActor(taskId);
     if (!found) throw this.notFound('Task not found');
-    this.assertCanAdminister(found.teamId, actor);
-    const { teamId: _teamId, ...task } = found;
+    this.assertCanUse(found.teamIds, actor);
+    const { teamIds: _teamIds, ...task } = found;
 
     let result: Task = task;
     if (dto.subprojectId !== undefined && dto.subprojectId !== task.subprojectId) {
       const target = await this.repo.findSubprojectForActor(dto.subprojectId);
       // Same project only: moving across projects would silently re-attribute the task's hours.
       if (!target || target.projectId !== task.projectId) {
-        throw new UnprocessableEntityException({
-          type: 'https://timetrack.internal/errors/unprocessable',
-          title: "Subproject is not in this task's project",
-          status: 422,
-        });
+        throw this.unprocessable("Subproject is not in this task's project");
       }
       if (target.archived) throw this.conflict('Cannot move a task into an archived subproject');
       result = await this.repo.moveTask(taskId, dto.subprojectId, actor.id);
@@ -210,7 +270,10 @@ export class ProjectsService {
   async update(id: string, dto: UpdateProject, actor: SessionUser): Promise<Project> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
+    if (dto.archived !== undefined || dto.color !== undefined) {
+      this.assertCanOwn(project.teamIds, actor);
+    }
 
     // Form submits one field per action; an empty body is a harmless no-op.
     let result: Project = project;
@@ -229,17 +292,21 @@ export class ProjectsService {
   async detail(id: string, query: ProjectDetailQuery, actor: SessionUser): Promise<ProjectDetail> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
 
     const from = new Date(query.from);
     const to = new Date(query.to);
-    const [trend, members, tasks, subprojects] = await Promise.all([
+    // A MANAGER on a SHARED client sees every team's total but only their own team's people.
+    const memberTeam =
+      actor.role !== 'ADMIN' && project.teamIds.length > 1 ? actor.teamId : undefined;
+    const [trend, members, tasks, subprojects, byTeam] = await Promise.all([
       this.repo.hoursByDay(id, from, to, this.trackingFreshnessSeconds),
-      this.repo.membersForProject(id, from, to, this.trackingFreshnessSeconds),
+      this.repo.membersForProject(id, from, to, this.trackingFreshnessSeconds, memberTeam),
       this.repo.tasksForProject(id, from, to, this.trackingFreshnessSeconds),
       this.repo.subprojectsForProject(id, from, to, this.trackingFreshnessSeconds),
+      this.repo.teamsForProject(id, from, to, this.trackingFreshnessSeconds),
     ]);
-    const totalSeconds = members.reduce((sum, m) => sum + m.trackedSeconds, 0);
+    const totalSeconds = byTeam.reduce((sum, t) => sum + t.trackedSeconds, 0);
 
     // Re-validate on the way out (mirrors ReportsService); parse also strips any surprises.
     return ProjectDetailSchema.parse({
@@ -247,10 +314,12 @@ export class ProjectsService {
       to: query.to,
       projectId: id,
       teamId: project.teamId,
+      teamIds: project.teamIds,
       name: project.name,
       color: project.color,
       archived: project.archived,
       totalSeconds,
+      byTeam,
       trend,
       members,
       tasks,
@@ -261,7 +330,7 @@ export class ProjectsService {
   async topApps(id: string, dto: ProjectDetailQuery, actor: SessionUser): Promise<ProjectTopApps> {
     const project = await this.repo.findForActor(id);
     if (!project) throw this.notFound();
-    this.assertCanAdminister(project.teamId, actor);
+    this.assertCanUse(project.teamIds, actor);
 
     const { apps, totalSeconds } = await this.repo.topAppsForProject(
       id,

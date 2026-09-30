@@ -172,6 +172,7 @@ export async function trimRunawayEntries(
       projectId: true,
       taskId: true,
       subprojectId: true,
+      teamId: true,
       source: true,
       note: true,
       startTime: true,
@@ -255,6 +256,9 @@ export async function trimRunawayEntries(
         projectId: entry.projectId,
         taskId: entry.taskId,
         subprojectId: entry.subprojectId,
+        // Passed explicitly: the stamp trigger only fills NULL, and would otherwise stamp the
+        // user's CURRENT team, moving history the user's team change must not move.
+        teamId: entry.teamId,
         source: entry.source,
         note: entry.note,
         startTime: s.start,

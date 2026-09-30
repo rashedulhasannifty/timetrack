@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import {
   CreateProjectSchema,
   UpdateProjectSchema,
+  SetProjectTeamsSchema,
   CreateTaskSchema,
   UpdateTaskSchema,
   CreateSubprojectSchema,
@@ -138,6 +139,31 @@ export async function moveProjectAction(
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof ApiError ? e.message : 'Move failed.' };
+  }
+}
+
+export async function setProjectTeamsAction(
+  _prev: ProjectActionState,
+  formData: FormData,
+): Promise<ProjectActionState> {
+  const session = await getSession();
+  if (!session || session.role !== 'ADMIN') return { ok: false, message: 'Not authorized.' };
+
+  const rawId = formData.get('id');
+  const id = typeof rawId === 'string' ? rawId : '';
+  const parsed = SetProjectTeamsSchema.safeParse({
+    teamIds: formData.getAll('teamId').filter((v): v is string => typeof v === 'string'),
+  });
+  if (!id || !parsed.success) return { ok: false, message: 'Could not save the teams.' };
+
+  try {
+    await api.setProjectTeams(session.accessToken, id, parsed.data);
+    revalidatePath('/projects');
+    revalidatePath(`/projects/${id}`);
+    revalidatePath('/admin/catalog');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof ApiError ? e.message : 'Could not save the teams.' };
   }
 }
 

@@ -121,6 +121,7 @@ model Team {
   projects  Project[]
   invites   Invite[]
   workTypes TeamWorkType[]
+  projectLinks ProjectTeam[]
 
   @@map("teams")
 }
@@ -143,6 +144,8 @@ model Invite {
   @@map("invites")
 }
 
+/// `teamId` is the HOME team: the one the /v1 response carries and "move" changes. Who may USE
+/// the project is `project_teams`, which always includes the home team.
 model Project {
   id          String       @id @default(uuid(7))
   teamId      String
@@ -152,9 +155,24 @@ model Project {
   team        Team         @relation(fields: [teamId], references: [id])
   tasks       Task[]
   subprojects Subproject[]
+  teams       ProjectTeam[]
 
   @@index([teamId, archived])
   @@map("projects")
+}
+
+/// Every team that may use a project, the home team (projects.teamId) included. The repository
+/// keeps (project.id, project.teamId) present on create, bulk import, move and set-teams.
+/// A project with more than one row is "shared".
+model ProjectTeam {
+  projectId String
+  teamId    String
+  project   Project @relation(fields: [projectId], references: [id])
+  team      Team    @relation(fields: [teamId], references: [id])
+
+  @@id([projectId, teamId])
+  @@index([teamId])
+  @@map("project_teams")
 }
 
 /// Exactly one `isDefault` subproject ("General") per project, enforced by the raw-SQL partial
@@ -244,11 +262,16 @@ model TimeEntry {
   /// Null for every row written before this column existed and for any client too old to
   /// send it, so a reader must never treat "not WINDOWS" as "MACOS".
   platform     Platform?
+  /// The user's team when the row was INSERTED, filled by the BEFORE INSERT trigger
+  /// `time_entries_stamp_team` (raw SQL, invisible to Prisma's diff). Only the runaway trim copies it onto
+  /// split pieces, so an upsert or edit can never change it. No FK, like projectId. Splits a shared client by team.
+  teamId       String?
   user         User        @relation(fields: [userId], references: [id])
 
   @@index([userId, startTime])
   @@index([projectId])
   @@index([subprojectId])
+  @@index([projectId, teamId])
   @@map("time_entries")
 }
 

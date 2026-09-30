@@ -21,6 +21,8 @@ import {
   toMemberBars,
   toTaskBars,
   groupTasksBySubproject,
+  toTeamSplitRows,
+  canOwnProject,
 } from '../../lib/project-detail-view';
 import { projectColor } from '../../lib/project-color';
 import { formatDuration } from '../../lib/format';
@@ -112,7 +114,7 @@ export async function loadProjectDetail({
       ? await api.listTeams(session.accessToken).catch((): TeamListItem[] => [])
       : [];
 
-  return { from, to, detail, state, tasks, subprojects, topApps, teams };
+  return { from, to, detail, state, tasks, subprojects, topApps, teams, role: session.role };
 }
 
 /** The detail body: the not-found / not-permitted copy, or the header, controls and sections. */
@@ -147,6 +149,11 @@ export function ProjectDetailContent({ data }: { data: ProjectDetailData }) {
             Archived
           </span>
         )}
+        {detail.teamIds.length > 1 && (
+          <span className="text-text-secondary border-separator text-micro rounded-full border px-2.5 py-0.5">
+            Shared · {detail.teamIds.length} teams
+          </span>
+        )}
         <span className="tt-numeric text-text-secondary text-label ml-auto">
           {formatDuration(detail.totalSeconds)} tracked · {dayOf(new Date(from))} –{' '}
           {to.slice(0, 10)}
@@ -154,8 +161,12 @@ export function ProjectDetailContent({ data }: { data: ProjectDetailData }) {
       </div>
 
       <div className="border-separator mb-6 flex flex-wrap items-center gap-4 border-b pb-4">
-        <ProjectRecolor id={detail.projectId} color={detail.color} />
-        <ProjectArchiveToggle id={detail.projectId} archived={detail.archived} />
+        {canOwnProject(data.role, detail.teamIds) && (
+          <>
+            <ProjectRecolor id={detail.projectId} color={detail.color} />
+            <ProjectArchiveToggle id={detail.projectId} archived={detail.archived} />
+          </>
+        )}
         <ProjectTeamMove
           id={detail.projectId}
           projectName={detail.name}
@@ -173,6 +184,23 @@ export function ProjectDetailContent({ data }: { data: ProjectDetailData }) {
           <h2 className="text-text text-h2 mb-3 font-semibold">Hours over time</h2>
           <ProjectHoursTrendChart data={toTrendBars(detail.trend)} />
         </section>
+        {detail.byTeam.length > 1 && (
+          <section className="flex flex-col gap-3">
+            <SectionHeader label="By team" />
+            <Card padding="md">
+              <div className="flex flex-col gap-3.5">
+                {toTeamSplitRows(detail.byTeam, detail.totalSeconds).map((t) => (
+                  <BarMeter
+                    key={t.key}
+                    label={t.name}
+                    value={formatDuration(t.seconds)}
+                    fills={[{ pct: t.pct, color: 'var(--tt-accent)' }]}
+                  />
+                ))}
+              </div>
+            </Card>
+          </section>
+        )}
         <section>
           <h2 className="text-text text-h2 mb-3 font-semibold">By member</h2>
           <ProjectHoursChart data={toMemberBars(detail.members)} />

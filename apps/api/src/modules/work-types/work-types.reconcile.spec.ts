@@ -6,7 +6,7 @@ import {
   type ExistingSubproject,
 } from './work-types.reconcile.js';
 
-const P1 = { id: 'p1', teamId: 't1' };
+const P1 = { id: 'p1', teamIds: ['t1'] };
 const PAYROLL: DesiredWorkType = { id: 'w1', name: 'Payroll' };
 const AUDIT: DesiredWorkType = { id: 'w2', name: 'Audit Assist' };
 
@@ -80,7 +80,7 @@ describe('planReconcile', () => {
   });
 
   it('treats a project whose team has no selection as wanting nothing', () => {
-    const plan = planReconcile([{ id: 'p2', teamId: 'other' }], desired(PAYROLL), [
+    const plan = planReconcile([{ id: 'p2', teamIds: ['other'] }], desired(PAYROLL), [
       sub({ id: 's1', projectId: 'p2', name: 'Payroll', workTypeId: 'w1' }),
     ]);
     expect(plan.archive).toEqual(['s1']);
@@ -88,7 +88,7 @@ describe('planReconcile', () => {
   });
 
   it('keeps projects apart: a row on one project never satisfies another', () => {
-    const plan = planReconcile([P1, { id: 'p2', teamId: 't1' }], desired(PAYROLL), [
+    const plan = planReconcile([P1, { id: 'p2', teamIds: ['t1'] }], desired(PAYROLL), [
       sub({ id: 's1', projectId: 'p1', name: 'Payroll', workTypeId: 'w1' }),
     ]);
     expect(plan.create).toEqual([{ projectId: 'p2', workTypeId: 'w1', name: 'Payroll' }]);
@@ -106,5 +106,30 @@ describe('groupRenames', () => {
       ['Payroll', ['a', 'b']],
       ['Audit', ['c']],
     ]);
+  });
+});
+
+describe('planReconcile across linked teams', () => {
+  const INTERNAL: DesiredWorkType = { id: 'w3', name: 'Internal' };
+  const shared = { id: 'p1', teamIds: ['t1', 't2'] };
+  const byTeam = new Map([
+    ['t1', [PAYROLL, AUDIT]],
+    ['t2', [PAYROLL, INTERNAL]],
+  ]);
+
+  it('desires the union of every linked team, each work type once', () => {
+    const plan = planReconcile([shared], byTeam, []);
+    expect(plan.create.map((c) => c.workTypeId).sort()).toEqual(['w1', 'w2', 'w3']);
+  });
+
+  it('after unsharing t2, archives only what t1 does not select', () => {
+    const rows = [
+      sub({ id: 's1', name: 'Payroll', workTypeId: 'w1' }),
+      sub({ id: 's2', name: 'Audit Assist', workTypeId: 'w2' }),
+      sub({ id: 's3', name: 'Internal', workTypeId: 'w3' }),
+    ];
+    const plan = planReconcile([{ id: 'p1', teamIds: ['t1'] }], byTeam, rows);
+    expect(plan.archive).toEqual(['s3']);
+    expect(plan.create).toEqual([]);
   });
 });
