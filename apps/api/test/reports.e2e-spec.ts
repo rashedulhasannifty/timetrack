@@ -222,6 +222,29 @@ describe.runIf(RUN_E2E)('reports repository — overview (real Postgres)', () =>
     expect(rows.map((r) => r.name)).toEqual(['Ada']);
   });
 
+  it('overviewForAll spans every team, with each tracker flagged', async () => {
+    const eng = await seedTeam();
+    const ops = await db.prisma.team.create({ data: { name: 'Ops', settings: {} }, select: { id: true } });
+    await seedUser(eng.id, 'Ada', 'ada@example.com');
+    const bea = await seedUser(ops.id, 'Bea', 'bea@example.com');
+    await db.prisma.timeEntry.create({
+      data: {
+        id: '019797a0-0000-7000-8000-0000000001a1',
+        userId: bea.id,
+        source: 'AUTO',
+        startTime: new Date(Date.now() - 60_000),
+        endTime: null,
+        heartbeatAt: new Date(),
+      },
+    });
+
+    const rows = await repo().overviewForAll(DAY_START, DAY_END, WINDOW);
+    expect(rows.map((r) => [r.name, r.tracking])).toEqual([
+      ['Ada', false],
+      ['Bea', true],
+    ]);
+  });
+
   it('excludes a deactivated user from the team overview', async () => {
     const team = await seedTeam();
     const active = await seedUser(team.id, 'Ada', 'ada@example.com');

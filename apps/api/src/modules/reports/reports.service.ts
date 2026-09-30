@@ -53,17 +53,21 @@ export class ReportsService {
     const dayStart = dayStartInstant(date);
     const dayEnd = dayStartInstant(shiftDay(date, 1));
 
-    // EMPLOYEE sees only themselves; MANAGER/ADMIN see their own team. The scope is fixed
-    // by the actor's identity — no client parameter can widen it (CLAUDE.md §4).
+    // EMPLOYEE sees only themselves, MANAGER their own team, ADMIN the whole org — the same
+    // default scopes as `resolveScope`, so "Tracking now" counts the people the rest of the
+    // overview counts. The scope is fixed by the actor's identity — no client parameter can
+    // widen it (CLAUDE.md §4).
     const rows =
       user.role === 'EMPLOYEE'
         ? await this.repo.overviewForSelf(user.id, dayStart, dayEnd, this.trackingFreshnessSeconds)
-        : await this.repo.overviewForTeam(
-            user.teamId,
-            dayStart,
-            dayEnd,
-            this.trackingFreshnessSeconds,
-          );
+        : user.role === 'ADMIN'
+          ? await this.repo.overviewForAll(dayStart, dayEnd, this.trackingFreshnessSeconds)
+          : await this.repo.overviewForTeam(
+              user.teamId,
+              dayStart,
+              dayEnd,
+              this.trackingFreshnessSeconds,
+            );
 
     return TeamOverviewSchema.parse({ date, rows });
   }
