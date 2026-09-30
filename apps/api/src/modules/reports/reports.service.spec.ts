@@ -19,6 +19,7 @@ function make() {
   const repo = {
     overviewForTeam: vi.fn().mockResolvedValue(rows),
     overviewForSelf: vi.fn().mockResolvedValue(rows),
+    overviewForAll: vi.fn().mockResolvedValue(rows),
   } as unknown as ReportsRepository;
   const access = {} as unknown as ResourceAccessService;
   return { svc: new ReportsService(repo, access, 300), repo };
@@ -76,15 +77,18 @@ describe('ReportsService.overview', () => {
     expect(repo.overviewForSelf).not.toHaveBeenCalled();
   });
 
-  it('scopes an ADMIN to their own team', async () => {
+  // Regression: an ADMIN was pinned to their OWN team here while every other report gives them
+  // the whole org, so "Tracking now" read 1/7 with six people in other teams visibly tracking.
+  it('scopes an ADMIN to the whole org, like every other report', async () => {
     const { svc, repo } = make();
     await svc.overview({ date: '2026-07-12' }, admin);
-    expect(repo.overviewForTeam).toHaveBeenCalledWith(
-      't1',
-      expect.any(Date),
-      expect.any(Date),
+    expect(repo.overviewForAll).toHaveBeenCalledWith(
+      dayStartInstant('2026-07-12'),
+      dayStartInstant('2026-07-13'),
       300,
     );
+    expect(repo.overviewForTeam).not.toHaveBeenCalled();
+    expect(repo.overviewForSelf).not.toHaveBeenCalled();
   });
 
   it('scopes an EMPLOYEE to themselves and never widens to the team', async () => {

@@ -112,6 +112,11 @@ export class ReportsRepository {
     return this.overview(Prisma.sql`u."teamId" = ${teamId}`, dayStart, dayEnd, freshnessSeconds);
   }
 
+  /** ADMIN: every active user in the org, matching the `all` scope of the range reports. */
+  overviewForAll(dayStart: Date, dayEnd: Date, freshnessSeconds: number): Promise<OverviewRow[]> {
+    return this.overview(Prisma.sql`TRUE`, dayStart, dayEnd, freshnessSeconds);
+  }
+
   overviewForSelf(
     userId: string,
     dayStart: Date,
