@@ -53,7 +53,7 @@ model ProjectTeam {
 model TimeEntry {
   // …
   /// The user's team when the entry was FIRST inserted, set by a BEFORE INSERT trigger
-  /// (time_entries_stamp_team) from users."teamId". No code path writes it, so a later upsert
+  /// (time_entries_stamp_team) from users."teamId". Only the runaway trim copies it onto split pieces, so a later upsert
   /// or edit can never change it. No FK, like projectId. Trigger is invisible to Prisma's diff.
   teamId String?
 }

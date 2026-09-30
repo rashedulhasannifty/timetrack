@@ -263,8 +263,8 @@ model TimeEntry {
   /// send it, so a reader must never treat "not WINDOWS" as "MACOS".
   platform     Platform?
   /// The user's team when the row was INSERTED, filled by the BEFORE INSERT trigger
-  /// `time_entries_stamp_team` (raw SQL, invisible to Prisma's diff). No code writes it, so an
-  /// upsert or edit can never change it. No FK, like projectId. Splits a shared client by team.
+  /// `time_entries_stamp_team` (raw SQL, invisible to Prisma's diff). Only the runaway trim copies it onto
+  /// split pieces, so an upsert or edit can never change it. No FK, like projectId. Splits a shared client by team.
   teamId       String?
   user         User        @relation(fields: [userId], references: [id])
 
