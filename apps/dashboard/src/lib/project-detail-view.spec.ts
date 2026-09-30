@@ -6,6 +6,8 @@ import {
   toTaskBars,
   groupTasksBySubproject,
   taskMoveOptions,
+  toTeamSplitRows,
+  canOwnProject,
 } from './project-detail-view';
 
 describe('toTrendBars', () => {
@@ -109,5 +111,35 @@ describe('taskMoveOptions', () => {
       { id: 'a', label: 'General' },
       { id: 'd', label: 'Build' },
     ]);
+  });
+});
+
+describe('toTeamSplitRows', () => {
+  it('names the Unassigned bucket and computes shares of the total', () => {
+    expect(
+      toTeamSplitRows(
+        [
+          { teamId: 't2', teamName: 'Ops', trackedSeconds: 7200 },
+          { teamId: null, teamName: 'Unassigned', trackedSeconds: 3600 },
+        ],
+        10800,
+      ),
+    ).toEqual([
+      { key: 't2', name: 'Ops', seconds: 7200, pct: (7200 / 10800) * 100 },
+      { key: 'unassigned', name: 'Unassigned', seconds: 3600, pct: (3600 / 10800) * 100 },
+    ]);
+  });
+  it('is 0% everywhere when nothing was tracked', () => {
+    expect(toTeamSplitRows([{ teamId: 't1', teamName: 'Eng', trackedSeconds: 0 }], 0)[0]?.pct).toBe(
+      0,
+    );
+  });
+});
+
+describe('canOwnProject', () => {
+  it('lets an ADMIN own anything and a MANAGER only an unshared client', () => {
+    expect(canOwnProject('ADMIN', ['t1', 't2'])).toBe(true);
+    expect(canOwnProject('MANAGER', ['t1'])).toBe(true);
+    expect(canOwnProject('MANAGER', ['t1', 't2'])).toBe(false);
   });
 });

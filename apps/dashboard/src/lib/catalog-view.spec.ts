@@ -200,3 +200,32 @@ describe('team column ticks (kept in client state so a failed save keeps them)',
     expect(columnSubmission(matrix, ticks, 't-missing')).toEqual([]);
   });
 });
+
+describe('clientRows with shared clients', () => {
+  const teams = [
+    { id: 't1', name: 'Eng' },
+    { id: 't2', name: 'Ops' },
+  ];
+  const project = (over: Partial<Project>): Project => ({
+    id: 'p1',
+    teamId: 't1',
+    name: 'Acme',
+    color: null,
+    archived: false,
+    ...over,
+  });
+  it('lists linked teams home first and marks 2+ as shared', () => {
+    const [row] = clientRows(teams, [project({ teamIds: ['t1', 't2'] })]);
+    expect(row).toMatchObject({
+      teams: [
+        { id: 't1', name: 'Eng' },
+        { id: 't2', name: 'Ops' },
+      ],
+      shared: true,
+    });
+  });
+  it('falls back to the home team when teamIds is absent', () => {
+    const [row] = clientRows(teams, [project({})]);
+    expect(row).toMatchObject({ teams: [{ id: 't1', name: 'Eng' }], shared: false });
+  });
+});

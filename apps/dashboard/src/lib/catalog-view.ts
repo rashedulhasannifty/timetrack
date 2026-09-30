@@ -30,6 +30,9 @@ export type ClientRow = {
   name: string;
   teamId: string;
   teamName: string;
+  /** Linked teams, home first; one entry unless the client is shared. */
+  teams: { id: string; name: string }[];
+  shared: boolean;
   archived: boolean;
 };
 
@@ -156,12 +159,17 @@ export function describeCounts(c: ReconcileCounts): string {
 export function clientRows(teams: readonly TeamRef[], projects: readonly Project[]): ClientRow[] {
   const names = new Map(teams.map((t) => [t.id, t.name] as const));
   return projects
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      teamId: p.teamId,
-      teamName: names.get(p.teamId) ?? 'Unknown team',
-      archived: p.archived,
-    }))
+    .map((p) => {
+      const ids = p.teamIds ?? [p.teamId];
+      return {
+        id: p.id,
+        name: p.name,
+        teamId: p.teamId,
+        teamName: names.get(p.teamId) ?? 'Unknown team',
+        teams: ids.map((id) => ({ id, name: names.get(id) ?? 'Unknown team' })),
+        shared: ids.length > 1,
+        archived: p.archived,
+      };
+    })
     .sort((a, b) => byName(a, b) || a.teamName.localeCompare(b.teamName));
 }

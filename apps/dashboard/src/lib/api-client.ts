@@ -16,6 +16,7 @@ import {
   ProjectSchema,
   type Project,
   type CreateProject,
+  type SetProjectTeams,
   type ProjectColor,
   TaskSchema,
   SubprojectSchema,
@@ -335,6 +336,9 @@ export const api = {
   /** ADMIN-only. Moves the project (and its tasks) to another team; the API audits it. */
   moveProject: (token: string, id: string, teamId: string): Promise<Project> =>
     send('PATCH', `/projects/${id}`, { teamId }, ProjectSchema, token),
+  /** ADMIN-only. Replaces the client's linked teams (home included); the API audits it. */
+  setProjectTeams: (token: string, id: string, dto: SetProjectTeams): Promise<Project> =>
+    send('PUT', `/projects/${id}/teams`, dto, ProjectSchema, token),
   createTask: (token: string, dto: CreateTask): Promise<Task> =>
     send('POST', '/projects/tasks', dto, TaskSchema, token),
   listProjectTasks: (token: string, id: string): Promise<Task[]> =>
