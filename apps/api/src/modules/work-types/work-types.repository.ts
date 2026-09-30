@@ -37,6 +37,19 @@ export async function lockReconcile(tx: Prisma.TransactionClient): Promise<void>
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(7311947202601)`;
 }
 
+/** Every project LINKED to any of these teams (project_teams), home or shared. */
+export async function linkedProjectIds(
+  tx: Prisma.TransactionClient,
+  teamIds: readonly string[],
+): Promise<string[]> {
+  if (teamIds.length === 0) return [];
+  const rows = await tx.projectTeam.findMany({
+    where: { teamId: { in: [...teamIds] } },
+    select: { projectId: true },
+  });
+  return [...new Set(rows.map((r) => r.projectId))];
+}
+
 export const CONCURRENT_CHANGE = 'The catalog changed while saving. Try again.';
 
 export function isUniqueViolation(e: unknown): boolean {
@@ -98,15 +111,26 @@ export class WorkTypesRepository {
     audit: ReconcileAudit,
   ): Promise<ReconcileCounts> {
     const ids = [...new Set(projectIds)];
-    const projects =
+    const links =
       ids.length === 0
         ? []
-        : await tx.project.findMany({
-            where: { id: { in: ids } },
-            select: { id: true, teamId: true },
+        : await tx.projectTeam.findMany({
+            where: { projectId: { in: ids } },
+            select: { projectId: true, teamId: true },
           });
+    const teamsByProject = new Map<string, string[]>();
+    for (const l of links) {
+      const list = teamsByProject.get(l.projectId);
+      if (list) list.push(l.teamId);
+      else teamsByProject.set(l.projectId, [l.teamId]);
+    }
+    const existing =
+      ids.length === 0
+        ? []
+        : await tx.project.findMany({ where: { id: { in: ids } }, select: { id: true } });
+    const projects = existing.map((p) => ({ id: p.id, teamIds: teamsByProject.get(p.id) ?? [] }));
 
-    const teamIds = [...new Set(projects.map((p) => p.teamId))];
+    const teamIds = [...new Set(links.map((l) => l.teamId))];
     const selections =
       teamIds.length === 0
         ? []
@@ -279,18 +303,16 @@ export class WorkTypesRepository {
           where: { workTypeId: id },
           select: { teamId: true },
         });
-        const projects =
-          teams.length === 0
-            ? []
-            : await tx.project.findMany({
-                where: { teamId: { in: teams.map((t) => t.teamId) } },
-                select: { id: true },
-              });
-        await this.reconcile(
+        const projectIds = await linkedProjectIds(
           tx,
-          projects.map((p) => p.id),
-          { actorId, trigger: 'work_type_update', targetType: 'work_type', targetId: id },
+          teams.map((t) => t.teamId),
         );
+        await this.reconcile(tx, projectIds, {
+          actorId,
+          trigger: 'work_type_update',
+          targetType: 'work_type',
+          targetId: id,
+        });
         return workType;
       }, RECONCILE_TX);
     } catch (e) {
@@ -306,7 +328,7 @@ export class WorkTypesRepository {
   /**
    * Replace the team's NON-archived selection with `workTypeIds`; links to archived work types
    * are kept so a Restore brings them back for the same teams (plan ruling R5). Deleting a
-   * selection row is audited in the same transaction, then every project of the team reconciles.
+   * selection row is audited in the same transaction, then every project linked to the team reconciles.
    */
   async setTeamSelection(
     teamId: string,
@@ -339,12 +361,12 @@ export class WorkTypesRepository {
             diff: { before: current.map((c) => c.workTypeId).sort(), after: next },
           },
         });
-        const projects = await tx.project.findMany({ where: { teamId }, select: { id: true } });
-        await this.reconcile(
-          tx,
-          projects.map((p) => p.id),
-          { actorId, trigger: 'team_selection', targetType: 'team', targetId: teamId },
-        );
+        await this.reconcile(tx, await linkedProjectIds(tx, [teamId]), {
+          actorId,
+          trigger: 'team_selection',
+          targetType: 'team',
+          targetId: teamId,
+        });
         return { teamId, workTypeIds: next };
       }, RECONCILE_TX);
     } catch (e) {

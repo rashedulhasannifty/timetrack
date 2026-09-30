@@ -1,7 +1,7 @@
 import { nameKey } from '@timetrack/contracts';
 
 /**
- * The pure half of reconcile (spec §5): given the projects, each team's desired (selected,
+ * The pure half of reconcile (spec §5): given the projects, the union of each project's linked teams' desired (selected,
  * non-archived) work types and the projects' current non-default subprojects, decide what to
  * create, link, restore, rename and archive. No Prisma here — WorkTypesRepository.reconcile loads
  * the inputs and applies the plan inside the caller's transaction.
@@ -12,6 +12,7 @@ export type ReconcileTrigger =
   | 'project_create'
   | 'project_bulk_create'
   | 'project_team_change'
+  | 'project_teams_set'
   | 'resync';
 
 export type ReconcileAudit = {
@@ -21,7 +22,7 @@ export type ReconcileAudit = {
   targetId: string;
 };
 
-export type ReconcileProject = { id: string; teamId: string };
+export type ReconcileProject = { id: string; teamIds: readonly string[] };
 export type DesiredWorkType = { id: string; name: string };
 export type ExistingSubproject = {
   id: string;
@@ -57,7 +58,12 @@ export function planReconcile(
 
   for (const project of projects) {
     const rows = byProject.get(project.id) ?? [];
-    const desired = desiredByTeam.get(project.teamId) ?? [];
+    // A shared client carries the union of its teams' work types, each once (spec §5.4).
+    const union = new Map<string, DesiredWorkType>();
+    for (const teamId of project.teamIds) {
+      for (const wt of desiredByTeam.get(teamId) ?? []) union.set(wt.id, wt);
+    }
+    const desired = [...union.values()];
     const desiredIds = new Set(desired.map((w) => w.id));
     // At most one linked row per work type (partial unique index subprojects_one_per_work_type).
     const linked = new Map<string, ExistingSubproject>();

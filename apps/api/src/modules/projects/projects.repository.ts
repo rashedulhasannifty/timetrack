@@ -117,6 +117,8 @@ export class ProjectsRepository {
           data: { teamId, name, color },
           select: PROJECT_SELECT,
         });
+        // Before reconcile: reconcile reads project_teams.
+        await tx.projectTeam.create({ data: { projectId: project.id, teamId } });
         // Every project owns exactly one default subproject (partial unique index), created with it.
         await tx.subproject.create({
           data: { projectId: project.id, name: DEFAULT_SUBPROJECT_NAME, isDefault: true },
@@ -175,6 +177,10 @@ export class ProjectsRepository {
         const projects = await tx.project.createManyAndReturn({
           data: items.map((i) => ({ teamId, name: i.name, color: i.color })),
           select: PROJECT_SELECT,
+        });
+        // Before reconcile: reconcile reads project_teams.
+        await tx.projectTeam.createMany({
+          data: projects.map((p) => ({ projectId: p.id, teamId })),
         });
         await tx.subproject.createMany({
           data: projects.map((p) => ({
@@ -381,8 +387,8 @@ export class ProjectsRepository {
   /**
    * Move a project to another team and audit it in the same transaction, mirroring
    * `user.team_change`. Tasks follow by FK; time entries are deliberately left alone — they
-   * reference the project by id and reports scope by the entry's user, so hours already
-   * tracked stay with the team whose people tracked them.
+   * reference the project by id and split by their stamped `teamId`, so hours already tracked
+   * stay with the team they were stamped with, not the entry's user's current team.
    */
   async setTeam(id: string, teamId: string, actorId: string): Promise<Project> {
     try {
@@ -402,6 +408,15 @@ export class ProjectsRepository {
             targetId: id,
             diff: { from: before?.teamId ?? null, to: teamId },
           },
+        });
+        // The home link follows the move; other (shared) links stay. To keep the old team, share
+        // it again afterwards (spec §5.4). Before reconcile: reconcile reads project_teams.
+        if (before && before.teamId !== teamId) {
+          await tx.projectTeam.deleteMany({ where: { projectId: id, teamId: before.teamId } });
+        }
+        await tx.projectTeam.createMany({
+          data: [{ projectId: id, teamId }],
+          skipDuplicates: true,
         });
         // Swap to the new team's work types: the old team's linked rows archive (never delete) and
         // a move back restores the same rows (spec §5, rule 1 and 4). RECONCILE_TX, not the
