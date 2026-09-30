@@ -295,6 +295,22 @@ describe.runIf(RUN_E2E)('shared clients — real Postgres', () => {
     ).resolves.toMatchObject({ name: 'Kickoff' });
   });
 
+  it('a manager of an unlinked team gets 403 on detail and top-apps of a shared client', async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    const qa = await team('QA');
+    const acme = await client(eng, 'Acme');
+    await link(acme.id, ops);
+    const qaMgr = manager('01920000-0000-7000-8000-0000000000b3', qa);
+    const range = { from: '2026-07-11T00:00:00.000Z', to: '2026-07-12T00:00:00.000Z' };
+    expect(await titleOf(projects().detail(acme.id, range, qaMgr))).toBe(
+      'Cannot manage a project in another team',
+    );
+    expect(await titleOf(projects().topApps(acme.id, range, qaMgr))).toBe(
+      'Cannot manage a project in another team',
+    );
+  });
+
   it('detail splits a shared client by the team each entry was tracked under', async () => {
     const eng = await team('Eng');
     const ops = await team('Ops');
