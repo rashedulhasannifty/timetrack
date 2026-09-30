@@ -1,9 +1,4 @@
-import {
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { TeamSettingsSchema } from '@timetrack/contracts';
 import type {
   AuditLogPage,
@@ -80,13 +75,9 @@ export class AdminService {
         status: 404,
       });
     }
-    if (target.teamId !== actor.teamId) {
-      throw new ForbiddenException({
-        type: 'https://timetrack.internal/errors/forbidden',
-        title: 'Cannot manage a user in another team',
-        status: 403,
-      });
-    }
+    // No team check: every route here is @Roles('ADMIN'), and ADMIN is org-wide (the same rule
+    // ResourceAccessService applies). Comparing against the admin's own team only ever blocked
+    // the one role allowed to call this.
     if (target.id === actor.id) {
       throw new ConflictException({
         type: 'https://timetrack.internal/errors/conflict',
@@ -130,13 +121,13 @@ export class AdminService {
   }
 
   /**
-   * PRD §4.4 — a full data export for one user, streamed as JSON. Same guards as erase (404 /
-   * cross-team 403). Emits the envelope incrementally and delegates each table to a paged
+   * PRD §4.4 — a full data export for one user, streamed as JSON. Same guards as erase (404 for
+   * an unknown user). Emits the envelope incrementally and delegates each table to a paged
    * repository generator, so a user with tens of thousands of activity samples is never
    * materialized in memory. `refresh_tokens` is deliberately excluded — `tokenHash` is live
    * session material, not personal data.
    */
-  async exportUser(userId: string, actor: SessionUser): Promise<AsyncIterable<string>> {
+  async exportUser(userId: string): Promise<AsyncIterable<string>> {
     const target = await this.repo.findForErase(userId);
     if (!target) {
       throw new NotFoundException({
@@ -145,13 +136,7 @@ export class AdminService {
         status: 404,
       });
     }
-    if (target.teamId !== actor.teamId) {
-      throw new ForbiddenException({
-        type: 'https://timetrack.internal/errors/forbidden',
-        title: 'Cannot manage a user in another team',
-        status: 403,
-      });
-    }
+    // No team check — ADMIN-only route, and ADMIN is org-wide (see eraseUser).
     return this.generateExport(userId, target.email);
   }
 

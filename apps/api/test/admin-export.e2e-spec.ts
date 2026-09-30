@@ -124,7 +124,7 @@ describe.runIf(RUN_E2E)('admin export — streamed JSON (real Postgres)', () => 
       {} as unknown as MinioService, // export never touches storage
     );
     const actor: SessionUser = { id: 'admin-1', role: 'ADMIN', teamId: seeded.teamId };
-    const json = await collect(await svc.exportUser(seeded.userId, actor));
+    const json = await collect(await svc.exportUser(seeded.userId));
 
     const parsed = JSON.parse(json) as Record<string, unknown>;
     expect(parsed.user).toMatchObject({ id: seeded.userId, email: 'export@x.com' });
@@ -147,7 +147,7 @@ describe.runIf(RUN_E2E)('admin export — streamed JSON (real Postgres)', () => 
     expect(Object.keys(parsed)).not.toContain('refreshTokens');
   });
 
-  it('404s an unknown user and 403s a user in another team', async () => {
+  it('404s an unknown user and exports a user in another team for an ADMIN', async () => {
     await truncateAll(db.prisma);
     const seeded = await seedFullUser(db, 'other-team@x.com');
     const svc = new AdminService(
@@ -155,15 +155,10 @@ describe.runIf(RUN_E2E)('admin export — streamed JSON (real Postgres)', () => 
       {} as unknown as MinioService,
     );
     await expect(
-      svc.exportUser('019797a0-0000-7000-8000-0000000000ff', {
-        id: 'a',
-        role: 'ADMIN',
-        teamId: seeded.teamId,
-      }),
+      svc.exportUser('019797a0-0000-7000-8000-0000000000ff'),
     ).rejects.toThrow();
-    await expect(
-      svc.exportUser(seeded.userId, { id: 'a', role: 'ADMIN', teamId: 'a-different-team' }),
-    ).rejects.toThrow();
+    // ADMIN is org-wide, so there is no team to compare: any existing user exports.
+    await expect(svc.exportUser(seeded.userId)).resolves.toBeDefined();
   });
 });
 

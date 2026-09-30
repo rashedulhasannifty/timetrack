@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ZodError } from 'zod';
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { AdminService } from './admin.service.js';
 import type { AdminRepository } from './admin.repository.js';
 import type { MinioService } from '../../infra/storage/minio.service.js';
@@ -160,13 +160,14 @@ describe('AdminService.eraseUser guards', () => {
     expect(repo.eraseUser).not.toHaveBeenCalled();
   });
 
-  it('403s a user in another team without sweeping or erasing', async () => {
+  // Regression: erase was refused with "Cannot manage a user in another team" for an ADMIN,
+  // whose role is org-wide — the whole controller is @Roles('ADMIN'), so that check could only
+  // ever block the one role allowed to call it.
+  it('erases a user in another team for an ADMIN', async () => {
     const { svc, repo, storage } = make({}, { ...target, teamId: 'other-team' });
-    await expect(svc.eraseUser('u2', { reason: 'r' }, actor)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-    expect(storage.deleteByPrefix).not.toHaveBeenCalled();
-    expect(repo.eraseUser).not.toHaveBeenCalled();
+    await expect(svc.eraseUser('u2', { reason: 'r' }, actor)).resolves.toBeUndefined();
+    expect(storage.deleteByPrefix).toHaveBeenCalledWith('raw/u2/');
+    expect(repo.eraseUser).toHaveBeenCalled();
   });
 
   it('409s self-erase without sweeping or erasing', async () => {
