@@ -38,19 +38,28 @@ function makeService(overrides: Partial<ProjectsRepository> = {}) {
     moveTask: vi.fn(),
     subprojectsForProject: vi.fn().mockResolvedValue([]),
     findTeam: vi.fn().mockResolvedValue({ id: 't1', name: 'Eng' }),
-    listAllProjectNames: vi.fn().mockResolvedValue([]),
-    createProjectsBulk: vi
+    listProjectsForImport: vi.fn().mockResolvedValue([]),
+    importProjects: vi
       .fn()
-      .mockImplementation((teamId: string, items: { name: string; color: string }[]) =>
-        Promise.resolve(
-          items.map((i, n) => ({
-            id: `p${n}`,
-            teamId,
-            name: i.name,
-            color: i.color,
-            archived: false,
-          })),
-        ),
+      .mockImplementation(
+        (teamId: string, items: { name: string; color: string }[], shareIds: string[]) =>
+          Promise.resolve({
+            created: items.map((i, n) => ({
+              id: `p${n}`,
+              teamId,
+              name: i.name,
+              color: i.color,
+              archived: false,
+            })),
+            shared: shareIds.map((id) => ({
+              id,
+              teamId: 'home',
+              teamIds: ['home', teamId],
+              name: id,
+              color: null,
+              archived: false,
+            })),
+          }),
       ),
     hasActiveSubprojectNamed: vi.fn().mockResolvedValue(false),
     ...overrides,
@@ -702,39 +711,73 @@ describe('ProjectsService.update — moving a project between teams', () => {
 
 describe('ProjectsService.bulkCreate', () => {
   const TEAM = '01920000-0000-7000-8000-0000000000c1';
+  const existing = (over: Record<string, unknown>) => ({
+    id: 'x1',
+    name: 'Acme Ltd',
+    teamId: 'support',
+    teamName: 'Support',
+    archived: false,
+    teamIds: ['support'],
+    ...over,
+  });
 
   it('404s an unknown team and creates nothing', async () => {
     const { svc, repo } = makeService({ findTeam: vi.fn().mockResolvedValue(null) });
     await expect(svc.bulkCreate({ teamId: TEAM, names: ['A'] }, admin)).rejects.toBeInstanceOf(
       NotFoundException,
     );
-    expect(repo.createProjectsBulk).not.toHaveBeenCalled();
+    expect(repo.importProjects).not.toHaveBeenCalled();
   });
 
-  it('skips org-wide existing names with their team, and in-list repeats', async () => {
+  it("shares another team's active client into the team instead of skipping it", async () => {
     const { svc, repo } = makeService({
-      listAllProjectNames: vi.fn().mockResolvedValue([{ name: 'Acme Ltd', teamName: 'Support' }]),
+      listProjectsForImport: vi.fn().mockResolvedValue([existing({})]),
+    });
+    const out = await svc.bulkCreate({ teamId: TEAM, names: ['acme ltd', 'Globex'] }, admin);
+    expect(repo.importProjects).toHaveBeenCalledWith(
+      't1',
+      [{ name: 'Globex', color: PROJECT_PALETTE[0] }],
+      ['x1'],
+      'a1',
+    );
+    expect(out.shared.map((p) => p.id)).toEqual(['x1']);
+    expect(out.skipped).toEqual([]);
+  });
+
+  it('skips names already in the team, archived clients, ambiguous names, and repeats', async () => {
+    const { svc, repo } = makeService({
+      listProjectsForImport: vi
+        .fn()
+        .mockResolvedValue([
+          existing({ id: 'in', name: 'Mine', teamId: 't1', teamName: 'Eng', teamIds: ['t1'] }),
+          existing({ id: 'lnk', name: 'Linked', teamIds: ['support', 't1'] }),
+          existing({ id: 'old', name: 'Old', archived: true }),
+          existing({ id: 'd1', name: 'Twin', teamName: 'Support' }),
+          existing({ id: 'd2', name: 'twin', teamId: 'ops', teamName: 'Ops', teamIds: ['ops'] }),
+          existing({ id: 'x1', name: 'Acme Ltd' }),
+        ]),
     });
     const out = await svc.bulkCreate(
-      { teamId: TEAM, names: ['acme ltd', 'Globex', 'globex'] },
+      { teamId: TEAM, names: ['mine', 'LINKED', 'old', 'Twin', 'Acme Ltd', 'acme ltd'] },
       admin,
     );
     expect(out.skipped).toEqual([
-      { name: 'acme ltd', reason: 'Already exists in Support' },
-      { name: 'globex', reason: 'Duplicate in list' },
+      { name: 'mine', reason: 'Already in Eng' },
+      { name: 'LINKED', reason: 'Already in Eng' },
+      { name: 'old', reason: 'Archived client in Support' },
+      { name: 'Twin', reason: 'Several clients have this name' },
+      { name: 'acme ltd', reason: 'Duplicate in list' },
     ]);
-    expect(repo.createProjectsBulk).toHaveBeenCalledWith(
-      't1',
-      [{ name: 'Globex', color: PROJECT_PALETTE[0] }],
-      'a1',
-    );
+    expect(repo.importProjects).toHaveBeenCalledWith('t1', [], ['x1'], 'a1');
   });
 
-  it('assigns palette colours in turn, wrapping around', async () => {
-    const { svc, repo } = makeService();
-    const names = Array.from({ length: PROJECT_PALETTE.length + 1 }, (_, i) => `Client ${i}`);
+  it('assigns palette colours in turn to created clients only, wrapping around', async () => {
+    const { svc, repo } = makeService({
+      listProjectsForImport: vi.fn().mockResolvedValue([existing({ name: 'Client 0' })]),
+    });
+    const names = Array.from({ length: PROJECT_PALETTE.length + 2 }, (_, i) => `Client ${i}`);
     await svc.bulkCreate({ teamId: TEAM, names }, admin);
-    const items = vi.mocked(repo.createProjectsBulk).mock.calls[0]?.[1] ?? [];
+    const items = vi.mocked(repo.importProjects).mock.calls[0]?.[1] ?? [];
     expect(items.map((i) => i.color)).toEqual([...PROJECT_PALETTE, PROJECT_PALETTE[0]]);
   });
 
@@ -750,9 +793,10 @@ describe('ProjectsService.bulkCreate', () => {
     const { svc, repo } = makeService();
     await expect(svc.bulkCreate({ teamId: TEAM, names: ['  '] }, admin)).resolves.toEqual({
       created: [],
+      shared: [],
       skipped: [{ name: '  ', reason: 'Empty name' }],
     });
-    expect(repo.createProjectsBulk).not.toHaveBeenCalled();
+    expect(repo.importProjects).not.toHaveBeenCalled();
   });
 });
 

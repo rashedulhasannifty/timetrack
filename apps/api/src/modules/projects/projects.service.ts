@@ -26,7 +26,7 @@ import type {
 import { PROJECT_PALETTE, ProjectDetailSchema, nameKey } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { planNameImport } from '../../common/name-import.js';
-import { ProjectsRepository } from './projects.repository.js';
+import { ProjectsRepository, type ImportCandidate } from './projects.repository.js';
 import { TRACKING_FRESHNESS_SECONDS } from './projects.tokens.js';
 
 /**
@@ -127,27 +127,54 @@ export class ProjectsService {
   }
 
   /**
-   * ADMIN-only client import (spec §6). A name that exists ANYWHERE in the org — archived or
-   * not, any team — is skipped with the team that has it; repeats within the paste are skipped
-   * too. Colours come from the palette in turn (ruling R15).
+   * ADMIN-only client import (spec §6), share-aware: a pasted name that is an ACTIVE client of
+   * another team is shared into this team (one client, time split by team) rather than skipped.
+   * Skipped: names already usable by this team, archived clients (sharing would not make them
+   * usable), names several clients have (which one is meant is a guess), and in-list repeats.
+   * Colours for NEW clients come from the palette in turn (ruling R15).
    */
   async bulkCreate(dto: BulkCreateProjects, actor: SessionUser): Promise<BulkCreateProjectsResult> {
     const team = await this.repo.findTeam(dto.teamId);
     if (!team) throw this.notFound('Team not found');
 
-    const taken = new Map<string, string>();
-    for (const p of await this.repo.listAllProjectNames()) {
+    const byKey = new Map<string, ImportCandidate[]>();
+    for (const p of await this.repo.listProjectsForImport()) {
       const key = nameKey(p.name);
-      if (!taken.has(key)) taken.set(key, `Already exists in ${p.teamName}`);
+      const list = byKey.get(key);
+      if (list) list.push(p);
+      else byKey.set(key, [p]);
     }
+    const taken = new Map<string, string>();
+    const shareIdByKey = new Map<string, string>();
+    for (const [key, matches] of byKey) {
+      const [only] = matches;
+      if (matches.some((m) => m.teamIds.includes(team.id))) {
+        taken.set(key, `Already in ${team.name}`);
+      } else if (matches.length > 1 || !only) {
+        taken.set(key, 'Several clients have this name');
+      } else if (only.archived) {
+        taken.set(key, `Archived client in ${only.teamName}`);
+      } else {
+        shareIdByKey.set(key, only.id);
+      }
+    }
+
     const { accepted, skipped } = planNameImport(dto.names, taken);
-    const items = accepted.map((name, i) => ({
+    const shareIds: string[] = [];
+    const newNames: string[] = [];
+    for (const name of accepted) {
+      const id = shareIdByKey.get(nameKey(name));
+      if (id !== undefined) shareIds.push(id);
+      else newNames.push(name);
+    }
+    if (newNames.length === 0 && shareIds.length === 0) return { created: [], shared: [], skipped };
+
+    const items = newNames.map((name, i) => ({
       name,
       color: PROJECT_PALETTE[i % PROJECT_PALETTE.length] ?? PROJECT_PALETTE[0],
     }));
-    const created =
-      items.length === 0 ? [] : await this.repo.createProjectsBulk(team.id, items, actor.id);
-    return { created, skipped };
+    const { created, shared } = await this.repo.importProjects(team.id, items, shareIds, actor.id);
+    return { created, shared, skipped };
   }
 
   async createTask(dto: CreateTask, actor: SessionUser): Promise<Task> {

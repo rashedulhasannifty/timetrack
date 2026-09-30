@@ -598,6 +598,7 @@ describe('api — work types and client import', () => {
           archived: false,
         },
       ],
+      shared: [],
       skipped: [{ name: 'globex', reason: 'Duplicate in list' }],
     };
     vi.stubGlobal(

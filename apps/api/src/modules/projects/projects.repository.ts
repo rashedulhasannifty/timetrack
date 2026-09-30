@@ -71,6 +71,16 @@ function homeFirst(homeTeamId: string, links: readonly { teamId: string }[]): st
   return [homeTeamId, ...rest];
 }
 
+/** A client as the share-aware import sees it: linked teams home first. */
+export type ImportCandidate = {
+  id: string;
+  name: string;
+  teamId: string;
+  teamName: string;
+  archived: boolean;
+  teamIds: string[];
+};
+
 /** CLAUDE.md §3 — Prisma lives here. Never select `*` back to the client. */
 @Injectable()
 export class ProjectsRepository {
@@ -172,57 +182,111 @@ export class ProjectsRepository {
     return this.prisma.team.findUnique({ where: { id: teamId }, select: { id: true, name: true } });
   }
 
-  /** Every project name in the org, with its team's name — the import's org-wide duplicate check. */
-  async listAllProjectNames(): Promise<{ name: string; teamName: string }[]> {
+  /** Every project in the org with what the share-aware import needs to decide (spec §6). */
+  async listProjectsForImport(): Promise<ImportCandidate[]> {
     const rows = await this.prisma.project.findMany({
       orderBy: { name: 'asc' },
-      select: { name: true, team: { select: { name: true } } },
+      select: {
+        id: true,
+        name: true,
+        teamId: true,
+        archived: true,
+        team: { select: { name: true } },
+        teams: { select: { teamId: true } },
+      },
     });
-    return rows.map((r) => ({ name: r.name, teamName: r.team.name }));
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      teamId: r.teamId,
+      teamName: r.team.name,
+      archived: r.archived,
+      teamIds: homeFirst(r.teamId, r.teams),
+    }));
   }
 
   /**
-   * The client import (spec §6): every project, its General default, a `project.create` audit row
-   * each, and one reconcile for the lot — all in ONE transaction, with the long timeout.
+   * The client import (spec §6), in ONE transaction with the long timeout:
+   * - `items` become new projects of the team, each with its General default and a
+   *   `project.create` audit row;
+   * - `shareIds` (existing clients of other teams) gain a link to the team, each with a
+   *   `project.teams_set` audit row, exactly as the set-teams route writes it;
+   * - then one reconcile for all of them. Links are written first: reconcile reads project_teams.
    */
-  async createProjectsBulk(
+  async importProjects(
     teamId: string,
     items: readonly { name: string; color: string }[],
+    shareIds: readonly string[],
     actorId: string,
-  ): Promise<Project[]> {
+  ): Promise<{ created: Project[]; shared: Project[] }> {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await lockReconcile(tx);
-        const projects = await tx.project.createManyAndReturn({
-          data: items.map((i) => ({ teamId, name: i.name, color: i.color })),
-          select: PROJECT_SELECT,
-        });
-        // Before reconcile: reconcile reads project_teams.
-        await tx.projectTeam.createMany({
-          data: projects.map((p) => ({ projectId: p.id, teamId })),
-        });
-        await tx.subproject.createMany({
-          data: projects.map((p) => ({
-            projectId: p.id,
-            name: DEFAULT_SUBPROJECT_NAME,
-            isDefault: true,
-          })),
-        });
-        await tx.auditLog.createMany({
-          data: projects.map((p) => ({
-            actorId,
-            action: 'project.create',
-            targetType: 'project',
-            targetId: p.id,
-            diff: { teamId, name: p.name, color: p.color },
-          })),
-        });
+        const created =
+          items.length === 0
+            ? []
+            : await tx.project.createManyAndReturn({
+                data: items.map((i) => ({ teamId, name: i.name, color: i.color })),
+                select: PROJECT_SELECT,
+              });
+        if (created.length > 0) {
+          await tx.projectTeam.createMany({
+            data: created.map((p) => ({ projectId: p.id, teamId })),
+          });
+          await tx.subproject.createMany({
+            data: created.map((p) => ({
+              projectId: p.id,
+              name: DEFAULT_SUBPROJECT_NAME,
+              isDefault: true,
+            })),
+          });
+          await tx.auditLog.createMany({
+            data: created.map((p) => ({
+              actorId,
+              action: 'project.create',
+              targetType: 'project',
+              targetId: p.id,
+              diff: { teamId, name: p.name, color: p.color },
+            })),
+          });
+        }
+
+        const toShare =
+          shareIds.length === 0
+            ? []
+            : await tx.project.findMany({
+                where: { id: { in: [...shareIds] } },
+                select: { ...PROJECT_SELECT, teams: { select: { teamId: true } } },
+              });
+        const shared: Project[] = [];
+        if (toShare.length > 0) {
+          await tx.projectTeam.createMany({
+            data: toShare.map((p) => ({ projectId: p.id, teamId })),
+            skipDuplicates: true,
+          });
+          await tx.auditLog.createMany({
+            data: toShare.map((p) => {
+              const from = homeFirst(p.teamId, p.teams).sort();
+              return {
+                actorId,
+                action: 'project.teams_set',
+                targetType: 'project',
+                targetId: p.id,
+                diff: { from, to: [...new Set([...from, teamId])].sort() },
+              };
+            }),
+          });
+          for (const { teams, ...p } of toShare) {
+            shared.push({ ...p, teamIds: homeFirst(p.teamId, [...teams, { teamId }]) });
+          }
+        }
+
         await this.workTypes.reconcile(
           tx,
-          projects.map((p) => p.id),
+          [...created.map((p) => p.id), ...toShare.map((p) => p.id)],
           { actorId, trigger: 'project_bulk_create', targetType: 'team', targetId: teamId },
         );
-        return projects;
+        return { created, shared };
       }, RECONCILE_TX);
     } catch (e) {
       if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);

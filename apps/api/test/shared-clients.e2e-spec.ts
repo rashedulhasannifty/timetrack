@@ -361,6 +361,30 @@ describe.runIf(RUN_E2E)('shared clients — real Postgres', () => {
     expect(asOpsManager.totalSeconds).toBe(10800);
     expect(asOpsManager.members.map((m) => m.name)).toEqual(['Bob']);
   });
+
+  it('import skips an archived client of another team and a name several clients have', async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    const qa = await team('QA');
+    const old = await client(ops, 'Old Co');
+    await projects().update(old.id, { archived: true }, admin(ops));
+    await client(ops, 'Twin');
+    await client(qa, 'twin');
+
+    const result = await projects().bulkCreate(
+      { teamId: eng, names: ['old co', 'TWIN'] },
+      admin(eng),
+    );
+    expect(result).toEqual({
+      created: [],
+      shared: [],
+      skipped: [
+        { name: 'old co', reason: 'Archived client in Ops' },
+        { name: 'TWIN', reason: 'Several clients have this name' },
+      ],
+    });
+    await expect(db.prisma.projectTeam.count({ where: { teamId: eng } })).resolves.toBe(0);
+  });
 });
 
 describe('shared clients e2e harness', () => {

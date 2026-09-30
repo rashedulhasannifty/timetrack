@@ -67,7 +67,9 @@ export const CreateProjectSchema = z.object({
 
 /**
  * POST /v1/projects/bulk (ADMIN) — import clients into one team. Raw names: the API normalizes
- * each and skips org-wide duplicates (`Already exists in <team>`) and in-list repeats.
+ * each. A name that is a new client is CREATED in the team; a name that is an active client of
+ * another team is SHARED into the team (one client record, time split by team). Skipped: names
+ * already in the team, archived clients, names several clients have, and in-list repeats.
  */
 export const BulkCreateProjectsSchema = z.object({
   teamId: z.uuid(),
@@ -75,6 +77,8 @@ export const BulkCreateProjectsSchema = z.object({
 });
 export const BulkCreateProjectsResultSchema = z.object({
   created: z.array(ProjectSchema),
+  /** Existing clients of other teams now linked to this team too, with their `teamIds`. */
+  shared: z.array(ProjectSchema),
   skipped: z.array(NameSkipSchema),
 });
 

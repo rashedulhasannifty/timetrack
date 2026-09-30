@@ -313,9 +313,26 @@ describe('BulkCreateProjectsSchema', () => {
           archived: false,
         },
       ],
+      shared: [],
       skipped: [{ name: 'acme', reason: 'Duplicate in list' }],
     };
     expect(BulkCreateProjectsResultSchema.parse(value)).toEqual(value);
+  });
+
+  it('parses existing clients the import shared into the team, with their linked teams', () => {
+    const shared = {
+      id: '018f9c1e-0000-7000-8000-000000000002',
+      teamId: '018f9c1e-0000-7000-8000-0000000000c2',
+      teamIds: ['018f9c1e-0000-7000-8000-0000000000c2', TEAM],
+      name: 'Globex',
+      color: null,
+      archived: false,
+    };
+    const value = { created: [], shared: [shared], skipped: [] };
+    expect(BulkCreateProjectsResultSchema.parse(value)).toEqual(value);
+    expect(BulkCreateProjectsResultSchema.safeParse({ created: [], skipped: [] }).success).toBe(
+      false,
+    );
   });
 });
 
