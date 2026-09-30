@@ -24,6 +24,7 @@ export function ProjectsList({
   rows,
   noProjectSeconds,
   residualSeconds,
+  includeArchived,
   totalSeconds,
   rangeLabel,
   role,
@@ -31,6 +32,8 @@ export function ProjectsList({
   rows: ProjectIndexRow[];
   noProjectSeconds: number;
   residualSeconds: number;
+  /** Whether archived projects are in `rows` — decides what the leftover row can still be. */
+  includeArchived: boolean;
   totalSeconds: number;
   rangeLabel: string;
   role: string;
@@ -121,9 +124,11 @@ export function ProjectsList({
                   className="bg-separator inline-block h-[9px] w-[9px] shrink-0 rounded-full"
                   aria-hidden="true"
                 />
-                <span className="min-w-[190px] flex-none text-[14px]">Projects not listed</span>
+                {/* Time this team spent on projects outside the list: archived ones (while
+                    hidden), or another team's that are not shared with this one. */}
+                <span className="min-w-[190px] flex-none text-[14px]">Other projects</span>
                 <span className="text-caption min-w-[130px]">
-                  archived — turn on “Show archived”
+                  {includeArchived ? 'another team’s' : 'archived, or another team’s'}
                 </span>
                 <Meter pct={totalSeconds === 0 ? 0 : (residualSeconds / totalSeconds) * 100} />
                 <span className="tt-numeric w-20 shrink-0 text-right text-[13px]">

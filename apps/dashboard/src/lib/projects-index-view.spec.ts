@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toProjectIndexRows } from './projects-index-view';
+import { projectSummaryParams, toProjectIndexRows } from './projects-index-view';
 import { projectColor } from './project-color';
 import type { Project, ProjectSummaryRow } from '@timetrack/contracts';
 
@@ -210,5 +210,24 @@ describe('toProjectIndexRows — reconciliation', () => {
     };
     expect(toProjectIndexRows([withSubs], []).rows[0]?.subprojectCount).toBe(2);
     expect(toProjectIndexRows([P('p2', 'Beta')], []).rows[0]?.subprojectCount).toBe(0);
+  });
+});
+
+describe('projectSummaryParams', () => {
+  // Regression: an ADMIN's summary was org-wide while the list beside it showed one team, so
+  // every other team's hours landed in the leftover row. The summary follows the list's team.
+  it('scopes the summary to the team being listed', () => {
+    const q = projectSummaryParams('2026-09-24', '2026-09-30', 'team-1');
+    expect(Object.fromEntries(q)).toEqual({
+      from: '2026-09-24',
+      to: '2026-09-30',
+      teamId: 'team-1',
+    });
+  });
+
+  // A MANAGER never has a team id here; the API pins them to their own team.
+  it('omits teamId when there is none', () => {
+    const q = projectSummaryParams('2026-09-24', '2026-09-30', undefined);
+    expect(Object.fromEntries(q)).toEqual({ from: '2026-09-24', to: '2026-09-30' });
   });
 });

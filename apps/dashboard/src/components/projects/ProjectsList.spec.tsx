@@ -18,13 +18,18 @@ const row = (over: Partial<ProjectIndexRow> = {}): ProjectIndexRow => ({
   ...over,
 });
 
-const render = (rows: ProjectIndexRow[], role = 'ADMIN') =>
+const render = (
+  rows: ProjectIndexRow[],
+  role = 'ADMIN',
+  { residualSeconds = 0, includeArchived = false } = {},
+) =>
   renderToStaticMarkup(
     <ToastProvider>
       <ProjectsList
         rows={rows}
         noProjectSeconds={0}
-        residualSeconds={0}
+        residualSeconds={residualSeconds}
+        includeArchived={includeArchived}
         totalSeconds={7200}
         rangeLabel="Jun 29 – Jul 5, 2026"
         role={role}
@@ -71,6 +76,21 @@ describe('ProjectsList (closed state)', () => {
     const html = render([row()]);
     // Drawer returns null while closed; its dialog role never appears in closed-state markup.
     expect(html).not.toContain('role="dialog"');
+  });
+
+  // Regression: the leftover row always said "archived — turn on Show archived", but most of it
+  // was time on ANOTHER team's projects, which Show archived can never reveal.
+  it('labels leftover time as archived or another team’s while archived are hidden', () => {
+    const html = render([row()], 'ADMIN', { residualSeconds: 600 });
+    expect(html).toContain('Other projects');
+    expect(html).toContain('archived, or another team’s');
+    expect(html).not.toContain('turn on');
+  });
+
+  it('labels leftover time as another team’s once archived are shown', () => {
+    const html = render([row()], 'ADMIN', { residualSeconds: 600, includeArchived: true });
+    expect(html).toContain('another team’s');
+    expect(html).not.toContain('archived,');
   });
 
   it('renders "No projects yet." for an empty row list without throwing', () => {
