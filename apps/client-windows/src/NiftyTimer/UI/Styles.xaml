@@ -38,7 +38,6 @@
     <!-- The project picker's checkmark: bound to PickerRow.IsCurrent (the tracked selection), not
          to ListBoxItem.IsSelected, which is the keyboard highlight. -->
     <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
-    <ui:PickerRowLeadingGlyphConverter x:Key="PickerRowLeadingGlyph" />
     <ui:PickerRowTrailingGlyphConverter x:Key="PickerRowTrailingGlyph" />
 
     <!-- The default. Matches the macOS client's .bordered: outlined, quiet, safe to repeat. -->
@@ -254,11 +253,14 @@
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="FocusVisualStyle" Value="{StaticResource AccentFocusVisual}" />
+        <!-- Bound, so an ItemContainerStyle can tint a row (the picker's current path); the
+             hover/selected triggers below still win over it. -->
+        <Setter Property="Background" Value="Transparent" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
                     <Border x:Name="Row"
-                            Background="Transparent"
+                            Background="{TemplateBinding Background}"
                             CornerRadius="{StaticResource RadiusSm}"
                             Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />

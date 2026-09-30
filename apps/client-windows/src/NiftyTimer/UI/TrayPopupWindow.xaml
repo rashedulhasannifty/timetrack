@@ -98,19 +98,39 @@
                        Visibility="Collapsed"
                        Margin="0,0,0,10" />
 
+            <!-- What the time is being filed under, in its own section above the switcher, so
+                 "where am I" never has to be read out of the list. Filled in code from
+                 MenuViewModel.WorkingOn; amber bar and "No project" when nothing is chosen. -->
+            <TextBlock Text="WORKING ON" Style="{StaticResource MicroText}" Margin="0,0,0,4" />
+            <Border x:Name="WorkingOnCard"
+                    CornerRadius="{StaticResource RadiusSm}"
+                    Background="{DynamicResource Tint}"
+                    Padding="10,8"
+                    Margin="0,0,0,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Rectangle x:Name="WorkingOnBar"
+                               Width="3"
+                               RadiusX="1.5"
+                               RadiusY="1.5"
+                               Margin="0,0,8,0"
+                               Fill="{DynamicResource Accent}" />
+                    <StackPanel Grid.Column="1">
+                        <TextBlock x:Name="WorkingOnProject"
+                                   Style="{StaticResource LabelText}"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="WorkingOnDetail"
+                                   Style="{StaticResource CaptionText}"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
             <TextBlock Text="SWITCH PROJECT" Style="{StaticResource MicroText}" Margin="0,0,0,4" />
-            <!-- The current selection as a path, whichever level the list shows (spec §2). -->
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                <Ellipse x:Name="SelectionDot"
-                         Width="6"
-                         Height="6"
-                         VerticalAlignment="Center"
-                         Margin="0,0,6,0"
-                         Fill="{DynamicResource TextSecondary}" />
-                <TextBlock x:Name="SelectionHeader"
-                           Style="{StaticResource CaptionText}"
-                           TextTrimming="CharacterEllipsis" />
-            </StackPanel>
             <Grid Margin="0,0,0,6">
                 <TextBox x:Name="SearchBox"
                          TextChanged="OnQueryChanged"
@@ -126,6 +146,15 @@
                            Margin="10,0,0,0" />
             </Grid>
 
+            <!-- Navigation, not a row to pick: "‹ All projects / Acme / checkout", every crumb but
+                 the last clickable. Built in code (RenderBreadcrumb); collapsed at the root and
+                 while searching. -->
+            <StackPanel x:Name="BreadcrumbBar"
+                        Orientation="Horizontal"
+                        Margin="2,0,0,6"
+                        Visibility="Collapsed"
+                        AutomationProperties.Name="Picker location" />
+
             <!-- A DEFINITE height, not MaxHeight. The window is SizeToContent="Height" and
                  re-anchors its bottom edge whenever its height changes (OnSizeChanged), so a list
                  that sized to its content would move the whole popup — search field included —
@@ -138,6 +167,16 @@
                      MouseLeftButtonUp="OnListClicked"
                      AutomationProperties.Name="Projects and tasks"
                      Margin="0,0,0,12">
+                <!-- Rows on the way to the current selection are tinted at every level. -->
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsOnPath}" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource Tint}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ListBox.ItemContainerStyle>
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <Grid>
@@ -146,11 +185,31 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <!-- ‹ on the back row, › on rows that drill; set in code from Kind. -->
-                            <TextBlock Grid.Column="0" Text="{Binding Kind, Converter={StaticResource PickerRowLeadingGlyph}}"
-                                       Style="{StaticResource CaptionText}" Margin="0,0,4,0" />
-                            <TextBlock Grid.Column="1" Text="{Binding Title}" Style="{StaticResource LabelText}"
-                                       TextTrimming="CharacterEllipsis" />
+                            <!-- Accent dot on the current path; transparent (not collapsed) otherwise so
+                                 every title starts at the same x. -->
+                            <Ellipse Grid.Column="0" Width="6" Height="6" VerticalAlignment="Center" Margin="0,0,6,0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="Transparent" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsOnPath}" Value="True">
+                                                <Setter Property="Fill" Value="{DynamicResource Accent}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Grid.Column="1" Text="{Binding Title}" TextTrimming="CharacterEllipsis">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource LabelText}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsOnPath}" Value="True">
+                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                             <StackPanel Grid.Column="2" Orientation="Horizontal">
                                 <!-- Checkmark follows IsCurrent, NOT IsSelected (the keyboard highlight). -->
                                 <Path Width="11" Height="9" Stretch="Uniform" VerticalAlignment="Center"

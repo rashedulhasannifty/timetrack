@@ -134,37 +134,47 @@ final class MenuViewModel: ObservableObject {
             : PickerNavigation.rows(at: level, in: tree)
     }
 
-    /// True when the picker header shows a real selection (drives the header dot's accent).
-    var hasResolvedSelection: Bool { selection != nil }
-    var selectionHeader: String { PickerNavigation.headerText(for: selection, in: tree) }
+    /// The "Working on" card. Nil when nothing (resolvable) is selected.
+    var workingOn: PickerWorkingOn? { PickerNavigation.workingOn(selection, in: tree) }
 
-    func isCurrent(_ row: PickerRow) -> Bool {
-        if case let .track(s) = row.action { return s == selection }
-        return false
+    /// The bar above the list; empty at the root.
+    var breadcrumb: [PickerCrumb] { PickerNavigation.breadcrumb(at: level, in: tree) }
+
+    /// Whether a row is on the way to the current selection, at whatever level the list shows.
+    func isOnCurrentPath(_ row: PickerRow) -> Bool {
+        PickerNavigation.isOnCurrentPath(row, selection: selection, in: tree)
     }
 
     func activate(_ row: PickerRow) {
         switch row.action {
-        case .back: level = PickerNavigation.back(from: level, in: tree)
         case let .open(target): level = target
         case let .track(s): select(s)
         }
     }
 
+    /// A breadcrumb crumb, or the bar's back chevron (`back(from:)`).
+    func navigate(to target: PickerLevel) { level = target }
+    func goBack() { level = PickerNavigation.back(from: level, in: tree) }
+
     func moveHighlight(by delta: Int) {
         highlightedRowId = PickerNavigation.moveHighlight(highlightedRowId, by: delta, in: pickerRows)
     }
 
-    /// Return: the highlighted row, or the first one when nothing is highlighted.
+    /// Return: the highlighted row; while searching, the first result when nothing is highlighted.
+    /// Outside a search a bare Return does nothing — the first row often SELECTS (a subproject
+    /// with no tasks) and the picker opens at the current project, so falling back to it would
+    /// silently re-file the running clock under whatever sorts first.
     func activateHighlighted() {
         let rows = pickerRows
-        guard let row = rows.first(where: { $0.id == highlightedRowId }) ?? rows.first else { return }
+        let fallback = PickerSearch.isSearching(query) ? rows.first : nil
+        guard let row = rows.first(where: { $0.id == highlightedRowId }) ?? fallback else { return }
         activate(row)
     }
 
-    /// Closing and reopening the dropdown starts at the root (spec §2). The query is kept.
+    /// Reopening the dropdown shows the level holding the current choice, so the first thing
+    /// seen is where you are. The query is kept.
     func pickerDidOpen() {
-        level = .root
+        level = PickerNavigation.home(for: selection, in: tree)
         highlightedRowId = nil
     }
 

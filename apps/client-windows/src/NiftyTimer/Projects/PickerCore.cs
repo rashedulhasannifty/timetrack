@@ -73,15 +73,15 @@ public abstract record PickerLevel
 
 public enum PickerRowKind
 {
-    Back,
     Open,
     Track,
 }
 
 /// <summary>
 /// One picker row. <c>Target</c> is set for <see cref="PickerRowKind.Open"/>, <c>Selection</c> for
-/// <see cref="PickerRowKind.Track"/>. <c>IsCurrent</c> drives the checkmark — NOT
-/// <c>ListBoxItem.IsSelected</c>, which is the keyboard highlight.
+/// <see cref="PickerRowKind.Track"/>. <c>IsOnPath</c> tints a row on the way to the current
+/// selection at every level; <c>IsCurrent</c> (the choice itself) also draws the checkmark. Both
+/// are stamped by the view model — NOT <c>ListBoxItem.IsSelected</c>, which is the keyboard highlight.
 /// </summary>
 public sealed record PickerRow(
     string Id,
@@ -89,11 +89,29 @@ public sealed record PickerRow(
     PickerRowKind Kind,
     PickerLevel? Target,
     StoredSelection? Selection,
-    bool IsCurrent = false);
+    bool IsCurrent = false,
+    bool IsOnPath = false);
+
+/// <summary>One step of the breadcrumb bar above the list. Every crumb but the last is a way back.</summary>
+public sealed record PickerCrumb(string Title, PickerLevel Level);
+
+/// <summary>
+/// The "Working on" card: the project on its own line, then what is under it (subproject and/or
+/// task), or null when the project is all there is to say.
+/// </summary>
+public sealed record PickerWorkingOn(string Project, string? Detail);
 
 public static class PickerNavigation
 {
     public const string Separator = " › ";
+    public const string RootTitle = "All projects";
+
+    /// <summary>
+    /// A project whose lone default subproject has no tasks has nothing below it to choose: its
+    /// root row selects it.
+    /// </summary>
+    public static bool IsLeaf(PickerProject project) =>
+        project.SkipsSubprojectLevel && project.Subprojects[0].Tasks.Count == 0;
 
     public static PickerLevel Open(PickerProject project) =>
         project.SkipsSubprojectLevel
@@ -130,57 +148,146 @@ public static class PickerNavigation
         switch (Normalize(level, tree))
         {
             case PickerLevel.ProjectLevel p when tree.FirstOrDefault(x => x.Id == p.ProjectId) is { } project:
-                return
-                [
-                    new PickerRow("back", project.Name, PickerRowKind.Back, null, null),
-                    .. project.Subprojects.Select(s => new PickerRow(
-                        $"s:{s.Id ?? project.Id}", s.Name, PickerRowKind.Open,
-                        new PickerLevel.SubprojectLevel(project.Id, s.Id), null)),
-                ];
+                // A subproject with no tasks is the choice itself — one click, not a screen whose
+                // only useful row is "(no task)".
+                return project.Subprojects.Select(s => s.Tasks.Count == 0
+                        ? new PickerRow($"s:{s.Id ?? project.Id}", s.Name, PickerRowKind.Track, null,
+                            new StoredSelection(project.Id, null, s.Id))
+                        : new PickerRow($"s:{s.Id ?? project.Id}", s.Name, PickerRowKind.Open,
+                            new PickerLevel.SubprojectLevel(project.Id, s.Id), null))
+                    .ToList();
             case PickerLevel.SubprojectLevel s
                 when tree.FirstOrDefault(x => x.Id == s.ProjectId) is { } owner
                      && owner.FindSubproject(s.SubprojectId) is { } sub:
                 var skipped = owner.SkipsSubprojectLevel;
                 return
                 [
-                    new PickerRow("back", skipped ? owner.Name : owner.Name + Separator + sub.Name,
-                        PickerRowKind.Back, null, null),
                     new PickerRow($"n:{sub.Id ?? owner.Id}", (skipped ? owner.Name : sub.Name) + " (no task)",
                         PickerRowKind.Track, null, new StoredSelection(owner.Id, null, sub.Id)),
                     .. sub.Tasks.Select(t => new PickerRow($"t:{t.Id}", t.Name, PickerRowKind.Track, null,
                         new StoredSelection(owner.Id, t.Id, sub.Id))),
                 ];
             default:
-                return tree.Select(p => new PickerRow($"p:{p.Id}", p.Name, PickerRowKind.Open, Open(p), null)).ToList();
+                return tree.Select(p => IsLeaf(p)
+                        ? new PickerRow($"p:{p.Id}", p.Name, PickerRowKind.Track, null,
+                            new StoredSelection(p.Id, null, p.Subprojects[0].Id))
+                        : new PickerRow($"p:{p.Id}", p.Name, PickerRowKind.Open, Open(p), null))
+                    .ToList();
         }
     }
 
-    /// <summary>The header strip's path (plan ruling 4). Never renders a missing name.</summary>
-    public static string HeaderText(StoredSelection? selection, IReadOnlyList<PickerProject> tree)
+    /// <summary>
+    /// The bar above the list: "All projects / Acme / checkout". Empty at the root. A skipped
+    /// subproject screen is titled with the project alone, matching <see cref="Back"/>.
+    /// </summary>
+    public static IReadOnlyList<PickerCrumb> Breadcrumb(PickerLevel level, IReadOnlyList<PickerProject> tree)
+    {
+        var root = new PickerCrumb(RootTitle, PickerLevel.Root);
+        switch (Normalize(level, tree))
+        {
+            case PickerLevel.ProjectLevel p when tree.FirstOrDefault(x => x.Id == p.ProjectId) is { } project:
+                return [root, new PickerCrumb(project.Name, p)];
+            case PickerLevel.SubprojectLevel s
+                when tree.FirstOrDefault(x => x.Id == s.ProjectId) is { } owner
+                     && owner.FindSubproject(s.SubprojectId) is { } sub:
+                if (owner.SkipsSubprojectLevel)
+                {
+                    return [root, new PickerCrumb(owner.Name, s)];
+                }
+
+                return [root, new PickerCrumb(owner.Name, new PickerLevel.ProjectLevel(owner.Id)), new PickerCrumb(sub.Name, s)];
+            default:
+                return [];
+        }
+    }
+
+    /// <summary>
+    /// The selection placed in the tree: its project, the subproject it belongs to (a task's own
+    /// subproject wins; a missing id means the default) and its task, if still present.
+    /// </summary>
+    private static (PickerProject Project, PickerSubproject? Sub, PickerTask? Task)? Place(
+        StoredSelection? selection, IReadOnlyList<PickerProject> tree)
     {
         if (selection is null || tree.FirstOrDefault(p => p.Id == selection.ProjectId) is not { } project)
         {
-            return "No project";
+            return null;
         }
 
         var taskHome = selection.TaskId is null
             ? null
             : project.Subprojects.FirstOrDefault(s => s.Tasks.Any(t => t.Id == selection.TaskId));
-        var sub = taskHome ?? project.FindSubproject(selection.SubprojectId);
+        var sub = taskHome
+                  ?? project.FindSubproject(selection.SubprojectId)
+                  ?? (selection.SubprojectId is null ? project.DefaultSubproject : null);
         var task = taskHome?.Tasks.FirstOrDefault(t => t.Id == selection.TaskId);
+        return (project, sub, task);
+    }
 
-        var parts = new List<string> { project.Name };
-        if (sub is not null && !project.SkipsSubprojectLevel)
+    /// <summary>
+    /// Whether a row lies on the path to the current selection — the project, then the subproject,
+    /// then the exact choice — so every level shows where you are.
+    /// </summary>
+    public static bool IsOnCurrentPath(PickerRow row, StoredSelection? selection, IReadOnlyList<PickerProject> tree)
+    {
+        if (Place(selection, tree) is not { } placed)
         {
-            parts.Add(sub.Name);
+            return false;
         }
 
-        if (task is not null)
+        return row switch
         {
-            parts.Add(task.Name);
+            { Kind: PickerRowKind.Open, Target: PickerLevel.ProjectLevel p } => p.ProjectId == placed.Project.Id,
+            // A skipped screen is opened from the project's root row: that row is the project.
+            { Kind: PickerRowKind.Open, Target: PickerLevel.SubprojectLevel s } =>
+                s.ProjectId == placed.Project.Id
+                && (placed.Project.SkipsSubprojectLevel || s.SubprojectId == placed.Sub?.Id),
+            { Kind: PickerRowKind.Track, Selection: { } target } =>
+                target.ProjectId == placed.Project.Id
+                && target.SubprojectId == placed.Sub?.Id
+                && target.TaskId == placed.Task?.Id,
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// Where the picker opens: the level holding the current choice, so the first thing shown is
+    /// where you are rather than the top of the list.
+    /// </summary>
+    public static PickerLevel Home(StoredSelection? selection, IReadOnlyList<PickerProject> tree)
+    {
+        if (Place(selection, tree) is not { } placed)
+        {
+            return PickerLevel.Root;
         }
 
-        return string.Join(Separator, parts);
+        if (placed.Task is not null && placed.Sub is { } sub)
+        {
+            return Normalize(new PickerLevel.SubprojectLevel(placed.Project.Id, sub.Id), tree);
+        }
+
+        return IsLeaf(placed.Project) ? PickerLevel.Root : Open(placed.Project);
+    }
+
+    /// <summary>The "Working on" card's text. Null when there is no (resolvable) selection.</summary>
+    public static PickerWorkingOn? WorkingOn(StoredSelection? selection, IReadOnlyList<PickerProject> tree)
+    {
+        if (Place(selection, tree) is not { } placed)
+        {
+            return null;
+        }
+
+        var detail = new List<string>();
+        if (placed.Sub is not null && !placed.Project.SkipsSubprojectLevel)
+        {
+            detail.Add(placed.Sub.Name);
+        }
+
+        if (placed.Task is not null)
+        {
+            detail.Add(placed.Task.Name);
+        }
+
+        return new PickerWorkingOn(placed.Project.Name, detail.Count == 0 ? null : string.Join(Separator, detail));
     }
 }
 

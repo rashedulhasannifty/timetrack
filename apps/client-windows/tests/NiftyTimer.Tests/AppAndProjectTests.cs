@@ -538,7 +538,7 @@ public class MenuViewModelTests
 
         Assert.Single(buffer.Entries); // the first span was closed
         Assert.True(vm.IsTracking);
-        Assert.Equal("Two", vm.SelectionLabel);
+        Assert.Equal("Two", vm.WorkingOn?.Project);
     }
 
     /// <summary>

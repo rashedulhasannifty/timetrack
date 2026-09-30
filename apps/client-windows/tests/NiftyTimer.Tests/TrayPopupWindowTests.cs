@@ -151,9 +151,9 @@ public class TrayPopupPickerTests
         var (selection, levelBefore, levelAfter, highlighted) = WithPopup((vm, window) =>
         {
             var list = (ListBox)window.FindName("ProjectList");
-            vm.Activate(vm.PickerRows[1]);        // Billing: skips its lone General to the task screen
+            vm.Activate(vm.PickerRows[0]);        // Website: its subprojects
             var before = vm.Level;
-            list.SelectedIndex = 1;               // the "(no task)" Track row: highlight only
+            list.SelectedIndex = 0;               // General has no tasks, so a Track row: highlight only
             return (vm.Selection, before, vm.Level, list.SelectedItem as PickerRow);
         });
 
@@ -174,8 +174,37 @@ public class TrayPopupPickerTests
         });
 
         Assert.Equal(new PickerLevel.ProjectLevel("p1"), level);
-        Assert.Equal(["Website", "General", "Checkout"], rows.Select(r => r.Title));
-        Assert.Equal(PickerRowKind.Back, rows[0].Kind);
+        Assert.Equal(["General", "Checkout"], rows.Select(r => r.Title));
+        Assert.Equal(PickerRowKind.Open, rows[1].Kind);
+    }
+
+    // Regression guard: the first row often SELECTS (General has no tasks) and the popup opens at
+    // the current project, so a bare Enter must not silently re-file the running clock.
+    [Fact]
+    public void EnterWithNothingHighlightedAndNoSearchChangesNothing()
+    {
+        var (selection, level) = WithPopup((vm, window) =>
+        {
+            vm.Activate(vm.PickerRows[0]); // Website: General (selects) is the first row
+            window.ActivateHighlightedForTest();
+            return (vm.Selection, vm.Level);
+        });
+
+        Assert.Null(selection);
+        Assert.Equal(new PickerLevel.ProjectLevel("p1"), level);
+    }
+
+    [Fact]
+    public void EnterWhileSearchingTracksTheFirstResult()
+    {
+        var selection = WithPopup((vm, window) =>
+        {
+            vm.Query = "design";
+            window.ActivateHighlightedForTest();
+            return vm.Selection;
+        });
+
+        Assert.Equal(new StoredSelection("p1", "t1", "s2"), selection);
     }
 
     [Fact]
@@ -244,15 +273,50 @@ public class TrayPopupPickerTests
     }
 
     [Fact]
-    public void TheHeaderStripShowsTheSelectionPath()
+    public void ReopeningThePopupWithASelectionOpensAtIt()
     {
-        var text = WithPopup((vm, window) =>
+        var level = WithPopup((vm, window) =>
         {
             vm.SelectProject(new StoredSelection("p1", null, "s2"));
-            return ((TextBlock)window.FindName("SelectionHeader")).Text;
+            window.ShowNearTray();
+            return vm.Level;
         });
 
-        Assert.Equal("Website › Checkout", text);
+        Assert.Equal(new PickerLevel.ProjectLevel("p1"), level);
+    }
+
+    [Fact]
+    public void TheWorkingOnCardShowsTheProjectThenWhatIsUnderIt()
+    {
+        var (noneProject, noneDetail, project, detail) = WithPopup((vm, window) =>
+        {
+            var projectText = (TextBlock)window.FindName("WorkingOnProject");
+            var detailText = (TextBlock)window.FindName("WorkingOnDetail");
+            var before = (projectText.Text, detailText.Text);
+            vm.SelectProject(new StoredSelection("p1", null, "s2"));
+            return (before.Item1, before.Item2, projectText.Text, detailText.Text);
+        });
+
+        Assert.Equal("No project", noneProject);
+        Assert.Equal("Pick one below", noneDetail);
+        Assert.Equal("Website", project);
+        Assert.Equal("Checkout", detail);
+    }
+
+    [Fact]
+    public void TheBreadcrumbBarAppearsBelowTheRootAndNamesTheLevel()
+    {
+        var (atRoot, drilled, last) = WithPopup((vm, window) =>
+        {
+            var bar = (StackPanel)window.FindName("BreadcrumbBar");
+            var root = bar.Visibility;
+            vm.Activate(vm.PickerRows[0]); // Website
+            return (root, bar.Visibility, (bar.Children[^1] as TextBlock)?.Text);
+        });
+
+        Assert.Equal(Visibility.Collapsed, atRoot);
+        Assert.Equal(Visibility.Visible, drilled);
+        Assert.Equal("Website", last);
     }
 
     /// <summary>The hint is the field's only label, so it must go the moment anything is typed.</summary>

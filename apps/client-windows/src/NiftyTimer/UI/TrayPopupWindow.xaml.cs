@@ -299,15 +299,117 @@ public partial class TrayPopupWindow : Window
         }
 
         SearchHint.Visibility = _viewModel.Query.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        SelectionHeader.Text = _viewModel.SelectionLabel;
-        SelectionDot.Fill = _viewModel.Selection is not null
-            ? (Brush)FindResource("Accent")
-            : (Brush)FindResource("TextSecondary");
+        RenderWorkingOn();
+        RenderBreadcrumb();
 
         var rows = _viewModel.PickerRows;
         if (ProjectList.ItemsSource is not IReadOnlyList<PickerRow> shown || !shown.SequenceEqual(rows))
         {
             ProjectList.ItemsSource = rows;
+        }
+    }
+
+    /// <summary>
+    /// The "Working on" card: project, then what is under it. Amber bar and a plain surface when
+    /// nothing is chosen, so an unfiled clock stands out rather than blending into the list.
+    /// </summary>
+    private void RenderWorkingOn()
+    {
+        var working = _viewModel.WorkingOn;
+        WorkingOnProject.Text = working?.Project ?? "No project";
+        WorkingOnDetail.Text = working is null ? "Pick one below" : working.Detail ?? string.Empty;
+        WorkingOnDetail.Visibility = WorkingOnDetail.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        WorkingOnBar.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, working is null ? "Manual" : "Accent");
+        WorkingOnCard.SetResourceReference(Border.BackgroundProperty, working is null ? "Surface" : "Tint");
+        System.Windows.Automation.AutomationProperties.SetName(WorkingOnCard,
+            working is null ? "Working on: no project" : "Working on: " + working.Project
+                + (working.Detail is null ? string.Empty : ", " + working.Detail));
+    }
+
+    private IReadOnlyList<PickerCrumb> _shownCrumbs = [];
+
+    /// <summary>
+    /// "‹ All projects / Acme / checkout". Rebuilt only when the crumbs change: Render() runs once
+    /// a second off the clock, and recreating the buttons that often would drop a hover or a
+    /// keyboard focus sitting on one. Hidden while searching — the level is invisible then.
+    /// </summary>
+    private void RenderBreadcrumb()
+    {
+        IReadOnlyList<PickerCrumb> crumbs = PickerSearch.IsSearching(_viewModel.Query) ? [] : _viewModel.Breadcrumb;
+        BreadcrumbBar.Visibility = crumbs.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        if (crumbs.SequenceEqual(_shownCrumbs))
+        {
+            return;
+        }
+
+        _shownCrumbs = crumbs;
+        BreadcrumbBar.Children.Clear();
+        if (crumbs.Count == 0)
+        {
+            return;
+        }
+
+        var back = new Button
+        {
+            Content = "‹",
+            Style = (Style)FindResource("LinkButton"),
+            FontSize = 14,
+            Margin = new Thickness(0, 0, 6, 0),
+            ToolTip = "Back",
+        };
+        System.Windows.Automation.AutomationProperties.SetName(back, "Back");
+        back.Click += (_, _) =>
+        {
+            _viewModel.Back();
+            SearchBox.Focus();
+        };
+        BreadcrumbBar.Children.Add(back);
+
+        for (var i = 0; i < crumbs.Count; i++)
+        {
+            if (i > 0)
+            {
+                BreadcrumbBar.Children.Add(new TextBlock
+                {
+                    Text = "/",
+                    Style = (Style)FindResource("CaptionText"),
+                    Margin = new Thickness(5, 0, 5, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+            }
+
+            var crumb = crumbs[i];
+            if (i == crumbs.Count - 1)
+            {
+                var here = new TextBlock
+                {
+                    Text = crumb.Title,
+                    Style = (Style)FindResource("CaptionText"),
+                    FontWeight = FontWeights.SemiBold,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+
+                // A resource reference, not a one-off read: the crumbs are cached across renders,
+                // so a live light/dark switch must still recolour this label.
+                here.SetResourceReference(TextBlock.ForegroundProperty, "Text");
+                BreadcrumbBar.Children.Add(here);
+            }
+            else
+            {
+                var link = new Button
+                {
+                    Content = crumb.Title,
+                    Style = (Style)FindResource("LinkButton"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                link.Click += (_, _) =>
+                {
+                    _viewModel.Navigate(crumb.Level);
+                    SearchBox.Focus();
+                };
+                BreadcrumbBar.Children.Add(link);
+            }
         }
     }
 
@@ -367,10 +469,18 @@ public partial class TrayPopupWindow : Window
         }
     }
 
-    /// <summary>Enter: the highlighted row, or the first one when nothing is highlighted.</summary>
+    /// <summary>
+    /// Enter: the highlighted row; while searching, the first result when nothing is highlighted.
+    /// Outside a search a bare Enter does nothing — the first row often SELECTS (a subproject with
+    /// no tasks) and the popup opens at the current project, so falling back to it would silently
+    /// re-file the running clock under whatever sorts first.
+    /// </summary>
     private void ActivateHighlighted()
     {
-        var row = ProjectList.SelectedItem as PickerRow ?? ProjectList.Items.OfType<PickerRow>().FirstOrDefault();
+        var fallback = PickerSearch.IsSearching(_viewModel.Query)
+            ? ProjectList.Items.OfType<PickerRow>().FirstOrDefault()
+            : null;
+        var row = ProjectList.SelectedItem as PickerRow ?? fallback;
         if (row is not null)
         {
             _viewModel.Activate(row);

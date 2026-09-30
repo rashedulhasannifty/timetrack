@@ -75,7 +75,6 @@ enum PickerLevel: Equatable {
 
 struct PickerRow: Identifiable, Equatable {
     enum Action: Equatable {
-        case back
         case open(PickerLevel)
         case track(StoredSelection)
     }
@@ -85,8 +84,28 @@ struct PickerRow: Identifiable, Equatable {
     let action: Action
 }
 
+/// One step of the breadcrumb bar above the list. Every crumb but the last is a way back.
+struct PickerCrumb: Equatable {
+    let title: String
+    let level: PickerLevel
+}
+
+/// The "Working on" card: the project on its own line, then what is under it (subproject and/or
+/// task), or nil when the project is all there is to say.
+struct PickerWorkingOn: Equatable {
+    let project: String
+    let detail: String?
+}
+
 enum PickerNavigation {
     static let separator = " › "
+    static let rootTitle = "All projects"
+
+    /// A project whose lone default subproject has no tasks has nothing below it to choose:
+    /// its root row selects it.
+    static func isLeaf(_ project: PickerProject) -> Bool {
+        project.skipsSubprojectLevel && project.subprojects[0].tasks.isEmpty
+    }
 
     static func open(_ project: PickerProject) -> PickerLevel {
         project.skipsSubprojectLevel
@@ -119,23 +138,29 @@ enum PickerNavigation {
     static func rows(at level: PickerLevel, in tree: [PickerProject]) -> [PickerRow] {
         switch normalize(level, in: tree) {
         case .root:
-            return tree.map { PickerRow(id: "p:\($0.id)", title: $0.name, action: .open(open($0))) }
+            return tree.map { project in
+                PickerRow(id: "p:\(project.id)", title: project.name,
+                          action: isLeaf(project)
+                              ? .track(StoredSelection(projectId: project.id,
+                                                       subprojectId: project.subprojects[0].id, taskId: nil))
+                              : .open(open(project)))
+            }
         case let .project(id):
             guard let project = tree.first(where: { $0.id == id }) else { return rows(at: .root, in: tree) }
-            return [PickerRow(id: "back", title: project.name, action: .back)]
-                + project.subprojects.map { sub in
-                    PickerRow(id: "s:\(sub.id ?? project.id)", title: sub.name,
-                              action: .open(.subproject(projectId: project.id, subprojectId: sub.id)))
-                }
+            // A subproject with no tasks is the choice itself — one click, not a screen whose
+            // only useful row is "(no task)".
+            return project.subprojects.map { sub in
+                PickerRow(id: "s:\(sub.id ?? project.id)", title: sub.name,
+                          action: sub.tasks.isEmpty
+                              ? .track(StoredSelection(projectId: project.id, subprojectId: sub.id, taskId: nil))
+                              : .open(.subproject(projectId: project.id, subprojectId: sub.id)))
+            }
         case let .subproject(projectId, subprojectId):
             guard let project = tree.first(where: { $0.id == projectId }),
                   let sub = project.subproject(subprojectId)
             else { return rows(at: .root, in: tree) }
-            let skipped = project.skipsSubprojectLevel
-            let backTitle = skipped ? project.name : project.name + separator + sub.name
-            let noTask = (skipped ? project.name : sub.name) + " (no task)"
+            let noTask = (project.skipsSubprojectLevel ? project.name : sub.name) + " (no task)"
             return [
-                PickerRow(id: "back", title: backTitle, action: .back),
                 PickerRow(id: "n:\(sub.id ?? project.id)", title: noTask,
                           action: .track(StoredSelection(projectId: project.id, subprojectId: sub.id, taskId: nil))),
             ] + sub.tasks.map { task in
@@ -145,20 +170,81 @@ enum PickerNavigation {
         }
     }
 
-    /// The header strip's path for the current selection (ruling 4). Never renders a missing name.
-    static func headerText(for selection: StoredSelection?, in tree: [PickerProject]) -> String {
+    /// The bar above the list: "All projects / Acme / checkout". Empty at the root. A skipped
+    /// subproject screen is titled with the project alone, matching `back`.
+    static func breadcrumb(at level: PickerLevel, in tree: [PickerProject]) -> [PickerCrumb] {
+        let root = PickerCrumb(title: rootTitle, level: .root)
+        switch normalize(level, in: tree) {
+        case .root:
+            return []
+        case let .project(id):
+            guard let project = tree.first(where: { $0.id == id }) else { return [] }
+            return [root, PickerCrumb(title: project.name, level: .project(id))]
+        case let .subproject(projectId, subprojectId):
+            guard let project = tree.first(where: { $0.id == projectId }),
+                  let sub = project.subproject(subprojectId) else { return [] }
+            let here = PickerCrumb(title: project.skipsSubprojectLevel ? project.name : sub.name,
+                                   level: .subproject(projectId: projectId, subprojectId: subprojectId))
+            return project.skipsSubprojectLevel
+                ? [root, here]
+                : [root, PickerCrumb(title: project.name, level: .project(projectId)), here]
+        }
+    }
+
+    /// The selection placed in the tree: its project, the subproject it belongs to (a task's own
+    /// subproject wins; a missing id means the default) and its task, if still present.
+    private static func place(_ selection: StoredSelection?, in tree: [PickerProject])
+        -> (project: PickerProject, sub: PickerSubproject?, task: PickerTask?)? {
         guard let selection, let project = tree.first(where: { $0.id == selection.projectId }) else {
-            return "No project"
+            return nil
         }
         let taskHome = selection.taskId.flatMap { taskId in
             project.subprojects.first { $0.tasks.contains { $0.id == taskId } }
         }
         let sub = taskHome ?? project.subproject(selection.subprojectId)
+            ?? (selection.subprojectId == nil ? project.defaultSubproject : nil)
         let task = selection.taskId.flatMap { taskId in taskHome?.tasks.first { $0.id == taskId } }
-        var parts = [project.name]
-        if let sub, !project.skipsSubprojectLevel { parts.append(sub.name) }
-        if let task { parts.append(task.name) }
-        return parts.joined(separator: separator)
+        return (project, sub, task)
+    }
+
+    /// Whether a row lies on the path to the current selection — the project, then the
+    /// subproject, then the exact choice — so every level shows where you are.
+    static func isOnCurrentPath(_ row: PickerRow, selection: StoredSelection?, in tree: [PickerProject]) -> Bool {
+        guard let placed = place(selection, in: tree) else { return false }
+        switch row.action {
+        case let .open(.project(projectId)):
+            return projectId == placed.project.id
+        case let .open(.subproject(projectId, subprojectId)):
+            guard projectId == placed.project.id else { return false }
+            // A skipped screen is opened from the project's root row: that row is the project.
+            return placed.project.skipsSubprojectLevel || subprojectId == placed.sub?.id
+        case .open(.root):
+            return false
+        case let .track(target):
+            return target.projectId == placed.project.id
+                && target.subprojectId == placed.sub?.id
+                && target.taskId == placed.task?.id
+        }
+    }
+
+    /// Where the picker opens: the level holding the current choice, so the first thing shown is
+    /// where you are rather than the top of the list.
+    static func home(for selection: StoredSelection?, in tree: [PickerProject]) -> PickerLevel {
+        guard let placed = place(selection, in: tree) else { return .root }
+        if placed.task != nil, let sub = placed.sub {
+            return normalize(.subproject(projectId: placed.project.id, subprojectId: sub.id), in: tree)
+        }
+        return isLeaf(placed.project) ? .root : open(placed.project)
+    }
+
+    /// The "Working on" card's text. Nil when there is no (resolvable) selection.
+    static func workingOn(_ selection: StoredSelection?, in tree: [PickerProject]) -> PickerWorkingOn? {
+        guard let placed = place(selection, in: tree) else { return nil }
+        var detail: [String] = []
+        if let sub = placed.sub, !placed.project.skipsSubprojectLevel { detail.append(sub.name) }
+        if let task = placed.task { detail.append(task.name) }
+        return PickerWorkingOn(project: placed.project.name,
+                               detail: detail.isEmpty ? nil : detail.joined(separator: separator))
     }
 
     /// Keyboard highlight (macOS). Nothing highlighted: Down starts at the top, Up at the bottom.
