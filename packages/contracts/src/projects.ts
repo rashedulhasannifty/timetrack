@@ -50,6 +50,11 @@ export const ProjectSchema = z.object({
   name: z.string(),
   color: z.string().nullable(),
   archived: z.boolean(),
+  /**
+   * Every team linked to the project, home (`teamId`) first. Additive: shipped desktop clients
+   * decode `teamId` only. More than one entry means the client is shared.
+   */
+  teamIds: z.array(z.uuid()).optional(),
   tasks: z.array(TaskSchema).optional(),
   subprojects: z.array(SubprojectSchema).optional(),
 });
@@ -124,6 +129,30 @@ export const UpdateProjectSchema = z.object({
   archived: z.boolean().optional(),
   color: ProjectColorSchema.optional(),
   teamId: z.uuid().optional(),
+});
+
+/**
+ * PUT /v1/projects/:id/teams (ADMIN) — the FULL set of teams linked to the project. Must include
+ * the home team (the API 422s otherwise). `.check()` not `.refine()`, so the pipe keeps strict mode.
+ */
+export const SetProjectTeamsSchema = z
+  .object({ teamIds: z.array(z.uuid()).min(1).max(100) })
+  .check((ctx) => {
+    if (new Set(ctx.value.teamIds).size !== ctx.value.teamIds.length) {
+      ctx.issues.push({
+        code: 'custom',
+        message: 'Each team may appear once',
+        input: ctx.value,
+        path: ['teamIds'],
+      });
+    }
+  });
+
+/** One team's share of a client's time. `teamId` null → "Unassigned" (no team stamped). */
+export const ProjectTeamRowSchema = z.object({
+  teamId: z.uuid().nullable(),
+  teamName: z.string(),
+  trackedSeconds: z.number().int().nonnegative(),
 });
 
 // Query for GET /projects. z.stringbool() parses "true"/"false" correctly;
@@ -218,6 +247,8 @@ export type CreateProject = z.infer<typeof CreateProjectSchema>;
 export type CreateTask = z.infer<typeof CreateTaskSchema>;
 export type UpdateTask = z.infer<typeof UpdateTaskSchema>;
 export type UpdateProject = z.infer<typeof UpdateProjectSchema>;
+export type SetProjectTeams = z.infer<typeof SetProjectTeamsSchema>;
+export type ProjectTeamRow = z.infer<typeof ProjectTeamRowSchema>;
 export type ListProjectsQuery = z.infer<typeof ListProjectsQuerySchema>;
 export type ProjectHoursTrendRow = z.infer<typeof ProjectHoursTrendRowSchema>;
 export type ProjectMemberRow = z.infer<typeof ProjectMemberRowSchema>;

@@ -19,6 +19,8 @@ import {
   DEFAULT_SUBPROJECT_NAME,
   BulkCreateProjectsSchema,
   BulkCreateProjectsResultSchema,
+  SetProjectTeamsSchema,
+  ProjectTeamRowSchema,
 } from './projects.js';
 
 describe('ProjectDetailSchema', () => {
@@ -304,5 +306,47 @@ describe('BulkCreateProjectsSchema', () => {
       skipped: [{ name: 'acme', reason: 'Duplicate in list' }],
     };
     expect(BulkCreateProjectsResultSchema.parse(value)).toEqual(value);
+  });
+});
+
+describe('SetProjectTeamsSchema', () => {
+  const A = '018f9c1e-0000-7000-8000-0000000000a1';
+  const B = '018f9c1e-0000-7000-8000-0000000000b1';
+  it('accepts a list of unique team ids', () => {
+    expect(SetProjectTeamsSchema.parse({ teamIds: [A, B] })).toEqual({ teamIds: [A, B] });
+  });
+  it('rejects an empty list, a repeat, and a non-uuid', () => {
+    expect(SetProjectTeamsSchema.safeParse({ teamIds: [] }).success).toBe(false);
+    expect(SetProjectTeamsSchema.safeParse({ teamIds: [A, A] }).success).toBe(false);
+    expect(SetProjectTeamsSchema.safeParse({ teamIds: ['x'] }).success).toBe(false);
+  });
+  it('stays a strict-able ZodObject (the pipe needs .strict())', () => {
+    expect(SetProjectTeamsSchema.strict().safeParse({ teamIds: [A], extra: 1 }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('ProjectTeamRowSchema', () => {
+  it('allows a null team for the Unassigned bucket', () => {
+    expect(
+      ProjectTeamRowSchema.parse({ teamId: null, teamName: 'Unassigned', trackedSeconds: 0 }),
+    ).toMatchObject({ teamId: null });
+  });
+});
+
+describe('ProjectSchema.teamIds', () => {
+  it('is optional so shipped clients and old responses still parse', () => {
+    const base = {
+      id: '018f9c1e-0000-7000-8000-000000000001',
+      teamId: '018f9c1e-0000-7000-8000-0000000000c1',
+      name: 'Acme',
+      color: null,
+      archived: false,
+    };
+    expect(ProjectSchema.safeParse(base).success).toBe(true);
+    expect(
+      ProjectSchema.parse({ ...base, teamIds: ['018f9c1e-0000-7000-8000-0000000000c1'] }).teamIds,
+    ).toHaveLength(1);
   });
 });
