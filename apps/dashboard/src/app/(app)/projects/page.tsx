@@ -10,7 +10,7 @@ import { ProjectsList } from '../../../components/projects/ProjectsList';
 import { getSession } from '../../../lib/session';
 import { api, ApiError } from '../../../lib/api-client';
 import { defaultReportRange } from '../../../lib/reports-view';
-import { toProjectIndexRows } from '../../../lib/projects-index-view';
+import { projectSummaryParams, toProjectIndexRows } from '../../../lib/projects-index-view';
 import { formatDuration } from '../../../lib/format';
 import { ProjectTeamPicker } from '../../../components/projects/ProjectTeamPicker';
 import type { Project, ProjectSummary, TeamListItem } from '@timetrack/contracts';
@@ -63,7 +63,10 @@ export default async function ProjectsPage({
         includeArchived,
         ...(selectedTeamId ? { teamId: selectedTeamId } : {}),
       }),
-      api.projectSummary(session.accessToken, new URLSearchParams({ from, to })),
+      api.projectSummary(
+        session.accessToken,
+        projectSummaryParams(from, to, selectedTeamId ?? ownTeam),
+      ),
     ]);
   } catch (e) {
     if (e instanceof ApiError && e.status === 403) forbidden = true;
@@ -139,6 +142,7 @@ export default async function ProjectsPage({
             rows={view.rows}
             noProjectSeconds={view.noProjectSeconds}
             residualSeconds={view.residualSeconds}
+            includeArchived={includeArchived}
             totalSeconds={view.totalSeconds}
             rangeLabel={rangeLabel}
             role={session.role}

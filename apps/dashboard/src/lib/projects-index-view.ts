@@ -35,6 +35,21 @@ export type ProjectIndexView = {
 };
 
 /**
+ * Query for the hours beside the list. It follows the LIST's team: a MANAGER passes none (the
+ * API pins them to their own team), an ADMIN passes the team whose projects are showing. Left
+ * org-wide, every other team's hours fell into the leftover row labelled "archived".
+ */
+export function projectSummaryParams(
+  from: string,
+  to: string,
+  teamId: string | undefined,
+): URLSearchParams {
+  const q = new URLSearchParams({ from, to });
+  if (teamId) q.set('teamId', teamId);
+  return q;
+}
+
+/**
  * Merge the project list (names, archived, tasks) with per-project hours (from
  * /reports/projects) into sorted index rows. The null-projectId "No project" bucket is not a
  * project — its seconds are returned separately for a muted footer row. Pure; unit-tested. No I/O.
