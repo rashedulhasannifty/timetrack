@@ -219,6 +219,81 @@ describe.runIf(RUN_E2E)('shared clients — real Postgres', () => {
       await titleOf(projects().createSubproject({ projectId: acme.id, name: 'X' }, opsMgr)),
     ).toBe('Cannot manage a project in another team');
   });
+
+  it('set-teams shares and unshares, audits the change, and reconciles in one go', async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    await select(eng, 'Payroll');
+    await select(ops, 'Internal');
+    const acme = await client(eng, 'Acme');
+
+    const shared = await projects().setTeams(acme.id, { teamIds: [eng, ops] }, admin(eng));
+    expect(shared.teamIds).toEqual([eng, ops]); // home first
+    expect(await activeNames(acme.id)).toEqual(['General', 'Internal', 'Payroll']);
+    const internal = await db.prisma.subproject.findFirstOrThrow({
+      where: { projectId: acme.id, name: 'Internal' },
+      select: { id: true },
+    });
+
+    await projects().setTeams(acme.id, { teamIds: [eng] }, admin(eng));
+    expect(await activeNames(acme.id)).toEqual(['General', 'Payroll']);
+    await expect(
+      db.prisma.subproject.findUniqueOrThrow({
+        where: { id: internal.id },
+        select: { archived: true },
+      }),
+    ).resolves.toEqual({ archived: true });
+
+    const audits = await db.prisma.auditLog.findMany({
+      where: { action: 'project.teams_set', targetId: acme.id },
+      orderBy: { timestamp: 'asc' },
+      select: { diff: true },
+    });
+    expect(audits.map((a) => a.diff)).toEqual([
+      { from: [eng], to: [eng, ops].sort() },
+      { from: [eng, ops].sort(), to: [eng] },
+    ]);
+  });
+
+  it('set-teams 422s without the home team and for an unknown team; 404s an unknown project', async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    const acme = await client(eng, 'Acme');
+    expect(await titleOf(projects().setTeams(acme.id, { teamIds: [ops] }, admin(eng)))).toBe(
+      'The home team must stay linked; move the client to change it',
+    );
+    expect(
+      await titleOf(projects().setTeams(acme.id, { teamIds: [eng, MISSING] }, admin(eng))),
+    ).toBe('Unknown team');
+    expect(await titleOf(projects().setTeams(MISSING, { teamIds: [eng] }, admin(eng)))).toBe(
+      'Project not found',
+    );
+  });
+
+  it('an admin can archive a shared client', async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    const acme = await client(eng, 'Acme');
+    await link(acme.id, ops);
+    await expect(projects().update(acme.id, { archived: true }, admin(eng))).resolves.toMatchObject(
+      { archived: true },
+    );
+  });
+
+  it("a manager of a linked non-home team can create a task on the shared client's subproject", async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    const acme = await client(eng, 'Acme');
+    await link(acme.id, ops);
+    const opsMgr = manager('01920000-0000-7000-8000-0000000000b2', ops);
+    const general = await db.prisma.subproject.findFirstOrThrow({
+      where: { projectId: acme.id, isDefault: true },
+      select: { id: true },
+    });
+    await expect(
+      projects().createTask({ subprojectId: general.id, name: 'Kickoff' }, opsMgr),
+    ).resolves.toMatchObject({ name: 'Kickoff' });
+  });
 });
 
 describe('shared clients e2e harness', () => {

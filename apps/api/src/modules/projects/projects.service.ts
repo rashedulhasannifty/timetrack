@@ -16,6 +16,7 @@ import type {
   ProjectDetail,
   ProjectDetailQuery,
   ProjectTopApps,
+  SetProjectTeams,
   Subproject,
   Task,
   UpdateProject,
@@ -72,6 +73,27 @@ export class ProjectsService {
     if (!teamId || user.role === 'EMPLOYEE') return user.teamId;
     if (user.role === 'ADMIN' || teamId === user.teamId) return teamId;
     throw this.forbidden();
+  }
+
+  /** ADMIN-only (the controller's @Roles is the gate): the full set of teams linked to a client. */
+  async setTeams(id: string, dto: SetProjectTeams, actor: SessionUser): Promise<Project> {
+    const project = await this.repo.findForActor(id);
+    if (!project) throw this.notFound();
+    if (!dto.teamIds.includes(project.teamId)) {
+      throw this.unprocessable('The home team must stay linked; move the client to change it');
+    }
+    if ((await this.repo.countTeams(dto.teamIds)) !== dto.teamIds.length) {
+      throw this.unprocessable('Unknown team');
+    }
+    return this.repo.setTeams(id, dto.teamIds, actor.id);
+  }
+
+  private unprocessable(title: string): UnprocessableEntityException {
+    return new UnprocessableEntityException({
+      type: 'https://timetrack.internal/errors/unprocessable',
+      title,
+      status: 422,
+    });
   }
 
   /**
@@ -207,11 +229,7 @@ export class ProjectsService {
       const target = await this.repo.findSubprojectForActor(dto.subprojectId);
       // Same project only: moving across projects would silently re-attribute the task's hours.
       if (!target || target.projectId !== task.projectId) {
-        throw new UnprocessableEntityException({
-          type: 'https://timetrack.internal/errors/unprocessable',
-          title: "Subproject is not in this task's project",
-          status: 422,
-        });
+        throw this.unprocessable("Subproject is not in this task's project");
       }
       if (target.archived) throw this.conflict('Cannot move a task into an archived subproject');
       result = await this.repo.moveTask(taskId, dto.subprojectId, actor.id);

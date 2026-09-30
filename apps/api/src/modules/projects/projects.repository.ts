@@ -461,6 +461,62 @@ export class ProjectsRepository {
     }
   }
 
+  async countTeams(ids: readonly string[]): Promise<number> {
+    return this.prisma.team.count({ where: { id: { in: [...ids] } } });
+  }
+
+  /**
+   * Replace a project's linked teams (spec §5.3), audit it, and reconcile the project — ONE
+   * transaction. Links change BEFORE reconcile, which reads them. The service has already checked
+   * that `teamIds` holds the home team and only real teams.
+   */
+  async setTeams(id: string, teamIds: readonly string[], actorId: string): Promise<Project> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await lockReconcile(tx);
+        const before = await tx.projectTeam.findMany({
+          where: { projectId: id },
+          select: { teamId: true },
+        });
+        const next = [...new Set(teamIds)].sort();
+        await tx.projectTeam.deleteMany({ where: { projectId: id, teamId: { notIn: next } } });
+        await tx.projectTeam.createMany({
+          data: next.map((teamId) => ({ projectId: id, teamId })),
+          skipDuplicates: true,
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: 'project.teams_set',
+            targetType: 'project',
+            targetId: id,
+            diff: { from: before.map((b) => b.teamId).sort(), to: next },
+          },
+        });
+        await this.workTypes.reconcile(tx, [id], {
+          actorId,
+          trigger: 'project_teams_set',
+          targetType: 'project',
+          targetId: id,
+        });
+        const project = await tx.project.findUniqueOrThrow({
+          where: { id },
+          select: PROJECT_SELECT,
+        });
+        return {
+          ...project,
+          teamIds: homeFirst(
+            project.teamId,
+            next.map((teamId) => ({ teamId })),
+          ),
+        };
+      }, RECONCILE_TX);
+    } catch (e) {
+      if (isConcurrencyConflict(e)) throw catalogConflict(CONCURRENT_CHANGE);
+      throw e;
+    }
+  }
+
   async findForActor(id: string): Promise<{
     id: string;
     teamId: string;
