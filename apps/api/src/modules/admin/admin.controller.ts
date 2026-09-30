@@ -86,11 +86,8 @@ export class AdminController {
   }
 
   @Get('users/:id/export')
-  async exportUser(
-    @Param('id') id: string,
-    @CurrentUser() actor: SessionUser,
-  ): Promise<StreamableFile> {
-    const iterable = await this.service.exportUser(id, actor);
+  async exportUser(@Param('id') id: string): Promise<StreamableFile> {
+    const iterable = await this.service.exportUser(id);
     return new StreamableFile(Readable.from(iterable, { objectMode: false }), {
       type: 'application/json; charset=utf-8',
       disposition: `attachment; filename="timetrack-user-${id}-export.json"`,
