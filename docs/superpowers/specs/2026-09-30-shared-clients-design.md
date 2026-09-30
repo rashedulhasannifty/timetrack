@@ -89,7 +89,7 @@ A MANAGER archiving or recoloring a shared client gets **403** with the title "O
 `PUT /v1/projects/:id/teams` (ADMIN), body `{ teamIds: uuid[] }` (strict, 1–100 unique ids): the **full** set of linked teams.
 
 - Must contain the home team, otherwise **422**. Unknown team id → **422**.
-- One transaction: replace the rows, write an `AuditLog` row (`project_teams_set`, diff `{ from, to }`), reconcile the project (§5.4).
+- One transaction: replace the rows, write an `AuditLog` row (`project.teams_set`, diff `{ from, to }`), reconcile the project (§5.4).
 - Returns the project with `teamIds`.
 
 Unsharing a team leaves that team's past entries on the client (they keep their `teamId`) and removes the client from that team's picker.
