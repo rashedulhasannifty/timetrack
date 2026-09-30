@@ -10,6 +10,7 @@ import { EntryRowActions } from '../day/EntryRowActions';
 import { DayAppUsage } from '../day/DayAppUsage';
 import { WeekStrip } from '../day/WeekStrip';
 import { api } from '../../lib/api-client';
+import type { Session } from '../../lib/session';
 import {
   dayRangeFor,
   personDayView,
@@ -47,11 +48,13 @@ export async function loadPersonDay({
   userId,
   rawDate,
   rawPanel,
+  viewerRole,
 }: {
   token: string;
   userId: string;
   rawDate: string | undefined;
   rawPanel: string | undefined;
+  viewerRole: Session['role'];
 }) {
   const date = resolveDayDate(rawDate, new Date());
   const panel: DayPanel = resolveDayPanel(rawPanel);
@@ -81,9 +84,16 @@ export async function loadPersonDay({
   const [samples, screenshots, projects, appUsage, trends, idle] = await Promise.all([
     api.listActivitySamples(token, search).catch((): ActivitySample[] => []),
     api.listScreenshots(token, search).catch((): Screenshot[] => []),
-    // Names for the entries. Team-scoped to the caller, so this resolves for the common
-    // manager-owns-team view; a cross-team admin view degrades to "Untitled entry" per entry.
-    api.listProjects(token, { includeArchived: true }).catch((): Project[] => []),
+    // Names for the entries (project, subproject and task). A MANAGER can only open their own
+    // team, so their team's list covers it; an ADMIN can open anyone, so it takes every team's —
+    // with only their own, a person in another team read as "Untitled entry" throughout.
+    // `allTeams` is ADMIN-only server-side: a MANAGER sending it would get a 403 and no names.
+    api
+      .listProjects(token, {
+        includeArchived: true,
+        ...(viewerRole === 'ADMIN' ? { allTeams: true } : {}),
+      })
+      .catch((): Project[] => []),
     // `search` already carries userId + the day window, which is what app-usage wants; the
     // API re-checks manager-owns-team on that userId and 403s if it doesn't hold.
     api.appUsage(token, search).catch((): TeamAppUsage | null => null),
