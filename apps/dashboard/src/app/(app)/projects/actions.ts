@@ -154,7 +154,7 @@ export async function setProjectTeamsAction(
   const parsed = SetProjectTeamsSchema.safeParse({
     teamIds: formData.getAll('teamId').filter((v): v is string => typeof v === 'string'),
   });
-  if (!id || !parsed.success) return { ok: false, message: 'Pick at least the home team.' };
+  if (!id || !parsed.success) return { ok: false, message: 'Could not save the teams.' };
 
   try {
     await api.setProjectTeams(session.accessToken, id, parsed.data);
