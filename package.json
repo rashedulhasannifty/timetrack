@@ -30,12 +30,12 @@
     "eslint": "^10.11.0",
     "eslint-plugin-boundaries": "^7.2.0",
     "husky": "^9.1.7",
-    "lint-staged": "^17.5.1",
-    "prettier": "^3.9.8",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.9",
     "tsx": "^4.23.14",
-    "turbo": "^2.11.2",
+    "turbo": "^2.11.4",
     "typescript": "^5.9.2",
-    "typescript-eslint": "^8.70.0",
+    "typescript-eslint": "^8.70.1",
     "vitest": "^3.2.4"
   },
   "prettier": {
