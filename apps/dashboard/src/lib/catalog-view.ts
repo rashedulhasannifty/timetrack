@@ -155,6 +155,12 @@ export function describeCounts(c: ReconcileCounts): string {
   return `${clients} · ${c.created} created · ${c.linked} linked · ${c.restored} restored · ${c.renamed} renamed · ${c.archived} archived`;
 }
 
+/** The client import's toast. "Shared" appears only when the import shared an existing client. */
+export function describeImport(c: { created: number; shared: number; skipped: number }): string {
+  const shared = c.shared > 0 ? `, ${c.shared} shared with this team` : '';
+  return `${c.created} imported${shared}, ${c.skipped} skipped`;
+}
+
 /** Every client of every team, for the clients table. Pure. */
 export function clientRows(teams: readonly TeamRef[], projects: readonly Project[]): ClientRow[] {
   const names = new Map(teams.map((t) => [t.id, t.name] as const));
