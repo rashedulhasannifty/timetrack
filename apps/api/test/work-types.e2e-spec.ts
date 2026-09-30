@@ -106,12 +106,9 @@ describe.runIf(RUN_E2E)('work types — reconcile', () => {
     const t = await db.prisma.team.create({ data: { name, settings: {} }, select: { id: true } });
     return t.id;
   }
-  /** A project as old code made it: the project, its home link and its General default, nothing else. */
+  /** A project as old code made it: the project and its General default, nothing else. */
   async function project(teamId: string, name: string): Promise<string> {
-    const p = await db.prisma.project.create({
-      data: { teamId, name, teams: { create: { teamId } } },
-      select: { id: true },
-    });
+    const p = await db.prisma.project.create({ data: { teamId, name }, select: { id: true } });
     await db.prisma.subproject.create({
       data: { projectId: p.id, name: 'General', isDefault: true },
     });
@@ -315,10 +312,7 @@ describe.runIf(RUN_E2E)('work types — service', () => {
     return t.id;
   }
   async function project(teamId: string, name: string): Promise<string> {
-    const p = await db.prisma.project.create({
-      data: { teamId, name, teams: { create: { teamId } } },
-      select: { id: true },
-    });
+    const p = await db.prisma.project.create({ data: { teamId, name }, select: { id: true } });
     await db.prisma.subproject.create({
       data: { projectId: p.id, name: 'General', isDefault: true },
     });

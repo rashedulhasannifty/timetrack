@@ -37,17 +37,24 @@ export async function lockReconcile(tx: Prisma.TransactionClient): Promise<void>
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(7311947202601)`;
 }
 
-/** Every project LINKED to any of these teams (project_teams), home or shared. */
+/**
+ * Every project linked to any of these teams (project_teams) PLUS every project whose HOME team
+ * is one of them: the home team always counts, with or without a link row, so a project made by
+ * old code (no row) still receives its team's changes.
+ */
 export async function linkedProjectIds(
   tx: Prisma.TransactionClient,
   teamIds: readonly string[],
 ): Promise<string[]> {
   if (teamIds.length === 0) return [];
-  const rows = await tx.projectTeam.findMany({
-    where: { teamId: { in: [...teamIds] } },
-    select: { projectId: true },
-  });
-  return [...new Set(rows.map((r) => r.projectId))];
+  const [rows, homes] = await Promise.all([
+    tx.projectTeam.findMany({
+      where: { teamId: { in: [...teamIds] } },
+      select: { projectId: true },
+    }),
+    tx.project.findMany({ where: { teamId: { in: [...teamIds] } }, select: { id: true } }),
+  ]);
+  return [...new Set([...rows.map((r) => r.projectId), ...homes.map((h) => h.id)])];
 }
 
 export const CONCURRENT_CHANGE = 'The catalog changed while saving. Try again.';
@@ -103,6 +110,8 @@ export class WorkTypesRepository {
    * The single sync rule (spec §5). Runs inside the CALLER's transaction so a project create,
    * bulk import, team move, selection save or catalog edit commits together with its subprojects.
    * The caller must have taken `lockReconcile(tx)` as its transaction's first statement.
+   * A project's teams are its project_teams links plus its home team (`projects.teamId`), which
+   * always counts even with no link row.
    * Writes exactly one `work_type.reconcile` audit row per call, even when nothing changed.
    */
   async reconcile(
@@ -127,10 +136,17 @@ export class WorkTypesRepository {
     const existing =
       ids.length === 0
         ? []
-        : await tx.project.findMany({ where: { id: { in: ids } }, select: { id: true } });
-    const projects = existing.map((p) => ({ id: p.id, teamIds: teamsByProject.get(p.id) ?? [] }));
+        : await tx.project.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, teamId: true },
+          });
+    // The home team always counts as linked, whether or not a project_teams row exists.
+    const projects = existing.map((p) => ({
+      id: p.id,
+      teamIds: [...new Set([p.teamId, ...(teamsByProject.get(p.id) ?? [])])],
+    }));
 
-    const teamIds = [...new Set(links.map((l) => l.teamId))];
+    const teamIds = [...new Set(projects.flatMap((p) => p.teamIds))];
     const selections =
       teamIds.length === 0
         ? []

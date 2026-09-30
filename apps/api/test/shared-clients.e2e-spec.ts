@@ -109,6 +109,21 @@ describe.runIf(RUN_E2E)('shared clients — real Postgres', () => {
       ].sort((a, b) => a.projectId.localeCompare(b.projectId)),
     );
   });
+
+  it('re-sync repairs a project with no link row: the home team always counts', async () => {
+    const eng = await team('Eng');
+    await select(eng, 'Payroll');
+    const p = await db.prisma.project.create({
+      data: { teamId: eng, name: 'Old code' },
+      select: { id: true },
+    });
+    await db.prisma.subproject.create({
+      data: { projectId: p.id, name: 'General', isDefault: true },
+    });
+
+    await catalog().resync(admin(eng));
+    expect(await activeNames(p.id)).toEqual(['General', 'Payroll']);
+  });
 });
 
 describe('shared clients e2e harness', () => {
