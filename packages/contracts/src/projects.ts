@@ -207,10 +207,14 @@ export const ProjectDetailSchema = z.object({
   projectId: z.uuid(),
   /** The team that owns the project now — what the admin "move to team" control starts from. */
   teamId: z.uuid(),
+  /** Linked teams, home first. More than one → shared. */
+  teamIds: z.array(z.uuid()),
   name: z.string(),
   color: z.string().nullable(),
   archived: z.boolean(),
   totalSeconds: z.number().int().nonnegative(),
+  /** The total split by the team each entry was tracked under; sums to `totalSeconds`. */
+  byTeam: z.array(ProjectTeamRowSchema),
   trend: z.array(ProjectHoursTrendRowSchema),
   members: z.array(ProjectMemberRowSchema),
   subprojects: z.array(ProjectSubprojectRowSchema),

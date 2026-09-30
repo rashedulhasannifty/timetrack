@@ -294,6 +294,57 @@ describe.runIf(RUN_E2E)('shared clients — real Postgres', () => {
       projects().createTask({ subprojectId: general.id, name: 'Kickoff' }, opsMgr),
     ).resolves.toMatchObject({ name: 'Kickoff' });
   });
+
+  it('detail splits a shared client by the team each entry was tracked under', async () => {
+    const eng = await team('Eng');
+    const ops = await team('Ops');
+    const acme = await client(eng, 'Acme');
+    await link(acme.id, ops);
+    const [ann, bob] = await Promise.all([
+      db.prisma.user.create({
+        data: { email: 'ann@x.io', name: 'Ann', passwordHash: 'x', teamId: eng },
+        select: { id: true },
+      }),
+      db.prisma.user.create({
+        data: { email: 'bob@x.io', name: 'Bob', passwordHash: 'x', teamId: ops },
+        select: { id: true },
+      }),
+    ]);
+    const entry = (id: string, userId: string, hour: number) => ({
+      id,
+      userId,
+      projectId: acme.id,
+      source: 'MANUAL' as const,
+      startTime: new Date(`2026-07-11T0${hour}:00:00Z`),
+      endTime: new Date(`2026-07-11T0${hour + 1}:00:00Z`),
+    });
+    await db.prisma.timeEntry.createMany({
+      data: [
+        entry('01920000-0000-7000-8000-00000000f001', ann.id, 1),
+        entry('01920000-0000-7000-8000-00000000f002', bob.id, 3),
+        entry('01920000-0000-7000-8000-00000000f003', bob.id, 5),
+      ],
+    });
+    const range = { from: '2026-07-11T00:00:00.000Z', to: '2026-07-12T00:00:00.000Z' };
+
+    const asAdmin = await projects().detail(acme.id, range, admin(eng));
+    expect(asAdmin.teamIds[0]).toBe(eng);
+    expect(asAdmin.byTeam).toEqual([
+      { teamId: ops, teamName: 'Ops', trackedSeconds: 7200 },
+      { teamId: eng, teamName: 'Eng', trackedSeconds: 3600 },
+    ]);
+    expect(asAdmin.totalSeconds).toBe(10800);
+    expect(asAdmin.members.map((m) => m.name).sort()).toEqual(['Ann', 'Bob']);
+
+    const asOpsManager = await projects().detail(
+      acme.id,
+      range,
+      manager('01920000-0000-7000-8000-0000000000b2', ops),
+    );
+    expect(asOpsManager.byTeam).toEqual(asAdmin.byTeam);
+    expect(asOpsManager.totalSeconds).toBe(10800);
+    expect(asOpsManager.members.map((m) => m.name)).toEqual(['Bob']);
+  });
 });
 
 describe('shared clients e2e harness', () => {

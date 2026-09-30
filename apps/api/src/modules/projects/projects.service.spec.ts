@@ -364,7 +364,7 @@ describe('ProjectsService.detail', () => {
     expect(repo.membersForProject).not.toHaveBeenCalled();
   });
 
-  it('assembles detail with totalSeconds = sum of members', async () => {
+  it('assembles detail with totalSeconds = sum of the per-team split', async () => {
     const projectId = '11111111-1111-4111-8111-111111111111';
     // A real UUID, not 't1': detail() re-validates through ProjectDetailSchema, which now
     // carries teamId. The actor is an ADMIN so the own-team check doesn't compare against 't1'.
@@ -392,6 +392,9 @@ describe('ProjectsService.detail', () => {
           { taskId: null, subprojectId: null, name: 'No task', trackedSeconds: 4321 },
         ]),
       subprojectsForProject: vi.fn().mockResolvedValue(SUBPROJECT_ROWS),
+      teamsForProject: vi
+        .fn()
+        .mockResolvedValue([{ teamId, teamName: 'Eng', trackedSeconds: 9000 }]),
     });
     const result = await svc.detail(projectId, query, { id: 'a1', role: 'ADMIN', teamId: 't1' });
     expect(result.projectId).toBe(projectId);
@@ -399,6 +402,8 @@ describe('ProjectsService.detail', () => {
     expect(result.name).toBe('Website');
     expect(result.color).toBe('#34c759');
     expect(result.totalSeconds).toBe(9000);
+    expect(result.teamIds).toEqual([teamId]);
+    expect(result.byTeam).toEqual([{ teamId, teamName: 'Eng', trackedSeconds: 9000 }]);
     expect(result.members).toHaveLength(2);
     expect(result.tasks[0]).toEqual({
       taskId: null,

@@ -559,11 +559,16 @@ export class ProjectsRepository {
     return rows.map((r) => ({ day: r.day, trackedSeconds: Number(r.trackedSeconds) }));
   }
 
+  /**
+   * Per-person time on the client. `teamId` narrows to entries stamped with that team: a MANAGER
+   * on a shared client sees only their own team's people (spec §5.6).
+   */
   async membersForProject(
     projectId: string,
     from: Date,
     to: Date,
     freshnessSeconds: number,
+    teamId?: string,
   ): Promise<{ userId: string; name: string; trackedSeconds: number }[]> {
     const rows = await this.prisma.$queryRaw<
       Array<{ userId: string; name: string; trackedSeconds: number | bigint }>
@@ -579,12 +584,44 @@ export class ProjectsRepository {
         AND te."startTime" < ${to}::timestamptz
         AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
         AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+        ${teamId !== undefined ? Prisma.sql`AND te."teamId" = ${teamId}` : Prisma.empty}
       GROUP BY te."userId", u.name
       ORDER BY "trackedSeconds" DESC, u.name ASC
     `;
     return rows.map((r) => ({
       userId: r.userId,
       name: r.name,
+      trackedSeconds: Number(r.trackedSeconds),
+    }));
+  }
+
+  /** The client's time split by the team stamped on each entry (spec §5.6); null → Unassigned. */
+  async teamsForProject(
+    projectId: string,
+    from: Date,
+    to: Date,
+    freshnessSeconds: number,
+  ): Promise<{ teamId: string | null; teamName: string; trackedSeconds: number }[]> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{ teamId: string | null; teamName: string; trackedSeconds: number | bigint }>
+    >`
+      SELECT te."teamId" AS "teamId", COALESCE(t.name, 'Unassigned') AS "teamName",
+             FLOOR(SUM(GREATEST(EXTRACT(EPOCH FROM (
+               LEAST(${ENTRY_END(freshnessSeconds)}, ${to}::timestamptz)
+               - GREATEST(te."startTime", ${from}::timestamptz)
+             )), 0)))::int AS "trackedSeconds"
+      FROM time_entries te
+      LEFT JOIN teams t ON t.id = te."teamId"
+      WHERE te."projectId" = ${projectId}
+        AND te."startTime" < ${to}::timestamptz
+        AND ${ENTRY_END(freshnessSeconds)} > ${from}::timestamptz
+        AND (te."endTime" IS NULL OR te."endTime" > te."startTime")
+      GROUP BY te."teamId", t.name
+      ORDER BY "trackedSeconds" DESC, "teamId" ASC NULLS LAST
+    `;
+    return rows.map((r) => ({
+      teamId: r.teamId,
+      teamName: r.teamName,
       trackedSeconds: Number(r.trackedSeconds),
     }));
   }

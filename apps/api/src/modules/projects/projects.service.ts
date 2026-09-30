@@ -269,13 +269,17 @@ export class ProjectsService {
 
     const from = new Date(query.from);
     const to = new Date(query.to);
-    const [trend, members, tasks, subprojects] = await Promise.all([
+    // A MANAGER on a SHARED client sees every team's total but only their own team's people.
+    const memberTeam =
+      actor.role !== 'ADMIN' && project.teamIds.length > 1 ? actor.teamId : undefined;
+    const [trend, members, tasks, subprojects, byTeam] = await Promise.all([
       this.repo.hoursByDay(id, from, to, this.trackingFreshnessSeconds),
-      this.repo.membersForProject(id, from, to, this.trackingFreshnessSeconds),
+      this.repo.membersForProject(id, from, to, this.trackingFreshnessSeconds, memberTeam),
       this.repo.tasksForProject(id, from, to, this.trackingFreshnessSeconds),
       this.repo.subprojectsForProject(id, from, to, this.trackingFreshnessSeconds),
+      this.repo.teamsForProject(id, from, to, this.trackingFreshnessSeconds),
     ]);
-    const totalSeconds = members.reduce((sum, m) => sum + m.trackedSeconds, 0);
+    const totalSeconds = byTeam.reduce((sum, t) => sum + t.trackedSeconds, 0);
 
     // Re-validate on the way out (mirrors ReportsService); parse also strips any surprises.
     return ProjectDetailSchema.parse({
@@ -283,10 +287,12 @@ export class ProjectsService {
       to: query.to,
       projectId: id,
       teamId: project.teamId,
+      teamIds: project.teamIds,
       name: project.name,
       color: project.color,
       archived: project.archived,
       totalSeconds,
+      byTeam,
       trend,
       members,
       tasks,
