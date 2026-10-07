@@ -4,6 +4,7 @@ import { refreshBackTo } from '../../../lib/redirect';
 import { SetPageTitle } from '../../../components/ui/PageTitleContext';
 import { getSession } from '../../../lib/session';
 import { api } from '../../../lib/api-client';
+import { recentAssignments } from '../../../lib/entry-form';
 import {
   dayRangeFor,
   personDayView,
@@ -112,6 +113,7 @@ export default async function MyDataPage({
   });
 
   const today = dayOf(new Date());
+  const recent = recentAssignments(model.entries);
 
   return (
     <>
@@ -146,8 +148,10 @@ export default async function MyDataPage({
           idle={idleRows(idle)}
           idleAction={(row) => <ResolveIdleForm row={row} />}
           // Your own record, so no userId: the API attributes an absent one to the caller.
-          addEntry={<AddTimeEntryForm day={date} projects={projects} />}
-          entryAction={(entry) => <EntryRowActions entry={entry} day={date} projects={projects} />}
+          addEntry={<AddTimeEntryForm day={date} projects={projects} recent={recent} />}
+          entryAction={(entry) => (
+            <EntryRowActions entry={entry} day={date} projects={projects} recent={recent} />
+          )}
         />
       </div>
     </>

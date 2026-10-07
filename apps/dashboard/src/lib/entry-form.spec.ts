@@ -7,6 +7,9 @@ import {
   assignmentGroups,
   encodeAssignment,
   parseAssignment,
+  filterAssignmentGroups,
+  recentAssignments,
+  recentOptions,
 } from './entry-form';
 import type { Project } from '@timetrack/contracts';
 
@@ -164,5 +167,90 @@ describe('assignmentGroups', () => {
         options: [{ value: encodeAssignment(current), label: 'Current assignment' }],
       },
     ]);
+  });
+});
+
+describe('filterAssignmentGroups', () => {
+  const groups = [
+    {
+      label: 'Website',
+      options: [
+        { value: 'w-g', label: 'General' },
+        { value: 'w-c', label: 'Checkout' },
+        { value: 'w-cp', label: 'Checkout › Pay form' },
+      ],
+    },
+    { label: 'Mobile App', options: [{ value: 'm-g', label: 'General' }] },
+  ];
+
+  it('returns every group untouched for an empty or blank query', () => {
+    expect(filterAssignmentGroups(groups, '')).toEqual(groups);
+    expect(filterAssignmentGroups(groups, '   ')).toEqual(groups);
+  });
+
+  it('matches case-insensitively against the option label', () => {
+    expect(filterAssignmentGroups(groups, 'PAY')).toEqual([
+      { label: 'Website', options: [{ value: 'w-cp', label: 'Checkout › Pay form' }] },
+    ]);
+  });
+
+  it('matches the project name too, so a project query keeps its whole group', () => {
+    expect(filterAssignmentGroups(groups, 'mobile')).toEqual([groups[1]]);
+  });
+
+  it('requires every word, in any order, across project and option', () => {
+    expect(filterAssignmentGroups(groups, 'general web')).toEqual([
+      { label: 'Website', options: [{ value: 'w-g', label: 'General' }] },
+    ]);
+  });
+
+  it('drops groups left with no options', () => {
+    expect(filterAssignmentGroups(groups, 'nothing-like-this')).toEqual([]);
+  });
+});
+
+describe('recentAssignments', () => {
+  const row = (
+    startMs: number,
+    projectId: string | null,
+    subprojectId: string | null,
+    taskId: string | null = null,
+  ) => ({
+    startMs,
+    projectId,
+    subprojectId,
+    taskId,
+  });
+
+  it('is most-recent first, de-duplicated, and skips entries with no project', () => {
+    const rows = [row(1, P, G), row(3, P, C, T), row(2, null, null), row(4, P, G)];
+    expect(recentAssignments(rows)).toEqual([
+      { projectId: P, subprojectId: G, taskId: null },
+      { projectId: P, subprojectId: C, taskId: T },
+    ]);
+  });
+
+  it('caps the list', () => {
+    const rows = Array.from({ length: 8 }, (_, i) => row(i, P, `${i}`));
+    expect(recentAssignments(rows, 3)).toHaveLength(3);
+  });
+});
+
+describe('recentOptions', () => {
+  it('labels each recent with its project, in recency order', () => {
+    const groups = assignmentGroups([project()], null);
+    const recent = [
+      { projectId: P, subprojectId: C, taskId: T },
+      { projectId: P, subprojectId: G, taskId: null },
+    ];
+    expect(recentOptions(groups, recent)).toEqual([
+      { value: `${P}|${C}|${T}`, label: 'Website › Checkout › Pay form' },
+      { value: `${P}|${G}|`, label: 'Website › General' },
+    ]);
+  });
+
+  it('leaves out a recent the picker does not offer (archived since)', () => {
+    const groups = assignmentGroups([project({ archived: true })], null);
+    expect(recentOptions(groups, [{ projectId: P, subprojectId: G, taskId: null }])).toEqual([]);
   });
 });
