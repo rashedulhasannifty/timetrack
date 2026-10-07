@@ -23,7 +23,7 @@
     "nestjs-pino": "^4.4.0",
     "nodemailer": "^10.0.13",
     "reflect-metadata": "^0.2.2",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.10",
