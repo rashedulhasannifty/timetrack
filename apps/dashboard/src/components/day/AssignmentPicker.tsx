@@ -146,7 +146,14 @@ export function AssignmentPicker({
   let index = -1;
 
   return (
-    <div ref={rootRef} className="relative flex flex-col gap-1">
+    <div
+      ref={rootRef}
+      className="relative flex flex-col gap-1"
+      // Tabbing out of the search box closes the list rather than leaving it over the Note field.
+      onBlur={(e) => {
+        if (!rootRef.current?.contains(e.relatedTarget)) setOpen(false);
+      }}
+    >
       <span className="text-caption text-text-secondary" id={`${listId}-label`}>
         Assign to
       </span>
@@ -188,7 +195,14 @@ export function AssignmentPicker({
             onKeyDown={onSearchKey}
             className="border-separator bg-surface text-text m-1.5 rounded-md border px-2.5 py-1.5 text-[13px]"
           />
-          <ul id={listId} role="listbox" className="max-h-64 overflow-y-auto pb-1.5">
+          <ul
+            id={listId}
+            role="listbox"
+            // Not a Tab stop: Chrome makes a scrollable box focusable, which would trap Tab inside
+            // the picker. The search box owns the keyboard (arrows + aria-activedescendant).
+            tabIndex={-1}
+            className="max-h-64 overflow-y-auto pb-1.5"
+          >
             {flat.length === 0 ? (
               <li className="text-caption text-text-secondary px-3 py-2">No matches</li>
             ) : (
