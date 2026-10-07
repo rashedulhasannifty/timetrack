@@ -21,7 +21,7 @@
     "@nestjs/common": "^11.2.1",
     "@nestjs/core": "^11.2.1",
     "@nestjs/jwt": "^11.0.0",
-    "@nestjs/platform-fastify": "^11.2.1",
+    "@nestjs/platform-fastify": "^11.2.4",
     "@nestjs/terminus": "^11.0.0",
     "@nestjs/throttler": "^6.7.0",
     "@timetrack/config": "workspace:*",
