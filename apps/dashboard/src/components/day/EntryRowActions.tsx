@@ -11,6 +11,7 @@ import {
   type EntryFormState,
 } from '../../app/(app)/me/actions';
 import type { DayEntryRow } from '../../lib/person-day-view';
+import type { Assignment } from '../../lib/entry-form';
 
 const INITIAL: EntryFormState = { ok: false };
 
@@ -29,11 +30,13 @@ export function EntryRowActions({
   entry,
   day,
   projects,
+  recent,
   userId,
 }: {
   entry: DayEntryRow;
   day: string;
   projects: Project[];
+  recent: Assignment[];
   userId?: string;
 }) {
   const [mode, setMode] = useState<'closed' | 'edit' | 'confirm-delete'>('closed');
@@ -113,6 +116,7 @@ export function EntryRowActions({
           {userId ? <input type="hidden" name="userId" value={userId} /> : null}
           <EntryFormFields
             projects={projects}
+            recent={recent}
             defaults={{
               day,
               start: entry.startClock,

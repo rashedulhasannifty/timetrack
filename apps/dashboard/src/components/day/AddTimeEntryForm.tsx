@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Project } from '@timetrack/contracts';
+import type { Assignment } from '../../lib/entry-form';
 import { Button, buttonClasses } from '../ui/Button';
 import { useToastAction } from '../ui/useToastAction';
 import { EntryFormFields } from './EntryFormFields';
@@ -21,10 +22,13 @@ const INITIAL: EntryFormState = { ok: false };
 export function AddTimeEntryForm({
   day,
   projects,
+  recent,
   userId,
 }: {
   day: string;
   projects: Project[];
+  /** This day's assignments, most recent first — see `recentAssignments`. */
+  recent: Assignment[];
   /** Whose day this is. Omitted on /me — the API attributes an absent userId to the caller. */
   userId?: string;
 }) {
@@ -71,6 +75,7 @@ export function AddTimeEntryForm({
           {userId ? <input type="hidden" name="userId" value={userId} /> : null}
           <EntryFormFields
             projects={projects}
+            recent={recent}
             defaults={{ day, start: '09:00', end: '17:00', assignment: null, note: '' }}
           />
           <div className="flex items-center gap-2">

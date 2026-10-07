@@ -10,6 +10,7 @@ import { EntryRowActions } from '../day/EntryRowActions';
 import { DayAppUsage } from '../day/DayAppUsage';
 import { WeekStrip } from '../day/WeekStrip';
 import { api } from '../../lib/api-client';
+import { recentAssignments } from '../../lib/entry-form';
 import type { Session } from '../../lib/session';
 import {
   dayRangeFor,
@@ -178,6 +179,7 @@ export function PersonDayContent({
     idle,
   } = day;
   const replace = navigation === 'replace';
+  const recent = model === null ? [] : recentAssignments(model.entries);
 
   return model === null ? (
     <p className="text-text-secondary text-body">You’re not permitted to view this person.</p>
@@ -215,9 +217,17 @@ export function PersonDayContent({
         // authorized by the API through the same self / manager-of-team / admin rule an
         // edit uses — an employee reaching this page for someone else gets a 403, not a
         // hidden button. Every write here is audited against the manager, not the member.
-        addEntry={<AddTimeEntryForm day={date} projects={projects} userId={userId} />}
+        addEntry={
+          <AddTimeEntryForm day={date} projects={projects} recent={recent} userId={userId} />
+        }
         entryAction={(entry) => (
-          <EntryRowActions entry={entry} day={date} projects={projects} userId={userId} />
+          <EntryRowActions
+            entry={entry}
+            day={date}
+            projects={projects}
+            recent={recent}
+            userId={userId}
+          />
         )}
       />
     </div>

@@ -268,6 +268,43 @@ test.describe('person detail drawer', () => {
     await expect(page).toHaveURL(/\/overview$/);
   });
 
+  test('Assign to is searchable, and Escape closes only its list', async ({ page }) => {
+    const { link } = await firstPerson(page);
+    await link.click();
+    await drawerLoaded(page);
+    const dialog = page.getByRole('dialog');
+
+    // Nothing is submitted — only the picker is driven, so no DB write.
+    await dialog.getByRole('button', { name: 'Add time' }).click();
+    await dialog.getByRole('button', { name: /Assign to/ }).click();
+    const search = dialog.getByRole('combobox', { name: 'Search projects' });
+    await expect(search).toBeFocused();
+
+    const options = dialog.getByRole('option');
+    const all = await options.count();
+    await search.fill('zz-no-such-project');
+    await expect(options).toHaveCount(0);
+    await expect(dialog.getByText('No matches')).toBeVisible();
+
+    // Picking by keyboard writes the choice back to the field.
+    await search.fill('');
+    await expect(options).toHaveCount(all);
+    await search.press('ArrowDown');
+    const second = (await options.nth(1).innerText()).trim();
+    await search.press('Enter');
+    await expect(search).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: /Assign to/ })).toContainText(
+      second.split(' › ').at(-1)!,
+    );
+
+    // Escape in an open list closes the list, not the form or the drawer.
+    await dialog.getByRole('button', { name: /Assign to/ }).click();
+    await page.keyboard.press('Escape');
+    await expect(search).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Add entry' })).toBeVisible();
+    await expect(dialog).toBeVisible();
+  });
+
   test('Escape closes the drawer back to Overview', async ({ page }) => {
     const { link } = await firstPerson(page);
     await link.click();

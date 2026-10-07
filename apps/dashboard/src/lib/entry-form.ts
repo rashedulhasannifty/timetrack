@@ -169,3 +169,74 @@ export function assignmentGroups(
   }
   return groups;
 }
+
+/**
+ * The picker's search. Every whitespace-separated word must appear, case-insensitively,
+ * somewhere in "project + option" — so "acme design" finds Acme's Design subproject however
+ * the two words are ordered. A project-name match keeps that whole group, which is what
+ * someone typing a client's name wants to browse.
+ */
+export function filterAssignmentGroups(
+  groups: AssignmentGroup[],
+  query: string,
+): AssignmentGroup[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return groups;
+  const result: AssignmentGroup[] = [];
+  for (const g of groups) {
+    const options = g.options.filter((o) => {
+      const haystack = `${g.label} ${o.label}`.toLowerCase();
+      return words.every((w) => haystack.includes(w));
+    });
+    if (options.length > 0) result.push({ label: g.label, options });
+  }
+  return result;
+}
+
+/**
+ * What this day's entries were assigned to, most recent first, each once. Unassigned entries
+ * are skipped — "No project" is always the picker's first option anyway.
+ */
+export function recentAssignments(
+  entries: {
+    startMs: number;
+    projectId: string | null;
+    subprojectId: string | null;
+    taskId: string | null;
+  }[],
+  limit = 5,
+): Assignment[] {
+  const seen = new Set<string>();
+  const result: Assignment[] = [];
+  for (const e of [...entries].sort((a, b) => b.startMs - a.startMs)) {
+    if (e.projectId === null) continue;
+    const a = { projectId: e.projectId, subprojectId: e.subprojectId, taskId: e.taskId };
+    const key = encodeAssignment(a);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(a);
+    if (result.length === limit) break;
+  }
+  return result;
+}
+
+/**
+ * The recents as picker options, labelled with their project since they sit outside any
+ * group. A recent the picker does not offer (its project or subproject has been archived
+ * since) is left out rather than offered as a dead end.
+ */
+export function recentOptions(
+  groups: AssignmentGroup[],
+  recent: Assignment[],
+): AssignmentGroup['options'] {
+  const offered = new Map<string, string>();
+  for (const g of groups)
+    for (const o of g.options) offered.set(o.value, `${g.label} › ${o.label}`);
+  const result: AssignmentGroup['options'] = [];
+  for (const a of recent) {
+    const value = encodeAssignment(a);
+    const label = offered.get(value);
+    if (label !== undefined) result.push({ value, label });
+  }
+  return result;
+}

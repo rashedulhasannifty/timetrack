@@ -1,8 +1,14 @@
 import type { Project } from '@timetrack/contracts';
-import { assignmentGroups, encodeAssignment, type Assignment } from '../../lib/entry-form';
+import {
+  assignmentGroups,
+  encodeAssignment,
+  recentOptions,
+  type Assignment,
+} from '../../lib/entry-form';
+import { AssignmentPicker } from './AssignmentPicker';
 
 /**
- * The inputs an entry is made of (date, times, one grouped "Assign to" select, note), shared by the add form and the per-row edit form so the
+ * The inputs an entry is made of (date, times, one searchable "Assign to" picker, note), shared by the add form and the per-row edit form so the
  * two can never drift into accepting different things.
  *
  * `day`/`start`/`end` are wall-clock in APP_TIMEZONE; the Server Action converts them through
@@ -11,9 +17,12 @@ import { assignmentGroups, encodeAssignment, type Assignment } from '../../lib/e
  */
 export function EntryFormFields({
   projects,
+  recent,
   defaults,
 }: {
   projects: Project[];
+  /** What this day's entries were assigned to, most recent first — offered at the top. */
+  recent: Assignment[];
   defaults: {
     day: string;
     start: string;
@@ -22,6 +31,7 @@ export function EntryFormFields({
     note: string;
   };
 }) {
+  const groups = assignmentGroups(projects, defaults.assignment);
   return (
     <>
       <div className="flex flex-wrap gap-2">
@@ -56,25 +66,11 @@ export function EntryFormFields({
           />
         </label>
       </div>
-      <label className="flex flex-col gap-1">
-        <span className="text-caption text-text-secondary">Assign to</span>
-        <select
-          name="assignment"
-          defaultValue={defaults.assignment ? encodeAssignment(defaults.assignment) : ''}
-          className="border-separator bg-surface text-text rounded-md border px-2.5 py-1.5 text-[13px]"
-        >
-          <option value="">No project</option>
-          {assignmentGroups(projects, defaults.assignment).map((g) => (
-            <optgroup key={g.label} label={g.label}>
-              {g.options.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </label>
+      <AssignmentPicker
+        groups={groups}
+        recent={recentOptions(groups, recent)}
+        defaultValue={defaults.assignment ? encodeAssignment(defaults.assignment) : ''}
+      />
       <label className="flex flex-col gap-1">
         <span className="text-caption text-text-secondary">Note</span>
         <input
