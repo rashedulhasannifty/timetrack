@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using NiftyTimer.App;
@@ -808,6 +809,48 @@ public class TrayPopupWindowPickerTests
             }
         });
         Assert.Equal(["My team (Design)", "Eng"], groups);
+    }
+
+    /// <summary>
+    /// Down in the search box moves focus onto the first row. Grouped (an ADMIN), the ListBox's
+    /// top-level containers are GroupItems, so a ContainerFromIndex(0) lookup found no ListBoxItem
+    /// and focus stayed in the search box.
+    /// </summary>
+    [Fact]
+    public void DownFromSearchFocusesTheFirstRowOfAGroupedList()
+    {
+        var (isItem, isFocused, rowMatches) = Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(new BufferSpy(), () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
+            var (viewModel, window) = Build(tracker);
+            try
+            {
+                viewModel.Viewer = new PickerViewer("ADMIN", "team");
+                viewModel.Projects =
+                [
+                    new Project("p1", "team", "Acme Website", false, [], [new Subproject("s1", "p1", "General", false, true)], "Design", ["team"]),
+                    new Project("p2", "other", "Initech", false, [], [new Subproject("s2", "p2", "General", false, true)], "Eng", ["other"]),
+                ];
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+                window.SearchBox.RaiseEvent(new KeyEventArgs(
+                    Keyboard.PrimaryDevice, PresentationSource.FromVisual(window.SearchBox)!, 0, Key.Down)
+                {
+                    RoutedEvent = Keyboard.PreviewKeyDownEvent,
+                });
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+                var container = window.ProjectList.ItemContainerGenerator.ContainerFromItem(window.ProjectList.Items[0]) as ListBoxItem;
+                return (container is not null, container?.IsKeyboardFocusWithin == true,
+                    Equals(container?.DataContext, viewModel.PickerRows[0]));
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+        Assert.True(isItem);
+        Assert.True(rowMatches);
+        Assert.True(isFocused);
     }
 
     /// <summary>

@@ -464,7 +464,9 @@ public partial class TrayPopupWindow : Window
         {
             case Key.Down when ProjectList.Items.Count > 0:
                 ProjectList.SelectedIndex = 0;
-                (ProjectList.ItemContainerGenerator.ContainerFromIndex(0) as ListBoxItem)?.Focus();
+                // ContainerFromItem, not ContainerFromIndex: grouped (an ADMIN's root/search), the
+                // top-level containers are GroupItems and only ContainerFromItem searches the groups.
+                (ProjectList.ItemContainerGenerator.ContainerFromItem(ProjectList.Items[0]) as ListBoxItem)?.Focus();
                 e.Handled = true;
                 break;
             case Key.Enter:
