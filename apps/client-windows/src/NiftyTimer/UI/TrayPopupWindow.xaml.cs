@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -306,6 +307,14 @@ public partial class TrayPopupWindow : Window
         if (ProjectList.ItemsSource is not IReadOnlyList<PickerRow> shown || !shown.SequenceEqual(rows))
         {
             ProjectList.ItemsSource = rows;
+            // Group only when PickerTeams stamped sections (an ADMIN's root or search). Rows are
+            // pre-sorted by section, and ListCollectionView keeps groups in first-seen order.
+            var view = CollectionViewSource.GetDefaultView(rows);
+            view.GroupDescriptions.Clear();
+            if (rows.Any(r => r.Section is not null))
+            {
+                view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(PickerRow.Section)));
+            }
         }
     }
 

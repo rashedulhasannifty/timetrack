@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
 using NiftyTimer.App;
@@ -779,6 +780,34 @@ public class TrayPopupWindowPickerTests
         window.ShowNearTray();
         window.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
         return (viewModel, window);
+    }
+
+    [Fact]
+    public void AnAdminsListIsGroupedUnderTeamHeaders()
+    {
+        var groups = Wpf.Run(() =>
+        {
+            var tracker = new TimeTracker(new BufferSpy(), () => new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero));
+            var (viewModel, window) = Build(tracker);
+            try
+            {
+                viewModel.Viewer = new PickerViewer("ADMIN", "team");
+                viewModel.Projects =
+                [
+                    new Project("p1", "team", "Acme Website", false, [], [new Subproject("s1", "p1", "General", false, true)], "Design", ["team"]),
+                    new Project("p2", "other", "Initech", false, [], [new Subproject("s2", "p2", "General", false, true)], "Eng", ["other"]),
+                ];
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
+                return CollectionViewSource.GetDefaultView(window.ProjectList.ItemsSource).Groups!
+                    .Cast<CollectionViewGroup>().Select(g => (string)g.Name).ToList();
+            }
+            finally
+            {
+                window.AllowClose = true;
+                window.Close();
+            }
+        });
+        Assert.Equal(["My team (Design)", "Eng"], groups);
     }
 
     /// <summary>

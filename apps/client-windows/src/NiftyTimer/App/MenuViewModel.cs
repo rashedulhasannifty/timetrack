@@ -100,6 +100,15 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         set => Set(ref _projects, value, [nameof(PickerRows), nameof(WorkingOn), nameof(Breadcrumb)]);
     }
 
+    private PickerViewer? _viewer;
+
+    /// <summary>Who is looking: an ADMIN's root list and search are grouped by team. Set before <see cref="Projects"/>.</summary>
+    public PickerViewer? Viewer
+    {
+        get => _viewer;
+        set => Set(ref _viewer, value, [nameof(PickerRows)]);
+    }
+
     /// <summary>
     /// What the person has typed into the picker's search field. Kept here rather than in the
     /// popup so it survives the popup hiding and showing, as the macOS dropdown's does, and so the
@@ -133,7 +142,15 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         get
         {
             var tree = Tree;
-            return (PickerSearch.IsSearching(_query) ? PickerSearch.Results(_query, tree) : PickerNavigation.Rows(_level, tree))
+            var searching = PickerSearch.IsSearching(_query);
+            var rows = searching ? PickerSearch.Results(_query, tree) : PickerNavigation.Rows(_level, tree);
+            // A drilled level is one project, so only the root and search are grouped by team.
+            if (searching || PickerNavigation.Normalize(_level, tree) is PickerLevel.RootLevel)
+            {
+                rows = PickerTeams.Group(rows, PickerTeams.Sections(_projects, _viewer));
+            }
+
+            return rows
                 .Select(r => PickerNavigation.IsOnCurrentPath(r, _selection, tree)
                     ? r with { IsOnPath = true, IsCurrent = r.Kind == PickerRowKind.Track }
                     : r)
@@ -540,6 +557,7 @@ public sealed class MenuViewModel : INotifyPropertyChanged
         IsSignedIn = false;
         UserId = null;
         Projects = [];
+        Viewer = null;
         Selection = null;
         Totals = null;
         PendingCount = 0;

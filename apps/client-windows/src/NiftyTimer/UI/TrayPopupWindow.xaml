@@ -167,6 +167,18 @@
                      MouseLeftButtonUp="OnListClicked"
                      AutomationProperties.Name="Projects and tasks"
                      Margin="0,0,0,12">
+                <!-- An ADMIN's team headers (RenderPicker groups by PickerRow.Section). A group
+                     header is not a ListBoxItem, so OnListClicked and keyboard selection skip it. -->
+                <ListBox.GroupStyle>
+                    <GroupStyle>
+                        <GroupStyle.HeaderTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Name}" Style="{StaticResource CaptionText}"
+                                           Margin="4,8,0,2" Focusable="False" />
+                            </DataTemplate>
+                        </GroupStyle.HeaderTemplate>
+                    </GroupStyle>
+                </ListBox.GroupStyle>
                 <!-- Rows on the way to the current selection are tinted at every level. -->
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">

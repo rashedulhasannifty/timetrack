@@ -91,6 +91,7 @@ public enum PickerRowKind
 /// <see cref="PickerRowKind.Track"/>. <c>IsOnPath</c> tints a row on the way to the current
 /// selection at every level; <c>IsCurrent</c> (the choice itself) also draws the checkmark. Both
 /// are stamped by the view model — NOT <c>ListBoxItem.IsSelected</c>, which is the keyboard highlight.
+/// <c>Section</c> is the team header an ADMIN's root/search row sits under; null everywhere else.
 /// </summary>
 public sealed record PickerRow(
     string Id,
@@ -99,7 +100,8 @@ public sealed record PickerRow(
     PickerLevel? Target,
     StoredSelection? Selection,
     bool IsCurrent = false,
-    bool IsOnPath = false);
+    bool IsOnPath = false,
+    string? Section = null);
 
 /// <summary>One step of the breadcrumb bar above the list. Every crumb but the last is a way back.</summary>
 public sealed record PickerCrumb(string Title, PickerLevel Level);
@@ -342,4 +344,71 @@ public static class PickerSearch
 
     private static bool Matches(IEnumerable<string> parts, string query) =>
         parts.Any(p => p.Contains(query, StringComparison.OrdinalIgnoreCase));
+}
+
+/// <summary>
+/// An ADMIN's root list and search results split by team (spec 2026-10-08 §4). A layer over the
+/// rows <see cref="PickerNavigation"/>/<see cref="PickerSearch"/> already build: it stamps
+/// <c>Section</c> and stable-sorts. A port of PickerTeams in PickerCore.swift — change both.
+/// </summary>
+public sealed record PickerTeamSection(int Order, string Title);
+
+public static class PickerTeams
+{
+    public const string OwnTeamTitle = "My team";
+    public const string OtherTeamTitle = "Other team";
+
+    public static IReadOnlyDictionary<string, PickerTeamSection> Sections(IReadOnlyList<Project> projects, PickerViewer? viewer)
+    {
+        var result = new Dictionary<string, PickerTeamSection>();
+        if (viewer is not { IsAdmin: true })
+        {
+            return result;
+        }
+
+        var viewerTeamId = viewer.TeamId;
+        bool IsOwn(Project p) => (p.TeamIds ?? [p.TeamId]).Contains(viewerTeamId);
+        var ownName = projects.FirstOrDefault(p => p.TeamId == viewerTeamId)?.TeamName;
+        var own = new PickerTeamSection(0, ownName is null ? OwnTeamTitle : $"{OwnTeamTitle} ({ownName})");
+        var byTeam = projects.Where(p => !IsOwn(p))
+            .GroupBy(p => p.TeamId)
+            .Select(g => (TeamId: g.Key, Title: g.First().TeamName ?? OtherTeamTitle))
+            .OrderBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(t => t.TeamId, StringComparer.Ordinal)
+            .Select((t, i) => (t.TeamId, Section: new PickerTeamSection(i + 1, t.Title)))
+            .ToDictionary(t => t.TeamId, t => t.Section);
+        foreach (var project in projects)
+        {
+            result[project.Id] = IsOwn(project) ? own : byTeam[project.TeamId];
+        }
+
+        return result;
+    }
+
+    public static IReadOnlyList<PickerRow> Group(IReadOnlyList<PickerRow> rows, IReadOnlyDictionary<string, PickerTeamSection> sections)
+    {
+        if (sections.Count == 0)
+        {
+            return rows;
+        }
+
+        return rows
+            .Select((row, index) => (Row: row, Index: index,
+                Section: ProjectId(row) is { } id && sections.TryGetValue(id, out var s) ? s : null))
+            .OrderBy(x => x.Section?.Order ?? int.MaxValue)
+            .ThenBy(x => x.Index)
+            .Select(x => x.Row with { Section = x.Section?.Title })
+            .ToList();
+    }
+
+    public static bool StartsSection(IReadOnlyList<PickerRow> rows, int index) =>
+        rows[index].Section is { } section && (index == 0 || rows[index - 1].Section != section);
+
+    private static string? ProjectId(PickerRow row) => row switch
+    {
+        { Kind: PickerRowKind.Track, Selection: { } s } => s.ProjectId,
+        { Target: PickerLevel.ProjectLevel p } => p.ProjectId,
+        { Target: PickerLevel.SubprojectLevel s } => s.ProjectId,
+        _ => null,
+    };
 }

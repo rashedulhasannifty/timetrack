@@ -850,6 +850,7 @@ public sealed class AppDelegate : IDisposable
         _viewModel.IsReady = true;
         _viewModel.Notice = null;
 
+        _viewModel.Viewer = _session.Viewer;
         // Projects first: RestoreSelection resolves the stored selection AGAINST the project list,
         // and against an empty list every selection looks stale and is dropped.
         _viewModel.Projects = _projectCache.Load();
@@ -957,6 +958,7 @@ public sealed class AppDelegate : IDisposable
 
             // Before the restore below, so a recovered selection goes through the one normal path.
             await TryRecentSelectionFallbackAsync().ConfigureAwait(true);
+            _viewModel.Viewer = _session.Viewer;
             _viewModel.Projects = projects;
             if (_session.UserId is { } userId)
             {

@@ -213,4 +213,30 @@ public class MenuPickerTests
         vm.Activate(vm.PickerRows[1]); // Borealis → its tasks
         Assert.Equal(["Borealis (no task)"], vm.PickerRows.Where(r => r.IsCurrent).Select(r => r.Title));
     }
+
+    [Fact]
+    public void AnAdminsRootIsGroupedButADrilledLevelIsNot()
+    {
+        var vm = NewViewModel(out _);
+        vm.IsReady = true;
+        vm.Viewer = new PickerViewer("ADMIN", "t1");
+        vm.Projects =
+        [
+            new Project("a", "t1", "Acme", false, [new ProjectTask("k", "a", "Task", "s")],
+                [new Subproject("s", "a", "General", false, true)], "Design", ["t1"]),
+            new Project("i", "t2", "Initech", false, null, null, "Eng", ["t2"]),
+        ];
+        Assert.Equal(["My team (Design)", "Eng"], vm.PickerRows.Select(r => r.Section));
+        vm.Activate(vm.PickerRows[0]); // opens Acme's task level
+        Assert.All(vm.PickerRows, r => Assert.Null(r.Section));
+    }
+
+    [Fact]
+    public void ResetDropsTheViewer()
+    {
+        var vm = NewViewModel(out _);
+        vm.Viewer = new PickerViewer("ADMIN", "t1");
+        vm.Reset();
+        Assert.Null(vm.Viewer);
+    }
 }
