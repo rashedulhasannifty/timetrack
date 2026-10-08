@@ -4,6 +4,14 @@ import Foundation
 /// No SwiftUI here, so every rule — skip-General, ordering, back, search paths — is unit-tested.
 /// The Windows client's `PickerCore.cs` is a line-for-line port; change both together.
 
+/// Who is looking at the picker: an ADMIN's root list and search are grouped by team. Read from
+/// the access token, or from the claims `AuthSession` mirrored for an offline launch.
+struct PickerViewer: Equatable {
+    let role: String
+    let teamId: String
+    var isAdmin: Bool { role == "ADMIN" }
+}
+
 struct PickerTask: Equatable {
     let id: String
     let name: String

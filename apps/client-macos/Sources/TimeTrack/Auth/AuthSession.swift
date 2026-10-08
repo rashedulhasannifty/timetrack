@@ -33,6 +33,8 @@ actor AuthSession {
     /// look up this user's local ack marker. Cleared by logout(), which is what stops one
     /// user's marker from granting readiness to whoever signs in next.
     private static let lastUserIdKey = "auth.lastUserId"
+    private static let lastRoleKey = "auth.lastRole"
+    private static let lastTeamIdKey = "auth.lastTeamId"
 
     private var access: String?
     private var accessDeadline: Date?
@@ -52,6 +54,17 @@ actor AuthSession {
         if let access, let sub = try? JWTDecoder.claims(from: access).sub { return sub }
         // Offline launch: no access token to decode, so fall back to the mirrored id.
         return defaults.string(forKey: Self.lastUserIdKey)
+    }
+
+    /// The picker's viewer. Same fallback as `userId()`: an offline launch has no access token,
+    /// so the claims mirrored at the last sign-in or refresh answer.
+    func viewer() -> PickerViewer? {
+        if let access, let claims = try? JWTDecoder.claims(from: access) {
+            return PickerViewer(role: claims.role, teamId: claims.teamId)
+        }
+        guard let role = defaults.string(forKey: Self.lastRoleKey),
+              let teamId = defaults.string(forKey: Self.lastTeamIdKey) else { return nil }
+        return PickerViewer(role: role, teamId: teamId)
     }
 
     /// On launch: if a refresh token is stored, refresh once to mint an access token.
@@ -87,6 +100,8 @@ actor AuthSession {
         accessDeadline = nil
         refreshInFlight = nil
         defaults.removeObject(forKey: Self.lastUserIdKey)
+        defaults.removeObject(forKey: Self.lastRoleKey)
+        defaults.removeObject(forKey: Self.lastTeamIdKey)
     }
 
     /// Returns a valid access token, refreshing when within `skew` of the deadline.
@@ -125,8 +140,10 @@ actor AuthSession {
         access = pair.accessToken
         accessDeadline = Date().addingTimeInterval(TimeInterval(pair.expiresIn))
         store.saveRefreshToken(pair.refreshToken)
-        if let sub = try? JWTDecoder.claims(from: pair.accessToken).sub {
-            defaults.set(sub, forKey: Self.lastUserIdKey)
+        if let claims = try? JWTDecoder.claims(from: pair.accessToken) {
+            defaults.set(claims.sub, forKey: Self.lastUserIdKey)
+            defaults.set(claims.role, forKey: Self.lastRoleKey)
+            defaults.set(claims.teamId, forKey: Self.lastTeamIdKey)
         }
     }
 }
