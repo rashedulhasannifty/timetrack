@@ -116,6 +116,7 @@ export class ProjectsRepository {
       select: {
         ...PROJECT_SELECT,
         teams: { select: { teamId: true } },
+        team: { select: { name: true } },
         subprojects: {
           where: includeArchived ? {} : { archived: false },
           orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
@@ -130,7 +131,11 @@ export class ProjectsRepository {
         },
       },
     });
-    return rows.map(({ teams, ...p }) => ({ ...p, teamIds: homeFirst(p.teamId, teams) }));
+    return rows.map(({ teams, team, ...p }) => ({
+      ...p,
+      teamName: team.name,
+      teamIds: homeFirst(p.teamId, teams),
+    }));
   }
 
   async createProject(

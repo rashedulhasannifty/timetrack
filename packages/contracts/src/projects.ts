@@ -55,6 +55,11 @@ export const ProjectSchema = z.object({
    * decode `teamId` only. More than one entry means the client is shared.
    */
   teamIds: z.array(z.uuid()).optional(),
+  /**
+   * Name of the home team (`teamId`). Additive: the desktop pickers use it for an ADMIN's team
+   * headers; shipped clients ignore it.
+   */
+  teamName: z.string().optional(),
   tasks: z.array(TaskSchema).optional(),
   subprojects: z.array(SubprojectSchema).optional(),
 });

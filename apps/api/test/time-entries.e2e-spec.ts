@@ -1,6 +1,8 @@
 import './test-env.js'; // must run before anything that calls loadEnv()
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { ConflictException } from '@nestjs/common';
+import { TimeEntriesService } from '../src/modules/time-entries/time-entries.service.js';
+import type { ResourceAccessService } from '../src/common/authz/resource-access.service.js';
 import { TimeEntriesRepository } from '../src/modules/time-entries/time-entries.repository.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
@@ -745,6 +747,27 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
         select: { teamId: true },
       });
       expect(after.teamId).toBe(user.teamId);
+    });
+
+    it("an admin's synced entry on another team's client is accepted and stamped with the admin's team", async () => {
+      const admin = await seedUser('admin@example.com');
+      const other = await db.prisma.team.create({
+        data: { name: 'Ops', settings: {} },
+        select: { id: true },
+      });
+      const { projectId, generalId } = await seedProject(other.id);
+      // upsert never consults ResourceAccessService (the entry is always the caller's own).
+      const service = new TimeEntriesService(repo(), {} as ResourceAccessService);
+      const id = '01920000-0000-7000-8000-00000000e502';
+      await service.upsert(
+        { ...createDto(id), projectId },
+        { id: admin.id, role: 'ADMIN', teamId: admin.teamId },
+      );
+      const row = await db.prisma.timeEntry.findUniqueOrThrow({
+        where: { id },
+        select: { teamId: true, projectId: true, subprojectId: true },
+      });
+      expect(row).toEqual({ teamId: admin.teamId, projectId, subprojectId: generalId });
     });
   });
 });

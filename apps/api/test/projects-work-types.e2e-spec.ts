@@ -295,6 +295,10 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
     const all = await projects().list(admin(eng), false, undefined, true);
     expect(all.map((p) => p.name)).toEqual(['Acme', 'Initech']);
     expect(new Set(all.map((p) => p.teamId))).toEqual(new Set([eng, support]));
+    expect(all.map((p) => [p.name, p.teamName])).toEqual([
+      ['Acme', 'Eng'],
+      ['Initech', 'Support'],
+    ]);
     const withArchived = await projects().list(admin(eng), true, undefined, true);
     expect(withArchived.map((p) => p.name)).toEqual(['Acme', 'Initech', 'Old']);
     // Same wire shape as the per-team read: General + work types, no workTypeId.
@@ -310,6 +314,7 @@ describe.runIf(RUN_E2E)('projects × work types — real Postgres', () => {
     const employee: SessionUser = { id: ADMIN_ID, role: 'EMPLOYEE', teamId: eng };
     const pinned = await projects().list(employee, false, undefined, true);
     expect(pinned.map((p) => p.name)).toEqual(['Acme']);
+    expect(pinned.map((p) => p.teamName)).toEqual(['Eng']);
   });
 
   it('maps a unique violation from the reconcile to a 409, never a raw error (R9)', async () => {
