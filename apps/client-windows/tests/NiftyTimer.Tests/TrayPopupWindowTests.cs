@@ -839,7 +839,7 @@ public class TrayPopupWindowPickerTests
                 });
                 window.Dispatcher.Invoke(() => { }, DispatcherPriority.Loaded);
                 var container = window.ProjectList.ItemContainerGenerator.ContainerFromItem(window.ProjectList.Items[0]) as ListBoxItem;
-                return (container is not null, container?.IsKeyboardFocusWithin == true,
+                return (container is not null, container is not null && ReferenceEquals(FocusManager.GetFocusedElement(window), container),
                     Equals(container?.DataContext, viewModel.PickerRows[0]));
             }
             finally
@@ -850,6 +850,7 @@ public class TrayPopupWindowPickerTests
         });
         Assert.True(isItem);
         Assert.True(rowMatches);
+        // Logical focus: it does not need an active foreground window, which a CI runner may lack.
         Assert.True(isFocused);
     }
 
