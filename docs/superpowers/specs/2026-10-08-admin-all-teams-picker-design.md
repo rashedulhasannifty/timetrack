@@ -37,7 +37,11 @@ An ADMIN belongs to one team like everyone else. Both desktop clients call `GET 
 4. Search filters every section, and a section left empty is hidden.
 5. A missing `teamName` shows the header "Other team". The own-team header uses the `teamName` of any project whose home team is the admin's team, or plain "My team" if there is none.
 
+**Rendering.** A header is not a row. Grouping stamps a `section` title on each root or search row and stable-sorts them. The macOS view draws a non-clickable header where the section changes, and WPF groups the list by `Section` with a `GroupStyle` header. So activation, keyboard highlight and search Return are untouched.
+
 When the user is not an ADMIN, the picker shows today's flat list with no headers. Grouping is a pure function so it can be unit-tested without UI.
+
+**Viewer.** Grouping needs the viewer's role and team at render time, including on an offline launch with no access token. `AuthSession` mirrors `role` and `teamId` next to the existing `lastUserId` on sign-in and refresh, and clears them on sign-out. Admin status is never inferred from the projects: employees already receive shared-in clients whose home `teamId` is another team.
 
 **Role changes.** The role is read from the current access token at fetch time. After a promotion or demotion, the next token refresh plus project refresh switches the mode. No new invalidation is added.
 
@@ -51,7 +55,8 @@ Deploy the API first, then publish the Mac and Windows builds. The clients toler
 
 ## 6. Testing
 
-- **API e2e (`projects.e2e-spec.ts`):** an ADMIN with `allTeams=true` gets every team's projects with the correct `teamName`. A MANAGER with `allTeams=true` gets 403. An EMPLOYEE's response is still their own team only, now carrying `teamName`.
+- **API e2e (`apps/api/test/projects-work-types.e2e-spec.ts`, beside the existing `allTeams` test):** an ADMIN with `allTeams=true` gets every team's projects with the correct `teamName`. A MANAGER with `allTeams=true` gets 403. An EMPLOYEE's response is still their own team only, now carrying `teamName`.
+- **API e2e (`apps/api/test/time-entries.e2e-spec.ts`):** an ADMIN's synced entry on another team's client is accepted and stamped with the admin's own team. This pins §3's claim.
 - **Contracts:** `ProjectSchema` parses with and without `teamName` (the branch-coverage gate).
 - **macOS (`swift test`) and Windows (CI) unit tests for the grouping:** own team first, including shared-in projects; other teams A→Z; a shared-between-others project appears once; search hides empty sections; the missing-`teamName` fallback; non-admins get a flat list. Plus a `ProjectClient` test that the query is sent only for ADMIN.
 - **Manual:** the Mac app against the local stack, signed in as an admin and then as an employee, with screenshots before the PR. Windows is verified through PR CI only (no dotnet on the dev Mac).
