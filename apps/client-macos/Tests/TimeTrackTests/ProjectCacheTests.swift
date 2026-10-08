@@ -74,4 +74,30 @@ final class ProjectCacheTests: XCTestCase {
         XCTAssertEqual(projects[0].subprojects?[0].isDefault, true)
         XCTAssertEqual(projects[0].tasks?[0].subprojectId, "s2")
     }
+
+    func testTeamFieldsRoundTrip() {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let cache = ProjectCache(fileURL: url)
+        let projects = [
+            Project(id: "p1", teamId: "t1", name: "Acme", archived: false, tasks: nil,
+                    subprojects: nil, teamName: "Eng", teamIds: ["t1", "t2"]),
+        ]
+
+        cache.save(projects)
+
+        XCTAssertEqual(cache.load(), projects)
+    }
+
+    func testAnOldCacheWithoutTeamFieldsStillLoads() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data(#"[{"id":"p","teamId":"t","name":"N","archived":false}]"#.utf8).write(to: url)
+
+        let loaded = ProjectCache(fileURL: url).load()
+
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertNil(loaded[0].teamName)
+        XCTAssertNil(loaded[0].teamIds)
+    }
 }

@@ -10,7 +10,10 @@ public sealed record Project(
     [property: JsonPropertyName("archived")] bool Archived,
     [property: JsonPropertyName("tasks")] IReadOnlyList<ProjectTask>? Tasks,
     // Optional so a projects.json cached by 0.2.x, which has no subprojects, still loads.
-    [property: JsonPropertyName("subprojects")] IReadOnlyList<Subproject>? Subprojects = null);
+    [property: JsonPropertyName("subprojects")] IReadOnlyList<Subproject>? Subprojects = null,
+    // Optional: an admin's picker groups by them; a cache or API from before 2026-10 has neither.
+    [property: JsonPropertyName("teamName")] string? TeamName = null,
+    [property: JsonPropertyName("teamIds")] IReadOnlyList<string>? TeamIds = null);
 
 /// <summary>Client-side mirror of <c>SubprojectSchema</c> in @timetrack/contracts.</summary>
 public sealed record Subproject(

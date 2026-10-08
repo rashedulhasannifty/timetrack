@@ -196,8 +196,9 @@ struct MenuBarView: View {
     /// tracking (idle shows ~6). A definite height keeps the list stable and lets the popover
     /// grow to fit the header. Per-row estimate (every row is single-line), capped so a long list scrolls.
     private var pickerListHeight: CGFloat {
-        let rows = max(viewModel.pickerRows.count, 1)
-        return min(CGFloat(rows) * 32, 300)
+        let rows = viewModel.pickerRows
+        let headers = rows.indices.filter { PickerTeams.startsSection(rows, at: $0) }.count
+        return min(CGFloat(max(rows.count, 1)) * 32 + CGFloat(headers) * 24, 300)
     }
 
     /// Free-text "what are you doing". Applied to the running entry as it is typed, so there
@@ -316,7 +317,15 @@ struct MenuBarView: View {
 
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(viewModel.pickerRows) { row in
+                    let rows = viewModel.pickerRows
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        // An ADMIN's team header: outside the Button, so it is never clickable.
+                        if PickerTeams.startsSection(rows, at: index), let section = row.section {
+                            Text(section.uppercased())
+                                .font(.ttCaption).foregroundStyle(TT.Palette.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, index == 0 ? 2 : 10).padding(.bottom, 4)
+                        }
                         Button { viewModel.activate(row) } label: { pickerRow(row) }
                             .buttonStyle(.plain)
                     }

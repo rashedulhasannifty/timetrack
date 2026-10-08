@@ -230,4 +230,70 @@ final class PickerCoreTests: XCTestCase {
         XCTAssertEqual(rows.map(\.title), ["Legacy › Old task"])
         XCTAssertEqual(rows[0].action, .track(StoredSelection(projectId: "p3", subprojectId: nil, taskId: "k5")))
     }
+
+    // MARK: admin team grouping
+
+    // Own team t1 ("Design"): Acme (home), Shared (home t3, shared into t1).
+    // Others: Initech (t2 "Engineering"), Umbrella (t3 "Accounts"), Zed (t2).
+    private let teamProjects: [Project] = [
+        Project(id: "a", teamId: "t1", name: "Acme", archived: false, tasks: nil, teamName: "Design", teamIds: ["t1"]),
+        Project(id: "i", teamId: "t2", name: "Initech", archived: false, tasks: nil, teamName: "Engineering", teamIds: ["t2"]),
+        Project(id: "s", teamId: "t3", name: "Shared", archived: false, tasks: nil, teamName: "Accounts", teamIds: ["t3", "t1"]),
+        Project(id: "u", teamId: "t3", name: "Umbrella", archived: false, tasks: nil, teamName: "Accounts", teamIds: ["t3"]),
+        Project(id: "z", teamId: "t2", name: "Zed", archived: false, tasks: nil, teamName: "Engineering", teamIds: ["t2"]),
+    ]
+    private let admin = PickerViewer(role: "ADMIN", teamId: "t1")
+
+    private func groupedRoot(_ projects: [Project], _ viewer: PickerViewer?) -> [PickerRow] {
+        PickerTeams.group(PickerNavigation.rows(at: .root, in: PickerTree.build(projects)),
+                          by: PickerTeams.sections(for: projects, viewer: viewer))
+    }
+
+    func testAnAdminSeesOwnTeamFirstIncludingSharedInThenOtherTeamsAToZ() {
+        let rows = groupedRoot(teamProjects, admin)
+        XCTAssertEqual(rows.map(\.title), ["Acme", "Shared", "Umbrella", "Initech", "Zed"])
+        XCTAssertEqual(rows.map(\.section), ["My team (Design)", "My team (Design)", "Accounts", "Engineering", "Engineering"])
+    }
+
+    func testAClientSharedBetweenTwoOtherTeamsAppearsOnceUnderItsHomeTeam() {
+        let projects = [
+            Project(id: "x", teamId: "t2", name: "X", archived: false, tasks: nil, teamName: "Engineering", teamIds: ["t2", "t3"]),
+        ]
+        XCTAssertEqual(groupedRoot(projects, admin).map(\.section), ["Engineering"])
+    }
+
+    func testNonAdminsGetTheUnchangedFlatList() {
+        for viewer in [PickerViewer(role: "EMPLOYEE", teamId: "t1"), PickerViewer(role: "MANAGER", teamId: "t1"), nil] {
+            let rows = groupedRoot(teamProjects, viewer)
+            XCTAssertEqual(rows, PickerNavigation.rows(at: .root, in: PickerTree.build(teamProjects)))
+            XCTAssertTrue(rows.allSatisfy { $0.section == nil })
+        }
+    }
+
+    func testMissingTeamNamesAndTeamIdsFallBack() {
+        // An old cache or an API without teamName/teamIds.
+        let projects = [
+            Project(id: "a", teamId: "t1", name: "Acme", archived: false, tasks: nil),
+            Project(id: "i", teamId: "t2", name: "Initech", archived: false, tasks: nil),
+        ]
+        let rows = groupedRoot(projects, admin)
+        XCTAssertEqual(rows.map(\.section), ["My team", "Other team"])
+    }
+
+    func testSearchResultsAreGroupedTheSameWay() {
+        let tree = PickerTree.build(teamProjects)
+        let rows = PickerTeams.group(PickerSearch.results(for: "a", in: tree),
+                                     by: PickerTeams.sections(for: teamProjects, viewer: admin))
+        // "a" matches Acme, Shared, Umbrella; Initech and Zed don't → Engineering has no header.
+        XCTAssertEqual(rows.map(\.title), ["Acme", "Shared", "Umbrella"])
+        XCTAssertEqual(rows.map(\.section), ["My team (Design)", "My team (Design)", "Accounts"])
+    }
+
+    func testAHeaderStartsWhereTheSectionChanges() {
+        let rows = groupedRoot(teamProjects, admin)
+        XCTAssertEqual(rows.indices.map { PickerTeams.startsSection(rows, at: $0) },
+                       [true, false, true, true, false])
+        let flat = groupedRoot(teamProjects, nil)
+        XCTAssertFalse(flat.indices.contains { PickerTeams.startsSection(flat, at: $0) })
+    }
 }

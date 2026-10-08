@@ -425,7 +425,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hasBecomeReady = true
         }
         await MainActor.run { self.installNudgeInfra() }
-        await MainActor.run { menuViewModel.projects = projectCache.load() } // instant, offline-safe
+        let viewer = await session.viewer()
+        await MainActor.run {
+            menuViewModel.viewer = viewer
+            menuViewModel.projects = projectCache.load() // instant, offline-safe
+        }
         await refreshProjects()
         await MainActor.run { startSyncIfNeeded() }
         await MainActor.run { recoverLiveSpanIfNeeded(currentUserId: currentUserId) }
@@ -441,8 +445,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// lost access to. `MenuViewModel.restoreSelection` itself guards against overwriting a
     /// hand-made selection and against clearing the stored key on an empty list (Task 3 rulings).
     private func refreshProjects() async {
+        // Sign-out can land while `list()` is in flight. Its result belongs to the person who
+        // asked, and an ADMIN's list holds every team's clients — written back after sign-out it
+        // would sit in the global cache file and show at the next person's instant cache load
+        // (CLAUDE.md §1). The save therefore happens on the MainActor, gated on
+        // `menuViewModel.currentUserId`: `signOut()` runs `reset()` (which nils it) synchronously
+        // on the main thread BEFORE the teardown task that calls `projectCache.clear()`, so if
+        // the check passes here the clear has not run yet and will still wipe this write. This
+        // relies on `signOut()` being the only path to `projectCache.clear()`; a sign-in as
+        // someone else in the meantime fails the same check (their id, not `requestedBy`).
+        let requestedBy = await session.userId()
         guard let fresh = try? await projectClient.list() else { return }
-        projectCache.save(fresh)
+        let saved = await MainActor.run { () -> Bool in
+            guard let current = menuViewModel.currentUserId, current == requestedBy else { return false }
+            projectCache.save(fresh)
+            return true
+        }
+        guard saved else { return }
+        let viewer = await session.viewer()
 
         // Fresh-install fallback: nothing stored locally for this user (new Mac, reinstall) —
         // ask the server what they were last tracking against. Gated on `selectionStore.load`
@@ -499,6 +519,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         await MainActor.run {
+            // Same boundary as the save above, re-checked here because this hop is atomic with
+            // `reset()`: a sign-out (or a sign-out and a different sign-in) during the awaits
+            // since leaves `currentUserId` nil or someone else's, and the list stays unapplied.
+            guard let current = menuViewModel.currentUserId, current == requestedBy else { return }
+            menuViewModel.viewer = viewer
             menuViewModel.projects = fresh
             // Deliberately re-reads `menuViewModel.currentUserId` here rather than reusing the
             // `userId` captured above: this block is the same MainActor hop that assigns

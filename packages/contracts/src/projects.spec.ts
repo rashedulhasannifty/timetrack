@@ -376,4 +376,16 @@ describe('ProjectSchema.teamIds', () => {
       ProjectSchema.parse({ ...base, teamIds: ['018f9c1e-0000-7000-8000-0000000000c1'] }).teamIds,
     ).toHaveLength(1);
   });
+
+  it('ProjectSchema carries an optional home-team name', () => {
+    const base = {
+      id: '018f9c1e-0000-7000-8000-000000000001',
+      teamId: '018f9c1e-0000-7000-8000-000000000002',
+      name: 'Acme',
+      color: null,
+      archived: false,
+    };
+    expect(ProjectSchema.parse(base).teamName).toBeUndefined();
+    expect(ProjectSchema.parse({ ...base, teamName: 'Design' }).teamName).toBe('Design');
+  });
 });

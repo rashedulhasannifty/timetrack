@@ -1,5 +1,6 @@
 using System.Net.Http;
 using NiftyTimer.Auth;
+using NiftyTimer.Projects;
 using NiftyTimer.Storage;
 using NiftyTimer.Tests.Support;
 using Xunit;
@@ -178,6 +179,30 @@ public class AuthSessionTests
         var second = NewSession(client, store, settings);
         Assert.Equal(BootstrapOutcome.Offline, await second.BootstrapAsync());
         Assert.Equal("user-77", second.UserId);
+    }
+
+    /// <summary>
+    /// An admin's picker groups by team even on an offline launch, so role and team are mirrored
+    /// with the user id — and dropped with it at sign-out.
+    /// </summary>
+    [Fact]
+    public async Task TheViewerSurvivesAnOfflineLaunchAndLogoutClearsIt()
+    {
+        var settings = new InMemoryUserSettings();
+        var store = new InMemoryTokenStore();
+        var client = new FakeAuthClient { Next = new TokenPair(Jwt.ForSubject("user-77", "ADMIN", "t1"), "r", 900) };
+
+        var first = NewSession(client, store, settings);
+        await first.LoginAsync("a@b.c", "pw");
+        Assert.Equal(new PickerViewer("ADMIN", "t1"), first.Viewer);
+
+        client.RefreshFailure = AuthFailure.Transport;
+        var second = NewSession(client, store, settings);
+        Assert.Equal(BootstrapOutcome.Offline, await second.BootstrapAsync());
+        Assert.Equal(new PickerViewer("ADMIN", "t1"), second.Viewer);
+
+        second.Logout();
+        Assert.Null(second.Viewer);
     }
 
     /// <summary>

@@ -170,7 +170,7 @@ public sealed class AppDelegate : IDisposable
         var json = new AuthorizedJsonClient(_http, _config.ApiBaseUri, _session);
         _policyClient = new PolicyClient(_http, _config.ApiBaseUri, _session);
         _ackClient = new AckClient(_http, _config.ApiBaseUri, _session);
-        _projectClient = new ProjectClient(json);
+        _projectClient = new ProjectClient(json, () => _session.Viewer);
         _recentSelectionClient = new RecentSelectionClient(json);
         _totalsClient = new SelfTotalsClient(json);
 
@@ -850,6 +850,7 @@ public sealed class AppDelegate : IDisposable
         _viewModel.IsReady = true;
         _viewModel.Notice = null;
 
+        _viewModel.Viewer = _session.Viewer;
         // Projects first: RestoreSelection resolves the stored selection AGAINST the project list,
         // and against an empty list every selection looks stale and is dropped.
         _viewModel.Projects = _projectCache.Load();
@@ -950,18 +951,36 @@ public sealed class AppDelegate : IDisposable
 
     private async Task RefreshProjectsAsync()
     {
+        var requestedFor = _session.UserId;
         try
         {
             var projects = await _projectClient.ListAsync(_shutdown.Token).ConfigureAwait(true);
+
+            // Sign-out can land while the fetch is in flight. An ADMIN's list holds every team's
+            // clients, so saving it after sign-out would put it in the next person's instant cache
+            // load. Every continuation here and all of SignOutAsync run on the UI thread, and
+            // SignOutAsync calls _projectCache.Clear() and _session.Logout() with no await between
+            // them: either the save lands before the Clear (which then wipes it) or UserId is
+            // already null here.
+            if (_session.UserId is not { } userId || userId != requestedFor)
+            {
+                return;
+            }
+
             _projectCache.Save(projects);
 
             // Before the restore below, so a recovered selection goes through the one normal path.
             await TryRecentSelectionFallbackAsync().ConfigureAwait(true);
-            _viewModel.Projects = projects;
-            if (_session.UserId is { } userId)
+
+            // Re-checked after that await for the same reason; the view model is reset on sign-out.
+            if (_session.UserId != userId)
             {
-                _viewModel.RestoreSelection(userId);
+                return;
             }
+
+            _viewModel.Viewer = _session.Viewer;
+            _viewModel.Projects = projects;
+            _viewModel.RestoreSelection(userId);
         }
         catch (Exception e) when (e is ResourceUnavailableException or NotAuthenticatedException
                                       or AuthException or OperationCanceledException)

@@ -184,4 +184,25 @@ final class AuthSessionTests: XCTestCase {
         let userId = await rejected.userId()
         XCTAssertNil(userId)
     }
+
+    // MARK: - Picker viewer (admin all-teams picker)
+
+    func testTheViewerSurvivesAnOfflineLaunchAndLogoutClearsIt() async throws {
+        let defaults = freshDefaults()
+        let store = InMemoryTokenStore()
+        let admin = TokenPair(accessToken: testJWT(role: "ADMIN", teamId: "t1"), refreshToken: "r", expiresIn: 900)
+        let first = AuthSession(client: FakeAuthClient(loginResult: .success(admin)), store: store, defaults: defaults)
+        try await first.login(email: "a@b.c", password: "pw")
+        let online = await first.viewer()
+        XCTAssertEqual(online, PickerViewer(role: "ADMIN", teamId: "t1"))
+
+        // A new process has no access token: the mirrored claims answer.
+        let relaunched = AuthSession(client: FakeAuthClient(), store: store, defaults: defaults)
+        let offline = await relaunched.viewer()
+        XCTAssertEqual(offline, PickerViewer(role: "ADMIN", teamId: "t1"))
+
+        await relaunched.logout()
+        let afterLogout = await relaunched.viewer()
+        XCTAssertNil(afterLogout)
+    }
 }

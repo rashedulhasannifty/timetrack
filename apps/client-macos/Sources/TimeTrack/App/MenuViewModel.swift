@@ -24,6 +24,9 @@ final class MenuViewModel: ObservableObject {
     /// Keyboard highlight (Up/Down); Return activates it.
     @Published private(set) var highlightedRowId: String?
     @Published var projects: [Project] = []
+    /// Who is looking: an ADMIN's root list and search are grouped by team. Set by AppDelegate
+    /// before `projects`, from the token or the mirrored claims (offline).
+    @Published var viewer: PickerViewer?
     @Published var query: String = "" { didSet { highlightedRowId = nil } }
 
     /// What the person says they were doing. Typed at any point during a span and applied to
@@ -129,9 +132,13 @@ final class MenuViewModel: ObservableObject {
     /// Search results while searching, else the drill-down level's rows. The level survives a
     /// search, so clearing the text returns to it.
     var pickerRows: [PickerRow] {
-        PickerSearch.isSearching(query)
-            ? PickerSearch.results(for: query, in: tree)
-            : PickerNavigation.rows(at: level, in: tree)
+        let tree = tree
+        let sections = PickerTeams.sections(for: projects, viewer: viewer)
+        if PickerSearch.isSearching(query) {
+            return PickerTeams.group(PickerSearch.results(for: query, in: tree), by: sections)
+        }
+        let rows = PickerNavigation.rows(at: level, in: tree)
+        return PickerNavigation.normalize(level, in: tree) == .root ? PickerTeams.group(rows, by: sections) : rows
     }
 
     /// The "Working on" card. Nil when nothing (resolvable) is selected.
@@ -353,6 +360,7 @@ final class MenuViewModel: ObservableObject {
         highlightedRowId = nil
         query = ""
         projects = []
+        viewer = nil
         currentUserId = nil
         // `stop()` above already cleared it; repeated here because the note is user-authored
         // text and this is the cross-user boundary — the same class of leak that has bitten

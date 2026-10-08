@@ -346,4 +346,84 @@ public class SelectionResolverTableTests
     [Fact]
     public void ALegacyCacheProjectResolvesWithANullSubproject() =>
         Assert.Equal(new StoredSelection("p3", null, null), Resolve(new StoredSelection("p3", null, "s9")));
+
+    // admin team grouping
+
+    // Own team t1 ("Design"): Acme (home), Shared (home t3, shared into t1).
+    // Others: Initech (t2 "Engineering"), Umbrella (t3 "Accounts"), Zed (t2).
+    private static readonly IReadOnlyList<Project> TeamProjects =
+    [
+        new Project("a", "t1", "Acme", false, null, null, "Design", ["t1"]),
+        new Project("i", "t2", "Initech", false, null, null, "Engineering", ["t2"]),
+        new Project("s", "t3", "Shared", false, null, null, "Accounts", ["t3", "t1"]),
+        new Project("u", "t3", "Umbrella", false, null, null, "Accounts", ["t3"]),
+        new Project("z", "t2", "Zed", false, null, null, "Engineering", ["t2"]),
+    ];
+
+    private static readonly PickerViewer Admin = new("ADMIN", "t1");
+
+    private static IReadOnlyList<PickerRow> GroupedRoot(IReadOnlyList<Project> projects, PickerViewer? viewer) =>
+        PickerTeams.Group(PickerNavigation.Rows(PickerLevel.Root, PickerTree.Build(projects)),
+            PickerTeams.Sections(projects, viewer));
+
+    [Fact]
+    public void AnAdminSeesOwnTeamFirstIncludingSharedInThenOtherTeamsAToZ()
+    {
+        var rows = GroupedRoot(TeamProjects, Admin);
+        Assert.Equal(["Acme", "Shared", "Umbrella", "Initech", "Zed"], rows.Select(r => r.Title));
+        Assert.Equal(
+            ["My team (Design)", "My team (Design)", "Accounts", "Engineering", "Engineering"],
+            rows.Select(r => r.Section));
+    }
+
+    [Fact]
+    public void AClientSharedBetweenTwoOtherTeamsAppearsOnceUnderItsHomeTeam()
+    {
+        IReadOnlyList<Project> projects = [new Project("x", "t2", "X", false, null, null, "Engineering", ["t2", "t3"])];
+        Assert.Equal(["Engineering"], GroupedRoot(projects, Admin).Select(r => r.Section));
+    }
+
+    [Fact]
+    public void NonAdminsGetTheUnchangedFlatList()
+    {
+        foreach (var viewer in new PickerViewer?[] { new("EMPLOYEE", "t1"), new("MANAGER", "t1"), null })
+        {
+            var rows = GroupedRoot(TeamProjects, viewer);
+            Assert.Equal(PickerNavigation.Rows(PickerLevel.Root, PickerTree.Build(TeamProjects)), rows);
+            Assert.All(rows, r => Assert.Null(r.Section));
+        }
+    }
+
+    [Fact]
+    public void MissingTeamNamesAndTeamIdsFallBack()
+    {
+        // An old cache or an API without teamName/teamIds.
+        IReadOnlyList<Project> projects =
+        [
+            new Project("a", "t1", "Acme", false, null),
+            new Project("i", "t2", "Initech", false, null),
+        ];
+        Assert.Equal(["My team", "Other team"], GroupedRoot(projects, Admin).Select(r => r.Section));
+    }
+
+    [Fact]
+    public void SearchResultsAreGroupedTheSameWay()
+    {
+        var tree = PickerTree.Build(TeamProjects);
+        var rows = PickerTeams.Group(PickerSearch.Results("a", tree), PickerTeams.Sections(TeamProjects, Admin));
+        // "a" matches Acme, Shared, Umbrella; Initech and Zed don't, so Engineering has no header.
+        Assert.Equal(["Acme", "Shared", "Umbrella"], rows.Select(r => r.Title));
+        Assert.Equal(["My team (Design)", "My team (Design)", "Accounts"], rows.Select(r => r.Section));
+    }
+
+    [Fact]
+    public void AHeaderStartsWhereTheSectionChanges()
+    {
+        var rows = GroupedRoot(TeamProjects, Admin);
+        Assert.Equal(
+            [true, false, true, true, false],
+            Enumerable.Range(0, rows.Count).Select(i => PickerTeams.StartsSection(rows, i)));
+        var flat = GroupedRoot(TeamProjects, null);
+        Assert.DoesNotContain(Enumerable.Range(0, flat.Count), i => PickerTeams.StartsSection(flat, i));
+    }
 }

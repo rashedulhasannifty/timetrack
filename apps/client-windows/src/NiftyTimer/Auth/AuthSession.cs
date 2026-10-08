@@ -1,3 +1,4 @@
+using NiftyTimer.Projects;
 using NiftyTimer.Storage;
 
 namespace NiftyTimer.Auth;
@@ -53,6 +54,8 @@ public sealed class AuthSession : IDisposable
     /// readiness to whoever signs in next.
     /// </summary>
     private const string LastUserIdKey = "auth.lastUserId";
+    private const string LastRoleKey = "auth.lastRole";
+    private const string LastTeamIdKey = "auth.lastTeamId";
 
     private static readonly TimeSpan Skew = TimeSpan.FromSeconds(30);
 
@@ -91,6 +94,22 @@ public sealed class AuthSession : IDisposable
 
             // Offline launch: no access token to decode, so fall back to the mirrored id.
             return _settings.GetString(LastUserIdKey);
+        }
+    }
+
+    /// <summary>The picker's viewer. Same offline fallback as <see cref="UserId"/>.</summary>
+    public PickerViewer? Viewer
+    {
+        get
+        {
+            if (JwtDecoder.TryReadClaims(_access) is { } claims)
+            {
+                return new PickerViewer(claims.Role, claims.TeamId);
+            }
+
+            return _settings.GetString(LastRoleKey) is { } role && _settings.GetString(LastTeamIdKey) is { } teamId
+                ? new PickerViewer(role, teamId)
+                : null;
         }
     }
 
@@ -141,6 +160,8 @@ public sealed class AuthSession : IDisposable
         _accessDeadline = null;
         _refreshInFlight = null;
         _settings.Remove(LastUserIdKey);
+        _settings.Remove(LastRoleKey);
+        _settings.Remove(LastTeamIdKey);
     }
 
     /// <summary>Returns a valid access token, refreshing when within <see cref="Skew"/> of the deadline.</summary>
@@ -226,6 +247,8 @@ public sealed class AuthSession : IDisposable
         if (JwtDecoder.TryReadClaims(pair.AccessToken) is { } claims)
         {
             _settings.SetString(LastUserIdKey, claims.Sub);
+            _settings.SetString(LastRoleKey, claims.Role);
+            _settings.SetString(LastTeamIdKey, claims.TeamId);
         }
     }
 }

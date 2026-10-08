@@ -15,15 +15,21 @@ struct Project: Codable, Identifiable, Equatable {
     let archived: Bool
     let tasks: [ProjectTask]?
     let subprojects: [Subproject]?
+    /// Optional: an ADMIN's picker groups by these, and an old cache or an older API has neither.
+    let teamName: String?
+    let teamIds: [String]?
 
     init(id: String, teamId: String, name: String, archived: Bool,
-         tasks: [ProjectTask]?, subprojects: [Subproject]? = nil) {
+         tasks: [ProjectTask]?, subprojects: [Subproject]? = nil,
+         teamName: String? = nil, teamIds: [String]? = nil) {
         self.id = id
         self.teamId = teamId
         self.name = name
         self.archived = archived
         self.tasks = tasks
         self.subprojects = subprojects
+        self.teamName = teamName
+        self.teamIds = teamIds
     }
 }
 
