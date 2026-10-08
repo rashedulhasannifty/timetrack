@@ -163,6 +163,7 @@
                  style in Styles.xaml. -->
             <ListBox x:Name="ProjectList"
                      Height="220"
+                     VirtualizingPanel.IsVirtualizingWhenGrouping="True"
                      PreviewKeyDown="OnListKeyDown"
                      MouseLeftButtonUp="OnListClicked"
                      AutomationProperties.Name="Projects and tasks"
