@@ -7,6 +7,15 @@ namespace NiftyTimer.Projects;
 public sealed record PickerTask(string Id, string Name);
 
 /// <summary>
+/// Who is looking at the picker: an ADMIN's root list and search are grouped by team. Read from
+/// the access token, or the claims <c>AuthSession</c> mirrored for an offline launch.
+/// </summary>
+public sealed record PickerViewer(string Role, string TeamId)
+{
+    public bool IsAdmin => Role == "ADMIN";
+}
+
+/// <summary>
 /// One subproject bucket. A null <c>Id</c> is the implicit default of a project decoded from a
 /// cache written before subprojects existed: the client sends <c>subprojectId: null</c> and the
 /// server derives it.

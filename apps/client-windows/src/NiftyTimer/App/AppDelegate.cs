@@ -170,7 +170,7 @@ public sealed class AppDelegate : IDisposable
         var json = new AuthorizedJsonClient(_http, _config.ApiBaseUri, _session);
         _policyClient = new PolicyClient(_http, _config.ApiBaseUri, _session);
         _ackClient = new AckClient(_http, _config.ApiBaseUri, _session);
-        _projectClient = new ProjectClient(json);
+        _projectClient = new ProjectClient(json, () => _session.Viewer);
         _recentSelectionClient = new RecentSelectionClient(json);
         _totalsClient = new SelfTotalsClient(json);
 

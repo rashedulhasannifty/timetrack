@@ -209,6 +209,40 @@ public class SubprojectDecodeTests
     }
 }
 
+public class ProjectClientPathTests
+{
+    [Fact]
+    public void AnAdminAsksForEveryTeamAndResolvesUnderV1()
+    {
+        var path = ProjectClient.ListPath(new PickerViewer("ADMIN", "t1"));
+        Assert.Equal("projects?allTeams=true", path);
+        Assert.Equal("https://api.example.com/v1/projects?allTeams=true",
+            new Uri(new Uri("https://api.example.com/v1/"), path).ToString());
+    }
+
+    [Theory]
+    [InlineData("EMPLOYEE")]
+    [InlineData("MANAGER")]
+    public void EveryOtherRoleSendsTheUnchangedRequest(string role) =>
+        Assert.Equal("projects", ProjectClient.ListPath(new PickerViewer(role, "t1")));
+
+    [Fact]
+    public void NoViewerSendsTheUnchangedRequest() => Assert.Equal("projects", ProjectClient.ListPath(null));
+
+    [Fact]
+    public void TeamFieldsAreOptionalOnTheWire()
+    {
+        var old = JsonSerializer.Deserialize<Project>(
+            """{"id":"p","teamId":"t","name":"N","archived":false}""")!;
+        Assert.Null(old.TeamName);
+        Assert.Null(old.TeamIds);
+        var fresh = JsonSerializer.Deserialize<Project>(
+            """{"id":"p","teamId":"t","name":"N","archived":false,"teamName":"Eng","teamIds":["t","u"]}""")!;
+        Assert.Equal("Eng", fresh.TeamName);
+        Assert.Equal(["t", "u"], fresh.TeamIds!);
+    }
+}
+
 public class SelectionResolverTests
 {
     private static readonly Project Active =
