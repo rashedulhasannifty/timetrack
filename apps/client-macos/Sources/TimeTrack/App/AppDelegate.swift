@@ -425,7 +425,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hasBecomeReady = true
         }
         await MainActor.run { self.installNudgeInfra() }
-        await MainActor.run { menuViewModel.projects = projectCache.load() } // instant, offline-safe
+        let viewer = await session.viewer()
+        await MainActor.run {
+            menuViewModel.viewer = viewer
+            menuViewModel.projects = projectCache.load() // instant, offline-safe
+        }
         await refreshProjects()
         await MainActor.run { startSyncIfNeeded() }
         await MainActor.run { recoverLiveSpanIfNeeded(currentUserId: currentUserId) }
@@ -443,6 +447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshProjects() async {
         guard let fresh = try? await projectClient.list() else { return }
         projectCache.save(fresh)
+        let viewer = await session.viewer()
 
         // Fresh-install fallback: nothing stored locally for this user (new Mac, reinstall) —
         // ask the server what they were last tracking against. Gated on `selectionStore.load`
@@ -499,6 +504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         await MainActor.run {
+            menuViewModel.viewer = viewer
             menuViewModel.projects = fresh
             // Deliberately re-reads `menuViewModel.currentUserId` here rather than reusing the
             // `userId` captured above: this block is the same MainActor hop that assigns

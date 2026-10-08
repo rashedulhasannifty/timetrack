@@ -90,6 +90,9 @@ struct PickerRow: Identifiable, Equatable {
     let id: String
     let title: String
     let action: Action
+    /// The team header this row sits under: set only on an ADMIN's root list and search results
+    /// (`PickerTeams.group`), nil everywhere else. The UI draws a header where it changes.
+    var section: String? = nil
 }
 
 /// One step of the breadcrumb bar above the list. Every crumb but the last is a way back.
@@ -297,5 +300,74 @@ enum PickerSearch {
 
     private static func matches(_ parts: [String], _ query: String) -> Bool {
         parts.contains { $0.range(of: query, options: .caseInsensitive) != nil }
+    }
+}
+
+/// An ADMIN's root list and search results split by team (spec 2026-10-08 §4). A layer over the
+/// rows `PickerNavigation`/`PickerSearch` already build: it stamps `section` and stable-sorts —
+/// rows stay rows, so activation, highlight and search Return are untouched.
+enum PickerTeams {
+    static let ownTeamTitle = "My team"
+    static let otherTeamTitle = "Other team"
+
+    struct Section: Equatable {
+        let order: Int
+        let title: String
+    }
+
+    /// Each project's section by project id. Empty unless the viewer is an ADMIN. Own team:
+    /// every project linked to it (home or shared in); everything else under its home team,
+    /// teams A→Z by name (ties by id, so the order is stable).
+    static func sections(for projects: [Project], viewer: PickerViewer?) -> [String: Section] {
+        guard let viewer, viewer.isAdmin else { return [:] }
+        func isOwn(_ p: Project) -> Bool { (p.teamIds ?? [p.teamId]).contains(viewer.teamId) }
+        let ownName = projects.first { $0.teamId == viewer.teamId }?.teamName
+        let own = Section(order: 0, title: ownName.map { "\(ownTeamTitle) (\($0))" } ?? ownTeamTitle)
+        let others = Dictionary(grouping: projects.filter { !isOwn($0) }, by: \.teamId)
+            .map { (teamId: $0.key, title: $0.value.first?.teamName ?? otherTeamTitle) }
+            .sorted { a, b in
+                a.title.caseInsensitiveCompare(b.title) == .orderedSame
+                    ? a.teamId < b.teamId
+                    : PickerTree.precedes(a.title, b.title)
+            }
+        var byTeam: [String: Section] = [:]
+        for (index, team) in others.enumerated() {
+            byTeam[team.teamId] = Section(order: index + 1, title: team.title)
+        }
+        var result: [String: Section] = [:]
+        for project in projects {
+            result[project.id] = isOwn(project) ? own : byTeam[project.teamId]
+        }
+        return result
+    }
+
+    /// Stamps each row with its project's section and stable-sorts by section order. Rows pass
+    /// through untouched when `sections` is empty (not an ADMIN).
+    static func group(_ rows: [PickerRow], by sections: [String: Section]) -> [PickerRow] {
+        guard !sections.isEmpty else { return rows }
+        return rows.enumerated()
+            .map { index, row -> (order: Int, index: Int, row: PickerRow) in
+                let section = projectId(of: row).flatMap { sections[$0] }
+                var stamped = row
+                stamped.section = section?.title
+                return (section?.order ?? Int.max, index, stamped)
+            }
+            .sorted { ($0.order, $0.index) < ($1.order, $1.index) }
+            .map(\.row)
+    }
+
+    /// Whether the UI draws a header above `rows[index]`.
+    static func startsSection(_ rows: [PickerRow], at index: Int) -> Bool {
+        guard let section = rows[index].section else { return false }
+        return index == 0 || rows[index - 1].section != section
+    }
+
+    private static func projectId(of row: PickerRow) -> String? {
+        switch row.action {
+        case let .open(.project(id)): return id
+        case let .open(.subproject(projectId, _)): return projectId
+        case .open(.root): return nil
+        case let .track(selection): return selection.projectId
+        }
     }
 }

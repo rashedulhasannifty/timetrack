@@ -717,4 +717,27 @@ final class MenuViewModelTests: XCTestCase {
         XCTAssertEqual(iconStates, [true, false],
                        "the menu-bar indicator must follow both auto transitions, not just the start")
     }
+
+    func testAnAdminsRootIsGroupedButADrilledLevelIsNot() {
+        let vm = makeVM()
+        vm.markReady()
+        vm.viewer = PickerViewer(role: "ADMIN", teamId: "t1")
+        vm.projects = [
+            Project(id: "a", teamId: "t1", name: "Acme", archived: false,
+                    tasks: [ProjectTask(id: "k", projectId: "a", name: "Task", subprojectId: "s")],
+                    subprojects: [Subproject(id: "s", projectId: "a", name: "General", archived: false, isDefault: true)],
+                    teamName: "Design", teamIds: ["t1"]),
+            Project(id: "i", teamId: "t2", name: "Initech", archived: false, tasks: nil, teamName: "Eng", teamIds: ["t2"]),
+        ]
+        XCTAssertEqual(vm.pickerRows.map(\.section), ["My team (Design)", "Eng"])
+        vm.activate(vm.pickerRows[0]) // opens Acme's task level
+        XCTAssertTrue(vm.pickerRows.allSatisfy { $0.section == nil })
+    }
+
+    func testResetDropsTheViewer() {
+        let vm = makeVM()
+        vm.viewer = PickerViewer(role: "ADMIN", teamId: "t1")
+        vm.reset()
+        XCTAssertNil(vm.viewer)
+    }
 }
