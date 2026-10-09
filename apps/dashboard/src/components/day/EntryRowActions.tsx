@@ -67,14 +67,16 @@ export function EntryRowActions({
   if (entry.running) return null;
 
   return (
+    // A fragment, not a wrapper: the row is a wrapping flex line, so the buttons stay in the
+    // row's last column while an open edit / delete-confirm wraps onto its own full-width line
+    // beneath it. Inside the button column the form stretched the row and pushed its time and
+    // label to the vertical middle.
+    //
     // While open, Escape belongs to this row: it collapses the edit / delete-confirm (discarding
     // any unsaved edit). The marker tells an enclosing Drawer to leave that Escape alone, so the
     // drawer — and, for a route drawer, its URL — stays put instead of closing as well.
-    <div
-      className="flex flex-none flex-col items-end gap-1.5"
-      data-owns-escape={open ? '' : undefined}
-    >
-      <div className="flex gap-1.5">
+    <>
+      <div className="flex flex-none gap-1.5">
         <button
           type="button"
           onClick={() => setMode((m) => (m === 'edit' ? 'closed' : 'edit'))}
@@ -94,13 +96,24 @@ export function EntryRowActions({
       </div>
 
       {mode === 'confirm-delete' ? (
-        <form action={deleteFormAction} className="flex items-center gap-2">
+        <form
+          action={deleteFormAction}
+          data-owns-escape=""
+          className="flex basis-full cursor-default items-center justify-end gap-2"
+        >
           <input type="hidden" name="id" value={entry.id} />
           {userId ? <input type="hidden" name="userId" value={userId} /> : null}
           <span className="text-caption text-text-secondary">Delete this entry?</span>
           <Button type="submit" variant="secondary" size="sm" disabled={deletePending}>
             {deletePending ? 'Deleting…' : 'Yes, delete'}
           </Button>
+          <button
+            type="button"
+            onClick={() => setMode('closed')}
+            className={buttonClasses('ghost', 'sm')}
+          >
+            Cancel
+          </button>
           {deleteState.message ? (
             <span className="text-destructive text-caption">{deleteState.message}</span>
           ) : null}
@@ -110,7 +123,8 @@ export function EntryRowActions({
       {mode === 'edit' ? (
         <form
           action={editAction}
-          className="bg-surface-raised border-separator flex w-[320px] flex-col gap-2.5 rounded-lg border p-3 text-left"
+          data-owns-escape=""
+          className="bg-surface-raised border-separator flex basis-full cursor-default flex-col gap-2.5 rounded-lg border p-3 text-left"
         >
           <input type="hidden" name="id" value={entry.id} />
           {userId ? <input type="hidden" name="userId" value={userId} /> : null}
@@ -133,12 +147,19 @@ export function EntryRowActions({
             <Button type="submit" variant="primary" size="sm" disabled={editPending}>
               {editPending ? 'Saving…' : 'Save'}
             </Button>
+            <button
+              type="button"
+              onClick={() => setMode('closed')}
+              className={buttonClasses('ghost', 'sm')}
+            >
+              Cancel
+            </button>
             {editState.message ? (
               <span className="text-destructive text-caption">{editState.message}</span>
             ) : null}
           </div>
         </form>
       ) : null}
-    </div>
+    </>
   );
 }

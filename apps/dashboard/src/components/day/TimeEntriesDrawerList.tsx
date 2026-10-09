@@ -51,7 +51,7 @@ export function TimeEntriesDrawerList({
               if (startedOnInteractive(ev.target)) return;
               setOpenId(e.id);
             }}
-            className="border-separator hover:bg-hover flex cursor-pointer items-center gap-3.5 border-b py-3 transition-colors"
+            className="border-separator hover:bg-hover flex cursor-pointer flex-wrap items-center gap-3.5 border-b py-3 transition-colors"
           >
             <span className="tt-numeric w-[132px] flex-none text-[13px] text-text-secondary">
               {rangeOf(e)}
