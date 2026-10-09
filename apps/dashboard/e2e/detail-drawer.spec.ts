@@ -423,6 +423,34 @@ test.describe('inline forms inside the person drawer', () => {
     expect(page.url()).toContain(href);
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
+
+  test('an open entry edit sits below its row and Cancel closes it', async ({ page }) => {
+    await login(page);
+    await page.goto(`/people/${SHOT_USER_ID}?date=${SHOT_DATE}`);
+    await hydrated(page);
+    const edit = page.getByRole('button', { name: 'Edit', exact: true }).first();
+    await expect(edit).toBeVisible();
+    const row = edit.locator('xpath=ancestor::li[1]');
+    const range = row.locator('span.tt-numeric').first();
+    const before = await range.boundingBox();
+
+    await edit.click();
+    const save = page.getByRole('button', { name: 'Save' });
+    await expect(save).toBeVisible();
+    // The form wraps onto its own line: the row's time range stays on the first line instead of
+    // being pushed to the middle of a row stretched to the form's height.
+    const after = await range.boundingBox();
+    expect(Math.abs(after!.y - before!.y)).toBeLessThan(2);
+    expect((await save.boundingBox())!.y).toBeGreaterThan(after!.y + after!.height);
+
+    await row.getByRole('button', { name: 'Cancel' }).click();
+    await expect(save).toHaveCount(0);
+
+    await row.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Yes, delete' })).toBeVisible();
+    await row.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByRole('button', { name: 'Yes, delete' })).toHaveCount(0);
+  });
 });
 
 /**
