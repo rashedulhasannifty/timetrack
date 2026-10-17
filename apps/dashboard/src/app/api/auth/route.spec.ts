@@ -4,10 +4,16 @@ import { encryptSession, SESSION_COOKIE, decryptSession } from '../../../lib/ses
 import { encryptOidcState, OIDC_COOKIE } from '../../../lib/oidc-cookie';
 
 vi.mock('../../../lib/api-client', () => ({
-  api: { refresh: vi.fn(), oidcAuthorize: vi.fn(), oidcCallback: vi.fn() },
+  api: {
+    refresh: vi.fn(),
+    oidcAuthorize: vi.fn(),
+    oidcCallback: vi.fn(),
+    login: vi.fn(),
+    acceptInvite: vi.fn(),
+  },
 }));
 
-import { GET } from './[...auth]/route';
+import { GET, POST } from './[...auth]/route';
 import { api } from '../../../lib/api-client';
 
 // A signed-shape JWT the dashboard only decodes (never verifies).
@@ -148,5 +154,80 @@ describe('GET /api/auth/sso/callback', () => {
     vi.mocked(api.oidcCallback).mockResolvedValue(null);
     const res = await GET(callbackRequest('?code=abc&state=st'), callbackCtx);
     expect(res.headers.get('location')).toBe('/login?error=sso');
+  });
+});
+
+/**
+ * Every place that hands out a fresh session lands the person on the first page their role
+ * can open (lib/nav-access). Before this, all of them hard-coded /overview, so an EMPLOYEE's
+ * first screen after signing in was "You're not permitted to view the team overview".
+ */
+describe('post-sign-in landing follows the role', () => {
+  const tokensFor = (role: string) => ({
+    accessToken: makeJwt({ ...VALID_CLAIMS, role }),
+    refreshToken: 'r',
+    expiresIn: 900,
+  });
+
+  function form(path: string, fields: Record<string, string>): NextRequest {
+    const body = new FormData();
+    for (const [k, v] of Object.entries(fields)) body.set(k, v);
+    return new NextRequest(`http://localhost:3000${path}`, { method: 'POST', body });
+  }
+
+  const roles: [string, string][] = [
+    ['EMPLOYEE', '/me'],
+    ['MANAGER', '/overview'],
+    ['ADMIN', '/overview'],
+  ];
+
+  it.each(roles)('login as %s redirects to %s', async (role, path) => {
+    vi.mocked(api.login).mockResolvedValue(tokensFor(role));
+    const res = await POST(form('/api/auth/login', { email: 'a@b.c', password: 'pw12345678' }), {
+      params: Promise.resolve({ auth: ['login'] }),
+    });
+    expect(res.headers.get('location')).toBe(path);
+    expect(res.headers.get('set-cookie') ?? '').toContain(`${SESSION_COOKIE}=`);
+  });
+
+  it.each(roles)('accept-invite as %s redirects to %s', async (role, path) => {
+    vi.mocked(api.acceptInvite).mockResolvedValue(tokensFor(role));
+    const res = await POST(
+      form('/api/auth/accept-invite', {
+        token: 't',
+        name: 'New Person',
+        password: 'pw12345678',
+        confirm: 'pw12345678',
+      }),
+      { params: Promise.resolve({ auth: ['accept-invite'] }) },
+    );
+    expect(res.headers.get('location')).toBe(path);
+  });
+
+  it.each(roles)('SSO callback as %s redirects to %s', async (role, path) => {
+    vi.mocked(api.oidcCallback).mockResolvedValue(tokensFor(role));
+    const cookie = encryptOidcState({ state: 'st', nonce: 'no', codeVerifier: 've' });
+    const req = new NextRequest('http://localhost:3000/api/auth/sso/callback?code=c&state=st', {
+      headers: { cookie: `${OIDC_COOKIE}=${cookie}` },
+    });
+    const res = await GET(req, callbackCtx);
+    expect(res.headers.get('location')).toBe(path);
+  });
+
+  it.each(roles)('refresh without ?next as %s redirects to %s', async (role, path) => {
+    vi.mocked(api.refresh).mockResolvedValue({ status: 'ok', tokens: tokensFor(role) });
+    const res = await GET(refreshRequest(), ctx);
+    expect(res.headers.get('location')).toBe(path);
+  });
+
+  it('refresh still honours a safe ?next over the role default', async () => {
+    vi.mocked(api.refresh).mockResolvedValue({ status: 'ok', tokens: tokensFor('EMPLOYEE') });
+    const cookie = encryptSession({ accessToken: 'x', refreshToken: 'r', accessExpiresAt: 0 });
+    const req = new NextRequest(
+      'http://localhost:3000/api/auth/refresh?next=%2Fme%3Fdate%3D2026-01-02',
+      { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } },
+    );
+    const res = await GET(req, ctx);
+    expect(res.headers.get('location')).toBe('/me?date=2026-01-02');
   });
 });

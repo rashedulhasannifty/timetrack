@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { api } from '../../../../lib/api-client';
 import { decodeClaims } from '../../../../lib/session';
 import { safeInternalPath, seeOther } from '../../../../lib/redirect';
+import { landingPathFor } from '../../../../lib/nav-access';
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
@@ -41,6 +42,13 @@ function payloadFrom(tokens: {
 // origin from it is what sent production browsers to https://localhost:3000.
 function redirect(_req: NextRequest, path: string): NextResponse {
   return seeOther(path);
+}
+
+// The first page this role can open (lib/nav-access) — an EMPLOYEE has no team overview, so
+// sending everyone to /overview made their first screen a not-permitted state. The claims are
+// decoded, not verified; they only pick a page, and that page's own guard and the API decide.
+function landingFor(accessToken: string): string {
+  return landingPathFor(decodeClaims(accessToken)?.role);
 }
 
 function setSession(res: NextResponse, payload: SessionPayload): void {
@@ -86,7 +94,7 @@ export async function POST(
     }
     const tokens = await api.login(emailVal, passwordVal);
     if (!tokens) return redirect(req, '/login?error=1');
-    const res = redirect(req, '/overview');
+    const res = redirect(req, landingFor(tokens.accessToken));
     setSession(res, payloadFrom(tokens));
     return res;
   }
@@ -123,7 +131,7 @@ export async function POST(
     // 401 → the token is invalid, expired, or already used. Re-showing the form would just
     // fail again, so send them to /login without the token.
     if (!tokens) return redirect(req, '/accept-invite?error=invalid');
-    const res = redirect(req, '/overview');
+    const res = redirect(req, landingFor(tokens.accessToken));
     setSession(res, payloadFrom(tokens));
     return res;
   }
@@ -181,7 +189,7 @@ export async function GET(
     });
     // Loop-breaker (mirrors refresh): a token we can't decode would bounce forever.
     if (!tokens || !decodeClaims(tokens.accessToken)) return ssoFailure(req);
-    const res = redirect(req, '/overview');
+    const res = redirect(req, landingFor(tokens.accessToken));
     setSession(res, payloadFrom(tokens));
     clearOidc(res);
     return res;
@@ -221,7 +229,8 @@ export async function GET(
     // Back to where the token expired, when the caller told us. Validated as an internal
     // path first: it arrives from the query string, so an unchecked value here would be an
     // open redirect on the one route that hands out a fresh session.
-    const back = safeInternalPath(req.nextUrl.searchParams.get('next')) ?? '/overview';
+    const back =
+      safeInternalPath(req.nextUrl.searchParams.get('next')) ?? landingFor(tokens.accessToken);
     const res = redirect(req, back);
     setSession(res, payloadFrom(tokens));
     return res;
