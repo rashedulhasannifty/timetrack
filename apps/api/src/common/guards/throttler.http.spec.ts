@@ -24,6 +24,8 @@ const tokens = { accessToken: 'a', refreshToken: 'r', expiresIn: 900 };
 const authStub = {
   login: () => Promise.resolve(tokens),
   refresh: () => Promise.resolve(tokens),
+  acceptInvite: () => Promise.resolve(tokens),
+  oidcCallback: () => Promise.resolve(tokens),
 };
 
 let app: NestFastifyApplication | undefined;
@@ -69,19 +71,38 @@ afterEach(async () => {
   app = undefined;
 });
 
-function refresh(
+/** A valid body for each public auth route, so only the throttler can turn a request away. */
+const bodies = {
+  login: { email: 'ada@example.com', password: 'password12' },
+  refresh: { refreshToken: 'r' },
+  'accept-invite': { token: 't', password: 'password12', name: 'Ada' },
+  'oidc/callback': { code: 'c', state: 's', nonce: 'n', codeVerifier: 'v' },
+} as const;
+
+type AuthRoute = keyof typeof bodies;
+
+function post(
   fastify: FastifyInstance,
+  route: AuthRoute,
   from: string,
   forwardedFor?: string,
 ): Promise<LightMyRequestResponse> {
   const opts: InjectOptions = {
     method: 'POST',
-    url: '/auth/refresh',
+    url: `/auth/${route}`,
     remoteAddress: from,
-    payload: { refreshToken: 'r' },
+    payload: bodies[route],
     headers: forwardedFor === undefined ? {} : { 'x-forwarded-for': forwardedFor },
   };
   return fastify.inject(opts);
+}
+
+function refresh(
+  fastify: FastifyInstance,
+  from: string,
+  forwardedFor?: string,
+): Promise<LightMyRequestResponse> {
+  return post(fastify, 'refresh', from, forwardedFor);
 }
 
 /** Fire `n` requests from one source and return the status codes. */
@@ -129,5 +150,45 @@ describe('per-IP rate limit behind the loopback proxy', () => {
     await burst(LIMIT, () => refresh(fastify, CADDY, '198.51.100.7'));
     const spoofed = await refresh(fastify, CADDY, '203.0.113.99, 198.51.100.7');
     expect(spoofed.statusCode).toBe(429);
+  });
+});
+
+/**
+ * The credential routes get a far tighter per-IP limit than the generic 600/min: each one checks
+ * a guessable secret (a password, an invite token, an IdP code), and login runs Argon2id.
+ */
+describe('per-IP limit on the public credential routes', () => {
+  const CREDENTIAL_LIMIT = 20;
+  const office = '198.51.100.7';
+
+  it.each(['login', 'accept-invite', 'oidc/callback'] as const)(
+    'turns away a %s over the limit from one address, and only that address',
+    async (route) => {
+      const fastify = await server();
+
+      const codes = await burst(CREDENTIAL_LIMIT, () => post(fastify, route, CADDY, office));
+      expect(codes.every((c) => c === 200)).toBe(true);
+
+      const over = await post(fastify, route, CADDY, office);
+      expect(over.statusCode).toBe(429);
+      expect(over.headers['retry-after-ip']).toBeDefined();
+
+      // Someone at another address, through the same proxy, still gets in.
+      expect((await post(fastify, route, CADDY, '203.0.113.20')).statusCode).toBe(200);
+    },
+  );
+
+  it('leaves token refresh on the generic limit — every tracking client in an office calls it', async () => {
+    const fastify = await server();
+
+    const codes = await burst(CREDENTIAL_LIMIT * 3, () => refresh(fastify, CADDY, office));
+    expect(codes.every((c) => c === 200)).toBe(true);
+  });
+
+  it('does not let failed logins spend the refresh budget of the same office', async () => {
+    const fastify = await server();
+
+    await burst(CREDENTIAL_LIMIT + 5, () => post(fastify, 'login', CADDY, office));
+    expect((await refresh(fastify, CADDY, office)).statusCode).toBe(200);
   });
 });
