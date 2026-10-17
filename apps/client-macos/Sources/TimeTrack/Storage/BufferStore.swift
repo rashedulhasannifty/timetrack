@@ -71,6 +71,15 @@ final class BufferStore {
         }
     }
 
+    /// Like `prune(olderThan:)` but for one kind only. `SyncEngine` age-prunes idle events and
+    /// never time entries: a time entry is payroll, so it waits for a session that can send it.
+    func prune(kind: BufferKind, olderThan maxAge: TimeInterval) {
+        let cutoff = Int64(clock().addingTimeInterval(-maxAge).timeIntervalSince1970 * 1000)
+        for rec in allRecords() where rec.kind == kind.rawValue && rec.createdAtMillis < cutoff {
+            try? FileManager.default.removeItem(at: rec.url)
+        }
+    }
+
     func clear() {
         for rec in allRecords() { try? FileManager.default.removeItem(at: rec.url) }
     }

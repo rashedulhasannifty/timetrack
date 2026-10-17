@@ -11,6 +11,8 @@ protocol ActivitySampleBuffering {
     func remove(ids: [String])
     func prune(olderThan maxAge: TimeInterval, maxCount: Int)
     func clear()
+    /// Samples still waiting to upload.
+    func pendingCount() -> Int
 }
 
 final class ActivitySampleStore: ActivitySampleBuffering {
@@ -76,6 +78,11 @@ final class ActivitySampleStore: ActivitySampleBuffering {
 
     func clear() {
         for rec in allRecords() { try? FileManager.default.removeItem(at: rec.url) }
+    }
+
+    /// Directory listing only — no sample is read.
+    func pendingCount() -> Int {
+        allRecords().count
     }
 
     // MARK: - internals

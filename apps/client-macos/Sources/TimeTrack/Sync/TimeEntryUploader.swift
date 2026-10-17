@@ -3,7 +3,8 @@ import Foundation
 /// The outcome of one upload attempt. `success` = the server upserted (idempotent on UUIDv7).
 /// `permanent` = a non-401 4xx the record can never satisfy → drop it (don't wedge the queue).
 /// `transient` = network error / 5xx → retry later with backoff. `authFailed` = a 401 that
-/// survived one refresh-retry → stop; the session is likely invalid.
+/// survived one refresh-retry, or a refresh the server rejected outright → stop; the session is
+/// likely invalid (the app confirms with one more refresh before ending it).
 enum UploadResult: Equatable {
     case success
     case permanent(Int)
@@ -41,8 +42,12 @@ final class TimeEntryUploader: Uploading {
                 return Self.classify(status: retried)   // a second 401 → .authFailed
             }
             return Self.classify(status: status)
+        } catch AuthError.refreshRejected {
+            // The server refused the refresh token itself (revoked, user deactivated). That is
+            // not a retry-later: the session is over, and the owner of the sync engine ends it.
+            return .authFailed
         } catch {
-            return .transient   // network error, refresh failure, etc. → retry later
+            return .transient   // network error, a 5xx on refresh, etc. → retry later
         }
     }
 
