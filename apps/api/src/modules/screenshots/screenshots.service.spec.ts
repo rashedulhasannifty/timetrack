@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import type { Logger } from 'nestjs-pino';
+import type { PartitionRangeService } from '../../common/partitions/partition-range.service.js';
 import { ScreenshotsService } from './screenshots.service.js';
 import type { ScreenshotsRepository, ScreenshotRow } from './screenshots.repository.js';
 import type { MinioService } from '../../infra/storage/minio.service.js';
@@ -28,6 +34,15 @@ function pendingRow(): ScreenshotRow {
 
 import type { ListScreenshotsQuery } from '@timetrack/contracts';
 
+function partitionsAccepting(accept: boolean): PartitionRangeService {
+  return {
+    acceptor: vi.fn().mockResolvedValue(() => accept),
+    invalidate: vi.fn(),
+  } as unknown as PartitionRangeService;
+}
+const LOGGER = { warn: vi.fn() } as unknown as Logger;
+const UNUSED_PARTITIONS = {} as unknown as PartitionRangeService;
+
 describe('ScreenshotsService.upload', () => {
   it('streams to raw/<sessionUser>/<id>, upserts PENDING, enqueues, returns the shot', async () => {
     const putStream = vi.fn().mockResolvedValue(undefined);
@@ -37,6 +52,8 @@ describe('ScreenshotsService.upload', () => {
       { create } as unknown as ScreenshotsRepository,
       { putStream } as unknown as MinioService,
       { enqueue } as unknown as QueueService,
+      partitionsAccepting(true),
+      LOGGER,
     );
 
     const shot = await svc.upload(Readable.from([Buffer.from('img')]), META, USER);
@@ -50,6 +67,40 @@ describe('ScreenshotsService.upload', () => {
     expect(shot.status).toBe('PENDING');
     expect(shot.id).toBe(META.id);
   });
+
+  it('422s a timestamp outside the partition range BEFORE streaming anything', async () => {
+    const putStream = vi.fn();
+    const create = vi.fn();
+    const svc = new ScreenshotsService(
+      { create } as unknown as ScreenshotsRepository,
+      { putStream } as unknown as MinioService,
+      { enqueue: vi.fn() } as unknown as QueueService,
+      partitionsAccepting(false),
+      LOGGER,
+    );
+    await expect(
+      svc.upload(Readable.from([Buffer.from('img')]), META, USER),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(putStream).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('invalidates the cached partition ranges when the insert fails', async () => {
+    const partitions = partitionsAccepting(true);
+    const svc = new ScreenshotsService(
+      {
+        create: vi.fn().mockRejectedValue(new Error('no partition')),
+      } as unknown as ScreenshotsRepository,
+      { putStream: vi.fn().mockResolvedValue(undefined) } as unknown as MinioService,
+      { enqueue: vi.fn() } as unknown as QueueService,
+      partitions,
+      LOGGER,
+    );
+    await expect(svc.upload(Readable.from([Buffer.from('img')]), META, USER)).rejects.toThrow(
+      'no partition',
+    );
+    expect(partitions.invalidate).toHaveBeenCalledWith('screenshots');
+  });
 });
 
 describe('ScreenshotsService.list presigning', () => {
@@ -61,6 +112,8 @@ describe('ScreenshotsService.list presigning', () => {
       { listByUser: vi.fn().mockResolvedValue(rows) } as unknown as ScreenshotsRepository,
       { presignGet: presign } as unknown as MinioService,
       {} as unknown as QueueService,
+      UNUSED_PARTITIONS,
+      LOGGER,
     );
   }
   const q: ListScreenshotsQuery = { from: '2026-07-16T00:00:00Z', to: '2026-07-16T23:59:59Z' };
@@ -111,6 +164,8 @@ describe('ScreenshotsService.redact', () => {
       { findById: vi.fn().mockResolvedValue(readyRow) } as unknown as ScreenshotsRepository,
       {} as unknown as MinioService,
       {} as unknown as QueueService,
+      UNUSED_PARTITIONS,
+      LOGGER,
     );
     const manager: SessionUser = { id: 'mgr-1', role: 'MANAGER', teamId: 'team-1' };
     await expect(svc.redact(META.id, { reason: 'x' }, manager)).rejects.toBeInstanceOf(
@@ -123,6 +178,8 @@ describe('ScreenshotsService.redact', () => {
       { findById: vi.fn().mockResolvedValue(null) } as unknown as ScreenshotsRepository,
       {} as unknown as MinioService,
       {} as unknown as QueueService,
+      UNUSED_PARTITIONS,
+      LOGGER,
     );
     await expect(svc.redact(META.id, { reason: 'x' }, USER)).rejects.toBeInstanceOf(
       NotFoundException,
@@ -141,6 +198,8 @@ describe('ScreenshotsService.redact', () => {
       } as unknown as ScreenshotsRepository,
       { deleteObject } as unknown as MinioService,
       {} as unknown as QueueService,
+      UNUSED_PARTITIONS,
+      LOGGER,
     );
     const shot = await svc.redact(META.id, { reason: 'personal' }, USER);
     expect(shot.status).toBe('REDACTED');

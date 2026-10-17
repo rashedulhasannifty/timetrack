@@ -1,7 +1,10 @@
 import './test-env.js';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, UnprocessableEntityException } from '@nestjs/common';
+import type { Logger } from 'nestjs-pino';
+import { PartitionRangeRepository } from '../src/common/partitions/partition-range.repository.js';
+import { PartitionRangeService } from '../src/common/partitions/partition-range.service.js';
 import { ScreenshotsRepository } from '../src/modules/screenshots/screenshots.repository.js';
 import { ScreenshotsService } from '../src/modules/screenshots/screenshots.service.js';
 import { MinioService } from '../src/infra/storage/minio.service.js';
@@ -144,12 +147,20 @@ describe.runIf(RUN_E2E)('screenshots upload — real Postgres + MinIO', () => {
     await truncateAll(db.prisma);
   });
 
+  function partitions(): PartitionRangeService {
+    return new PartitionRangeService(
+      new PartitionRangeRepository(db.prisma as unknown as PrismaService),
+    );
+  }
+
   it('streams the image to storage and writes a PENDING row', async () => {
     const enqueue = vi.fn().mockResolvedValue(undefined);
     const svc = new ScreenshotsService(
       new ScreenshotsRepository(db.prisma as unknown as PrismaService),
       storage,
       { enqueue } as unknown as QueueService,
+      partitions(),
+      { warn: vi.fn() } as unknown as Logger,
     );
     const shot = await svc.upload(
       Readable.from([Buffer.from('PNGDATA')]),
@@ -169,6 +180,8 @@ describe.runIf(RUN_E2E)('screenshots upload — real Postgres + MinIO', () => {
       new ScreenshotsRepository(db.prisma as unknown as PrismaService),
       storage,
       { enqueue } as unknown as QueueService,
+      partitions(),
+      { warn: vi.fn() } as unknown as Logger,
     );
     const shotId = '019797a0-0000-7000-8000-0000000000ea';
     await svc.upload(
@@ -202,6 +215,8 @@ describe.runIf(RUN_E2E)('screenshots upload — real Postgres + MinIO', () => {
       new ScreenshotsRepository(db.prisma as unknown as PrismaService),
       storage,
       { enqueue } as unknown as QueueService,
+      partitions(),
+      { warn: vi.fn() } as unknown as Logger,
     );
     const shotId = '019797a0-0000-7000-8000-0000000000eb';
     const owner = { id: 'user-9', role: 'EMPLOYEE' as const, teamId: 'team-9' };
@@ -213,5 +228,43 @@ describe.runIf(RUN_E2E)('screenshots upload — real Postgres + MinIO', () => {
     expect(second.status).toBe('REDACTED');
     expect(second.redactedReason).toBe('personal'); // unchanged — no-op, not re-redacted
     expect(await db.prisma.auditLog.count({ where: { targetId: shotId } })).toBe(1);
+  });
+
+  /**
+   * A timestamp with no partition to land in (clock far ahead, or a month retention already
+   * dropped) used to stream the object to storage FIRST and then 500 on the insert — an orphan
+   * object, and a client that retries forever. It is now a 422 before anything is written; both
+   * clients classify a non-401 4xx as permanent and drop the record.
+   */
+  it.each([
+    ['before the oldest partition', '2026-06-15T10:00:00.000Z'],
+    ['years ahead (no partition)', '2031-01-01T00:00:00.000Z'],
+    ['days ahead of now', new Date(Date.now() + 3 * 86_400_000).toISOString()],
+  ])('rejects a timestamp %s with 422 and writes nothing to storage', async (_label, timestamp) => {
+    const enqueue = vi.fn().mockResolvedValue(undefined);
+    const svc = new ScreenshotsService(
+      new ScreenshotsRepository(db.prisma as unknown as PrismaService),
+      storage,
+      { enqueue } as unknown as QueueService,
+      partitions(),
+      { warn: vi.fn() } as unknown as Logger,
+    );
+    const shotId = '019797a0-0000-7000-8000-0000000000ec';
+
+    const err = await svc
+      .upload(
+        Readable.from([Buffer.from('IMG')]),
+        { id: shotId, timestamp },
+        { id: 'user-9', role: 'EMPLOYEE', teamId: 'team-9' },
+      )
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(UnprocessableEntityException);
+    const body = (err as UnprocessableEntityException).getResponse() as Record<string, unknown>;
+    expect(body).toMatchObject({ status: 422, type: 'https://timetrack.internal/errors/validation' });
+    const obj = await fetch(await storage.presignGet(`raw/user-9/${shotId}`));
+    expect(obj.status).toBe(404);
+    expect(await db.prisma.screenshot.count({ where: { id: shotId } })).toBe(0);
+    expect(enqueue).not.toHaveBeenCalled();
   });
 });
