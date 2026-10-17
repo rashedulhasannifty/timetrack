@@ -76,6 +76,37 @@ describe('ScreenshotsPanel render', () => {
     expect(html).toContain('A display failed to capture in this interval.');
   });
 
+  /**
+   * Regression: every group used to be its own full-width row, so a one-display day rendered a
+   * single 160px tile per row — a long column of mostly empty space. Groups now share one grid,
+   * and a multi-display group spans as many cells as it has displays (capped at 3).
+   */
+  it('lays groups out in one shared grid instead of a row each', () => {
+    const html = renderToStaticMarkup(
+      <ScreenshotsPanel
+        shots={[
+          shot('a', TICK, null),
+          shot('b', '2026-08-14T12:33:47.000Z', null),
+          shot('c', '2026-08-14T12:23:47.000Z', { id: 'g3', index: 0, count: 2 }),
+          shot('d', '2026-08-14T12:23:47.000Z', { id: 'g3', index: 1, count: 2 }),
+        ]}
+      />,
+    );
+    // First <ul> is the outer list (React hoists image preload <link>s ahead of it).
+    const outer = html.match(/<ul class="([^"]*)"/)?.[1] ?? '';
+    expect(outer).toContain('grid');
+    expect(outer).not.toContain('flex-col');
+    // Single-display groups take one cell; the two-display group spans two.
+    expect(html.match(/col-span-2/g)).toHaveLength(1);
+  });
+
+  it('caps the span of a wide multi-display group so it cannot force the grid wider', () => {
+    const four = [0, 1, 2, 3].map((i) => shot(`s${i}`, TICK, { id: 'g4', index: i, count: 4 }));
+    const html = renderToStaticMarkup(<ScreenshotsPanel shots={four} />);
+    expect(html).toContain('col-span-3');
+    expect(html).not.toContain('col-span-4');
+  });
+
   it('says so when the day has no captures at all', () => {
     const html = renderToStaticMarkup(<ScreenshotsPanel shots={[]} />);
     expect(html).toContain('No screenshots recorded today.');
