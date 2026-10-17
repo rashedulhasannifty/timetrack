@@ -6,6 +6,7 @@ import type {
   ActivitySample,
   ListActivityQuery,
   ListActivitySummaryQuery,
+  TeamSettings,
 } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { ActivityRepository } from './activity.repository.js';
@@ -18,9 +19,20 @@ export class ActivityService {
    * Samples are always attributed to the authenticated user — the client cannot
    * post activity for anyone else. Roll-ups into per-day/week summaries are done by
    * the worker's rollup-daily job (PRD §6.3), not inline.
+   *
+   * PRD §13 — a team that opts out of window titles never has one stored, whatever the client
+   * sends: the title is nulled here rather than rejecting the batch, so the rest of the sample
+   * (app, activity level) is still recorded.
    */
-  async ingest(batch: ActivityBatch, user: SessionUser): Promise<ActivityIngestResult> {
-    const accepted = await this.repo.insertBatch(user.id, batch.samples);
+  async ingest(
+    batch: ActivityBatch,
+    user: SessionUser,
+    settings: Pick<TeamSettings, 'captureWindowTitles'>,
+  ): Promise<ActivityIngestResult> {
+    const samples = settings.captureWindowTitles
+      ? batch.samples
+      : batch.samples.map((s) => ({ ...s, windowTitle: null }));
+    const accepted = await this.repo.insertBatch(user.id, samples);
     return { accepted };
   }
 

@@ -16,6 +16,7 @@ import {
 } from './common/guards/throttler.guards.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
 import { ResourceGuard } from './common/guards/resource.guard.js';
+import { MonitoringAckGuard } from './common/guards/monitoring-ack.guard.js';
 import { AuthzModule } from './common/authz/authz.module.js';
 import { RequestIdInterceptor } from './common/interceptors/request-id.interceptor.js';
 import { AuthModule } from './modules/auth/auth.module.js';
@@ -54,6 +55,8 @@ const env = loadEnv();
  *    `sub` out of the bearer token before verifying it would let an attacker mint unlimited
  *    buckets by forging the claim.
  * 4. `RolesGuard`, then `ResourceGuard` for per-resource authorization.
+ * 5. `MonitoringAckGuard` — refuses capture ingest (`@RequiresMonitoringAck()`) from a user who
+ *    has not acknowledged the monitoring policy, or whose team has that capture switched off.
  */
 @Module({
   imports: [
@@ -87,6 +90,7 @@ const env = loadEnv();
     { provide: APP_GUARD, useClass: UserThrottlerGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ResourceGuard },
+    { provide: APP_GUARD, useClass: MonitoringAckGuard },
     { provide: APP_INTERCEPTOR, useClass: RequestIdInterceptor },
   ],
 })

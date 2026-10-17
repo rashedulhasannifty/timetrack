@@ -55,3 +55,33 @@ describe('ActivityService.listSummaries', () => {
     });
   });
 });
+
+describe('ActivityService.ingest', () => {
+  const sample = {
+    id: '019797a0-0000-7000-8000-0000000000a1',
+    timestamp: '2026-07-16T10:00:00.000Z',
+    appName: 'Word',
+    windowTitle: 'Quarterly plan.docx',
+    activityPct: 70,
+    category: 'NEUTRAL' as const,
+  };
+
+  it('stores window titles as sent when the team captures them', async () => {
+    const repo = repoStub();
+    await new ActivityService(repo).ingest({ samples: [sample] }, employee, {
+      captureWindowTitles: true,
+    });
+    expect(repo.insertBatch).toHaveBeenCalledWith('u1', [sample]);
+  });
+
+  it('nulls every window title when the team has opted out — the batch is still accepted', async () => {
+    const repo = repoStub();
+    await new ActivityService(repo).ingest({ samples: [sample, sample] }, employee, {
+      captureWindowTitles: false,
+    });
+    expect(repo.insertBatch).toHaveBeenCalledWith('u1', [
+      { ...sample, windowTitle: null },
+      { ...sample, windowTitle: null },
+    ]);
+  });
+});

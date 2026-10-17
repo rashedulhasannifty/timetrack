@@ -4,6 +4,7 @@ import { IdleEventsController } from './idle-events.controller.js';
 import type { IdleEventsService } from './idle-events.service.js';
 import { IS_PUBLIC } from '../../common/decorators/public.decorator.js';
 import { RESOURCE_SCOPE } from '../../common/decorators/resource-scope.decorator.js';
+import { REQUIRES_MONITORING_ACK } from '../../common/decorators/requires-monitoring-ack.decorator.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import type { IdleEvent } from '@timetrack/contracts';
 
@@ -26,6 +27,15 @@ describe('IdleEventsController', () => {
 
     expect(service.ingest).toHaveBeenCalledWith(event, user);
     expect(result).toEqual({ id: event.id, resolvedAction: 'KEPT' });
+  });
+
+  it('is @RequiresMonitoringAck() — idle events from an unacknowledged user are refused', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const meta = Reflect.getMetadata(
+      REQUIRES_MONITORING_ACK,
+      IdleEventsController.prototype.ingest,
+    );
+    expect(meta).toEqual({});
   });
 
   it('is NOT @Public — the global JwtAuthGuard applies (401 when unauthenticated)', () => {

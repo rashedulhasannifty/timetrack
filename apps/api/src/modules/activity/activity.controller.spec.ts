@@ -3,6 +3,8 @@ import 'reflect-metadata';
 import { ActivityController } from './activity.controller.js';
 import type { ActivityService } from './activity.service.js';
 import { RESOURCE_SCOPE } from '../../common/decorators/resource-scope.decorator.js';
+import { REQUIRES_MONITORING_ACK } from '../../common/decorators/requires-monitoring-ack.decorator.js';
+import { TeamSettingsSchema } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 
 const user: SessionUser = { id: 'u1', role: 'EMPLOYEE', teamId: 't1' };
@@ -24,14 +26,21 @@ describe('ActivityController.list', () => {
 });
 
 describe('ActivityController.ingest', () => {
-  it('delegates the batch to the service with the current user', async () => {
+  it('delegates the batch to the service with the current user and team settings', async () => {
     const service = {
       ingest: vi.fn().mockResolvedValue({ accepted: 2 }),
     } as unknown as ActivityService;
     const ctrl = new ActivityController(service);
     const batch = { samples: [] } as never;
-    await ctrl.ingest(batch, user);
-    expect(service.ingest).toHaveBeenCalledWith(batch, user);
+    const settings = TeamSettingsSchema.parse({});
+    await ctrl.ingest(batch, user, settings);
+    expect(service.ingest).toHaveBeenCalledWith(batch, user, settings);
+  });
+
+  it('is @RequiresMonitoringAck() — activity from an unacknowledged user is refused', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const meta = Reflect.getMetadata(REQUIRES_MONITORING_ACK, ActivityController.prototype.ingest);
+    expect(meta).toEqual({});
   });
 
   it('returns 201, not 202 — the shipped Mac client classifies only 200/201 as success', () => {
