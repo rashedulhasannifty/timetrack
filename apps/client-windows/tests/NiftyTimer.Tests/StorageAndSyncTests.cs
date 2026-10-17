@@ -80,9 +80,23 @@ public class BufferStoreTests : IDisposable
         _now = T0.AddDays(8);
         store.Enqueue("fresh", BufferKind.TimeEntry, Payload("x"));
 
-        store.Prune(TimeSpan.FromDays(7));
+        store.Prune(TimeSpan.FromDays(7), BufferKind.TimeEntry);
 
         Assert.Equal(["fresh"], store.Take(BufferKind.TimeEntry, 10).Select(t => t.Id));
+    }
+
+    [Fact]
+    public void PruneTouchesOnlyTheKindAskedFor()
+    {
+        var store = NewStore();
+        store.Enqueue("old-entry", BufferKind.TimeEntry, Payload("x"));
+        store.Enqueue("old-idle", BufferKind.IdleEvent, Payload("x"));
+        _now = T0.AddDays(8);
+
+        store.Prune(TimeSpan.FromDays(7), BufferKind.IdleEvent);
+
+        Assert.Equal(["old-entry"], store.Take(BufferKind.TimeEntry, 10).Select(t => t.Id));
+        Assert.Empty(store.Take(BufferKind.IdleEvent, 10));
     }
 
     [Fact]
@@ -252,7 +266,29 @@ public class SyncEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task PrunesStaleRecordsEveryCycle()
+    public async Task PrunesStaleIdleEventsEveryCycle()
+    {
+        var now = new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero);
+        var buffer = new BufferStore(_dir.File("buffer"), () => now);
+        buffer.Enqueue("ancient", BufferKind.IdleEvent, Payload("x"));
+
+        now = now.AddDays(30);
+
+        var idle = new FakeUploader();
+        var engine = new SyncEngine(buffer, new FakeUploader(), idle, maxAge: TimeSpan.FromDays(7));
+
+        await engine.SyncNowAsync();
+
+        Assert.Empty(idle.Uploads); // pruned before it was ever attempted
+        Assert.Equal(0, buffer.PendingCount());
+    }
+
+    /// <summary>
+    /// A time entry is the person's tracked time. It used to age out after seven days, so a week
+    /// signed out — or a session the server ended — deleted it unsent. Now it waits, however old.
+    /// </summary>
+    [Fact]
+    public async Task TimeEntriesAreNeverAgedOut()
     {
         var now = new DateTimeOffset(2026, 8, 25, 9, 0, 0, TimeSpan.Zero);
         var buffer = new BufferStore(_dir.File("buffer"), () => now);
@@ -260,12 +296,14 @@ public class SyncEngineTests : IDisposable
 
         now = now.AddDays(30);
 
-        var entries = new FakeUploader();
+        var entries = new FakeUploader(new UploadResult.Transient());
         var engine = new SyncEngine(buffer, entries, new FakeUploader(), maxAge: TimeSpan.FromDays(7));
 
         await engine.SyncNowAsync();
+        Assert.Equal(1, buffer.PendingCount()); // still there after a failed cycle
 
-        Assert.Empty(entries.Uploads); // pruned before it was ever attempted
+        await engine.SyncNowAsync();
+        Assert.Equal(2, entries.Uploads.Count); // and delivered once the server answers
         Assert.Equal(0, buffer.PendingCount());
     }
 

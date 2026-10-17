@@ -8,7 +8,7 @@ namespace NiftyTimer.Sync;
 /// <c>idleUploader</c>; each is removed on confirmed success (2xx). Idempotent on the UUIDv7, so a
 /// retried record is a no-op. A transient/auth failure stops the cycle (time-entry failures skip
 /// the idle pass) and the caller backs off; a permanent 4xx record is dropped so a poison record
-/// can't wedge the queue. Stale records still age-prune each cycle.
+/// can't wedge the queue. Stale IDLE EVENTS still age-prune each cycle; time entries never do.
 ///
 /// Not a capture path → not gated by <see cref="Policy.AckGate"/>. The timer glue is
 /// build-verified; <see cref="SyncNowAsync"/> is unit-tested.
@@ -125,7 +125,11 @@ public sealed class SyncEngine : IDisposable
 
     private async Task<bool> DrainCycleAsync(CancellationToken cancellationToken)
     {
-        _buffer.Prune(_maxAge);
+        // Idle events only. A time entry is the person's tracked time and is kept until it is
+        // delivered: it used to age out after seven days, so someone signed out — or whose session
+        // the server ended — for a week lost that time without being told. Undeliverable entries
+        // still leave the buffer through the permanent-4xx path below, not by age.
+        _buffer.Prune(_maxAge, BufferKind.IdleEvent);
 
         // Time entries first; a transient/auth failure there stops the whole cycle (the session is
         // likely unusable, so the idle pass would fail too) and the caller backs off.
