@@ -20,8 +20,10 @@ import { FastifyAdapter } from '@nestjs/platform-fastify';
  * misconfiguration. A deployment with the proxy on another host is a code change, made together
  * with whatever makes that host trustworthy.
  *
- * Note this also covers the dashboard's server-side calls over 127.0.0.1: they arrive with no
- * X-Forwarded-For, so they are still keyed on loopback unless the dashboard forwards one.
+ * The dashboard BFF also calls the API over 127.0.0.1. Its sign-in calls pass on the
+ * X-Forwarded-For Caddy gave it, so they are keyed on the real client too. Its other calls carry
+ * none and still share the loopback address under the generic per-route ceiling, as before; they
+ * are authenticated, so the per-user bucket is what bounds any one person there.
  */
 const TRUSTED_PROXY = 'loopback';
 
