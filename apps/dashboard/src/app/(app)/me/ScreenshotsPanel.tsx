@@ -16,8 +16,15 @@ import {
 } from './screenshot-view';
 import type { RedactResult } from './actions';
 import { buttonClasses } from '../../../components/ui/Button';
+import { clampPage, pageCount, paginate } from '../../../lib/data-table';
 
 type RedactFn = (id: string, reason: string) => Promise<RedactResult>;
+
+/**
+ * Capture ticks per page. Counted in groups, not tiles, so a multi-display tick is never split
+ * across two pages. A full working day at 10-minute capture is ~50 ticks, so two or three pages.
+ */
+export const SHOT_GROUPS_PER_PAGE = 24;
 
 export function ScreenshotsPanel({
   shots,
@@ -36,6 +43,22 @@ export function ScreenshotsPanel({
   // shown together instead of scattered through the grid as unrelated tiles.
   const groups = groupShots(shots);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  // A different day can have fewer pages than the one paged through; clamp rather than show
+  // an empty page.
+  const pages = pageCount(groups.length, SHOT_GROUPS_PER_PAGE);
+  const [rawPage, setPage] = useState(1);
+  const page = clampPage(rawPage, pages);
+  const visibleGroups = paginate(groups, page, SHOT_GROUPS_PER_PAGE);
+
+  // The lightbox still pages across the whole day; keep the grid on the page of the shot it
+  // shows, so closing it lands where the viewer left off.
+  const showInLightbox = (next: number): void => {
+    setOpenIndex(next);
+    const id = openable[next]?.id;
+    const g = groups.findIndex((grp) => grp.shots.some((s) => s.id === id));
+    if (g >= 0) setPage(Math.floor(g / SHOT_GROUPS_PER_PAGE) + 1);
+  };
+
   if (shots.length === 0) {
     return <p className="text-text-secondary text-body">No screenshots recorded today.</p>;
   }
@@ -44,7 +67,7 @@ export function ScreenshotsPanel({
       {/* Groups share one grid rather than taking a row each — a one-display day would otherwise
           be a long column of single tiles beside empty space. */}
       <ul className="@container grid gap-x-3 gap-y-5 [grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]">
-        {groups.map((group) => (
+        {visibleGroups.map((group) => (
           <li key={group.key} className={groupSpan(group)}>
             <GroupHeader group={group} />
             <ul className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(160px,1fr))]">
@@ -66,11 +89,35 @@ export function ScreenshotsPanel({
           </li>
         ))}
       </ul>
+      {/* Same pager as DataTable, so paging reads the same across the dashboard. */}
+      {pages > 1 ? (
+        <div className="mt-4 flex items-center justify-between">
+          <button
+            type="button"
+            className={buttonClasses('secondary', 'sm')}
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+          >
+            Prev
+          </button>
+          <span className="text-text-secondary text-caption">
+            {page} of {pages}
+          </span>
+          <button
+            type="button"
+            className={buttonClasses('secondary', 'sm')}
+            disabled={page >= pages}
+            onClick={() => setPage(page + 1)}
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
       {openIndex !== null && openable[openIndex] ? (
         <Lightbox
           shots={openable}
           index={openIndex}
-          onIndexChange={setOpenIndex}
+          onIndexChange={showInLightbox}
           onClose={() => setOpenIndex(null)}
         />
       ) : null}

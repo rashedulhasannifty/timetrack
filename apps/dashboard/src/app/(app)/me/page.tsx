@@ -139,7 +139,9 @@ export default async function MyDataPage({
           weekStrip={trends ? <WeekStrip days={weekStrip(date, trends.days, today)} /> : undefined}
           apps={<DayAppUsage usage={appUsage} />}
           screenshots={
+            // Keyed by day so the panel's page resets when the viewer steps to another date.
             <ScreenshotsPanel
+              key={date}
               shots={screenshots.map(toScreenshotView)}
               onRedact={redactScreenshotAction}
             />

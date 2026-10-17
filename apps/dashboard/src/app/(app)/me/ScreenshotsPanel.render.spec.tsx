@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ScreenshotsPanel } from './ScreenshotsPanel';
+import { ScreenshotsPanel, SHOT_GROUPS_PER_PAGE } from './ScreenshotsPanel';
 import type { ScreenshotView } from './screenshot-view';
 
 /**
@@ -105,6 +105,39 @@ describe('ScreenshotsPanel render', () => {
     const html = renderToStaticMarkup(<ScreenshotsPanel shots={four} />);
     expect(html).toContain('col-span-3');
     expect(html).not.toContain('col-span-4');
+  });
+
+  /** `count` single-display ticks, 10 minutes apart, newest first. */
+  const day = (count: number): ScreenshotView[] =>
+    Array.from({ length: count }, (_, i) =>
+      shot(`p${i}`, new Date(Date.parse(TICK) - i * 600_000).toISOString(), null),
+    );
+
+  it('renders only the first page of a long day, with a pager', () => {
+    const html = renderToStaticMarkup(<ScreenshotsPanel shots={day(SHOT_GROUPS_PER_PAGE + 6)} />);
+    expect(html.match(/<img/g)).toHaveLength(SHOT_GROUPS_PER_PAGE);
+    expect(html).toContain('1 of 2');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Prev<\/button>/);
+  });
+
+  it('shows no pager when the day fits on one page', () => {
+    const html = renderToStaticMarkup(<ScreenshotsPanel shots={day(SHOT_GROUPS_PER_PAGE)} />);
+    expect(html.match(/<img/g)).toHaveLength(SHOT_GROUPS_PER_PAGE);
+    expect(html).not.toContain('Prev');
+  });
+
+  /** Pages are cut on capture ticks: a multi-display tick is never split across two pages. */
+  it('keeps every display of a tick on the same page', () => {
+    const shots = day(SHOT_GROUPS_PER_PAGE - 1);
+    const at = new Date(Date.parse(TICK) - SHOT_GROUPS_PER_PAGE * 600_000).toISOString();
+    shots.push(
+      shot('m0', at, { id: 'gm', index: 0, count: 2 }),
+      shot('m1', at, { id: 'gm', index: 1, count: 2 }),
+    );
+    const html = renderToStaticMarkup(<ScreenshotsPanel shots={shots} />);
+    expect(html).toContain('2 displays');
+    expect(html.match(/<img/g)).toHaveLength(SHOT_GROUPS_PER_PAGE + 1);
+    expect(html).not.toContain('Prev');
   });
 
   it('says so when the day has no captures at all', () => {

@@ -210,7 +210,8 @@ export function PersonDayContent({
           ) : undefined
         }
         apps={<DayAppUsage usage={appUsage} />}
-        screenshots={<ScreenshotsPanel shots={screenshots.map(toScreenshotView)} />}
+        // Keyed by day so the panel's page resets when the viewer steps to another date.
+        screenshots={<ScreenshotsPanel key={date} shots={screenshots.map(toScreenshotView)} />}
         mix={categoryMix(samples)}
         idle={idleRows(idle)}
         // A manager correcting a team member's day. Carried explicitly as userId, and
