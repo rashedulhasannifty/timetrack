@@ -21,6 +21,34 @@ final class TimeEntryPayloadTests: XCTestCase {
         XCTAssertTrue(json["endTime"] is NSNull)
     }
 
+    /// `note: z.string().max(2000)` counts UTF-16 units. 1,500 emoji is 1,500 Characters but
+    /// 3,000 units: the server 422'd it, and a 422 drops the time entry.
+    func testNoteIsCutToTheServerLimitInUTF16Units() throws {
+        let json = try encoded(TimeEntryPayload(
+            id: "01920000-0000-7000-8000-000000000009",
+            projectId: nil, subprojectId: nil, taskId: nil,
+            startTime: "2026-08-20T04:00:00Z",
+            endTime: "2026-08-20T05:00:00Z",
+            source: "MANUAL",
+            note: String(repeating: "😀", count: 1500)
+        ))
+        let note = try XCTUnwrap(json["note"] as? String)
+        XCTAssertEqual(note.utf16.count, 2000)
+        XCTAssertEqual(note, String(repeating: "😀", count: 1000), "cut on an emoji boundary")
+    }
+
+    func testShortNoteIsUntouched() throws {
+        let json = try encoded(TimeEntryPayload(
+            id: "01920000-0000-7000-8000-00000000000a",
+            projectId: nil, subprojectId: nil, taskId: nil,
+            startTime: "2026-08-20T04:00:00Z",
+            endTime: "2026-08-20T05:00:00Z",
+            source: "MANUAL",
+            note: "Fixing the café menu 🇧🇩"
+        ))
+        XCTAssertEqual(json["note"] as? String, "Fixing the café menu 🇧🇩")
+    }
+
     func testClosedEntryEmitsTheEndTime() throws {
         let json = try encoded(TimeEntryPayload(
             id: "01920000-0000-7000-8000-000000000002",

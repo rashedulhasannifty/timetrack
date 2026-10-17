@@ -32,8 +32,14 @@ struct TimeEntryPayload: Encodable {
         try c.encode(startTime, forKey: .startTime)
         if let endTime { try c.encode(endTime, forKey: .endTime) } else { try c.encodeNil(forKey: .endTime) }
         try c.encode(source, forKey: .source)
-        try c.encodeIfPresent(note, forKey: .note)
+        // `note: z.string().max(2000)` counts UTF-16 units. The note field has no limit of its own,
+        // and an over-long note 422s the entry — a permanent failure, so the time entry itself
+        // was dropped. Cut it here, at the one place every entry is serialised.
+        try c.encodeIfPresent(note.map { UTF16Limit.truncate($0, to: Self.noteLimit) }, forKey: .note)
     }
+
+    /// `CreateTimeEntrySchema.note` max, in UTF-16 units.
+    static let noteLimit = 2000
 
     /// The wire format the API expects for instants.
     static let iso: ISO8601DateFormatter = {
