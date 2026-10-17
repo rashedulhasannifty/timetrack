@@ -66,11 +66,15 @@ actor SyncEngine {
     func syncNow() async -> Bool {
         guard !retired else { return false }
         if let inFlight { return await inFlight.value }
-        let pass = Task { await self.drainPass() }
+        // The pass clears `inFlight` itself, on the actor, as its last step — so no caller can
+        // ever join a pass that has already finished and mistake its stale result for a new one.
+        let pass = Task { () -> Bool in
+            let backedOff = await self.drainPass()
+            self.inFlight = nil
+            return backedOff
+        }
         inFlight = pass
-        let backedOff = await pass.value
-        inFlight = nil
-        return backedOff
+        return await pass.value
     }
 
     /// Await the pass already in flight, if any.
