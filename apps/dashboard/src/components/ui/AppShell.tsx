@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
+import type { Role } from '@timetrack/contracts';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { TitleProvider } from './PageTitleContext';
@@ -12,7 +13,7 @@ export function AppShell({
   footer,
   children,
 }: {
-  role: string;
+  role: Role;
   name: string;
   email: string;
   footer?: ReactNode;

@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ComponentType, ReactNode, SVGProps } from 'react';
+import type { Role } from '@timetrack/contracts';
+import { canSee, SECTION_HREF, type NavSection } from '../../lib/nav-access';
 import {
   IconClock,
   IconTeam,
@@ -17,7 +19,8 @@ import { AccountMenu } from './AccountMenu';
 
 // One hue per nav section (globals.css --tt-nav-*): the icon carries it, the label stays
 // neutral. Kept as a suffix rather than the full var() so NavLink builds the var() once.
-type NavHue = 'overview' | 'projects' | 'reports' | 'approvals' | 'admin' | 'me' | 'install';
+// The hue names are the section names, so `hue` also identifies the section for role gating.
+type NavHue = NavSection;
 
 type Item = {
   href: string;
@@ -34,23 +37,23 @@ type SidebarProps = {
   footer?: ReactNode;
   name: string;
   email: string;
-  role: string;
+  role: Role;
 };
 
 const PRIMARY: Item[] = [
-  { href: '/overview', label: 'Overview', Icon: IconTeam, exact: true, hue: 'overview' },
-  { href: '/projects', label: 'Projects', Icon: IconProjects, hue: 'projects' },
-  { href: '/reports', label: 'Reports', Icon: IconReports, hue: 'reports' },
-  { href: '/approvals', label: 'Approvals', Icon: IconApprovals, hue: 'approvals' },
-  { href: '/admin/settings', label: 'Admin', Icon: IconAdmin, hue: 'admin' },
+  { href: SECTION_HREF.overview, label: 'Overview', Icon: IconTeam, exact: true, hue: 'overview' },
+  { href: SECTION_HREF.projects, label: 'Projects', Icon: IconProjects, hue: 'projects' },
+  { href: SECTION_HREF.reports, label: 'Reports', Icon: IconReports, hue: 'reports' },
+  { href: SECTION_HREF.approvals, label: 'Approvals', Icon: IconApprovals, hue: 'approvals' },
+  { href: SECTION_HREF.admin, label: 'Admin', Icon: IconAdmin, hue: 'admin' },
 ];
 
 // /install is a public page outside the app shell, but installing the client is a
 // per-person action, so it belongs beside "My time" rather than under Admin. Following it
 // leaves the shell; the marketing nav there offers "Open dashboard" as the way back.
 const SECONDARY: Item[] = [
-  { href: '/me', label: 'My time', Icon: IconClock, hue: 'me' },
-  { href: '/install', label: 'Install the app', Icon: IconDownload, hue: 'install' },
+  { href: SECTION_HREF.me, label: 'My time', Icon: IconClock, hue: 'me' },
+  { href: SECTION_HREF.install, label: 'Install the app', Icon: IconDownload, hue: 'install' },
 ];
 
 function isActive(pathname: string, item: Item): boolean {
@@ -99,6 +102,9 @@ function NavLink({
 
 export function Sidebar({ narrow, open, onNavigate, footer, name, email, role }: SidebarProps) {
   const pathname = usePathname();
+  // Only what this role can open (lib/nav-access). An EMPLOYEE has no primary items at all.
+  const primary = PRIMARY.filter((item) => canSee(role, item.hue));
+  const secondary = SECONDARY.filter((item) => canSee(role, item.hue));
   // Off-canvas below 900px, so it needs its own opaque ground and a shadow; docked it sits
   // directly on the page surface with no divider — the raised nav pill carries the edge.
   const positionClass = narrow
@@ -118,21 +124,23 @@ export function Sidebar({ narrow, open, onNavigate, footer, name, email, role }:
         </span>
       </div>
 
-      <nav className="flex flex-col gap-0.5">
-        {PRIMARY.map((item) => (
-          <NavLink
-            key={item.href}
-            item={item}
-            active={isActive(pathname, item)}
-            onNavigate={onNavigate}
-          />
-        ))}
-      </nav>
+      {primary.length > 0 ? (
+        <nav className="flex flex-col gap-0.5 pb-6">
+          {primary.map((item) => (
+            <NavLink
+              key={item.href}
+              item={item}
+              active={isActive(pathname, item)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </nav>
+      ) : null}
 
-      <div className="tt-eyebrow text-neutral px-2.5 pb-2 pt-6">You</div>
+      <div className="tt-eyebrow text-neutral px-2.5 pb-2">You</div>
 
       <nav className="flex flex-col gap-0.5">
-        {SECONDARY.map((item) => (
+        {secondary.map((item) => (
           <NavLink
             key={item.href}
             item={item}
