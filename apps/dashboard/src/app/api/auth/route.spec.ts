@@ -156,6 +156,81 @@ describe('GET /api/auth/sso/callback', () => {
 });
 
 /**
+ * Every place that hands out a fresh session lands the person on the first page their role
+ * can open (lib/nav-access). Before this, all of them hard-coded /overview, so an EMPLOYEE's
+ * first screen after signing in was "You're not permitted to view the team overview".
+ */
+describe('post-sign-in landing follows the role', () => {
+  const tokensFor = (role: string) => ({
+    accessToken: makeJwt({ ...VALID_CLAIMS, role }),
+    refreshToken: 'r',
+    expiresIn: 900,
+  });
+
+  function form(path: string, fields: Record<string, string>): NextRequest {
+    const body = new FormData();
+    for (const [k, v] of Object.entries(fields)) body.set(k, v);
+    return new NextRequest(`http://localhost:3000${path}`, { method: 'POST', body });
+  }
+
+  const roles: [string, string][] = [
+    ['EMPLOYEE', '/me'],
+    ['MANAGER', '/overview'],
+    ['ADMIN', '/overview'],
+  ];
+
+  it.each(roles)('login as %s redirects to %s', async (role, path) => {
+    vi.mocked(api.login).mockResolvedValue(tokensFor(role));
+    const res = await POST(form('/api/auth/login', { email: 'a@b.c', password: 'pw12345678' }), {
+      params: Promise.resolve({ auth: ['login'] }),
+    });
+    expect(res.headers.get('location')).toBe(path);
+    expect(res.headers.get('set-cookie') ?? '').toContain(`${SESSION_COOKIE}=`);
+  });
+
+  it.each(roles)('accept-invite as %s redirects to %s', async (role, path) => {
+    vi.mocked(api.acceptInvite).mockResolvedValue(tokensFor(role));
+    const res = await POST(
+      form('/api/auth/accept-invite', {
+        token: 't',
+        name: 'New Person',
+        password: 'pw12345678',
+        confirm: 'pw12345678',
+      }),
+      { params: Promise.resolve({ auth: ['accept-invite'] }) },
+    );
+    expect(res.headers.get('location')).toBe(path);
+  });
+
+  it.each(roles)('SSO callback as %s redirects to %s', async (role, path) => {
+    vi.mocked(api.oidcCallback).mockResolvedValue(tokensFor(role));
+    const cookie = encryptOidcState({ state: 'st', nonce: 'no', codeVerifier: 've' });
+    const req = new NextRequest('http://localhost:3000/api/auth/sso/callback?code=c&state=st', {
+      headers: { cookie: `${OIDC_COOKIE}=${cookie}` },
+    });
+    const res = await GET(req, callbackCtx);
+    expect(res.headers.get('location')).toBe(path);
+  });
+
+  it.each(roles)('refresh without ?next as %s redirects to %s', async (role, path) => {
+    vi.mocked(api.refresh).mockResolvedValue({ status: 'ok', tokens: tokensFor(role) });
+    const res = await GET(refreshRequest(), ctx);
+    expect(res.headers.get('location')).toBe(path);
+  });
+
+  it('refresh still honours a safe ?next over the role default', async () => {
+    vi.mocked(api.refresh).mockResolvedValue({ status: 'ok', tokens: tokensFor('EMPLOYEE') });
+    const cookie = encryptSession({ accessToken: 'x', refreshToken: 'r', accessExpiresAt: 0 });
+    const req = new NextRequest(
+      'http://localhost:3000/api/auth/refresh?next=%2Fme%3Fdate%3D2026-01-02',
+      { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } },
+    );
+    const res = await GET(req, ctx);
+    expect(res.headers.get('location')).toBe('/me?date=2026-01-02');
+  });
+});
+
+/**
  * The API rate-limits sign-in per client address, and the dashboard calls it server-side over
  * loopback. Unless the BFF passes on the address Caddy saw, every dashboard sign-in in the company
  * lands in ONE per-IP bucket, and 20 bad passwords a minute from anyone lock everybody out.

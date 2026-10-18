@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getSession } from '../lib/session';
+import { landingPathFor } from '../lib/nav-access';
 import { DOWNLOAD_URL, MacDownloadPlate } from '../components/marketing/MacDownloadPlate';
 import {
   DOWNLOAD_URL as WINDOWS_DOWNLOAD_URL,
@@ -34,7 +35,8 @@ export const metadata: Metadata = {
  * front of them is the exact boundary — not a pitch they will discount anyway.
  */
 export default async function HomePage() {
-  const signedIn = (await getSession()) !== null;
+  const session = await getSession();
+  const signedIn = session !== null;
 
   return (
     <MarketingChrome>
@@ -54,7 +56,7 @@ export default async function HomePage() {
           </p>
           <div className="flex flex-wrap gap-3 pt-2">
             <Link
-              href={signedIn ? '/overview' : '/login'}
+              href={session ? landingPathFor(session.role) : '/login'}
               className="bg-accent hover:bg-accent-hover rounded-lg px-5 py-2.5 text-[0.9375rem] font-medium text-white transition-colors"
             >
               {signedIn ? 'Open dashboard' : 'Sign in'}
