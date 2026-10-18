@@ -169,7 +169,7 @@ describe('api.login', () => {
           }),
       ),
     );
-    expect(await api.login('user@example.com', 'password12')).toEqual({
+    expect(await api.login('user@example.com', 'password12', null)).toEqual({
       accessToken: 'a',
       refreshToken: 'r',
       expiresIn: 900,
@@ -181,7 +181,46 @@ describe('api.login', () => {
       'fetch',
       vi.fn(() => new Response('unauthorized', { status: 401 })),
     );
-    expect(await api.login('user@example.com', 'wrong')).toBeNull();
+    expect(await api.login('user@example.com', 'wrong', null)).toBeNull();
+  });
+});
+
+describe('client address on sign-in', () => {
+  // The API keys its sign-in rate limit on the client address. These calls are made server-side
+  // over loopback, so without the header every dashboard user shares one bucket.
+  function stubFetch() {
+    const fetchMock = vi.fn(
+      (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ accessToken: 'a', refreshToken: 'r', expiresIn: 900 }), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it('passes the forwarded address through on login, accept-invite and the SSO callback', async () => {
+    const fetchMock = stubFetch();
+
+    await api.login('user@example.com', 'password12', '198.51.100.7');
+    await api.acceptInvite('t', 'password12', 'Ada', '198.51.100.7');
+    await api.oidcCallback(
+      { code: 'c', state: 's', nonce: 'n', codeVerifier: 'v' },
+      '198.51.100.7',
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get('x-forwarded-for')).toBe('198.51.100.7');
+    }
+  });
+
+  it('sends no X-Forwarded-For when there was no proxy in front (local dev)', async () => {
+    const fetchMock = stubFetch();
+
+    await api.login('user@example.com', 'password12', null);
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(new Headers(init?.headers).has('x-forwarded-for')).toBe(false);
   });
 });
 

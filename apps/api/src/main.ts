@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { VersioningType } from '@nestjs/common';
-import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
@@ -9,15 +9,14 @@ import { Logger } from 'nestjs-pino';
 import { loadEnv } from '@timetrack/config';
 import { AppModule } from './app.module.js';
 import { ProblemJsonFilter } from './common/filters/problem-json.filter.js';
+import { createHttpAdapter } from './http-adapter.js';
 
 async function bootstrap(): Promise<void> {
   const env = loadEnv(); // fail fast — invalid env never reaches runtime
 
-  const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule,
-    new FastifyAdapter({ bodyLimit: 10 * 1024 * 1024 }),
-    { bufferLogs: true },
-  );
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, createHttpAdapter(), {
+    bufferLogs: true,
+  });
 
   const logger = app.get(Logger);
   app.useLogger(logger);
