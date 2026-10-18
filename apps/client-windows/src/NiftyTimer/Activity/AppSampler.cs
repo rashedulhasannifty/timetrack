@@ -113,14 +113,26 @@ public sealed class AppSampler : IAppSampling
         return new AppSnapshot(appName, bundleId, title);
     }
 
-    private static string? Truncate(string? value, int max)
+    /// <summary>
+    /// Cut to at most <paramref name="max"/> UTF-16 code units — the unit Zod's <c>max()</c> counts
+    /// — without splitting a surrogate pair. Cutting between the halves of an emoji or other
+    /// astral character would leave a lone high surrogate: invalid UTF-16, serialized as an
+    /// unpaired <c>\uD83D</c> escape the server may refuse, which would cost the sample.
+    /// </summary>
+    internal static string? Truncate(string? value, int max)
     {
         if (string.IsNullOrEmpty(value))
         {
             return null;
         }
 
-        return value.Length <= max ? value : value[..max];
+        if (value.Length <= max)
+        {
+            return value;
+        }
+
+        var cut = max > 0 && char.IsHighSurrogate(value[max - 1]) ? max - 1 : max;
+        return value[..cut];
     }
 
     /// <summary>

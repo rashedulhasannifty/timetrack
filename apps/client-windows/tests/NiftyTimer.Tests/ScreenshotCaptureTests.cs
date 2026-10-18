@@ -439,4 +439,154 @@ public class ActivityBatchSyncEngineTests
 
         Assert.Equal(ActivityBatchSyncEngine.MaxBatchSize, store.Removed.Count);
     }
+
+    /// <summary>
+    /// One sample the server rejects (422) used to discard the whole batch — up to eight hours of
+    /// activity. Now the batch is bisected across cycles until only that sample is dropped.
+    /// </summary>
+    [Fact]
+    public async Task A422IsolatesTheOneBadSampleInsteadOfDroppingTheBatch()
+    {
+        var store = new ActivityBufferSpy();
+        for (var i = 0; i < 8; i++)
+        {
+            store.Enqueue(Sample(i == 5 ? "poison" : $"s{i}"));
+        }
+
+        var uploader = new RejectingUploader(ids => ids.Contains("poison") ? 422 : 201);
+        using var engine = new ActivityBatchSyncEngine(store, uploader, batchLimit: 8);
+
+        var cycles = await DrainUntilEmpty(engine, store);
+
+        Assert.Equal(["s0", "s1", "s2", "s3", "s4", "s6", "s7"], uploader.Accepted.Order());
+        Assert.Equal(["poison"], uploader.LastRejected);
+        Assert.Empty(store.Samples);
+
+        // One request per cycle, and the bisection is bounded by ~2·log2(batch).
+        Assert.Equal(cycles, uploader.Requests);
+        Assert.True(cycles <= 8, $"took {cycles} cycles");
+    }
+
+    /// <summary>A 413 means the body is too big, not that a sample is bad: split, and drop nothing.</summary>
+    [Fact]
+    public async Task A413SplitsTheBatchAndKeepsEverySample()
+    {
+        var store = new ActivityBufferSpy();
+        for (var i = 0; i < 8; i++)
+        {
+            store.Enqueue(Sample($"s{i}"));
+        }
+
+        var uploader = new RejectingUploader(ids => ids.Count > 2 ? 413 : 201);
+        using var engine = new ActivityBatchSyncEngine(store, uploader, batchLimit: 8);
+
+        await DrainUntilEmpty(engine, store);
+
+        Assert.Equal(8, uploader.Accepted.Count);
+        Assert.DoesNotContain(uploader.Accepted, id => !id.StartsWith('s'));
+        Assert.Empty(store.Samples);
+    }
+
+    /// <summary>Splitting keeps every sample in the store — nothing is removed on the rejected cycle.</summary>
+    [Fact]
+    public async Task ARejectedBatchIsKeptAndTheNextCycleSendsItsOlderHalf()
+    {
+        var store = new ActivityBufferSpy();
+        for (var i = 0; i < 8; i++)
+        {
+            store.Enqueue(Sample($"s{i}"));
+        }
+
+        var uploader = new RejectingUploader(ids => ids.Count > 4 ? 422 : 201);
+        using var engine = new ActivityBatchSyncEngine(store, uploader, batchLimit: 8);
+
+        Assert.False(await engine.SyncNowAsync());
+        Assert.Equal(8, store.Samples.Count);
+        Assert.Empty(store.Removed);
+
+        await engine.SyncNowAsync();
+        Assert.Equal(["s0", "s1", "s2", "s3"], store.Removed);
+    }
+
+    /// <summary>A lone sample still rejected on its own is dropped — poison cannot wedge the queue.</summary>
+    [Fact]
+    public async Task ASingleSampleThatIsStillRejectedIsDropped()
+    {
+        var store = new ActivityBufferSpy();
+        store.Enqueue(Sample("poison"));
+        var uploader = new FakeUploader(new UploadResult.Permanent(422));
+
+        using var engine = new ActivityBatchSyncEngine(store, uploader);
+
+        Assert.False(await engine.SyncNowAsync());
+        Assert.Empty(store.Samples);
+    }
+
+    /// <summary>Other permanent 4xx keep their old meaning: the whole batch is dropped.</summary>
+    [Fact]
+    public async Task OtherPermanentRejectionsStillDropTheWholeBatch()
+    {
+        var store = new ActivityBufferSpy();
+        store.Enqueue(Sample("a"));
+        store.Enqueue(Sample("b"));
+        var uploader = new FakeUploader(new UploadResult.Permanent(400));
+
+        using var engine = new ActivityBatchSyncEngine(store, uploader);
+
+        Assert.False(await engine.SyncNowAsync());
+        Assert.Equal(["a", "b"], store.Removed);
+    }
+
+    [Theory]
+    [InlineData(500, 250)]
+    [InlineData(3, 1)]
+    [InlineData(2, 1)]
+    public void SplittingHalvesTheBatch(int rejected, int next)
+    {
+        Assert.Equal(next, ActivityBatchSyncEngine.SplitLimitAfterRejection(rejected));
+    }
+
+    private static async Task<int> DrainUntilEmpty(ActivityBatchSyncEngine engine, ActivityBufferSpy store)
+    {
+        var cycles = 0;
+        while (store.Samples.Count > 0)
+        {
+            Assert.True(cycles < 50, "the drain did not converge");
+            await engine.SyncNowAsync();
+            cycles++;
+        }
+
+        return cycles;
+    }
+
+    /// <summary>Answers each batch with a status chosen from the sample ids it carries.</summary>
+    private sealed class RejectingUploader(Func<IReadOnlyList<string>, int> status) : IUploader
+    {
+        public List<string> Accepted { get; } = [];
+
+        public List<string> LastRejected { get; private set; } = [];
+
+        public int Requests { get; private set; }
+
+        public Task<UploadResult> UploadAsync(byte[] payload, CancellationToken cancellationToken = default)
+        {
+            Requests++;
+            using var document = System.Text.Json.JsonDocument.Parse(payload);
+            var ids = document.RootElement.GetProperty("samples").EnumerateArray()
+                .Select(sample => sample.GetProperty("id").GetString()!)
+                .ToList();
+
+            var result = TimeEntryUploader.Classify(status(ids));
+            if (result is UploadResult.Success)
+            {
+                Accepted.AddRange(ids);
+            }
+            else
+            {
+                LastRejected = ids;
+            }
+
+            return Task.FromResult(result);
+        }
+    }
 }

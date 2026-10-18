@@ -204,6 +204,33 @@ public class AppSamplerTests
         Assert.Equal(200, snapshot.AppName.Length);
         Assert.Equal(120, snapshot.WindowTitle!.Length);
     }
+
+    /// <summary>
+    /// An emoji straddling the bound must not be cut in half: a lone high surrogate is invalid
+    /// UTF-16, and a sample carrying one risks a 422 for the whole batch it travels in.
+    /// </summary>
+    [Fact]
+    public void TruncationNeverSplitsASurrogatePair()
+    {
+        const string emoji = "\U0001F600"; // two UTF-16 code units
+        var snapshot = AppSampler.Describe(
+            Process(description: new string('a', 199) + emoji + "tail", title: new string('b', 119) + emoji + "tail"),
+            captureWindowTitles: true);
+
+        Assert.Equal(new string('a', 199), snapshot.AppName);
+        Assert.Equal(new string('b', 119), snapshot.WindowTitle);
+        Assert.False(char.IsHighSurrogate(snapshot.WindowTitle![^1]));
+    }
+
+    [Fact]
+    public void APairThatFitsExactlyIsKept()
+    {
+        const string emoji = "\U0001F600";
+        var title = new string('b', 118) + emoji + "tail";
+
+        Assert.Equal(new string('b', 118) + emoji, AppSampler.Truncate(title, AppSampler.MaxTitleLength));
+        Assert.Equal(new string('b', 118) + emoji, AppSampler.Truncate(new string('b', 118) + emoji, AppSampler.MaxTitleLength));
+    }
 }
 
 public class ActivitySamplerTests
