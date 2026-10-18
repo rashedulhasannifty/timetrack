@@ -275,6 +275,12 @@ public sealed class AppDelegate : IDisposable
         _popup?.RefreshTheme();
     });
 
+    /// <summary>
+    /// Windows is ending the session. Close the running span where the day ended, rather than
+    /// leaving it for crash recovery to offer back the next morning. See <see cref="SessionEndClose"/>.
+    /// </summary>
+    public void CloseForSessionEnd() => SessionEndClose.Apply(_tracker, _manualIdleCoordinator);
+
     public void Dispose()
     {
         if (_disposed)

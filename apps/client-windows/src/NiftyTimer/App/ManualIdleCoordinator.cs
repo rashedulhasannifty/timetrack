@@ -94,6 +94,29 @@ public sealed class ManualIdleCoordinator : IManualIdleMonitorDelegate, ISignalR
 
     public void Resume() => ReconcileThenRoute(_monitor.Resume);
 
+    /// <summary>
+    /// When the person walked away from the live manual entry, while they are still away; null if
+    /// they are not away, or the away window belongs to an entry that is no longer running.
+    /// </summary>
+    public DateTimeOffset? AwayStartOfLiveEntry =>
+        IsSameManualEntryLive && _monitor.State is IdleState.Away away ? away.Since : null;
+
+    /// <summary>
+    /// The session is ending with the keep/discard prompt still up: answer it with its default,
+    /// Discard, exactly as when the person goes away again without answering. The entry is trimmed
+    /// at the away start and reopened at the return, so the time since they came back still counts.
+    /// </summary>
+    public void AnswerOpenPromptForSessionEnd()
+    {
+        if (_monitor.State is not IdleState.Awaiting || !IsSameManualEntryLive)
+        {
+            return;
+        }
+
+        _monitor.Resolve(AwayResolution.Discard);
+        _dismissPrompt();
+    }
+
     public void DidBeginAway(DateTimeOffset awayStart)
     {
         if (_tracker.State is TrackerState.Tracking { Source: TimeTracker.EntrySource.Manual } tracking)
