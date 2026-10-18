@@ -847,6 +847,108 @@ public class ManualIdleCoordinatorTests
 
         Assert.Equal(T0.AddMinutes(7), Assert.IsType<TrackerState.Tracking>(h.Tracker.State).StartedAt);
     }
+
+    // MARK: - the Windows session ends (shut down, restart, sign out of Windows)
+
+    /// <summary>
+    /// Regression: a timer running at shutdown was left open, and the next launch offered it back as
+    /// "Recover interrupted time?" — where Discard throws away the whole day. It now closes at the
+    /// moment the session ended.
+    /// </summary>
+    [Fact]
+    public void SessionEndClosesARunningSpanWhereTheDayEnded()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null);
+        h.Coordinator.Tick(0); // arm at 09:00
+
+        h.Now = T0.AddHours(8);
+        SessionEndClose.Apply(h.Tracker, h.Coordinator);
+
+        Assert.Equal(TrackerState.Idle, h.Tracker.State);
+        var closed = Assert.Single(h.TimeEntries());
+        Assert.Equal("2026-08-25T09:00:00Z", closed.StartTime);
+        Assert.Equal("2026-08-25T17:00:00Z", closed.EndTime);
+    }
+
+    /// <summary>
+    /// Shut down while away: the unconfirmed away time does not count, by the same rule as the away
+    /// limit. Stopping at the shutdown would silently keep up to an hour nobody vouched for.
+    /// </summary>
+    [Fact]
+    public void SessionEndWhileAwayStopsWhereThePersonLeft()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null);
+        h.Coordinator.Tick(0); // arm at 09:00
+
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600); // away since 09:20
+        h.Now = T0.AddMinutes(50);
+        h.Coordinator.Tick(1800); // still away
+
+        SessionEndClose.Apply(h.Tracker, h.Coordinator);
+
+        Assert.Equal(TrackerState.Idle, h.Tracker.State);
+        var closed = Assert.Single(h.TimeEntries());
+        Assert.Equal("2026-08-25T09:20:00Z", closed.EndTime);
+        Assert.Empty(h.Prompts);
+    }
+
+    /// <summary>
+    /// Back, prompt never answered, then shut down: answered with its default, Discard — the away
+    /// window is trimmed, and the time worked since coming back is kept up to the shutdown.
+    /// </summary>
+    [Fact]
+    public void SessionEndAnswersAnOpenPromptWithDiscardAndKeepsTheTimeSinceReturning()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null);
+        h.Coordinator.Tick(0); // arm at 09:00
+
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600); // away since 09:20
+        h.Now = T0.AddMinutes(40);
+        h.Coordinator.Tick(0); // back at 09:40 — the prompt is up
+        Assert.Single(h.Prompts);
+
+        h.Now = T0.AddHours(1);
+        SessionEndClose.Apply(h.Tracker, h.Coordinator);
+
+        Assert.Equal(TrackerState.Idle, h.Tracker.State);
+        var entries = h.TimeEntries();
+        Assert.Equal(2, entries.Count);
+        Assert.Equal("2026-08-25T09:20:00Z", entries[0].EndTime);
+        Assert.Equal("2026-08-25T09:40:00Z", entries[1].StartTime);
+        Assert.Equal("2026-08-25T10:00:00Z", entries[1].EndTime);
+        Assert.Equal("DISCARDED", Assert.Single(h.IdleEvents()).ResolvedAction);
+        Assert.Equal(1, h.Dismissals);
+    }
+
+    [Fact]
+    public void SessionEndWithNothingRunningRecordsNothing()
+    {
+        var h = Harness.Build();
+
+        SessionEndClose.Apply(h.Tracker, h.Coordinator);
+
+        Assert.Empty(h.Buffer.Entries);
+        Assert.Equal(TrackerState.Idle, h.Tracker.State);
+    }
+
+    /// <summary>An automatic span closes too, including before idle detection was ever installed.</summary>
+    [Fact]
+    public void SessionEndClosesAnAutoSpanWithoutAManualCoordinator()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null, source: TimeTracker.EntrySource.Auto);
+
+        h.Now = T0.AddHours(1);
+        SessionEndClose.Apply(h.Tracker, manual: null);
+
+        Assert.Equal(TrackerState.Idle, h.Tracker.State);
+        Assert.Equal("2026-08-25T10:00:00Z", Assert.Single(h.TimeEntries()).EndTime);
+    }
 }
 
 /// <summary>

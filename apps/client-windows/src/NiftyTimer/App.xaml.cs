@@ -72,6 +72,19 @@ public partial class NiftyTimerApp : Application
         _instance.ShowRequested += () => Dispatcher.InvokeAsync(appDelegate.ShowMenu);
     }
 
+    /// <summary>
+    /// Shut down, restart, or signing out of Windows. WPF shuts the application down itself once
+    /// this returns uncancelled, so the clock is closed here, synchronously, first.
+    /// </summary>
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        base.OnSessionEnding(e);
+        if (!e.Cancel)
+        {
+            _delegate?.CloseForSessionEnd();
+        }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         _theme?.Dispose();
