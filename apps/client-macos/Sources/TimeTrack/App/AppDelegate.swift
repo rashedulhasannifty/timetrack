@@ -54,6 +54,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let loginItem: LoginItemControlling = MainAppLoginItem()
     private let liveEntryPublisher: LiveEntryPublisher
     private let userIdBox: UserIdBox
+    /// Ends the session — once — when the server rejects it (see `SessionEndMonitor`).
+    private let sessionEndMonitor: SessionEndMonitor
+    /// True from the start of a sign-out teardown until it presents the login window. While it
+    /// is set, `presentLogin()` does nothing: the teardown is still draining the outgoing user's
+    /// buffers on their token, and a sign-in landing in that window would hand the drain (and
+    /// the `logout()` that follows it) the next user's session. Main-thread only.
+    private var signOutInProgress = false
 
     private var loginWindow: LoginWindowController?
     private var ackWindow: AckWindowController?
@@ -167,9 +174,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Same forward-reference problem for `stopAutoTracking()`: the sign-out closure below
         // is built before `super.init()`, so `self` isn't available yet.
         let stopAutoBox = CallbackBox()
-        // Same forward-reference problem for the sign-out buffer flush+clear (cross-user
-        // integrity invariant): `self` isn't available yet either.
+        // Same forward-reference problem for the sign-out buffer flush (cross-user integrity
+        // invariant): `self` isn't available yet either.
         let flushBufferBox = AsyncCallbackBox()
+        // The teardown's own login presentation (it clears `signOutInProgress` first, which the
+        // signed-out dropdown's Sign In path must not do).
+        let finishSignOutBox = CallbackBox()
+        // A rejected session ends through `menuViewModel.signOut()`, which doesn't exist yet.
+        let sessionEndedBox = AsyncCallbackBox()
+        let sessionEndMonitor = SessionEndMonitor(
+            confirmRejected: { await session.refreshIsRejected() },
+            onSessionEnded: { await sessionEndedBox.call?() }
+        )
+        self.sessionEndMonitor = sessionEndMonitor
 
         let menuViewModel = MenuViewModel(
             tracker: tracker,
@@ -178,13 +195,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onSignIn: { Task { @MainActor in presentLoginBox.call?() } },
             onSignOut: {
                 Task {
+                    // An upload failing on the session we are about to end is not news.
+                    await sessionEndMonitor.disarm()
                     // Tear down auto-tracking first: stop the observer/timer and deactivate the
                     // monitor so any pending away is recorded UNRESOLVED, before anything else
                     // about the signed-out state is touched.
                     await MainActor.run { stopAutoBox.call?() }
-                    // Best-effort final drain, then stop and clear the buffer — BEFORE logout,
-                    // since the drain needs the still-valid token (cross-user integrity
-                    // invariant: CreateTimeEntry has no userId, the server attributes by token).
+                    // Drain what we can on the still-valid token — BEFORE logout (cross-user
+                    // integrity invariant: CreateTimeEntry has no userId, the server attributes
+                    // by token). Whatever cannot be sent stays on disk, owned by this user
+                    // (`BufferOwnership`), for their next session.
                     await flushBufferBox.call?()
                     // Read the user before logout clears the in-memory access token the
                     // sub is decoded from; a stale marker must never survive to grant
@@ -200,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await session.logout()
                     // Leave the app coherent: re-present login so the user can sign back in
                     // (the launch flow re-runs and re-enables tracking on success).
-                    await MainActor.run { presentLoginBox.call?() }
+                    await MainActor.run { finishSignOutBox.call?() }
                 }
             },
             onQuit: { NSApp.terminate(nil) },
@@ -209,8 +229,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.menuViewModel = menuViewModel
         super.init()
         presentLoginBox.call = { [weak self] in self?.presentLogin() }
-        stopAutoBox.call = { [weak self] in self?.stopAutoTracking() }
-        flushBufferBox.call = { [weak self] in await self?.flushAndClearBuffer() }
+        stopAutoBox.call = { [weak self] in
+            self?.signOutInProgress = true
+            self?.stopAutoTracking()
+        }
+        finishSignOutBox.call = { [weak self] in
+            self?.signOutInProgress = false
+            self?.presentLogin()
+        }
+        flushBufferBox.call = { [weak self] in await self?.flushBuffersKeepingUnsent() }
+        sessionEndedBox.call = { [weak self] in await self?.endRejectedSession() }
         tracker.onSpanOpened = { [weak self] entryId, start, selection, source in
             guard let self else { return }
             Task { await self.liveEntryPublisher.publish(
@@ -310,6 +338,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor private func presentLogin() {
+        // A sign-out teardown is still draining the outgoing user's buffers; it presents the
+        // login window itself when it is done.
+        guard !signOutInProgress else { return }
         statusItem.closePopover()   // don't leave the dropdown lingering behind the login window
         // Idempotent: reuse the window that's already up instead of stacking a second one (the
         // signed-out dropdown's Sign In and the sign-out flow both route here).
@@ -416,6 +447,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the only thing that lets `TimeTracker.start()` run, so the box is always populated
         // before any span can be stamped. The same value gates recovery below.
         let currentUserId = await session.userId()
+        // Settle who owns the buffers BEFORE anything can write to them or upload from them:
+        // the previous user's unsent records are discarded here unless they are this user's.
+        // With no user id there is no owner to prove, so nothing syncs this session.
+        let ownsBuffers = await MainActor.run { () -> Bool in
+            guard let currentUserId else { return false }
+            BufferOwnership.shared.claim(for: currentUserId)
+            return true
+        }
+        await sessionEndMonitor.rearm()
         await MainActor.run {
             userIdBox.value = currentUserId
             // Namespaces `select()`/`restoreSelection()` persistence to this user; set before
@@ -431,7 +471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menuViewModel.projects = projectCache.load() // instant, offline-safe
         }
         await refreshProjects()
-        await MainActor.run { startSyncIfNeeded() }
+        if ownsBuffers { await MainActor.run { startSyncIfNeeded() } }
         await MainActor.run { recoverLiveSpanIfNeeded(currentUserId: currentUserId) }
     }
 
@@ -851,68 +891,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private func startSyncIfNeeded() {
         guard syncEngine == nil else { return }
         let base = AppDelegate.apiBaseURL()
+        // Every engine reports a refused session to the one monitor, which ends it at most once.
+        let monitor = sessionEndMonitor
+        let onAuthFailed: () -> Void = { Task { await monitor.authFailed() } }
         let engine = SyncEngine(
             buffer: BufferStore.shared,
             uploader: TimeEntryUploader(baseURL: base, session: session),
-            idleUploader: TimeEntryUploader(baseURL: base, session: session, path: "idle-events")
+            idleUploader: TimeEntryUploader(baseURL: base, session: session, path: "idle-events"),
+            onAuthFailed: onAuthFailed
         )
         syncEngine = engine
-        engine.start()
 
         let screenshotEngine = ScreenshotSyncEngine(
             buffer: ImageBufferStore.shared,
-            uploader: ScreenshotUploader(baseURL: base, session: session)
+            uploader: ScreenshotUploader(baseURL: base, session: session),
+            onAuthFailed: onAuthFailed
         )
         screenshotSync = screenshotEngine
-        screenshotEngine.start()
 
         let activityEngine = ActivityBatchSyncEngine(
             store: ActivitySampleStore.shared,
-            uploader: ActivitySampleUploader(baseURL: base, session: session)
+            uploader: ActivitySampleUploader(baseURL: base, session: session),
+            onAuthFailed: onAuthFailed
         )
         activitySync = activityEngine
-        activityEngine.start()
+
+        Task {
+            await engine.start()
+            await screenshotEngine.start()
+            await activityEngine.start()
+        }
     }
 
-    /// Sign-out: stop the timer first (no scheduled cycle can overlap the final drain — the
-    /// engine's `isDraining` re-entry guard is not actor-atomic), then do a best-effort final
-    /// drain (needs the still-valid token → BEFORE logout), then clear the buffer so the next
-    /// user on this Mac can't upload the previous user's entries under their own token
-    /// (CreateTimeEntry has no userId — the server attributes by token).
-    private func flushAndClearBuffer() async {
-        let engine = await MainActor.run { self.syncEngine }
-        await MainActor.run { engine?.stop() }   // stop the timer FIRST — no cycle overlaps the final drain
-        await engine?.syncNow()                  // best-effort final drain (needs the still-valid token)
+    /// Sign-out: send as much as the still-valid token can, keep the rest. Nothing is cleared
+    /// here — what could not be sent stays on disk owned by this user (`BufferOwnership`) and is
+    /// either drained at their next sign-in or discarded before anyone else's session can sync.
+    ///
+    /// Capture cycles are joined FIRST: `stopAutoTracking()` invalidated their timers, but a cycle
+    /// suspended mid-grab is not cancelled by that and could still enqueue — joining it puts its
+    /// record in the flush below and guarantees nothing enqueues after. Each engine's
+    /// `flushForSignOut()` then stops its timer, waits for any pass already running (it used to
+    /// be skipped by it), and drains pass after pass until the buffer is empty or a pass makes no
+    /// progress — a revoked or offline session ends the loop at once instead of spinning.
+    private func flushBuffersKeepingUnsent() async {
+        let (scheduler, sampler) = await MainActor.run { (self.screenshotScheduler, self.activitySampler) }
+        await scheduler?.finishInFlight()
+        await sampler?.finishInFlight()
+
+        let (engine, screenshotEngine, activityEngine) = await MainActor.run {
+            (self.syncEngine, self.screenshotSync, self.activitySync)
+        }
+        await engine?.flushForSignOut()
+        await screenshotEngine?.flushForSignOut()
+        await activityEngine?.flushForSignOut()
+
         await MainActor.run {
             self.syncEngine = nil
-            BufferStore.shared.clear()
-        }
-        // Join any capture cycle already in flight FIRST: `stopAutoTracking()` invalidated the
-        // timer but a cycle suspended mid-grab is not cancelled by that, so it could still enqueue.
-        // After this awaits, no capture can run past this point (the joined cycle won't reschedule
-        // — `stop()` set `started=false`), so its image (if any) is included in the drain below and
-        // nothing can enqueue after `clear()`.
-        let scheduler = await MainActor.run { self.screenshotScheduler }
-        await scheduler?.finishInFlight()
-        await MainActor.run { self.screenshotSync?.stop() }
-        await self.screenshotSync?.syncNow()   // best-effort final drain (still-valid token)
-        await MainActor.run {
             self.screenshotSync = nil
             self.screenshotScheduler = nil
-            ImageBufferStore.shared.clear()   // cross-user integrity: no leftover images upload under the next user
-        }
-        // Activity mirrors the screenshot ordering exactly: join the in-flight sampler cycle
-        // first, stop the sync engine, do a best-effort final drain on the still-valid token,
-        // then clear the buffer — samples are attributed by token, so a leftover sample must
-        // never upload under the next user (CLAUDE.md §1 cross-user integrity).
-        let activityJoin = await MainActor.run { self.activitySampler }
-        await activityJoin?.finishInFlight()
-        await MainActor.run { self.activitySync?.stop() }
-        await self.activitySync?.syncNow()   // best-effort final drain (still-valid token)
-        await MainActor.run {
             self.activitySync = nil
             self.activitySampler = nil
-            ActivitySampleStore.shared.clear()   // cross-user integrity: no leftover samples upload under the next user
+        }
+    }
+
+    /// The server rejected this session, confirmed by `SessionEndMonitor`. Run the same sign-out
+    /// the menu runs — unsent data stays on disk for this user — which ends at the login window.
+    private func endRejectedSession() async {
+        await MainActor.run {
+            guard menuViewModel.isSignedIn else { return }
+            menuViewModel.signOut()
         }
     }
 
@@ -1031,8 +1078,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hasAttemptedRecentSelectionFallback = false
         hasBecomeReady = false
         // Invalidate the interval timer so no NEW cycle is scheduled. A cycle already in flight is
-        // NOT cancelled by this — `flushAndClearBuffer()` joins it via `finishInFlight()` before
-        // clearing the buffer, so the reference must survive here (do not nil it).
+        // NOT cancelled by this — `flushBuffersKeepingUnsent()` joins it via `finishInFlight()` before
+        // flushing the buffers, so the reference must survive here (do not nil it).
         screenshotScheduler?.stop()
         activitySampler?.stop()
         // Slice 2.4 nudges — cross-user integrity (CLAUDE.md §1): clear the notifier's pending +

@@ -13,7 +13,16 @@ namespace NiftyTimer.Sync;
 /// one pointless round trip per interval instead of a spin.
 ///
 /// The batch is removed on success, dropped on a permanent 4xx (poison cannot wedge the queue),
-/// or kept on transient/auth. The uploader is the shared <see cref="TimeEntryUploader"/> pointed
+/// or kept on transient/auth.
+///
+/// Except 422 and 413, which are SPLIT rather than dropped. A batch holds up to 500 samples —
+/// about eight hours — and one sample the server cannot accept (422), or a body too large for a
+/// proxy (413), used to discard all of them. Now the batch is kept and the next cycle sends only
+/// its older half; a half that succeeds is removed, a half that is rejected is halved again. Only
+/// a single sample that is still rejected on its own is dropped, after which the batch size goes
+/// back to the maximum. Bisecting never breaks the one-request-per-cycle rule: each step is the
+/// next cycle's single request, scheduled by the timer at the normal interval, so finding the one
+/// bad sample in a full batch costs at most ~2·log2(500) ≈ 18 cycles and can never spin. The uploader is the shared <see cref="TimeEntryUploader"/> pointed
 /// at <c>activity-samples/batch</c> — the JSON POST, the single 401 refresh-retry and the status
 /// classification are identical, and duplicating them is how the two paths drift apart.
 ///
@@ -34,6 +43,12 @@ public sealed class ActivityBatchSyncEngine : IDisposable
     private readonly Lock _gate = new();
     private readonly SemaphoreSlim _drainGate = new(1, 1);
 
+    /// <summary>
+    /// The current batch size: <see cref="_batchLimit"/> until a 422/413 halves it. Only touched
+    /// inside a drain, which <see cref="_drainGate"/> serializes.
+    /// </summary>
+    private int _splitLimit;
+
     private Timer? _timer;
     private bool _started;
     private bool _disposed;
@@ -52,6 +67,7 @@ public sealed class ActivityBatchSyncEngine : IDisposable
         _backoff = backoff ?? new BackoffPolicy();
         _interval = interval ?? TimeSpan.FromSeconds(90);
         _batchLimit = Math.Clamp(batchLimit, 1, MaxBatchSize);
+        _splitLimit = _batchLimit;
         _maxAge = maxAge ?? TimeSpan.FromDays(7);
         _maxCount = maxCount;
     }
@@ -129,7 +145,8 @@ public sealed class ActivityBatchSyncEngine : IDisposable
     {
         _store.Prune(_maxAge, _maxCount);
 
-        var batch = _store.Take(_batchLimit);
+        var limit = _splitLimit;
+        var batch = _store.Take(limit);
         if (batch.Count == 0)
         {
             // The server rejects an empty `samples` array (min 1), so there is nothing to send and
@@ -151,14 +168,30 @@ public sealed class ActivityBatchSyncEngine : IDisposable
             case UploadResult.Success:
                 _store.Remove(ids);
                 _backoff.Reset();
+                if (batch.Count < limit)
+                {
+                    // That was everything pending: no bad sample is left to isolate.
+                    _splitLimit = _batchLimit;
+                }
+
+                return false;
+            case UploadResult.Permanent { Status: 422 or 413 } when batch.Count > 1:
+                // Keep every sample; the next cycle sends the older half.
+                _splitLimit = SplitLimitAfterRejection(batch.Count);
                 return false;
             case UploadResult.Permanent:
+                // A whole batch for any other 4xx; for 422/413, the one sample that is still
+                // rejected on its own.
                 _store.Remove(ids);
+                _splitLimit = _batchLimit;
                 return false;
             default:
                 return true; // transient / auth — keep the batch, caller backs off
         }
     }
+
+    /// <summary>The batch size for the next cycle after a batch of <paramref name="rejected"/> was split.</summary>
+    internal static int SplitLimitAfterRejection(int rejected) => Math.Max(1, rejected / 2);
 
     private async void RunCycleAsync()
     {

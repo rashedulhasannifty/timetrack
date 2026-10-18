@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { dayOf, weekStartDay } from '@timetrack/contracts';
 
 const env = { value: { APP_URL: 'https://timer.niftyitsolution.com', NODE_ENV: 'production' } };
 vi.mock('@timetrack/config', () => ({ loadEnv: () => env.value }));
@@ -174,9 +175,10 @@ describe('EmailProcessor weekly-summary job', () => {
     const mailer = makeMailer();
     await makeProcessor(makeLogger(), mailer).process(summaryJob);
 
+    // Mon 3 → Mon 10 Aug, 00:00 Asia/Dhaka (APP_TIMEZONE) — the TimesheetApproval.periodStart week.
     const week = vi.mocked(collectWeeklySummaries).mock.calls[0]![1];
-    expect(week.periodStart.toISOString()).toBe('2026-08-03T00:00:00.000Z');
-    expect(week.periodEnd.toISOString()).toBe('2026-08-10T00:00:00.000Z');
+    expect(week.periodStart.toISOString()).toBe('2026-08-02T18:00:00.000Z');
+    expect(week.periodEnd.toISOString()).toBe('2026-08-09T18:00:00.000Z');
   });
 
   it('warns and skips a team whose only manager is gone, rather than failing silently', async () => {
@@ -304,6 +306,7 @@ describe('EmailProcessor dispatch', () => {
 
     const week = vi.mocked(collectWeeklySummaries).mock.calls[0]![1];
     expect(week.periodEnd.getTime()).toBeLessThanOrEqual(Date.now());
-    expect(week.periodStart.getUTCDay()).toBe(1); // still a Monday
+    const startDay = dayOf(week.periodStart);
+    expect(weekStartDay(startDay)).toBe(startDay); // still a Monday, in APP_TIMEZONE
   });
 });

@@ -1,4 +1,10 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { Logger } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import type {
@@ -10,6 +16,7 @@ import type {
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { MinioService } from '../../infra/storage/minio.service.js';
 import { QueueService, QUEUES } from '../../infra/queue/queue.module.js';
+import { PartitionRangeService } from '../../common/partitions/partition-range.service.js';
 import { ScreenshotsRepository, type ScreenshotRow } from './screenshots.repository.js';
 
 @Injectable()
@@ -18,6 +25,8 @@ export class ScreenshotsService {
     private readonly repo: ScreenshotsRepository,
     private readonly storage: MinioService,
     private readonly queue: QueueService,
+    private readonly partitions: PartitionRangeService,
+    private readonly logger: Logger,
   ) {}
 
   /**
@@ -46,11 +55,43 @@ export class ScreenshotsService {
    * and enqueue the derive job. Owner is ALWAYS the session user, never a body field. Idempotent:
    * a retried upload (client deletes local only after a confirmed 201) overwrites the object and
    * re-sets PENDING, so a lost-201 retry is a safe no-op.
+   *
+   * The timestamp is range-checked BEFORE anything is streamed: one with no partition to land in
+   * (a month retention already dropped, a clock far ahead) or more than a day in the future gets a
+   * 422. Otherwise the object was written and the insert then 500'd — an orphan object, and a
+   * client retrying a record that can never succeed. Both clients treat a non-401 4xx as
+   * permanent and drop the record.
    */
   async upload(file: Readable, meta: UploadScreenshotMeta, user: SessionUser): Promise<Screenshot> {
+    const accepts = await this.partitions.acceptor('screenshots');
+    if (!accepts(new Date(meta.timestamp))) {
+      this.logger.warn(
+        { userId: user.id, screenshotId: meta.id, timestamp: meta.timestamp },
+        'screenshot outside the stored partition range rejected',
+      );
+      throw new UnprocessableEntityException({
+        type: 'https://timetrack.internal/errors/validation',
+        title: 'Validation failed',
+        status: 422,
+        errors: [
+          {
+            path: 'timestamp',
+            message: 'timestamp is outside the range the server stores',
+            code: 'out_of_range',
+          },
+        ],
+      });
+    }
     const storageKey = `raw/${user.id}/${meta.id}`;
     await this.storage.putStream(storageKey, file, 'image/png');
-    const row = await this.repo.create(meta, user.id, storageKey);
+    let row: ScreenshotRow;
+    try {
+      row = await this.repo.create(meta, user.id, storageKey);
+    } catch (err) {
+      // Possibly a partition dropped since the cached ranges were read — re-read on the retry.
+      this.partitions.invalidate('screenshots');
+      throw err;
+    }
     await this.queue.enqueue(QUEUES.screenshotProcess, randomUUID(), {
       id: meta.id,
       timestamp: meta.timestamp,

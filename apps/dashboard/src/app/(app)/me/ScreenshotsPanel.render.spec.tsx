@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ScreenshotsPanel } from './ScreenshotsPanel';
+import { ScreenshotsPanel, SHOT_GROUPS_PER_PAGE } from './ScreenshotsPanel';
 import type { ScreenshotView } from './screenshot-view';
 
 /**
@@ -74,6 +74,70 @@ describe('ScreenshotsPanel render', () => {
     );
     expect(html).toContain('1 of 2 displays');
     expect(html).toContain('A display failed to capture in this interval.');
+  });
+
+  /**
+   * Regression: every group used to be its own full-width row, so a one-display day rendered a
+   * single 160px tile per row — a long column of mostly empty space. Groups now share one grid,
+   * and a multi-display group spans as many cells as it has displays (capped at 3).
+   */
+  it('lays groups out in one shared grid instead of a row each', () => {
+    const html = renderToStaticMarkup(
+      <ScreenshotsPanel
+        shots={[
+          shot('a', TICK, null),
+          shot('b', '2026-08-14T12:33:47.000Z', null),
+          shot('c', '2026-08-14T12:23:47.000Z', { id: 'g3', index: 0, count: 2 }),
+          shot('d', '2026-08-14T12:23:47.000Z', { id: 'g3', index: 1, count: 2 }),
+        ]}
+      />,
+    );
+    // First <ul> is the outer list (React hoists image preload <link>s ahead of it).
+    const outer = html.match(/<ul class="([^"]*)"/)?.[1] ?? '';
+    expect(outer).toContain('grid');
+    expect(outer).not.toContain('flex-col');
+    // Single-display groups take one cell; the two-display group spans two.
+    expect(html.match(/col-span-2/g)).toHaveLength(1);
+  });
+
+  it('caps the span of a wide multi-display group so it cannot force the grid wider', () => {
+    const four = [0, 1, 2, 3].map((i) => shot(`s${i}`, TICK, { id: 'g4', index: i, count: 4 }));
+    const html = renderToStaticMarkup(<ScreenshotsPanel shots={four} />);
+    expect(html).toContain('col-span-3');
+    expect(html).not.toContain('col-span-4');
+  });
+
+  /** `count` single-display ticks, 10 minutes apart, newest first. */
+  const day = (count: number): ScreenshotView[] =>
+    Array.from({ length: count }, (_, i) =>
+      shot(`p${i}`, new Date(Date.parse(TICK) - i * 600_000).toISOString(), null),
+    );
+
+  it('renders only the first page of a long day, with a pager', () => {
+    const html = renderToStaticMarkup(<ScreenshotsPanel shots={day(SHOT_GROUPS_PER_PAGE + 6)} />);
+    expect(html.match(/<img/g)).toHaveLength(SHOT_GROUPS_PER_PAGE);
+    expect(html).toContain('1 of 2');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Prev<\/button>/);
+  });
+
+  it('shows no pager when the day fits on one page', () => {
+    const html = renderToStaticMarkup(<ScreenshotsPanel shots={day(SHOT_GROUPS_PER_PAGE)} />);
+    expect(html.match(/<img/g)).toHaveLength(SHOT_GROUPS_PER_PAGE);
+    expect(html).not.toContain('Prev');
+  });
+
+  /** Pages are cut on capture ticks: a multi-display tick is never split across two pages. */
+  it('keeps every display of a tick on the same page', () => {
+    const shots = day(SHOT_GROUPS_PER_PAGE - 1);
+    const at = new Date(Date.parse(TICK) - SHOT_GROUPS_PER_PAGE * 600_000).toISOString();
+    shots.push(
+      shot('m0', at, { id: 'gm', index: 0, count: 2 }),
+      shot('m1', at, { id: 'gm', index: 1, count: 2 }),
+    );
+    const html = renderToStaticMarkup(<ScreenshotsPanel shots={shots} />);
+    expect(html).toContain('2 displays');
+    expect(html.match(/<img/g)).toHaveLength(SHOT_GROUPS_PER_PAGE + 1);
+    expect(html).not.toContain('Prev');
   });
 
   it('says so when the day has no captures at all', () => {

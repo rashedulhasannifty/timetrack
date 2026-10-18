@@ -69,6 +69,9 @@ public sealed class AuthSession : IDisposable
     private DateTimeOffset? _accessDeadline;
     private Task? _refreshInFlight;
 
+    // 1 once SessionEnded has been raised for the current tokens; back to 0 when new ones arrive.
+    private int _sessionEndedRaised;
+
     public AuthSession(
         IAuthClient client,
         ITokenStore store,
@@ -80,6 +83,18 @@ public sealed class AuthSession : IDisposable
         _settings = settings;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
+
+    /// <summary>
+    /// The server rejected the refresh token during a running session — the account was
+    /// deactivated, or the session revoked. Raised ONCE per set of tokens, from whichever thread
+    /// made the request. Not raised from <see cref="BootstrapAsync"/>, which handles the same
+    /// rejection itself by reporting <see cref="BootstrapOutcome.Unauthenticated"/>.
+    ///
+    /// Before this existed, every caller swallowed the rejection — the uploaders as transient, the
+    /// policy fetch as offline — so a revoked user stayed "signed in" indefinitely with nothing
+    /// syncing.
+    /// </summary>
+    public event Action? SessionEnded;
 
     public bool IsAuthenticated => _store.ReadRefreshToken() is not null;
 
@@ -172,18 +187,39 @@ public sealed class AuthSession : IDisposable
             return cached;
         }
 
-        await RefreshAsync(cancellationToken).ConfigureAwait(false);
+        await RefreshInSessionAsync(cancellationToken).ConfigureAwait(false);
         return _access ?? throw new NotAuthenticatedException();
     }
 
     /// <summary>Forces a refresh regardless of deadline — used by every client on a 401.</summary>
     public async Task<string> ForceRefreshAsync(CancellationToken cancellationToken = default)
     {
-        await RefreshAsync(cancellationToken).ConfigureAwait(false);
+        await RefreshInSessionAsync(cancellationToken).ConfigureAwait(false);
         return _access ?? throw new NotAuthenticatedException();
     }
 
     public void Dispose() => _gate.Dispose();
+
+    /// <summary>
+    /// A refresh on behalf of a running session. The rejection still reaches the caller exactly as
+    /// before — this only adds the one <see cref="SessionEnded"/> notification on the way past.
+    /// </summary>
+    private async Task RefreshInSessionAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await RefreshAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (AuthException e) when (e.Failure == AuthFailure.RefreshRejected)
+        {
+            if (Interlocked.Exchange(ref _sessionEndedRaised, 1) == 0)
+            {
+                SessionEnded?.Invoke();
+            }
+
+            throw;
+        }
+    }
 
     /// <summary>
     /// Coalesced: concurrent callers await the SAME in-flight refresh instead of racing. The
@@ -244,6 +280,7 @@ public sealed class AuthSession : IDisposable
         _access = pair.AccessToken;
         _accessDeadline = _clock().AddSeconds(pair.ExpiresIn);
         _store.SaveRefreshToken(pair.RefreshToken);
+        Interlocked.Exchange(ref _sessionEndedRaised, 0);
         if (JwtDecoder.TryReadClaims(pair.AccessToken) is { } claims)
         {
             _settings.SetString(LastUserIdKey, claims.Sub);

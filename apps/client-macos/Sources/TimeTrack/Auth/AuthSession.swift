@@ -121,6 +121,21 @@ actor AuthSession {
         return access
     }
 
+    /// Whether the server rejects this session's refresh token right now — the confirmation an
+    /// upload's `.authFailed` gets before the app ends the session. Only a rejection (401 on
+    /// refresh) answers true: offline, a 5xx or a throttled refresh says nothing about the token,
+    /// and neither does having no token at all (nobody is signed in, so there is nothing to end).
+    func refreshIsRejected() async -> Bool {
+        do {
+            try await refresh()
+            return false
+        } catch AuthError.refreshRejected {
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// Coalesced: concurrent callers await the SAME in-flight refresh instead of racing.
     private func refresh() async throws {
         if let refreshInFlight { try await refreshInFlight.value; return }

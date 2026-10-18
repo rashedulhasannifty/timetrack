@@ -115,4 +115,122 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(buffer.take(kind: .idleEvent, limit: 10).map(\.id), ["new"],
                        "the 10-day-old idle event was pruned; the fresh one kept")
     }
+
+    // MARK: - time entries are payroll: never age-pruned
+
+    func testTimeEntriesAreNeverAgePruned() async {
+        let clock = MutableClock(t0)
+        let buffer = tempBuffer(clock: clock.read)
+        buffer.enqueue(id: "old-entry", kind: .timeEntry, payload: Data("t".utf8))   // t0
+        clock.advance(30 * 24 * 3600)                                                // a month later
+        // Transient: the session can't deliver it (offline, or revoked and awaiting re-login).
+        let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.transient]),
+                                idleUploader: FakeUploader(results: [.success]),
+                                maxAge: 7 * 24 * 3600)
+
+        await engine.syncNow()
+
+        XCTAssertEqual(buffer.take(kind: .timeEntry, limit: 10).map(\.id), ["old-entry"],
+                       "an undelivered time entry outlives the age limit")
+    }
+
+    // MARK: - sign-out flush
+
+    func testFlushForSignOutDrainsPassAfterPassUntilEmpty() async {
+        let buffer = tempBuffer()
+        for id in ["t1", "t2", "t3"] { buffer.enqueue(id: id, kind: .timeEntry, payload: Data(id.utf8)) }
+        let uploader = FakeUploader(results: [.success])
+        // One record per pass: a single final pass (the old sign-out) would leave two behind.
+        let engine = SyncEngine(buffer: buffer, uploader: uploader,
+                                idleUploader: FakeUploader(results: [.success]), batchLimit: 1)
+
+        await engine.flushForSignOut()
+
+        XCTAssertEqual(uploader.uploadedPayloads.count, 3)
+        XCTAssertEqual(buffer.pendingCount(), 0)
+    }
+
+    func testFlushForSignOutStopsWhenAPassMakesNoProgressAndKeepsTheRest() async {
+        let buffer = tempBuffer()
+        buffer.enqueue(id: "t1", kind: .timeEntry, payload: Data("1".utf8))
+        buffer.enqueue(id: "t2", kind: .timeEntry, payload: Data("2".utf8))
+        let uploader = FakeUploader(results: [.transient])
+        let engine = SyncEngine(buffer: buffer, uploader: uploader,
+                                idleUploader: FakeUploader(results: [.success]))
+
+        await engine.flushForSignOut()
+
+        XCTAssertEqual(uploader.uploadedPayloads.count, 1, "one failed pass, no spinning")
+        XCTAssertEqual(buffer.pendingCount(), 2, "unsent records stay on disk — sign-out never clears them")
+    }
+
+    /// The bug: sign-out's final `syncNow()` found the timer's pass running, returned at once,
+    /// and the buffer was cleared under it. The flush must wait for that pass and then keep going.
+    func testFlushForSignOutJoinsThePassAlreadyRunning() async {
+        let buffer = tempBuffer()
+        for id in ["t1", "t2", "t3"] { buffer.enqueue(id: id, kind: .timeEntry, payload: Data(id.utf8)) }
+        let uploader = GatedUploader()
+        let entered = expectation(description: "first upload in flight")
+        uploader.onEnter = { entered.fulfill() }
+        let engine = SyncEngine(buffer: buffer, uploader: uploader,
+                                idleUploader: FakeUploader(results: [.success]), batchLimit: 1)
+
+        let running = Task { await engine.syncNow() }
+        await fulfillment(of: [entered], timeout: 5)
+        let flush = Task { await engine.flushForSignOut() }
+        for _ in 0..<20 { await Task.yield() }   // let the flush reach the engine and park
+        uploader.release()
+        _ = await running.value
+        await flush.value
+
+        XCTAssertEqual(uploader.uploadCount, 3, "the running pass finished and the flush drained the rest")
+        XCTAssertEqual(buffer.pendingCount(), 0)
+    }
+
+    func testRetiredEngineNeverUploadsAgain() async {
+        let buffer = tempBuffer()
+        let uploader = FakeUploader(results: [.success])
+        let engine = SyncEngine(buffer: buffer, uploader: uploader,
+                                idleUploader: FakeUploader(results: [.success]))
+        await engine.flushForSignOut()
+
+        // Whatever reaches the buffer after sign-out is settled by the next session's owner
+        // check — never by a late pass of this engine.
+        buffer.enqueue(id: "late", kind: .timeEntry, payload: Data("l".utf8))
+        let backedOff = await engine.syncNow()
+
+        XCTAssertFalse(backedOff)
+        XCTAssertTrue(uploader.uploadedPayloads.isEmpty)
+        XCTAssertEqual(buffer.pendingCount(), 1)
+    }
+
+    // MARK: - a refused session
+
+    func testAuthFailedReportsTheSessionAndKeepsTheRecord() async {
+        let buffer = tempBuffer()
+        buffer.enqueue(id: "t1", kind: .timeEntry, payload: Data("1".utf8))
+        let reports = CallCounter()
+        let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.authFailed]),
+                                idleUploader: FakeUploader(results: [.success]),
+                                onAuthFailed: { reports.increment() })
+
+        let backedOff = await engine.syncNow()
+
+        XCTAssertTrue(backedOff)
+        XCTAssertEqual(reports.value, 1)
+        XCTAssertEqual(buffer.pendingCount(), 1, "kept for the same user's next session")
+    }
+
+    func testTransientDoesNotReportTheSession() async {
+        let buffer = tempBuffer()
+        buffer.enqueue(id: "t1", kind: .timeEntry, payload: Data("1".utf8))
+        let reports = CallCounter()
+        let engine = SyncEngine(buffer: buffer, uploader: FakeUploader(results: [.transient]),
+                                idleUploader: FakeUploader(results: [.success]),
+                                onAuthFailed: { reports.increment() })
+
+        await engine.syncNow()
+
+        XCTAssertEqual(reports.value, 0, "offline is not a dead session")
+    }
 }

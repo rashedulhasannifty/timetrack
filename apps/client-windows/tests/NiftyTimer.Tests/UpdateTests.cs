@@ -280,6 +280,122 @@ public class UpdateInstallerTests
         Assert.False(UpdateInstaller.PublisherTransitionAllowed("ABC123", "DEF456"));
     }
 
+    private static readonly int TrustEBadDigest = unchecked((int)0x80096010);
+    private static readonly int TrustENoSignature = unchecked((int)0x800B0100);
+    private static readonly int CertEUntrustedRoot = unchecked((int)0x800B0109);
+    private static readonly int CertERevoked = unchecked((int)0x800B010C);
+
+    /// <summary>
+    /// A signature that is present but fails its digest is a tampered build. It must never read
+    /// as "unsigned" — that is the hole the old reader had, where every executable did.
+    /// </summary>
+    [Fact]
+    public void ABadDigestIsInvalidNotUnsigned()
+    {
+        Assert.Equal(AuthenticodeStatus.Invalid, UpdateInstaller.Classify(hasEmbeddedSignature: true, TrustEBadDigest));
+        Assert.Equal(AuthenticodeStatus.Invalid, UpdateInstaller.Classify(hasEmbeddedSignature: true, TrustENoSignature));
+        Assert.Equal(AuthenticodeStatus.Invalid, UpdateInstaller.Classify(hasEmbeddedSignature: true, CertERevoked));
+    }
+
+    /// <summary>
+    /// Identity is pinned by thumbprint, not by chain trust, so a self-issued pilot certificate is
+    /// still a signed build as long as the signature verifies over the file.
+    /// </summary>
+    [Fact]
+    public void AnIntactSignatureFromAnUntrustedRootIsStillSigned()
+    {
+        Assert.Equal(AuthenticodeStatus.Signed, UpdateInstaller.Classify(hasEmbeddedSignature: true, 0));
+        Assert.Equal(AuthenticodeStatus.Signed, UpdateInstaller.Classify(hasEmbeddedSignature: true, CertEUntrustedRoot));
+    }
+
+    [Fact]
+    public void NoEmbeddedSignatureIsUnsignedWhateverTheResultCode()
+    {
+        Assert.Equal(AuthenticodeStatus.Unsigned, UpdateInstaller.Classify(hasEmbeddedSignature: false, TrustENoSignature));
+        Assert.Equal(AuthenticodeStatus.Unsigned, UpdateInstaller.Classify(hasEmbeddedSignature: false, 0));
+    }
+
+    [Fact]
+    public void ATamperedCandidateIsRefusedEvenForAnUnsignedInstall()
+    {
+        Assert.False(UpdateInstaller.TransitionAllowed(AuthenticodeResult.Unsigned, AuthenticodeResult.Invalid));
+        Assert.False(UpdateInstaller.TransitionAllowed(AuthenticodeResult.Signed("ABC123"), AuthenticodeResult.Invalid));
+    }
+
+    [Fact]
+    public void ASignedInstallRefusesAnUnsignedCandidate()
+    {
+        Assert.False(UpdateInstaller.TransitionAllowed(AuthenticodeResult.Signed("ABC123"), AuthenticodeResult.Unsigned));
+    }
+
+    [Fact]
+    public void TheSameVerifiedPublisherIsAllowed()
+    {
+        Assert.True(UpdateInstaller.TransitionAllowed(AuthenticodeResult.Signed("ABC123"), AuthenticodeResult.Signed("abc123")));
+        Assert.True(UpdateInstaller.TransitionAllowed(AuthenticodeResult.Unsigned, AuthenticodeResult.Unsigned));
+        Assert.False(UpdateInstaller.TransitionAllowed(AuthenticodeResult.Signed("ABC123"), AuthenticodeResult.Signed("DEF456")));
+    }
+
+    /// <summary>
+    /// Against a real binary: a Microsoft-signed runtime DLL (embedded Authenticode, unlike most of
+    /// System32, which is catalog-signed and carries no signature of its own). The old reader
+    /// returned null — "unsigned" — for exactly this file.
+    /// </summary>
+    [Fact]
+    public void ARealSignedBinaryVerifiesAndATamperedCopyIsInvalid()
+    {
+        var signed = SignedRuntimeBinary();
+
+        var original = UpdateInstaller.AuthenticodeOf(signed);
+        Assert.Equal(AuthenticodeStatus.Signed, original.Status);
+        Assert.False(string.IsNullOrEmpty(original.Thumbprint));
+        Assert.True(UpdateInstaller.TransitionAllowed(original, UpdateInstaller.AuthenticodeOf(signed)));
+
+        var tampered = Path.Combine(Path.GetTempPath(), "niftytimer-tests", Guid.NewGuid().ToString("n"), Path.GetFileName(signed));
+        Directory.CreateDirectory(Path.GetDirectoryName(tampered)!);
+        var bytes = File.ReadAllBytes(signed);
+        bytes[bytes.Length / 4] ^= 0xFF; // inside the image's sections, well before the certificate table
+        File.WriteAllBytes(tampered, bytes);
+
+        var result = UpdateInstaller.AuthenticodeOf(tampered);
+        Assert.Equal(AuthenticodeStatus.Invalid, result.Status);
+        Assert.False(UpdateInstaller.TransitionAllowed(original, result));
+        Assert.False(UpdateInstaller.TransitionAllowed(AuthenticodeResult.Unsigned, result));
+    }
+
+    [Fact]
+    public void AFileWithoutASignatureIsUnsigned()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "niftytimer-tests", Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(folder);
+        var random = Path.Combine(folder, "random.exe");
+        var payload = new byte[64 * 1024];
+        new Random(11).NextBytes(payload);
+        File.WriteAllBytes(random, payload);
+        var stub = Path.Combine(folder, "stub.exe");
+        File.WriteAllBytes(stub, [0x4D, 0x5A]);
+
+        Assert.Equal(AuthenticodeResult.Unsigned, UpdateInstaller.AuthenticodeOf(random));
+        Assert.Equal(AuthenticodeResult.Unsigned, UpdateInstaller.AuthenticodeOf(stub));
+        Assert.Equal(AuthenticodeResult.Unsigned, UpdateInstaller.AuthenticodeOf(Path.Combine(folder, "missing.exe")));
+    }
+
+    private static string SignedRuntimeBinary()
+    {
+        var runtime = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        foreach (var name in new[] { "coreclr.dll", "hostpolicy.dll", "clrjit.dll", "System.Private.CoreLib.dll" })
+        {
+            var candidate = Path.Combine(runtime, name);
+            if (File.Exists(candidate) && UpdateInstaller.HasEmbeddedSignature(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        Assert.Fail($"No runtime binary under {runtime} carries an embedded Authenticode signature.");
+        return string.Empty;
+    }
+
     /// <summary>
     /// The swap has to survive its own failure. Renaming the old install aside rather than
     /// deleting it is what makes that possible — the script must restore it if the move in fails.

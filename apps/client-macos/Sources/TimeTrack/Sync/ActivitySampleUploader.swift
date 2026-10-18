@@ -29,6 +29,8 @@ final class ActivitySampleUploader: ActivitySampleUploading {
                 return TimeEntryUploader.classify(status: retried)
             }
             return TimeEntryUploader.classify(status: status)
+        } catch AuthError.refreshRejected {
+            return .authFailed   // the session itself was refused — see TimeEntryUploader
         } catch {
             return .transient
         }

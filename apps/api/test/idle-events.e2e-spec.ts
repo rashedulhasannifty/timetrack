@@ -1,5 +1,6 @@
 import './test-env.js'; // must run before anything that calls loadEnv()
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { ConflictException } from '@nestjs/common';
 import { IdleEventsRepository } from '../src/modules/idle-events/idle-events.repository.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
@@ -50,6 +51,40 @@ describe.runIf(RUN_E2E)('idle-events repository — real Postgres', () => {
     await repo().upsert(e, 'u1');
     await repo().upsert(e, 'u1'); // retried offline drain
     expect(await db.prisma.idleEvent.count({ where: { id: e.id } })).toBe(1);
+  });
+
+  /**
+   * REGRESSION — the upsert matched on `id` alone, so a caller who knew another user's idle
+   * event id could overwrite its endTime/resolvedAction. It must be refused and left untouched.
+   */
+  it("rejects an upsert carrying another user's id with a 409 and leaves their row unchanged", async () => {
+    const id = '019797a0-0000-7000-8000-0000000000e3';
+    await repo().upsert(event(id), 'victim');
+    const before = await db.prisma.idleEvent.findUniqueOrThrow({ where: { id } });
+
+    const attempt = repo().upsert(
+      event(id, { endTime: '2026-07-11T11:00:00Z', resolvedAction: 'KEPT' }),
+      'attacker',
+    );
+    await expect(attempt).rejects.toBeInstanceOf(ConflictException);
+    await expect(attempt).rejects.toMatchObject({
+      response: { status: 409, title: 'Idle event id already belongs to another user' },
+    });
+
+    const after = await db.prisma.idleEvent.findUniqueOrThrow({ where: { id } });
+    expect(after).toEqual(before);
+  });
+
+  it('a same-user retry with a later resolution still updates the row', async () => {
+    const id = '019797a0-0000-7000-8000-0000000000e4';
+    await repo().upsert(event(id), 'u1');
+    const again = await repo().upsert(
+      event(id, { endTime: '2026-07-11T09:10:00Z', resolvedAction: 'KEPT' }),
+      'u1',
+    );
+    expect(again).toEqual({ id, resolvedAction: 'KEPT' });
+    const row = await db.prisma.idleEvent.findUniqueOrThrow({ where: { id } });
+    expect(row.endTime.toISOString()).toBe('2026-07-11T09:10:00.000Z');
   });
 
   it('list returns only the target user rows inside [from, to], ordered by startTime', async () => {

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { api } from '../../../../lib/api-client';
 import { decodeClaims } from '../../../../lib/session';
 import { safeInternalPath, seeOther } from '../../../../lib/redirect';
+import { landingPathFor } from '../../../../lib/nav-access';
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
@@ -43,6 +44,13 @@ function redirect(_req: NextRequest, path: string): NextResponse {
   return seeOther(path);
 }
 
+// The first page this role can open (lib/nav-access) — an EMPLOYEE has no team overview, so
+// sending everyone to /overview made their first screen a not-permitted state. The claims are
+// decoded, not verified; they only pick a page, and that page's own guard and the API decide.
+function landingFor(accessToken: string): string {
+  return landingPathFor(decodeClaims(accessToken)?.role);
+}
+
 function setSession(res: NextResponse, payload: SessionPayload): void {
   res.cookies.set(
     SESSION_COOKIE,
@@ -66,6 +74,15 @@ function ssoFailure(req: NextRequest): NextResponse {
   return res;
 }
 
+/**
+ * The client address Caddy recorded, passed on to the API's sign-in calls so its per-address
+ * rate limit sees the real client rather than this BFF on 127.0.0.1 (see api-client authPost).
+ * Production binds the dashboard to loopback behind Caddy, which overwrites any client-sent value.
+ */
+function forwardedFor(req: NextRequest): string | null {
+  return req.headers.get('x-forwarded-for');
+}
+
 async function segment(ctx: { params: Promise<{ auth: string[] }> }): Promise<string> {
   const { auth } = await ctx.params;
   return auth[auth.length - 1] ?? '';
@@ -84,9 +101,9 @@ export async function POST(
     if (typeof emailVal !== 'string' || typeof passwordVal !== 'string') {
       return redirect(req, '/login?error=1');
     }
-    const tokens = await api.login(emailVal, passwordVal);
+    const tokens = await api.login(emailVal, passwordVal, forwardedFor(req));
     if (!tokens) return redirect(req, '/login?error=1');
-    const res = redirect(req, '/overview');
+    const res = redirect(req, landingFor(tokens.accessToken));
     setSession(res, payloadFrom(tokens));
     return res;
   }
@@ -119,11 +136,11 @@ export async function POST(
     if (typeof passwordVal !== 'string' || passwordVal.length < 8) return back('weak');
     if (passwordVal !== confirmVal) return back('mismatch');
 
-    const tokens = await api.acceptInvite(tokenVal, passwordVal, name);
+    const tokens = await api.acceptInvite(tokenVal, passwordVal, name, forwardedFor(req));
     // 401 → the token is invalid, expired, or already used. Re-showing the form would just
     // fail again, so send them to /login without the token.
     if (!tokens) return redirect(req, '/accept-invite?error=invalid');
-    const res = redirect(req, '/overview');
+    const res = redirect(req, landingFor(tokens.accessToken));
     setSession(res, payloadFrom(tokens));
     return res;
   }
@@ -173,15 +190,13 @@ export async function GET(
     if (!handshake || !code || !state || state !== handshake.state) {
       return ssoFailure(req);
     }
-    const tokens = await api.oidcCallback({
-      code,
-      state,
-      nonce: handshake.nonce,
-      codeVerifier: handshake.codeVerifier,
-    });
+    const tokens = await api.oidcCallback(
+      { code, state, nonce: handshake.nonce, codeVerifier: handshake.codeVerifier },
+      forwardedFor(req),
+    );
     // Loop-breaker (mirrors refresh): a token we can't decode would bounce forever.
     if (!tokens || !decodeClaims(tokens.accessToken)) return ssoFailure(req);
-    const res = redirect(req, '/overview');
+    const res = redirect(req, landingFor(tokens.accessToken));
     setSession(res, payloadFrom(tokens));
     clearOidc(res);
     return res;
@@ -221,7 +236,8 @@ export async function GET(
     // Back to where the token expired, when the caller told us. Validated as an internal
     // path first: it arrives from the query string, so an unchecked value here would be an
     // open redirect on the one route that hands out a fresh session.
-    const back = safeInternalPath(req.nextUrl.searchParams.get('next')) ?? '/overview';
+    const back =
+      safeInternalPath(req.nextUrl.searchParams.get('next')) ?? landingFor(tokens.accessToken);
     const res = redirect(req, back);
     setSession(res, payloadFrom(tokens));
     return res;

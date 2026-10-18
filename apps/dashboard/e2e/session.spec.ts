@@ -37,6 +37,29 @@ test('the sign-in card links back to the home and install pages', async ({ page 
   await expect(page).toHaveURL(/\/$/);
 });
 
+/**
+ * An EMPLOYEE cannot open the team overview, so they land on their own time and their nav
+ * lists only what they can open. Needs a seeded employee: set E2E_EMPLOYEE_EMAIL /
+ * E2E_EMPLOYEE_PASSWORD (skipped otherwise — the default seed only guarantees the admin).
+ */
+test('an employee lands on My time and sees no manager/admin nav', async ({ page }) => {
+  const email = process.env.E2E_EMPLOYEE_EMAIL;
+  const password = process.env.E2E_EMPLOYEE_PASSWORD;
+  test.skip(!email || !password, 'E2E_EMPLOYEE_EMAIL / E2E_EMPLOYEE_PASSWORD not set');
+
+  await page.goto('/login');
+  await page.fill('input[name="email"]', email ?? '');
+  await page.fill('input[name="password"]', password ?? '');
+  await page.click('button[type="submit"]');
+  await expect(page).toHaveURL(/\/me$/);
+
+  const nav = page.getByRole('complementary', { name: 'Primary' });
+  await expect(nav.getByRole('link', { name: 'My time' })).toBeVisible();
+  for (const label of ['Overview', 'Projects', 'Reports', 'Approvals', 'Admin']) {
+    await expect(nav.getByRole('link', { name: label, exact: true })).toHaveCount(0);
+  }
+});
+
 test('login lands on the overview, logout returns to /login', async ({ page }) => {
   await signIn(page);
   await expect(page.getByRole('heading', { name: 'Overview', exact: true }).first()).toBeVisible();
@@ -60,7 +83,9 @@ test('a signed-in person can still read the home and install pages', async ({ pa
 
   await page.getByRole('link', { name: 'Install the app' }).click();
   await expect(page).toHaveURL(/\/install$/);
-  await expect(page.getByRole('heading', { name: 'Which machine are you setting up?' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Which machine are you setting up?' }),
+  ).toBeVisible();
 
   await page.goto('/');
   await expect(page).toHaveURL(/\/$/);

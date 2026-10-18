@@ -87,11 +87,10 @@ export async function trackedSecondsByUser(
  * "idle all week" are different facts and the email says so.
  *
  * `s.day` is a Dhaka calendar day (`rollup-daily.util.ts`'s `dhakaWindow`), so the query
- * projects `from`/`to` through `APP_TIMEZONE`, not `UTC`, to match. `from`/`to` themselves stay
- * the UTC-anchored closed week (`closed-week.ts`) — deliberately, so `weekLabel` and
- * `TimesheetApproval.periodStart` stay self-consistent (see `CLAMPED_SECONDS` above). That
- * leaves an accepted mismatch: at each week edge this activity % is computed over a window
- * six hours off from the tracked-seconds figure in the same email. Not to be "fixed" here.
+ * projects `from`/`to` through `APP_TIMEZONE`, not `UTC`, to match. `from`/`to` are the
+ * closed week from `closed-week.ts`, already Monday 00:00 in `APP_TIMEZONE` — the same
+ * boundaries as `TimesheetApproval.periodStart` and the tracked-seconds figure in the same
+ * email — so the projection lands exactly on the Monday and the following Monday labels.
  */
 export async function weightedActivityPctByUser(
   prisma: PrismaClient,

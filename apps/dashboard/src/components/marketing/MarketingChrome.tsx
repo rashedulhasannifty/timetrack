@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { getSession } from '../../lib/session';
+import { landingPathFor } from '../../lib/nav-access';
 import { ThemeToggle } from '../ui/ThemeToggle';
 import { BrandMark } from '../ui/BrandMark';
 
@@ -29,7 +30,8 @@ export async function MarketingChrome({
   children: ReactNode;
   width?: 'wide' | 'reading';
 }) {
-  const signedIn = (await getSession()) !== null;
+  const session = await getSession();
+  const signedIn = session !== null;
   const shell = width === 'wide' ? 'max-w-[76rem]' : 'max-w-[48rem]';
   return (
     <div className={`mx-auto w-full px-6 pb-28 sm:px-8 ${shell}`}>
@@ -46,7 +48,7 @@ export async function MarketingChrome({
             Install
           </Link>
           {signedIn ? (
-            <Link href="/overview" className="hover:text-text transition-colors">
+            <Link href={landingPathFor(session.role)} className="hover:text-text transition-colors">
               Open dashboard
             </Link>
           ) : (
