@@ -82,11 +82,19 @@ public sealed class AppDelegate : IDisposable
 
     // The capture BUFFERS and their drains are built unconditionally, on both branches. Draining
     // what was already captured is not capturing — an offline launch must still be able to deliver
-    // yesterday's screenshots — and the buffers must exist before sign-out can clear them.
+    // yesterday's screenshots.
     private ImageBufferStore _imageBuffer = null!;
     private ActivitySampleStore _activityStore = null!;
     private ScreenshotSyncEngine _screenshotSync = null!;
     private ActivityBatchSyncEngine _activitySync = null!;
+
+    // Unsent records survive sign-out, but no uploaded record carries a user id — the server
+    // attributes by bearer token. So the drains run ONLY for an account that has claimed the
+    // buffers (ClaimUnsentData), which discards anything that is not provably theirs first. Null
+    // while signed out, and the engines are stopped for exactly that span.
+    private UnsentDataOwnership _unsentOwnership = null!;
+    private string? _unsentClaimedFor;
+    private bool _signingOut;
 
     private TrayIconController _tray = null!;
     private TrayPopupWindow _popup = null!;
@@ -190,6 +198,7 @@ public sealed class AppDelegate : IDisposable
 
         _imageBuffer = new ImageBufferStore(Path.Combine(support, "screenshots"));
         _activityStore = new ActivitySampleStore(Path.Combine(support, "activity"));
+        _unsentOwnership = new UnsentDataOwnership(_settings);
 
         var uploader = new TimeEntryUploader(_http, _config.ApiBaseUri, _session);
         var idleUploader = new TimeEntryUploader(_http, _config.ApiBaseUri, _session, "idle-events");
@@ -235,9 +244,10 @@ public sealed class AppDelegate : IDisposable
 
         _endOfDay.Start();
         _updates.Start();
-        _sync.Start();
-        _screenshotSync.Start();
-        _activitySync.Start();
+
+        // The sync engines are NOT started here: nobody has claimed the buffers yet. They start in
+        // ClaimUnsentData, once the signed-in account is known and anything that is not theirs
+        // has been discarded.
         StartTimers();
 
         // A machine that slept through a failed launch resolve most likely wakes with network, so
@@ -328,6 +338,7 @@ public sealed class AppDelegate : IDisposable
         });
 
         _popup.SignOutRequested += () => _ = SignOutAsync();
+        _session.SessionEnded += OnSessionEnded;
         _popup.SignInRequested += ShowLogin;
         _popup.UpdateRequested += OnUpdateRequested;
         _popup.QuitRequested += () =>
@@ -482,12 +493,14 @@ public sealed class AppDelegate : IDisposable
         {
             case BootstrapOutcome.Authenticated:
                 _viewModel.IsSignedIn = true;
+                ClaimUnsentData(sessionCarriedOver: true);
                 await ProceedToPolicyAsync().ConfigureAwait(true);
                 break;
 
             case BootstrapOutcome.Offline:
                 // Signed in, just unreachable: the popup must not claim otherwise.
                 _viewModel.IsSignedIn = true;
+                ClaimUnsentData(sessionCarriedOver: true);
                 ProceedOffline();
 
                 // The refresh token is still ours; the API just could not be reached. Scheduled
@@ -528,6 +541,10 @@ public sealed class AppDelegate : IDisposable
         }
 
         _livePolicy.Update(policy.Settings);
+
+        // A no-op when bootstrap or sign-in already claimed the buffers. It matters only after an
+        // offline launch that had no user id to claim them with: this fetch has just minted a token.
+        ClaimUnsentData(sessionCarriedOver: true);
 
         if (policy.AckRequired)
         {
@@ -908,11 +925,7 @@ public sealed class AppDelegate : IDisposable
     private LoginWindow CreateLoginWindow()
     {
         var window = new LoginWindow(_session, _config.ApiBaseUri);
-        window.SignedIn += () =>
-        {
-            _viewModel.IsSignedIn = true;
-            _ = ProceedToPolicyAsync();
-        };
+        window.SignedIn += OnSignedIn;
 
         // A sign-in succeeds by HIDING the window, which is then reused. Closing it with the title
         // bar's X really closes it, and a closed WPF window throws if shown again — so forget it,
@@ -925,6 +938,75 @@ public sealed class AppDelegate : IDisposable
             }
         };
         return window;
+    }
+
+    /// <summary>
+    /// An interactive sign-in. The buffers are claimed BEFORE anything else runs for the new
+    /// account: until then the sync engines are stopped, so records another account left behind
+    /// cannot be uploaded under this one's token.
+    /// </summary>
+    private void OnSignedIn()
+    {
+        _viewModel.IsSignedIn = true;
+        ClaimUnsentData(sessionCarriedOver: false);
+        _ = ProceedToPolicyAsync();
+    }
+
+    /// <summary>
+    /// Decide whose the unsent records are, discard them if they are not the signed-in account's,
+    /// record that account as their owner, and only then start the sync engines. Idempotent per
+    /// session. See <see cref="UnsentDataOwnership"/> for the rule, including legacy buffers that
+    /// predate the owner marker.
+    /// </summary>
+    private void ClaimUnsentData(bool sessionCarriedOver)
+    {
+        if (_signingOut || _session.UserId is not { } userId || _unsentClaimedFor == userId)
+        {
+            return;
+        }
+
+        var pending = PendingTotal();
+        var action = _unsentOwnership.Claim(userId, pending, sessionCarriedOver, DiscardUnsentData);
+        if (action == UnsentDataAction.Discard)
+        {
+            // Counts only: never ids, payloads or titles.
+            _crashLog?.Write(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Discarded {pending} unsent record(s) that could not be shown to belong to the account signing in. They were never uploaded."));
+        }
+
+        _unsentClaimedFor = userId;
+        _sync.Start();
+        _screenshotSync.Start();
+        _activitySync.Start();
+        RefreshPendingCount();
+    }
+
+    private void DiscardUnsentData()
+    {
+        _buffer.Clear();
+        _imageBuffer.Clear();
+        _activityStore.Clear();
+    }
+
+    /// <summary>
+    /// The server rejected the session's refresh token mid-session: the account was deactivated or
+    /// the session revoked. Runs the ordinary sign-out — which keeps unsent data for this account —
+    /// and shows the login window. Always QUEUED to the UI thread, never run inline: the
+    /// notification arrives from inside a failing request, and tearing the session down
+    /// underneath that request's own error handling would interleave the two.
+    /// </summary>
+    private void OnSessionEnded() => _ = _dispatcher.InvokeAsync(() => { _ = EndSessionAsync(); });
+
+    private async Task EndSessionAsync()
+    {
+        if (!_viewModel.IsSignedIn || _signingOut)
+        {
+            return;
+        }
+
+        _crashLog?.Write("The server rejected this session's refresh token. Signing out; unsent data stays on this device for the same account.");
+        await SignOutAsync().ConfigureAwait(true);
     }
 
     private void ShowAck(EffectivePolicy policy)
@@ -1052,9 +1134,10 @@ public sealed class AppDelegate : IDisposable
     /// rather than any file contents, which is what makes this cheap enough to run on every menu
     /// open.
     /// </summary>
-    private void RefreshPendingCount() =>
-        _viewModel.PendingCount =
-            _buffer.PendingCount() + _imageBuffer.PendingCount() + _activityStore.PendingCount();
+    private void RefreshPendingCount() => _viewModel.PendingCount = PendingTotal();
+
+    private int PendingTotal() =>
+        _buffer.PendingCount() + _imageBuffer.PendingCount() + _activityStore.PendingCount();
 
     private void UpdateTray()
     {
@@ -1077,90 +1160,114 @@ public sealed class AppDelegate : IDisposable
     ///
     /// <c>CreateTimeEntry</c> carries no userId — the server attributes by token — so anything
     /// left in the buffer after the session changes would be uploaded as the NEXT person's time.
-    /// Hence: stop the timer first (so no cycle starts behind us), do a best-effort final drain on
-    /// the still-valid token, then clear.
+    /// Hence: stop the engines first (so no cycle starts behind us), drain on the still-valid token
+    /// until the buffers are empty or a pass stops making progress, and then leave what remains on
+    /// disk, owned by this account (<see cref="UnsentDataOwnership"/>). The engines stay stopped
+    /// until the next sign-in has claimed the buffers — which discards them if that is a different
+    /// account — so the leftovers can only ever be uploaded under the account that recorded them.
+    ///
+    /// It used to drain one batch per buffer and then clear all three, deleting whatever had not
+    /// made it — unsent time included.
+    ///
+    /// The same path runs when the server ends the session (<see cref="EndSessionAsync"/>).
     /// </summary>
     private async Task SignOutAsync()
     {
-        var userId = _session.UserId;
-
-        // Idle detection comes down FIRST, and it must, because tearing it down WRITES: each
-        // monitor records any pending away window as UNRESOLVED, and dismissing a recovery prompt
-        // closes its span. Both are records belonging to the user who is leaving, so both have to
-        // reach the buffer before the final drain below — otherwise Clear() discards them, or worse
-        // they drain later under the next person's token.
-        TearDownIdleDetection();
-
-        // The launch retry belongs to the person leaving: cancel it, and re-arm its schedule and
-        // its single warning for whoever signs in next. Readiness is theirs to earn again too.
-        CancelPolicyRetry();
-        _policyRetry.Reset();
-        _hasBecomeReady = false;
-        _hasAttemptedRecentSelectionFallback = false;
-
-        // Capture comes down and SETTLES before anything drains. Stopping a scheduler does not
-        // abort a cycle that is already inside a grab or a measurement window, and such a cycle
-        // resumes later and enqueues — so joining it here does two things: it keeps that last
-        // capture out of a buffer we are about to clear (where it would be lost) and, more
-        // importantly, out of one we have already cleared (where it would upload under the NEXT
-        // person's token, because the server attributes by bearer token and not by any field we
-        // send). Joining first rather than last also means anything the final cycle produced is
-        // still included in the drain below, credited to the person it belongs to.
-        await TearDownCaptureAsync().ConfigureAwait(true);
-
-        if (_tracker.State is TrackerState.Tracking)
+        if (_signingOut)
         {
-            _tracker.Stop();
+            return;
         }
 
-        _sync.Stop();
-        _screenshotSync.Stop();
-        _activitySync.Stop();
-
+        // Held for the whole teardown: a second sign-out click, or a session-ended notice raised by
+        // the drain below, must not start a second teardown on top of this one. It also keeps
+        // ClaimUnsentData from restarting the engines if a policy fetch resumes mid-teardown.
+        _signingOut = true;
         try
         {
-            // FlushAsync, not SyncNowAsync: the latter returns immediately when a cycle is already
-            // in flight, so the "final drain" would silently not happen and Clear() below would
-            // discard real tracked time. The same applies to each capture buffer.
-            await _sync.FlushAsync(_shutdown.Token).ConfigureAwait(true);
-            await _screenshotSync.FlushAsync(_shutdown.Token).ConfigureAwait(true);
-            await _activitySync.FlushAsync(_shutdown.Token).ConfigureAwait(true);
+            var userId = _session.UserId;
+
+            // Idle detection comes down FIRST, and it must, because tearing it down WRITES: each
+            // monitor records any pending away window as UNRESOLVED, and dismissing a recovery prompt
+            // closes its span. Both are records belonging to the user who is leaving, so both have to
+            // reach the buffer before the final drain below — and before the buffers are left behind
+            // under this account's ownership.
+            TearDownIdleDetection();
+
+            // The launch retry belongs to the person leaving: cancel it, and re-arm its schedule and
+            // its single warning for whoever signs in next. Readiness is theirs to earn again too.
+            CancelPolicyRetry();
+            _policyRetry.Reset();
+            _hasBecomeReady = false;
+            _hasAttemptedRecentSelectionFallback = false;
+
+            // Capture comes down and SETTLES before anything drains. Stopping a scheduler does not
+            // abort a cycle that is already inside a grab or a measurement window, and such a cycle
+            // resumes later and enqueues — so joining it here keeps that last capture from landing
+            // after the next person has claimed the buffers (where it would upload under THEIR
+            // token, because the server attributes by bearer token and not by any field we send).
+            // Joining first rather than last also means anything the final cycle produced is still
+            // included in the drain below, credited to the person it belongs to.
+            await TearDownCaptureAsync().ConfigureAwait(true);
+
+            if (_tracker.State is TrackerState.Tracking)
+            {
+                _tracker.Stop();
+            }
+
+            _sync.Stop();
+            _screenshotSync.Stop();
+            _activitySync.Stop();
+
+            try
+            {
+                // FlushAsync, not SyncNowAsync: the latter returns immediately when a cycle is
+                // already in flight, so the final drain would silently not happen — and that cycle
+                // could still be uploading after the next person signs in. Repeated per engine until
+                // its buffer is empty or a pass fails or stalls, because one pass is only one batch.
+                // After a rejected session the first pass per engine fails at once and ends it.
+                await FinalDrain.RunAsync(_sync.FlushAsync, _buffer.PendingCount, _shutdown.Token).ConfigureAwait(true);
+                await FinalDrain.RunAsync(_screenshotSync.FlushAsync, _imageBuffer.PendingCount, _shutdown.Token).ConfigureAwait(true);
+                await FinalDrain.RunAsync(_activitySync.FlushAsync, _activityStore.PendingCount, _shutdown.Token).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            // Whatever did not go stays on disk for this account; the buffers are NOT cleared. The
+            // owner marker already names it (ClaimUnsentData), and the engines stay stopped until
+            // the next sign-in claims the buffers. Caches that are not unsent work still go.
+            _unsentClaimedFor = null;
+            _projectCache.Clear();
+            _liveSpanStore.Clear();
+
+            // The saved project selection is deliberately KEPT, as on the Mac. It is namespaced by
+            // userId, so the next person on this machine cannot read it, and the same person signing
+            // back in gets their project back rather than re-picking it.
+            if (userId is not null)
+            {
+                _ackMarker.Clear(userId);
+            }
+
+            _session.Logout();
+
+            // Both hold per-person state: the notifier suppresses a repeat of the same nudge, and the
+            // scheduler remembers that today's summary was sent. Carried over, the next person on this
+            // machine would silently lose a nudge because the previous one saw it.
+            _notifier.Reset();
+            _endOfDay.Reset();
+            _projectRefreshThrottle.Reset();
+            _totalsRefreshThrottle.Reset();
+
+            _viewModel.Reset();
+            UpdateTray();
+
+            // The engines are deliberately NOT restarted: see ClaimUnsentData.
+            ShowLogin();
         }
-        catch (OperationCanceledException)
+        finally
         {
+            _signingOut = false;
         }
-
-        _buffer.Clear();
-        _imageBuffer.Clear();
-        _activityStore.Clear();
-        _projectCache.Clear();
-        _liveSpanStore.Clear();
-
-        // The saved project selection is deliberately KEPT, as on the Mac. It is namespaced by
-        // userId, so the next person on this machine cannot read it, and the same person signing
-        // back in gets their project back rather than re-picking it.
-        if (userId is not null)
-        {
-            _ackMarker.Clear(userId);
-        }
-
-        _session.Logout();
-
-        // Both hold per-person state: the notifier suppresses a repeat of the same nudge, and the
-        // scheduler remembers that today's summary was sent. Carried over, the next person on this
-        // machine would silently lose a nudge because the previous one saw it.
-        _notifier.Reset();
-        _endOfDay.Reset();
-        _projectRefreshThrottle.Reset();
-        _totalsRefreshThrottle.Reset();
-
-        _viewModel.Reset();
-        UpdateTray();
-
-        _sync.Start();
-        _screenshotSync.Start();
-        _activitySync.Start();
-        ShowLogin();
     }
 
     /// <summary>

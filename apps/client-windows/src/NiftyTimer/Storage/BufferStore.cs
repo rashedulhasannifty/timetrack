@@ -104,16 +104,18 @@ public sealed class BufferStore : ITimeEntryBuffer
     }
 
     /// <summary>
-    /// Drops records created before <c>now - maxAge</c>, bounding the buffer against records that
-    /// never deliver. Both kinds are drained and removed on 2xx, so only stuck records ever age
-    /// out.
+    /// Drops records of <paramref name="kind"/> created before <c>now - maxAge</c>, bounding the
+    /// buffer against records that never deliver. Records are removed on 2xx, so only stuck ones
+    /// ever age out. Only the kind asked for is touched: <c>SyncEngine</c> no longer ages out
+    /// time entries at all.
     /// </summary>
-    public void Prune(TimeSpan maxAge)
+    public void Prune(TimeSpan maxAge, BufferKind kind)
     {
+        var token = KindToken(kind);
         var cutoff = _clock().Subtract(maxAge).ToUnixTimeMilliseconds();
         foreach (var rec in AllRecords())
         {
-            if (rec.CreatedAtMillis < cutoff)
+            if (rec.Kind == token && rec.CreatedAtMillis < cutoff)
             {
                 TryDelete(rec.Path);
             }
