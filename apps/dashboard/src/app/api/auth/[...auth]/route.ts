@@ -74,6 +74,15 @@ function ssoFailure(req: NextRequest): NextResponse {
   return res;
 }
 
+/**
+ * The client address Caddy recorded, passed on to the API's sign-in calls so its per-address
+ * rate limit sees the real client rather than this BFF on 127.0.0.1 (see api-client authPost).
+ * Production binds the dashboard to loopback behind Caddy, which overwrites any client-sent value.
+ */
+function forwardedFor(req: NextRequest): string | null {
+  return req.headers.get('x-forwarded-for');
+}
+
 async function segment(ctx: { params: Promise<{ auth: string[] }> }): Promise<string> {
   const { auth } = await ctx.params;
   return auth[auth.length - 1] ?? '';
@@ -92,7 +101,7 @@ export async function POST(
     if (typeof emailVal !== 'string' || typeof passwordVal !== 'string') {
       return redirect(req, '/login?error=1');
     }
-    const tokens = await api.login(emailVal, passwordVal);
+    const tokens = await api.login(emailVal, passwordVal, forwardedFor(req));
     if (!tokens) return redirect(req, '/login?error=1');
     const res = redirect(req, landingFor(tokens.accessToken));
     setSession(res, payloadFrom(tokens));
@@ -127,7 +136,7 @@ export async function POST(
     if (typeof passwordVal !== 'string' || passwordVal.length < 8) return back('weak');
     if (passwordVal !== confirmVal) return back('mismatch');
 
-    const tokens = await api.acceptInvite(tokenVal, passwordVal, name);
+    const tokens = await api.acceptInvite(tokenVal, passwordVal, name, forwardedFor(req));
     // 401 → the token is invalid, expired, or already used. Re-showing the form would just
     // fail again, so send them to /login without the token.
     if (!tokens) return redirect(req, '/accept-invite?error=invalid');
@@ -181,12 +190,10 @@ export async function GET(
     if (!handshake || !code || !state || state !== handshake.state) {
       return ssoFailure(req);
     }
-    const tokens = await api.oidcCallback({
-      code,
-      state,
-      nonce: handshake.nonce,
-      codeVerifier: handshake.codeVerifier,
-    });
+    const tokens = await api.oidcCallback(
+      { code, state, nonce: handshake.nonce, codeVerifier: handshake.codeVerifier },
+      forwardedFor(req),
+    );
     // Loop-breaker (mirrors refresh): a token we can't decode would bounce forever.
     if (!tokens || !decodeClaims(tokens.accessToken)) return ssoFailure(req);
     const res = redirect(req, landingFor(tokens.accessToken));

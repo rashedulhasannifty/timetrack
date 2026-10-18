@@ -4,10 +4,12 @@ import { startWorkerEnv, type WorkerTestEnv } from './worker-harness.js';
 import { closedWeek } from '../src/processors/email/closed-week.js';
 import { collectWeeklySummaries } from '../src/processors/email/weekly-summary.js';
 import { collectMissingTimesheets } from '../src/processors/email/missing-timesheet.js';
+import { generatePendingTimesheets } from '../src/processors/timesheet-generate.js';
 
 const RUN_E2E = process.env.RUN_E2E === '1'; // worker e2e specs gate on this (see rollup-daily.e2e-spec.ts)
 
-// 08:00 on Monday 2026-08-10 — the scheduled moment. The closed week is 2026-08-03 → 08-10.
+// 08:00 UTC on Monday 2026-08-10 — the scheduled moment. The closed week is Mon 3 → Sun 9 Aug
+// in APP_TIMEZONE (Asia/Dhaka, UTC+6): the instants 2026-08-02T18:00Z → 2026-08-09T18:00Z.
 const NOW = new Date('2026-08-10T08:00:00.000Z');
 const WEEK = closedWeek(NOW);
 // Everyone in the fixture joined well before the week, unless a test says otherwise: the
@@ -145,8 +147,9 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
 
       // 4h inside the week.
       await entry(ada.id, '2026-08-04T09:00:00Z', '2026-08-04T13:00:00Z');
-      // Straddles the start boundary: 22:00 Sunday → 02:00 Monday. Only the 2h inside counts.
-      await entry(ada.id, '2026-08-02T22:00:00Z', '2026-08-03T02:00:00Z');
+      // Straddles the start boundary: 22:00 Sunday → 02:00 Monday, Dhaka wall clock. Only the
+      // 2h inside counts.
+      await entry(ada.id, '2026-08-02T16:00:00Z', '2026-08-02T20:00:00Z');
       // Entirely after the week closed — excluded.
       await entry(ada.id, '2026-08-11T09:00:00Z', '2026-08-11T17:00:00Z');
       await entry(zoe.id, '2026-08-05T09:00:00Z', '2026-08-05T10:00:00Z');
@@ -203,19 +206,18 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
       const zoe = await user(eng.id, 'Zoe');
       await user(sup.id, 'Sup', { role: 'MANAGER' });
 
-      const approval = (userId: string, periodStart: string, status: 'PENDING' | 'APPROVED') =>
-        env.prisma.timesheetApproval.create({
-          data: {
-            userId,
-            periodStart: new Date(periodStart),
-            periodEnd: new Date(new Date(periodStart).getTime() + 7 * 86_400_000),
-            status,
-          },
-        });
+      // Approvals come from the REAL generator, never hand-seeded: a hand-written periodStart
+      // once hid that this count and the generator anchored weeks in different time zones.
+      await entry(ada.id, '2026-08-04T09:00:00Z', '2026-08-04T13:00:00Z'); // this week
+      await entry(zoe.id, '2026-08-04T09:00:00Z', '2026-08-04T13:00:00Z'); // this week
+      await entry(ada.id, '2026-07-28T09:00:00Z', '2026-07-28T13:00:00Z'); // a different week
+      expect(await generatePendingTimesheets(env.prisma, NOW, FRESHNESS)).toBe(3);
 
-      await approval(ada.id, '2026-08-03T00:00:00Z', 'PENDING'); // counts
-      await approval(zoe.id, '2026-08-03T00:00:00Z', 'APPROVED'); // already decided
-      await approval(ada.id, '2026-07-27T00:00:00Z', 'PENDING'); // a different week
+      // Zoe's week (her only one) has already been decided.
+      await env.prisma.timesheetApproval.updateMany({
+        where: { userId: zoe.id },
+        data: { status: 'APPROVED' },
+      });
 
       const summaries = await collectWeeklySummaries(env.prisma, WEEK, FRESHNESS);
       const byName = new Map(summaries.map((s) => [s.teamName, s]));
@@ -291,6 +293,9 @@ describe.runIf(RUN_E2E)('weekly email collection (real Postgres)', () => {
       const ada = await user(eng.id, 'Ada');
       // A big week AFTER the reported one does not excuse the reported one.
       await entry(ada.id, '2026-08-11T09:00:00Z', '2026-08-11T19:00:00Z');
+      // 00:00 → 10:00 Monday 10 Aug, Dhaka wall clock: already the NEXT week, even though six
+      // of those hours still fall on Sunday 9 Aug in UTC.
+      await entry(ada.id, '2026-08-09T18:00:00Z', '2026-08-10T04:00:00Z');
       expect(
         (await collectMissingTimesheets(env.prisma, WEEK, FRESHNESS)).map((t) => t.name),
       ).toEqual(['Ada']);

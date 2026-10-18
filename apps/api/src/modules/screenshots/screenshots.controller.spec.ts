@@ -9,6 +9,18 @@ import {
 import { ScreenshotsController } from './screenshots.controller.js';
 import type { ScreenshotsService } from './screenshots.service.js';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
+import { REQUIRES_MONITORING_ACK } from '../../common/decorators/requires-monitoring-ack.decorator.js';
+
+describe('ScreenshotsController.upload — monitoring gate', () => {
+  it('is @RequiresMonitoringAck({ setting: screenshotsEnabled }) — refused before any byte is read', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const meta = Reflect.getMetadata(
+      REQUIRES_MONITORING_ACK,
+      ScreenshotsController.prototype.upload,
+    );
+    expect(meta).toEqual({ setting: 'screenshotsEnabled' });
+  });
+});
 
 const USER: SessionUser = { id: 'user-1', role: 'EMPLOYEE', teamId: 'team-1' };
 const ID = '019797a0-0000-7000-8000-0000000000d1';

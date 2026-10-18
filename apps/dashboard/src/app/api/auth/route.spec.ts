@@ -128,12 +128,10 @@ describe('GET /api/auth/sso/callback', () => {
     });
     const res = await GET(callbackRequest('?code=abc&state=st'), callbackCtx);
     expect(res.headers.get('location')).toBe('/overview');
-    expect(api.oidcCallback).toHaveBeenCalledWith({
-      code: 'abc',
-      state: 'st',
-      nonce: 'no',
-      codeVerifier: 've',
-    });
+    expect(api.oidcCallback).toHaveBeenCalledWith(
+      { code: 'abc', state: 'st', nonce: 'no', codeVerifier: 've' },
+      null, // no proxy in front of this request
+    );
     const setCookie = res.headers.get('set-cookie') ?? '';
     // Session established…
     const sessionMatch = /tt_session=([^;]+)/.exec(setCookie);
@@ -229,5 +227,55 @@ describe('post-sign-in landing follows the role', () => {
     );
     const res = await GET(req, ctx);
     expect(res.headers.get('location')).toBe('/me?date=2026-01-02');
+  });
+});
+
+/**
+ * The API rate-limits sign-in per client address, and the dashboard calls it server-side over
+ * loopback. Unless the BFF passes on the address Caddy saw, every dashboard sign-in in the company
+ * lands in ONE per-IP bucket, and 20 bad passwords a minute from anyone lock everybody out.
+ */
+describe('sign-in forwards the client address to the API', () => {
+  const CLIENT = '198.51.100.7';
+  const tokens = { accessToken: makeJwt(VALID_CLAIMS), refreshToken: 'r', expiresIn: 900 };
+
+  function form(path: string, fields: Record<string, string>): NextRequest {
+    return new NextRequest(`http://localhost:3000/api/auth/${path}`, {
+      method: 'POST',
+      headers: { 'x-forwarded-for': CLIENT },
+      body: new URLSearchParams(fields),
+    });
+  }
+
+  it('on login', async () => {
+    vi.mocked(api.login).mockResolvedValue(tokens);
+    await POST(form('login', { email: 'ada@example.com', password: 'password12' }), {
+      params: Promise.resolve({ auth: ['login'] }),
+    });
+    expect(api.login).toHaveBeenCalledWith('ada@example.com', 'password12', CLIENT);
+  });
+
+  it('on accept-invite', async () => {
+    vi.mocked(api.acceptInvite).mockResolvedValue(tokens);
+    await POST(
+      form('accept-invite', {
+        token: 't',
+        name: 'Ada',
+        password: 'password12',
+        confirm: 'password12',
+      }),
+      { params: Promise.resolve({ auth: ['accept-invite'] }) },
+    );
+    expect(api.acceptInvite).toHaveBeenCalledWith('t', 'password12', 'Ada', CLIENT);
+  });
+
+  it('on the SSO callback', async () => {
+    vi.mocked(api.oidcCallback).mockResolvedValue(tokens);
+    const cookie = encryptOidcState({ state: 'st', nonce: 'no', codeVerifier: 've' });
+    const req = new NextRequest('http://localhost:3000/api/auth/sso/callback?code=abc&state=st', {
+      headers: { cookie: `${OIDC_COOKIE}=${cookie}`, 'x-forwarded-for': CLIENT },
+    });
+    await GET(req, callbackCtx);
+    expect(api.oidcCallback).toHaveBeenCalledWith(expect.anything(), CLIENT);
   });
 });

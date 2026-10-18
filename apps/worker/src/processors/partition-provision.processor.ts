@@ -1,15 +1,22 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
+import type { Job } from 'bullmq';
 import { WorkerPrisma } from '../infra/prisma.provider.js';
-import { monthPartition, nextMonthStart } from './partition.util.js';
+import { monthPartition, monthStartsAhead, PROVISION_MONTHS_AHEAD } from './partition.util.js';
 
 const PARTITIONED_TABLES = ['activity_samples', 'screenshots'] as const;
 
 /**
- * PRD §7.3 — pre-creates NEXT month's partition for each high-volume table. If this job
- * ever fails, inserts into an unprovisioned range fail — this is a job to alert on.
- * The DDL is idempotent (IF NOT EXISTS), so re-running is safe.
+ * PRD §7.3 — keeps the current month and the next PROVISION_MONTHS_AHEAD months partitioned for
+ * each high-volume table. Provisioning only one month ahead meant a single failed run at a month
+ * boundary left current data with nowhere to land; with a three-month lead, the job can fail for
+ * weeks before ingest notices. Still a job to alert on.
+ *
+ * The DDL is idempotent (IF NOT EXISTS): an existing partition — and its rows — is untouched, so
+ * re-running is safe. No DEFAULT partition is created: once one holds a row in a month's range,
+ * the later CREATE ... PARTITION OF for that month fails. The API drops/rejects timestamps that
+ * have no partition instead.
  */
 @Injectable()
 @Processor('partition-provision')
@@ -21,10 +28,12 @@ export class PartitionProvisionProcessor extends WorkerHost {
     super();
   }
 
-  async process(): Promise<void> {
-    const monthStart = nextMonthStart(new Date());
-    for (const table of PARTITIONED_TABLES) {
-      await this.provision(table, monthStart);
+  async process(job?: Job<{ now?: string }>): Promise<void> {
+    const now = job?.data?.now ? new Date(job.data.now) : new Date();
+    for (const monthStart of monthStartsAhead(now, PROVISION_MONTHS_AHEAD)) {
+      for (const table of PARTITIONED_TABLES) {
+        await this.provision(table, monthStart);
+      }
     }
   }
 
