@@ -3,6 +3,7 @@ import {
   EffectivePolicySchema,
   TeamSettingsSchema,
   type EffectivePolicy,
+  type TeamSettings,
 } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { PolicyRepository } from './policy.repository.js';
@@ -12,6 +13,12 @@ import { PolicyRepository } from './policy.repository.js';
  * whenever the user has not acknowledged (monitoring_ack_at is null); the macOS client's
  * AckGate refuses to capture while it is true. There is no admin override.
  */
+/** What a capture ingest needs to know about its caller — see MonitoringAckGuard. */
+export interface CaptureContext {
+  acknowledged: boolean;
+  settings: TeamSettings;
+}
+
 const POLICY_VERSION = 'v1';
 const POLICY_TEXT =
   'This device records work activity: time entries, active application, activity ' +
@@ -35,5 +42,19 @@ export class PolicyService {
       policyText: POLICY_TEXT,
       settings: TeamSettingsSchema.parse(row.team.settings ?? {}),
     });
+  }
+
+  /**
+   * The server-side half of the AckGate: has this user acknowledged, and what does their team
+   * allow? Same single query as `effective()`. Null when the user does not exist — the caller
+   * (MonitoringAckGuard) treats that as not acknowledged.
+   */
+  async captureContext(userId: string): Promise<CaptureContext | null> {
+    const row = await this.repo.getUserPolicy(userId);
+    if (!row) return null;
+    return {
+      acknowledged: row.monitoringAckAt !== null,
+      settings: TeamSettingsSchema.parse(row.team.settings ?? {}),
+    };
   }
 }
