@@ -6,6 +6,11 @@ import Foundation
 /// off). One batch per cycle (the timer reschedules) so a failed file-delete can never spin a re-take
 /// loop. Stale samples age/count-prune each cycle. Not a capture path → not AckGate-gated.
 ///
+/// A 422 or 413 does NOT drop the batch: one bad sample (say, a title the server measures as too
+/// long) used to take up to 500 good ones with it. `BatchSplitter` halves the next batch instead,
+/// cycle by cycle, until the offending sample is alone — then only it is dropped. Still one batch
+/// per cycle. Any other permanent 4xx drops the batch as before.
+///
 /// An actor for the same reason as `SyncEngine`: one owner for the in-flight pass, so sign-out's
 /// flush joins a running pass instead of being turned away by it.
 actor ActivityBatchSyncEngine {
@@ -22,6 +27,7 @@ actor ActivityBatchSyncEngine {
     private var started = false
     private var inFlight: Task<Bool, Never>?
     private var retired = false
+    private var splitter: BatchSplitter
 
     init(store: ActivitySampleBuffering, uploader: ActivitySampleUploading,
          backoff: BackoffPolicy = BackoffPolicy(),
@@ -36,6 +42,7 @@ actor ActivityBatchSyncEngine {
         self.maxAge = maxAge
         self.maxCount = maxCount
         self.onAuthFailed = onAuthFailed
+        self.splitter = BatchSplitter(fullSize: batchLimit)
     }
 
     func start() {
@@ -90,12 +97,18 @@ actor ActivityBatchSyncEngine {
     private func drainPass() async -> Bool {
         store.prune(olderThan: maxAge, maxCount: maxCount)
 
-        let batch = store.take(limit: batchLimit)
+        let batch = store.take(limit: min(batchLimit, splitter.size))
         guard !batch.isEmpty else { return false }
         switch await uploader.upload(batch) {
         case .success:
             store.remove(ids: batch.map(\.id))
+            splitter.accepted()
             backoff.reset()
+            return false
+        case .permanent(let status) where BatchSplitter.isSplittable(status: status):
+            // Something in the batch was refused. Keep it and send half next cycle, until the
+            // refused sample is on its own; only then drop it.
+            if splitter.rejected(count: batch.count) { store.remove(ids: batch.map(\.id)) }
             return false
         case .permanent:
             store.remove(ids: batch.map(\.id))
