@@ -286,7 +286,7 @@ export function SettingsForm({
         <Toggle
           name="autoStartOnLogin"
           label="Auto-start tracking on login"
-          hint="Opens the app at login and tracks automatically, stopping when the employee goes idle. Off by default, and off means tracking is manual — employees start and stop it themselves. Takes effect at their next login; the app stays visible in their menu bar and in Login Items either way."
+          hint="Tracks automatically from login, stopping when the employee goes idle. Off by default, and off means tracking is manual — employees start and stop it themselves. On Mac this also opens the app at login; the Windows app opens at login either way. Takes effect at their next login, and the app stays visible in the menu bar or system tray."
           checked={settings.autoStartOnLogin}
         />
         <Toggle

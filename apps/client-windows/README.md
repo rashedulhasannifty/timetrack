@@ -243,9 +243,10 @@ Each of these cost the macOS client a real bug. They are enforced by tests; do n
 
 ## Two modes, one poller
 
-The team setting `autoStartOnLogin` does two things: it selects the tracking **mode**, and it owns a
-login item. Both are needed — a tray app cannot start tracking on a machine that never opened it,
-which is exactly the bug #169 reported.
+The team setting `autoStartOnLogin` selects the tracking **mode**. It no longer owns the login item:
+the app opens at login in both modes (see [The login item](#the-login-item)). Tying the two together
+meant a team in the default, manual mode never had the app running after a restart, so nobody was
+nudged to start the clock.
 
 - **Auto** — `AutoTrackingCoordinator` opens an AUTO span on launch, closes it when you go idle, and
   asks keep-or-discard when you come back.
@@ -279,18 +280,24 @@ policy branch and deliberately **outside `AckGate`** — it launches the app and
 Visible and removable in Task Manager › Startup apps (CLAUDE.md §1): no service, no scheduled task,
 nothing running as SYSTEM.
 
-Three things to know:
+It is registered in **both** tracking modes; `autoStartOnLogin` no longer turns it off.
 
-- **It never rewrites a value that already exists.** That is how "don't fight the user" is reached
-  here. macOS gets a `requiresApproval` status from `SMAppService` and refuses to register over it;
+Things to know:
+
+- **It never rewrites a value that already launches this executable.** That is how "don't fight
+  the user" is reached here. macOS gets a `requiresApproval` status from `SMAppService` and refuses to register over it;
   Windows has no such read — Task Manager's enable/disable lives in an undocumented blob under
   `Explorer\StartupApproved\Run`, and its absence is indistinguishable from never having
   registered. But disabling there **leaves the Run value in place**, so "an existing value is left
   alone" respects the choice on every later launch without parsing anything undocumented. The one
   case genuinely weaker than macOS: deleting the value by hand in regedit is indistinguishable from
   never registering, so the next launch recreates it.
+- **It repairs a value that launches a different path.** The app ships as a zip, and unzipping a
+  new copy into another folder used to leave login pointing at the old exe — which Windows runs,
+  fails to find, and reports nowhere. Only the value's data is rewritten; its name stays, and Task
+  Manager's disable is keyed by that name, so a disabled entry stays disabled after the repair.
 - **It reaches the employee at their _next_ login**, not the one in progress — registration only
-  runs while the app is open. The settings page says so.
+  runs while the app is open.
 - **It survives sign-out, deliberately.** `SignOutAsync` tears down capture and clears the session
   but leaves the Run value alone, so the app still opens at the next login and shows the sign-in
   window — which is what someone who signed out temporarily wants. Removing it would strand them:
@@ -302,7 +309,7 @@ Three things to know:
   `%LOCALAPPDATA%` container and the token file. With one shared name a dev build and a released
   install would overwrite each other's entry and whichever ran last would decide which one starts.
   The consequence is the same one the macOS README records for its two bundles: with both installed
-  and auto-start on, you get **two** startup entries. Check Task Manager after testing with both.
+  you get **two** startup entries. Check Task Manager after testing with both.
 
 **All of this is installed only on the online, acknowledged branch, through `AckGate`** — idle
 detection watches you continuously and in auto mode moves your clock, so it is a capture path under
