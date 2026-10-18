@@ -4,6 +4,21 @@ export function nextMonthStart(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 }
 
+/**
+ * How many months past the current one each run keeps provisioned. A run that fails for a few
+ * nights in a row (or a month boundary that lands on an outage) must not leave the next month
+ * without a partition — ingest then has nowhere to put current data.
+ */
+export const PROVISION_MONTHS_AHEAD = 3;
+
+/** UTC month starts for the month containing `now` plus the `ahead` months after it. */
+export function monthStartsAhead(now: Date, ahead: number): Date[] {
+  return Array.from(
+    { length: ahead + 1 },
+    (_, i) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1)),
+  );
+}
+
 export interface MonthPartition {
   suffix: string;
   from: string;

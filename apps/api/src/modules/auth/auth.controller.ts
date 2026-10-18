@@ -13,6 +13,7 @@ import {
 } from '@timetrack/contracts';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { Public } from '../../common/decorators/public.decorator.js';
+import { CredentialThrottle } from '../../common/guards/throttler.guards.js';
 import { AuthService } from './auth.service.js';
 import { clientFromHeaders } from '../clients/clients.service.js';
 
@@ -27,6 +28,7 @@ export class AuthController {
 
   @Post('login')
   @Public()
+  @CredentialThrottle()
   @HttpCode(200)
   login(
     @Body(new ZodValidationPipe(LoginSchema)) dto: Login,
@@ -47,6 +49,7 @@ export class AuthController {
 
   @Post('accept-invite')
   @Public()
+  @CredentialThrottle()
   @HttpCode(200)
   acceptInvite(
     @Body(new ZodValidationPipe(AcceptInviteSchema)) dto: AcceptInvite,
@@ -76,6 +79,7 @@ export class AuthController {
 
   @Post('oidc/callback')
   @Public()
+  @CredentialThrottle()
   @HttpCode(200)
   oidcCallback(
     @Body(new ZodValidationPipe(OidcCallbackSchema)) dto: OidcCallback,

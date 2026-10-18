@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import type {
   IdleEvent,
   IdleEventResult,
@@ -19,6 +19,21 @@ const IDLE_EVENT_READ_SELECT = {
 } as const;
 
 /**
+ * An idle event id that already belongs to ANOTHER user is refused, never updated: the upsert is
+ * keyed on the client-minted id, so without this anyone who learns an id could rewrite someone
+ * else's endTime/resolvedAction. A legitimate client never sends a foreign id (UUIDv7), and both
+ * clients drop a 409 as permanent, so this cannot wedge a sync queue. Mirrors screenshots'
+ * uploadConflict().
+ */
+function ownershipConflict(): ConflictException {
+  return new ConflictException({
+    type: 'https://timetrack.internal/errors/conflict',
+    title: 'Idle event id already belongs to another user',
+    status: 409,
+  });
+}
+
+/**
  * CLAUDE.md §3 — Prisma lives HERE and nowhere else in apps/api. Upsert on the
  * client-minted UUIDv7 (PRD §7.5): a retried offline drain is a no-op, not a duplicate.
  * The event is an audit/analytics row — no reconciliation of overlapping time entries.
@@ -28,20 +43,26 @@ export class IdleEventsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async upsert(event: IdleEvent, userId: string): Promise<IdleEventResult> {
-    const row = await this.prisma.idleEvent.upsert({
-      where: { id: event.id },
-      create: {
-        id: event.id,
-        userId,
-        startTime: new Date(event.startTime),
-        endTime: new Date(event.endTime),
-        resolvedAction: event.resolvedAction,
-      },
-      update: {
-        endTime: new Date(event.endTime),
-        resolvedAction: event.resolvedAction,
-      },
-      select: IDLE_EVENT_SELECT,
+    // The owner check runs in the same transaction as the write: a row that comes back owned by
+    // someone else is rolled back before commit, so there is no read-then-write window.
+    const row = await this.prisma.$transaction(async (tx) => {
+      const stored = await tx.idleEvent.upsert({
+        where: { id: event.id },
+        create: {
+          id: event.id,
+          userId,
+          startTime: new Date(event.startTime),
+          endTime: new Date(event.endTime),
+          resolvedAction: event.resolvedAction,
+        },
+        update: {
+          endTime: new Date(event.endTime),
+          resolvedAction: event.resolvedAction,
+        },
+        select: { ...IDLE_EVENT_SELECT, userId: true },
+      });
+      if (stored.userId !== userId) throw ownershipConflict();
+      return stored;
     });
     // resolvedAction is stored as a plain String column; it was written from a
     // Zod-validated payload, so narrowing back to the union is safe.

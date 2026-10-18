@@ -1,40 +1,43 @@
 import { describe, expect, it } from 'vitest';
-import { closedWeek, formatWeekRange, utcWeekStart } from './closed-week.js';
+import { dayOf, dayStartInstant, weekStartDay } from '@timetrack/contracts';
+import { closedWeek, formatWeekRange } from './closed-week.js';
 
 const iso = (d: Date) => d.toISOString();
 
-describe('utcWeekStart', () => {
-  it('returns the Monday of the containing week, in UTC', () => {
-    // 2026-08-14 is a Friday; its ISO week starts Monday 2026-08-10.
-    expect(iso(utcWeekStart(new Date('2026-08-14T23:59:59.999Z')))).toBe(
-      '2026-08-10T00:00:00.000Z',
-    );
-  });
-
-  it('treats Sunday as the END of its week, not the start', () => {
-    // The classic off-by-one: getUTCDay() calls Sunday 0. ISO weeks are Monday-start, so
-    // Sunday 2026-08-16 belongs to the week that began Monday 2026-08-10.
-    expect(iso(utcWeekStart(new Date('2026-08-16T12:00:00Z')))).toBe('2026-08-10T00:00:00.000Z');
-  });
-
-  it('is a fixed point on a Monday at midnight', () => {
-    const monday = new Date('2026-08-10T00:00:00.000Z');
-    expect(iso(utcWeekStart(monday))).toBe(iso(monday));
-  });
-});
+// Every expectation below is an APP_TIMEZONE (Asia/Dhaka, UTC+6) Monday 00:00, i.e. Sunday
+// 18:00 UTC — the instant `timesheet-generate.ts` writes as TimesheetApproval.periodStart.
 
 describe('closedWeek', () => {
   it('reports the previous week, never the one in progress', () => {
     const week = closedWeek(new Date('2026-08-12T09:00:00Z')); // Wednesday
-    expect(iso(week.periodStart)).toBe('2026-08-03T00:00:00.000Z');
-    expect(iso(week.periodEnd)).toBe('2026-08-10T00:00:00.000Z');
+    expect(iso(week.periodStart)).toBe('2026-08-02T18:00:00.000Z');
+    expect(iso(week.periodEnd)).toBe('2026-08-09T18:00:00.000Z');
   });
 
   it('still reports the previous week when it runs early Monday morning', () => {
-    // The scheduled case: 08:00 Monday is minutes into a brand-new week.
+    // The scheduled case: 08:00 UTC Monday is 14:00 in Dhaka, hours into a brand-new week.
     const week = closedWeek(new Date('2026-08-10T08:00:00Z'));
-    expect(iso(week.periodStart)).toBe('2026-08-03T00:00:00.000Z');
-    expect(iso(week.periodEnd)).toBe('2026-08-10T00:00:00.000Z');
+    expect(iso(week.periodStart)).toBe('2026-08-02T18:00:00.000Z');
+    expect(iso(week.periodEnd)).toBe('2026-08-09T18:00:00.000Z');
+  });
+
+  it('rolls over at Monday 00:00 in the app timezone, not at UTC midnight', () => {
+    // 18:30 UTC Sunday is 00:30 Monday 10 Aug in Dhaka — the week of 3–9 Aug has closed.
+    const justAfter = closedWeek(new Date('2026-08-09T18:30:00Z'));
+    expect(iso(justAfter.periodStart)).toBe('2026-08-02T18:00:00.000Z');
+    expect(iso(justAfter.periodEnd)).toBe('2026-08-09T18:00:00.000Z');
+
+    // One second before Dhaka midnight it is still Sunday 9 Aug: 3–9 Aug is in progress.
+    const justBefore = closedWeek(new Date('2026-08-09T17:59:59Z'));
+    expect(iso(justBefore.periodStart)).toBe('2026-07-26T18:00:00.000Z');
+    expect(iso(justBefore.periodEnd)).toBe('2026-08-02T18:00:00.000Z');
+  });
+
+  it('is the same instant the timesheet generator writes as periodStart', () => {
+    // The weekly summary matches PENDING approvals by exact equality on periodStart.
+    const now = new Date('2026-08-10T08:00:00Z');
+    const lastWeekDay = dayOf(new Date(now.getTime() - 7 * 86_400_000));
+    expect(iso(closedWeek(now).periodStart)).toBe(iso(dayStartInstant(weekStartDay(lastWeekDay))));
   });
 
   it('spans exactly seven days, half-open', () => {
@@ -46,8 +49,14 @@ describe('closedWeek', () => {
 
 describe('formatWeekRange', () => {
   it('collapses a single-month week and excludes the exclusive end day', () => {
-    // periodEnd is Monday the 10th; the week's last day is Sunday the 9th.
+    // periodEnd is Monday the 10th (Dhaka); the week's last day is Sunday the 9th.
     expect(formatWeekRange(closedWeek(new Date('2026-08-12T09:00:00Z')))).toBe('3–9 Aug 2026');
+  });
+
+  it('labels the local dates even though the instants fall on the previous UTC day', () => {
+    // periodStart is 2026-08-02T18:00Z — a Sunday in UTC, but Monday 3 Aug in Dhaka.
+    const week = closedWeek(new Date('2026-08-09T18:30:00Z'));
+    expect(formatWeekRange(week)).toBe('3–9 Aug 2026');
   });
 
   it('names both months when the week straddles them', () => {

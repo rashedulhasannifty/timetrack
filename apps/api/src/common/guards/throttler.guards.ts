@@ -1,10 +1,28 @@
 import { ExecutionContext, Injectable } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import type { SessionUser } from '../decorators/current-user.decorator.js';
 
 /** Names of the two rate-limit buckets configured in `app.module.ts`. */
 export const IP_THROTTLER = 'ip';
 export const USER_THROTTLER = 'user';
+
+/**
+ * The per-IP limit on the public routes that verify a guessable credential: `auth/login`
+ * (password, Argon2id), `auth/accept-invite` (invite token + new password) and `auth/oidc/callback`
+ * (an IdP code, exchanged by an outbound call per attempt). A person needs one or two of these a
+ * day; the generic 600/min ceiling was 600 guesses a minute.
+ *
+ * Not lower than 20: offices share one NAT'd address, so this is really a per-office budget, and
+ * a morning of people signing in to the dashboard and their tracking clients has to fit in it
+ * (a client signs in once, then lives on refresh; a 429 here only delays the next attempt). Not
+ * applied to `auth/refresh` or `auth/logout` — every running client calls refresh on a timer, and
+ * neither is a guessing target (a refresh token is 256 bits of randomness).
+ *
+ * The throttler keys on handler as well as address, so this is a separate bucket per route: a
+ * stream of failed logins never spends the same office's refresh budget.
+ */
+export const CredentialThrottle = (): MethodDecorator & ClassDecorator =>
+  Throttle({ [IP_THROTTLER]: { limit: 20, ttl: 60_000 } });
 
 /**
  * A `ThrottlerGuard` that enforces exactly ONE of the configured buckets.

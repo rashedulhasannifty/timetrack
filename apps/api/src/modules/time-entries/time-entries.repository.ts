@@ -40,6 +40,22 @@ function runningConflict(): ConflictException {
 }
 
 /**
+ * The sync upsert is keyed on the client-minted id, so an id that already belongs to ANOTHER
+ * user must be refused rather than updated — otherwise anyone who learns an entry id can rewrite
+ * someone else's endTime/note/platform/heartbeatAt with no audit trail. A distinct title from
+ * runningConflict(): a legitimate client never sends a foreign id (UUIDv7), and both clients
+ * drop a 409 as permanent, so this cannot wedge a sync queue. Mirrors screenshots'
+ * uploadConflict().
+ */
+function ownershipConflict(): ConflictException {
+  return new ConflictException({
+    type: 'https://timetrack.internal/errors/conflict',
+    title: 'Time entry id already belongs to another user',
+    status: 409,
+  });
+}
+
+/**
  * CLAUDE.md §3 — Prisma lives HERE and nowhere else in apps/api.
  */
 @Injectable()
@@ -59,14 +75,17 @@ export class TimeEntriesRepository {
   ): Promise<TimeEntry> {
     try {
       const now = new Date();
-      // Opening a span takes over from an abandoned one; a CLOSED upload is the hot batch path
-      // and skips the transaction entirely.
-      const row = dto.endTime
-        ? await this.upsertEntry(this.prisma, dto, userId, subprojectId, now)
-        : await this.prisma.$transaction(async (tx) => {
-            await this.retireStaleRunning(tx, userId, dto.id, now);
-            return this.upsertEntry(tx, dto, userId, subprojectId, now);
-          });
+      // ONE transaction for both paths, so the owner check below is atomic with the write: the
+      // upsert matches on `id` alone (a native INSERT … ON CONFLICT, which keeps concurrent
+      // same-user retries idempotent), and a row that comes back owned by someone else is
+      // rolled back before commit — together with any retire this request performed.
+      const row = await this.prisma.$transaction(async (tx) => {
+        // Opening a span takes over from an abandoned one; a CLOSED upload has nothing to retire.
+        if (!dto.endTime) await this.retireStaleRunning(tx, userId, dto.id, now);
+        const entry = await this.upsertEntry(tx, dto, userId, subprojectId, now);
+        if (entry.userId !== userId) throw ownershipConflict();
+        return entry;
+      });
       return serialize(row);
     } catch (e) {
       // A second OPEN entry for this user violates the partial unique index. A retried
@@ -117,13 +136,13 @@ export class TimeEntriesRepository {
   }
 
   private async upsertEntry(
-    client: Prisma.TransactionClient | PrismaService,
+    tx: Prisma.TransactionClient,
     dto: CreateTimeEntry,
     userId: string,
     subprojectId: string | null,
     now: Date,
   ) {
-    return client.timeEntry.upsert({
+    return tx.timeEntry.upsert({
       where: { id: dto.id },
       create: {
         id: dto.id,
