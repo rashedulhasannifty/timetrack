@@ -23,6 +23,9 @@ import { IdleEventsRepository } from '../src/modules/idle-events/idle-events.rep
 import { MinioService } from '../src/infra/storage/minio.service.js';
 import type { QueueService } from '../src/infra/queue/queue.module.js';
 import type { PrismaService } from '../src/infra/prisma/prisma.service.js';
+import { PartitionRangeRepository } from '../src/common/partitions/partition-range.repository.js';
+import { PartitionRangeService } from '../src/common/partitions/partition-range.service.js';
+import type { Logger } from 'nestjs-pino';
 import { startTestDb, truncateAll, type TestDb } from './db-harness.js';
 
 const RUN_E2E = process.env.RUN_E2E === '1';
@@ -80,6 +83,8 @@ describe.runIf(RUN_E2E)('monitoring acknowledgement gate on capture ingest — r
     storage = new MinioService();
     await storage.onModuleInit();
     const prisma = db.prisma as unknown as PrismaService;
+    const partitions = new PartitionRangeService(new PartitionRangeRepository(prisma));
+    const logger = { warn: vi.fn() } as unknown as Logger;
 
     const moduleRef = await Test.createTestingModule({
       controllers: [ScreenshotsController, ActivityController, IdleEventsController],
@@ -91,13 +96,17 @@ describe.runIf(RUN_E2E)('monitoring acknowledgement gate on capture ingest — r
         {
           provide: ScreenshotsService,
           useFactory: () =>
-            new ScreenshotsService(new ScreenshotsRepository(prisma), storage, {
-              enqueue,
-            } as unknown as QueueService),
+            new ScreenshotsService(
+              new ScreenshotsRepository(prisma),
+              storage,
+              { enqueue } as unknown as QueueService,
+              partitions,
+              logger,
+            ),
         },
         {
           provide: ActivityService,
-          useFactory: () => new ActivityService(new ActivityRepository(prisma)),
+          useFactory: () => new ActivityService(new ActivityRepository(prisma), partitions, logger),
         },
         {
           provide: IdleEventsService,
