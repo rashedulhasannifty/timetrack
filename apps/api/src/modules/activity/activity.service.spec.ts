@@ -62,6 +62,7 @@ describe('ActivityService.listSummaries', () => {
 describe('ActivityService.ingest', () => {
   const IN = '2026-07-11T09:00:00.000Z';
   const OUT = '2031-01-01T00:00:00.000Z';
+  const TITLES = { captureWindowTitles: true };
   function sample(id: string, timestamp: string) {
     return {
       id,
@@ -85,7 +86,11 @@ describe('ActivityService.ingest', () => {
     const warn = vi.fn();
     const svc = new ActivityService(repo, partitions(), { warn } as unknown as Logger);
 
-    const res = await svc.ingest({ samples: [sample('a', IN), sample('b', OUT)] }, employee);
+    const res = await svc.ingest(
+      { samples: [sample('a', IN), sample('b', OUT)] },
+      employee,
+      TITLES,
+    );
 
     expect(res).toEqual({ accepted: 1 });
     expect(repo.insertBatch).toHaveBeenCalledWith('u1', [sample('a', IN)]);
@@ -99,7 +104,9 @@ describe('ActivityService.ingest', () => {
   it('skips the insert entirely when nothing is in range', async () => {
     const repo = repoStub();
     const svc = new ActivityService(repo, partitions(), LOGGER);
-    expect(await svc.ingest({ samples: [sample('b', OUT)] }, employee)).toEqual({ accepted: 0 });
+    expect(await svc.ingest({ samples: [sample('b', OUT)] }, employee, TITLES)).toEqual({
+      accepted: 0,
+    });
     expect(repo.insertBatch).not.toHaveBeenCalled();
   });
 
@@ -107,7 +114,7 @@ describe('ActivityService.ingest', () => {
     const repo = repoStub();
     const warn = vi.fn();
     const svc = new ActivityService(repo, partitions(), { warn } as unknown as Logger);
-    await svc.ingest({ samples: [sample('a', IN)] }, employee);
+    await svc.ingest({ samples: [sample('a', IN)] }, employee, TITLES);
     expect(warn).not.toHaveBeenCalled();
   });
 
@@ -116,9 +123,39 @@ describe('ActivityService.ingest', () => {
     vi.mocked(repo.insertBatch).mockRejectedValue(new Error('no partition'));
     const p = partitions();
     const svc = new ActivityService(repo, p, LOGGER);
-    await expect(svc.ingest({ samples: [sample('a', IN)] }, employee)).rejects.toThrow(
+    await expect(svc.ingest({ samples: [sample('a', IN)] }, employee, TITLES)).rejects.toThrow(
       'no partition',
     );
     expect(p.invalidate).toHaveBeenCalledWith('activity_samples');
+  });
+
+  const titled = {
+    id: '019797a0-0000-7000-8000-0000000000a1',
+    timestamp: IN,
+    appName: 'Word',
+    windowTitle: 'Quarterly plan.docx',
+    activityPct: 70,
+    category: 'NEUTRAL' as const,
+  };
+
+  it('stores window titles as sent when the team captures them', async () => {
+    const repo = repoStub();
+    await new ActivityService(repo, partitions(), LOGGER).ingest({ samples: [titled] }, employee, {
+      captureWindowTitles: true,
+    });
+    expect(repo.insertBatch).toHaveBeenCalledWith('u1', [titled]);
+  });
+
+  it('nulls every window title when the team has opted out — the batch is still accepted', async () => {
+    const repo = repoStub();
+    await new ActivityService(repo, partitions(), LOGGER).ingest(
+      { samples: [titled, titled] },
+      employee,
+      { captureWindowTitles: false },
+    );
+    expect(repo.insertBatch).toHaveBeenCalledWith('u1', [
+      { ...titled, windowTitle: null },
+      { ...titled, windowTitle: null },
+    ]);
   });
 });

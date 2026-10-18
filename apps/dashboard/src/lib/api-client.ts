@@ -238,10 +238,24 @@ async function refreshTokens(refreshToken: string): Promise<RefreshOutcome> {
   return { status: 'ok', tokens: TokenPairSchema.parse(await res.json()) };
 }
 
-async function authPost<T>(path: string, body: unknown, schema: z.ZodType<T>): Promise<T | null> {
+/**
+ * `forwardedFor` is the X-Forwarded-For the BFF itself received from Caddy, passed on verbatim.
+ * The API rate-limits sign-in per client address and trusts that header only from loopback,
+ * which is where these calls come from. Without it every dashboard sign-in in the company would
+ * share the BFF's own 127.0.0.1 bucket. Null when nothing proxied the request (local dev).
+ */
+async function authPost<T>(
+  path: string,
+  body: unknown,
+  schema: z.ZodType<T>,
+  forwardedFor: string | null = null,
+): Promise<T | null> {
   const res = await fetch(`${API_URL}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}),
+    },
     body: JSON.stringify(body),
     cache: 'no-store',
   });
@@ -416,21 +430,30 @@ export const api = {
   decideApproval: (token: string, id: string, body: Decision): Promise<TimesheetApproval> =>
     send('POST', `/approvals/${id}/decide`, body, TimesheetApprovalSchema, token),
 
-  login: (email: string, password: string): Promise<TokenPair | null> =>
-    authPost('/auth/login', { email, password }, TokenPairSchema),
+  login: (
+    email: string,
+    password: string,
+    forwardedFor: string | null,
+  ): Promise<TokenPair | null> =>
+    authPost('/auth/login', { email, password }, TokenPairSchema, forwardedFor),
   refresh: (refreshToken: string): Promise<RefreshOutcome> => refreshTokens(refreshToken),
   // Accepting an invite auto-logs-in: the API returns a TokenPair, so the BFF establishes
   // the session exactly as for login. Null on an invalid/expired/already-used token.
-  acceptInvite: (token: string, password: string, name: string): Promise<TokenPair | null> =>
-    authPost('/auth/accept-invite', { token, password, name }, TokenPairSchema),
+  acceptInvite: (
+    token: string,
+    password: string,
+    name: string,
+    forwardedFor: string | null,
+  ): Promise<TokenPair | null> =>
+    authPost('/auth/accept-invite', { token, password, name }, TokenPairSchema, forwardedFor),
 
   // SSO (OIDC). start() mints the flow (secrets stored in the tt_oidc cookie by the BFF);
   // callback() exchanges the IdP code for a TokenPair. Both return null on any API failure
   // (incl. 404 when SSO is disabled) so the BFF route can bounce to /login?error=sso.
   oidcAuthorize: (): Promise<OidcAuthorizeResult | null> =>
     authPost('/auth/oidc/authorize', {}, OidcAuthorizeResultSchema),
-  oidcCallback: (body: OidcCallback): Promise<TokenPair | null> =>
-    authPost('/auth/oidc/callback', body, TokenPairSchema),
+  oidcCallback: (body: OidcCallback, forwardedFor: string | null): Promise<TokenPair | null> =>
+    authPost('/auth/oidc/callback', body, TokenPairSchema, forwardedFor),
   logout: async (refreshToken: string): Promise<void> => {
     // Idempotent server-side; fire-and-ignore the result. Never throw on logout.
     try {

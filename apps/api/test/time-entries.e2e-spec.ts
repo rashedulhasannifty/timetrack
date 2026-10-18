@@ -234,6 +234,100 @@ describe.runIf(RUN_E2E)('time-entries repository — real Postgres', () => {
     expect(untouched?.endTime).toBeNull();
   });
 
+  /**
+   * REGRESSION — the sync upsert matched on `id` alone, so any signed-in user who knew another
+   * user's entry id could POST it and overwrite that person's endTime/note/platform/heartbeatAt,
+   * unaudited. An id that already belongs to someone else must be refused and left untouched.
+   */
+  describe('sync upsert is owner-scoped', () => {
+    const victimEntry = '019797a0-0000-7000-8000-0000000000d1';
+
+    async function seedVictimEntry(userId: string) {
+      await db.prisma.timeEntry.create({
+        data: {
+          id: victimEntry,
+          userId,
+          source: 'AUTO',
+          note: 'victim note',
+          platform: 'MACOS',
+          startTime: new Date('2026-07-11T09:00:00Z'),
+          endTime: new Date('2026-07-11T10:00:00Z'),
+          heartbeatAt: new Date('2026-07-11T10:00:00Z'),
+        },
+      });
+      return db.prisma.timeEntry.findUniqueOrThrow({ where: { id: victimEntry } });
+    }
+
+    it.each([
+      ['a closed (batch) payload', '2026-07-11T23:00:00Z'],
+      ['an open (live) payload', null],
+    ])(
+      "rejects %s carrying another user's id with a 409 and leaves their row unchanged",
+      async (_label, endTime) => {
+        const victim = await seedUser();
+        const attacker = await seedUser('attacker@example.com');
+        const before = await seedVictimEntry(victim.id);
+
+        const attempt = repo().upsert(
+          {
+            ...createDto(victimEntry, { endTime, note: 'overwritten' }),
+            platform: 'WINDOWS' as const,
+          },
+          attacker.id,
+          null,
+        );
+        await expect(attempt).rejects.toBeInstanceOf(ConflictException);
+        await expect(attempt).rejects.toMatchObject({
+          response: { title: 'Time entry id already belongs to another user' },
+        });
+
+        const after = await db.prisma.timeEntry.findUniqueOrThrow({ where: { id: victimEntry } });
+        expect(after).toEqual(before);
+        expect(await db.prisma.timeEntry.count({ where: { userId: attacker.id } })).toBe(0);
+      },
+    );
+
+    it("an open payload with a foreign id does not retire the caller's own stale entry", async () => {
+      const victim = await seedUser();
+      const attacker = await seedUser('attacker@example.com');
+      await seedVictimEntry(victim.id);
+      const stale = '019797a0-0000-7000-8000-0000000000d2';
+      await db.prisma.timeEntry.create({
+        data: {
+          id: stale,
+          userId: attacker.id,
+          source: 'AUTO',
+          startTime: new Date('2026-07-09T09:00:00Z'),
+          endTime: null,
+          heartbeatAt: null,
+        },
+      });
+
+      await expect(repo().upsert(createDto(victimEntry), attacker.id, null)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+
+      // The whole write is one transaction: refusing it rolls back the retire as well.
+      const row = await db.prisma.timeEntry.findUniqueOrThrow({ where: { id: stale } });
+      expect(row.endTime).toBeNull();
+    });
+
+    it('a same-user retry of the same id is still an idempotent update', async () => {
+      const user = await seedUser();
+      await seedVictimEntry(user.id);
+
+      const again = await repo().upsert(
+        createDto(victimEntry, { endTime: '2026-07-11T10:30:00Z' }),
+        user.id,
+        null,
+      );
+      expect(again.userId).toBe(user.id);
+      expect(again.endTime).toBe('2026-07-11T10:30:00.000Z');
+      expect(again.note).toBe('victim note');
+      expect(await db.prisma.timeEntry.count({ where: { id: victimEntry } })).toBe(1);
+    });
+  });
+
   // Regression (C4): overlapping entries are summed by /reports and merged by the person-day
   // page, so the same day reads two different totals. The edit path is where a human can create
   // one, so that is where it is refused. The three cases below are the ones a naive Prisma

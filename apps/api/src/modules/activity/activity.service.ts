@@ -7,6 +7,7 @@ import type {
   ActivitySample,
   ListActivityQuery,
   ListActivitySummaryQuery,
+  TeamSettings,
 } from '@timetrack/contracts';
 import type { SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { PartitionRangeService } from '../../common/partitions/partition-range.service.js';
@@ -31,8 +32,16 @@ export class ActivityService {
    * deletes a batch only on 2xx — would re-send it forever. Such a sample can never be stored,
    * so accepting the batch is the only way the client's queue moves. `accepted` counts only
    * what was inserted, as before.
+   *
+   * PRD §13 — a team that opts out of window titles never has one stored, whatever the client
+   * sends: the title is nulled here rather than rejecting the batch, so the rest of the sample
+   * (app, activity level) is still recorded.
    */
-  async ingest(batch: ActivityBatch, user: SessionUser): Promise<ActivityIngestResult> {
+  async ingest(
+    batch: ActivityBatch,
+    user: SessionUser,
+    settings: Pick<TeamSettings, 'captureWindowTitles'>,
+  ): Promise<ActivityIngestResult> {
     const accepts = await this.partitions.acceptor('activity_samples');
     const kept: ActivitySample[] = [];
     const droppedTimes: string[] = [];
@@ -56,8 +65,11 @@ export class ActivityService {
     }
     if (kept.length === 0) return { accepted: 0 };
 
+    const samples = settings.captureWindowTitles
+      ? kept
+      : kept.map((s) => ({ ...s, windowTitle: null }));
     try {
-      return { accepted: await this.repo.insertBatch(user.id, kept) };
+      return { accepted: await this.repo.insertBatch(user.id, samples) };
     } catch (err) {
       // The cached ranges may be stale (a partition dropped since they were read) — re-read
       // them on the client's retry rather than keep letting the same sample through.

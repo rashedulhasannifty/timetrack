@@ -23,6 +23,7 @@ import {
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CurrentUser, type SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { ResourceScope } from '../../common/decorators/resource-scope.decorator.js';
+import { RequiresMonitoringAck } from '../../common/decorators/requires-monitoring-ack.decorator.js';
 import { ScreenshotsService } from './screenshots.service.js';
 
 @Controller('screenshots')
@@ -40,8 +41,13 @@ export class ScreenshotsController {
     return this.service.list(query, user);
   }
 
-  /** PRD §7.4 — multipart image streamed to storage. Owner is the session, never a field. */
+  /**
+   * PRD §7.4 — multipart image streamed to storage. Owner is the session, never a field.
+   * The monitoring gate is a guard, so an unacknowledged caller (or a team with screenshots
+   * off) is refused before `req.file()` reads a byte — nothing reaches storage.
+   */
   @Post()
+  @RequiresMonitoringAck({ setting: 'screenshotsEnabled' })
   async upload(@Req() req: FastifyRequest, @CurrentUser() user: SessionUser): Promise<Screenshot> {
     const part = await req.file();
     if (!part) throw new BadRequestException('a file part is required');

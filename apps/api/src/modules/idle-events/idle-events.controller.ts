@@ -9,6 +9,7 @@ import {
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { CurrentUser, type SessionUser } from '../../common/decorators/current-user.decorator.js';
 import { ResourceScope } from '../../common/decorators/resource-scope.decorator.js';
+import { RequiresMonitoringAck } from '../../common/decorators/requires-monitoring-ack.decorator.js';
 import { IdleEventsService } from './idle-events.service.js';
 
 /**
@@ -24,6 +25,7 @@ export class IdleEventsController {
   // Default 201 (NOT 202): the client's TimeEntryUploader.classify() treats only
   // 200/201 as .success; a 202 would be reclassified transient and never removed.
   @Post()
+  @RequiresMonitoringAck()
   ingest(
     @Body(new ZodValidationPipe(IdleEventSchema)) event: IdleEvent,
     @CurrentUser() user: SessionUser,
