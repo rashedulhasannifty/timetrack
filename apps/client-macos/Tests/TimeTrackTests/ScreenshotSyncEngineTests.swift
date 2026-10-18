@@ -87,6 +87,46 @@ final class ScreenshotSyncEngineTests: XCTestCase {
         XCTAssertEqual(buffer.take(limit: 10).count, 1, "kept for retry after re-auth")
     }
 
+    func testAuthFailedReportsTheSession() async {
+        let buffer = tempBuffer()
+        buffer.enqueue(id: "a", capturedAt: t0, jpeg: Data("1".utf8))
+        let reports = CallCounter()
+        let engine = ScreenshotSyncEngine(buffer: buffer, uploader: FakeScreenshotUploader(results: [.authFailed]),
+                                          onAuthFailed: { reports.increment() })
+
+        await engine.syncNow()
+
+        XCTAssertEqual(reports.value, 1)
+    }
+
+    func testFlushForSignOutDrainsEveryBatchThenRetires() async {
+        let buffer = tempBuffer()
+        for (i, id) in ["a", "b", "c"].enumerated() {
+            buffer.enqueue(id: id, capturedAt: t0.addingTimeInterval(Double(i)), jpeg: Data(id.utf8))
+        }
+        let uploader = FakeScreenshotUploader(results: [.success])
+        let engine = ScreenshotSyncEngine(buffer: buffer, uploader: uploader, batchLimit: 1)
+
+        await engine.flushForSignOut()
+
+        XCTAssertEqual(uploader.uploadedIds, ["a", "b", "c"])
+        XCTAssertEqual(buffer.pendingCount(), 0)
+        buffer.enqueue(id: "late", capturedAt: t0.addingTimeInterval(10), jpeg: Data("l".utf8))
+        await engine.syncNow()
+        XCTAssertEqual(uploader.uploadedIds.count, 3, "a retired engine never uploads again")
+    }
+
+    func testFlushForSignOutKeepsImagesItCannotSend() async {
+        let buffer = tempBuffer()
+        buffer.enqueue(id: "a", capturedAt: t0, jpeg: Data("1".utf8))
+        let uploader = FakeScreenshotUploader(results: [.transient])
+
+        await ScreenshotSyncEngine(buffer: buffer, uploader: uploader).flushForSignOut()
+
+        XCTAssertEqual(uploader.uploadedIds, ["a"], "one failed pass, no spinning")
+        XCTAssertEqual(buffer.pendingCount(), 1, "kept on disk for the same user")
+    }
+
     func testRetriedRecordRemovedExactlyOnce() async {
         let buffer = tempBuffer()
         buffer.enqueue(id: "a", capturedAt: t0, jpeg: Data("1".utf8))

@@ -41,6 +41,7 @@ final class MemoryActivityBuffer: ActivitySampleBuffering {
     func remove(ids: [String]) { samples.removeAll { ids.contains($0.id) } }
     func prune(olderThan maxAge: TimeInterval, maxCount: Int) {}
     func clear() { samples.removeAll() }
+    func pendingCount() -> Int { samples.count }
 }
 
 /// Counts how many times the gate consulted policy (to prove no fetch on a stopped clock).

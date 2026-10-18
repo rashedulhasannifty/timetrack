@@ -125,8 +125,8 @@ final class ScreenshotScheduler {
     }
 
     /// Await any capture cycle already in flight (spawned before `stop()`). Sign-out teardown
-    /// MUST await this before clearing the image buffer, or a capture suspended mid-grab could
-    /// enqueue into the just-cleared buffer and upload under the next user's token.
+    /// MUST await this before flushing the image buffer, or a capture suspended mid-grab could
+    /// enqueue after the flush, outside the outgoing user's last drain.
     func finishInFlight() async { await currentCycle?.value }
 
     private func scheduleNext() {

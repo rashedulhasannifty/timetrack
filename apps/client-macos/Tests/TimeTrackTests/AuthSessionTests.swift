@@ -84,6 +84,32 @@ final class AuthSessionTests: XCTestCase {
 
     private static let testUserId = "11111111-1111-7111-8111-111111111111"
 
+    // MARK: - refreshIsRejected (the session-ended confirmation)
+
+    func testRefreshIsRejectedOnlyOnAServerRejection() async {
+        let rejected = AuthSession(client: FakeAuthClient(refreshResult: .failure(AuthError.refreshRejected)),
+                                   store: InMemoryTokenStore(seed: "refresh-0"), defaults: freshDefaults())
+        let offline = AuthSession(client: FakeAuthClient(refreshResult: .failure(AuthError.transport)),
+                                  store: InMemoryTokenStore(seed: "refresh-0"), defaults: freshDefaults())
+        let throttled = AuthSession(client: FakeAuthClient(refreshResult: .failure(AuthError.server(429))),
+                                    store: InMemoryTokenStore(seed: "refresh-0"), defaults: freshDefaults())
+        let healthy = AuthSession(client: FakeAuthClient(), store: InMemoryTokenStore(seed: "refresh-0"),
+                                  defaults: freshDefaults())
+        let signedOut = AuthSession(client: FakeAuthClient(), store: InMemoryTokenStore(), defaults: freshDefaults())
+
+        let r1 = await rejected.refreshIsRejected()
+        let r2 = await offline.refreshIsRejected()
+        let r3 = await throttled.refreshIsRejected()
+        let r4 = await healthy.refreshIsRejected()
+        let r5 = await signedOut.refreshIsRejected()
+
+        XCTAssertTrue(r1)
+        XCTAssertFalse(r2, "offline says nothing about the token")
+        XCTAssertFalse(r3, "nor does a throttled refresh")
+        XCTAssertFalse(r4)
+        XCTAssertFalse(r5, "no session, nothing to end")
+    }
+
     private func freshDefaults() -> UserDefaults {
         let suite = "auth-session-\(UUID().uuidString)"
         let d = UserDefaults(suiteName: suite)!
