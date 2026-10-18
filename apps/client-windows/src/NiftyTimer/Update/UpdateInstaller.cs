@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
@@ -24,7 +25,8 @@ public enum UpdateInstallFailure
     ExtractionFailed,
 
     /// <summary>
-    /// The downloaded build does not carry the same Authenticode publisher as the running one.
+    /// The downloaded build does not carry the same Authenticode publisher as the running one, or
+    /// it carries a signature that does not verify against its own contents (tampered).
     /// </summary>
     SignatureRejected,
 
@@ -160,7 +162,15 @@ public sealed class UpdateInstaller
                 "The archive contains no NiftyTimer.exe.");
         }
 
-        if (!PublisherTransitionAllowed(PublisherOf(_runningExecutable), PublisherOf(executable)))
+        var candidate = AuthenticodeOf(executable);
+        if (candidate.Status == AuthenticodeStatus.Invalid)
+        {
+            throw new UpdateInstallException(
+                UpdateInstallFailure.SignatureRejected,
+                "The downloaded build carries an Authenticode signature that does not verify.");
+        }
+
+        if (!TransitionAllowed(AuthenticodeOf(_runningExecutable), candidate))
         {
             throw new UpdateInstallException(
                 UpdateInstallFailure.SignatureRejected,
@@ -226,32 +236,263 @@ public sealed class UpdateInstaller
         string.Equals(running, candidate, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The Authenticode signer thumbprint, or null when the file is unsigned or unreadable. Note
-    /// that this reads the certificate WITHOUT validating the chain: the comparison above is what
-    /// provides the guarantee, and a pilot signed by a self-issued certificate would otherwise be
-    /// indistinguishable from an unsigned one.
+    /// The full transition rule over verified signatures. A signature that is present but does not
+    /// verify — on either side — is refused outright: it is never treated as "unsigned", because
+    /// that would let a tampered build ride the unsigned-to-unsigned pilot rule. Otherwise the
+    /// thumbprints decide, exactly as <see cref="PublisherTransitionAllowed"/> describes.
     /// </summary>
-    internal static string? PublisherOf(string path)
+    internal static bool TransitionAllowed(AuthenticodeResult running, AuthenticodeResult candidate) =>
+        running.Status != AuthenticodeStatus.Invalid
+        && candidate.Status != AuthenticodeStatus.Invalid
+        && PublisherTransitionAllowed(running.Thumbprint, candidate.Thumbprint);
+
+    /// <summary>
+    /// Verify the embedded Authenticode signature of <paramref name="path"/> and, only once it
+    /// verifies, read the signer's thumbprint.
+    ///
+    /// The previous implementation handed the executable to <c>X509CertificateLoader</c>, which
+    /// reads certificate files, not signed PE images: it threw for every executable, so every build
+    /// — signed or not — read as "unsigned", and nothing ever checked the signature against the
+    /// file's contents. A signed install would have accepted an unsigned or tampered update.
+    ///
+    /// Three outcomes, kept distinct:
+    ///
+    /// - <b>Unsigned</b> — the file is not a PE image, or its PE header carries no certificate
+    ///   table. Presence is read from the header, not inferred from a WinVerifyTrust error code, so
+    ///   a damaged signature can never be mistaken for an absent one.
+    /// - <b>Signed</b> — WinVerifyTrust verified the signature over the file's contents. Chain
+    ///   TRUST is deliberately not required (see <see cref="Classify"/>): identity is pinned by
+    ///   thumbprint against the running build, so a pilot signed by a self-issued certificate is
+    ///   still a signed build.
+    /// - <b>Invalid</b> — a signature is present and does not verify (bad digest, malformed
+    ///   signature, revoked or explicitly distrusted signer). The update is refused.
+    ///
+    /// Only the embedded signature is considered; catalog signing is not consulted, because a
+    /// release zip carries no catalog.
+    /// </summary>
+    internal static AuthenticodeResult AuthenticodeOf(string path)
     {
         if (path.Length == 0 || !File.Exists(path))
         {
-            return null;
+            return AuthenticodeResult.Unsigned;
+        }
+
+        bool hasSignature;
+        try
+        {
+            hasSignature = HasEmbeddedSignature(path);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return AuthenticodeResult.Unsigned;
+        }
+
+        if (!hasSignature)
+        {
+            return AuthenticodeResult.Unsigned;
+        }
+
+        if (Classify(hasEmbeddedSignature: true, VerifyEmbeddedSignature(path)) != AuthenticodeStatus.Signed)
+        {
+            return AuthenticodeResult.Invalid;
         }
 
         try
         {
-            using var certificate = X509CertificateLoader.LoadCertificateFromFile(path);
-            return certificate.Thumbprint;
+            // Reads the signer of the embedded PKCS#7 — the same signature WinVerifyTrust has just
+            // verified. This is not a certificate-file load, so it is outside SYSLIB0057's scope;
+            // the suppression only guards against a later SDK widening that obsoletion.
+#pragma warning disable SYSLIB0057
+            using var signer = X509Certificate.CreateFromSignedFile(path);
+#pragma warning restore SYSLIB0057
+            var thumbprint = signer.GetCertHashString();
+            return string.IsNullOrEmpty(thumbprint)
+                ? AuthenticodeResult.Invalid
+                : AuthenticodeResult.Signed(thumbprint);
         }
-        catch (CryptographicException)
+        catch (Exception e) when (e is CryptographicException or IOException or UnauthorizedAccessException)
         {
-            return null; // unsigned
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return null;
+            // It verified a moment ago and now its signer cannot be read: refuse, never "unsigned".
+            return AuthenticodeResult.Invalid;
         }
     }
+
+    /// <summary>
+    /// Map a WinVerifyTrust result to an outcome. Pure, so the decision is testable without signing.
+    ///
+    /// Accepted as <see cref="AuthenticodeStatus.Signed"/>: success, and the chain-trust results
+    /// that say only "this certificate does not lead to a root this machine trusts". WinVerifyTrust
+    /// checks the signature against the file's digest before it evaluates the chain, so those
+    /// results still mean the contents are intact. Everything else with a signature present — bad
+    /// digest, malformed signature, revoked, explicitly distrusted, expired without a timestamp —
+    /// is <see cref="AuthenticodeStatus.Invalid"/>. With no signature present, the result code is
+    /// irrelevant: the file is unsigned.
+    /// </summary>
+    internal static AuthenticodeStatus Classify(bool hasEmbeddedSignature, int winVerifyTrustResult)
+    {
+        if (!hasEmbeddedSignature)
+        {
+            return AuthenticodeStatus.Unsigned;
+        }
+
+        return winVerifyTrustResult switch
+        {
+            0 => AuthenticodeStatus.Signed,
+            CertEUntrustedRoot or CertEChaining or CertEUntrustedTestRoot => AuthenticodeStatus.Signed,
+            _ => AuthenticodeStatus.Invalid,
+        };
+    }
+
+    /// <summary>
+    /// Whether the file is a PE image with a non-empty certificate table
+    /// (IMAGE_DIRECTORY_ENTRY_SECURITY) — where an embedded Authenticode signature lives. Anything
+    /// that is not a well-formed PE header reads as unsigned: a file that cannot hold an embedded
+    /// signature does not have one.
+    /// </summary>
+    internal static bool HasEmbeddedSignature(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var reader = new BinaryReader(stream);
+        try
+        {
+            if (stream.Length < 0x40 || reader.ReadUInt16() != 0x5A4D)
+            {
+                return false; // no "MZ"
+            }
+
+            stream.Position = 0x3C;
+            var peOffset = reader.ReadInt32();
+            if (peOffset <= 0 || peOffset > stream.Length - 24)
+            {
+                return false;
+            }
+
+            stream.Position = peOffset;
+            if (reader.ReadUInt32() != 0x00004550)
+            {
+                return false; // no "PE\0\0"
+            }
+
+            var optionalHeader = peOffset + 4 + 20; // PE signature + COFF file header
+            stream.Position = optionalHeader;
+            int directoryCountOffset;
+            int directoriesOffset;
+            switch (reader.ReadUInt16())
+            {
+                case 0x10B: // PE32
+                    directoryCountOffset = 92;
+                    directoriesOffset = 96;
+                    break;
+                case 0x20B: // PE32+
+                    directoryCountOffset = 108;
+                    directoriesOffset = 112;
+                    break;
+                default:
+                    return false;
+            }
+
+            const int securityDirectory = 4;
+            stream.Position = optionalHeader + directoryCountOffset;
+            if (reader.ReadUInt32() <= securityDirectory)
+            {
+                return false;
+            }
+
+            stream.Position = optionalHeader + directoriesOffset + (securityDirectory * 8);
+            var offset = reader.ReadUInt32();
+            var size = reader.ReadUInt32();
+            return offset != 0 && size != 0;
+        }
+        catch (EndOfStreamException)
+        {
+            return false;
+        }
+    }
+
+    private const int CertEUntrustedRoot = unchecked((int)0x800B0109);
+    private const int CertEChaining = unchecked((int)0x800B010A);
+    private const int CertEUntrustedTestRoot = unchecked((int)0x800B010D);
+
+    /// <summary>WINTRUST_ACTION_GENERIC_VERIFY_V2 — the Authenticode policy provider.</summary>
+    private static readonly Guid GenericVerifyV2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
+
+    /// <summary>
+    /// WinVerifyTrust over the file's embedded signature: no UI, no revocation lookup, and URL
+    /// retrieval restricted to the cache, so a verification can never hang on the network.
+    /// </summary>
+    private static int VerifyEmbeddedSignature(string path)
+    {
+        var pathPointer = Marshal.StringToHGlobalUni(path);
+        var fileInfoPointer = IntPtr.Zero;
+        try
+        {
+            var fileInfo = new WinTrustFileInfo
+            {
+                StructSize = (uint)Marshal.SizeOf<WinTrustFileInfo>(),
+                FilePath = pathPointer,
+            };
+            fileInfoPointer = Marshal.AllocHGlobal(Marshal.SizeOf<WinTrustFileInfo>());
+            Marshal.StructureToPtr(fileInfo, fileInfoPointer, false);
+
+            var data = new WinTrustData
+            {
+                StructSize = (uint)Marshal.SizeOf<WinTrustData>(),
+                UIChoice = WtdUINone,
+                RevocationChecks = WtdRevokeNone,
+                UnionChoice = WtdChoiceFile,
+                FileInfo = fileInfoPointer,
+                StateAction = WtdStateActionIgnore,
+                ProvFlags = WtdCacheOnlyUrlRetrieval,
+            };
+            var action = GenericVerifyV2;
+            return WinVerifyTrust(new IntPtr(-1), ref action, ref data);
+        }
+        finally
+        {
+            if (fileInfoPointer != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(fileInfoPointer);
+            }
+
+            Marshal.FreeHGlobal(pathPointer);
+        }
+    }
+
+    private const uint WtdUINone = 2;
+    private const uint WtdRevokeNone = 0;
+    private const uint WtdChoiceFile = 1;
+    private const uint WtdStateActionIgnore = 0;
+    private const uint WtdCacheOnlyUrlRetrieval = 0x00001000;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WinTrustFileInfo
+    {
+        public uint StructSize;
+        public IntPtr FilePath;
+        public IntPtr File;
+        public IntPtr KnownSubject;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WinTrustData
+    {
+        public uint StructSize;
+        public IntPtr PolicyCallbackData;
+        public IntPtr SipClientData;
+        public uint UIChoice;
+        public uint RevocationChecks;
+        public uint UnionChoice;
+        public IntPtr FileInfo;
+        public uint StateAction;
+        public IntPtr StateData;
+        public IntPtr UrlReference;
+        public uint ProvFlags;
+        public uint UIContext;
+        public IntPtr SignatureSettings;
+    }
+
+    [DllImport("wintrust.dll", CharSet = CharSet.Unicode)]
+    private static extern int WinVerifyTrust(IntPtr window, ref Guid action, ref WinTrustData data);
 
     internal static string Sha256Of(string path)
     {
@@ -423,4 +664,26 @@ public sealed class UpdateInstaller
           Write-Log "nothing to relaunch at $Relaunch"
         }
         """;
+}
+
+internal enum AuthenticodeStatus
+{
+    /// <summary>No embedded signature at all.</summary>
+    Unsigned,
+
+    /// <summary>An embedded signature that verifies against the file's contents.</summary>
+    Signed,
+
+    /// <summary>A signature is present and does not verify. Never treated as unsigned.</summary>
+    Invalid,
+}
+
+/// <summary>The outcome of checking a file's Authenticode signature. The thumbprint is set only when signed.</summary>
+internal readonly record struct AuthenticodeResult(AuthenticodeStatus Status, string? Thumbprint)
+{
+    public static AuthenticodeResult Unsigned => new(AuthenticodeStatus.Unsigned, null);
+
+    public static AuthenticodeResult Invalid => new(AuthenticodeStatus.Invalid, null);
+
+    public static AuthenticodeResult Signed(string thumbprint) => new(AuthenticodeStatus.Signed, thumbprint);
 }
