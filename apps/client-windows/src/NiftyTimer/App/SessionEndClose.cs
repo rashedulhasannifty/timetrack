@@ -21,18 +21,18 @@ public static class SessionEndClose
     /// <summary>
     /// Close a running span. Away time nobody has confirmed does not count, by the same rule as
     /// <see cref="ManualIdleMonitor.AwayLimit"/>: a span the person had walked away from stops where
-    /// they left, and a prompt they came back to but never answered is answered with its default,
-    /// Discard — keeping the time worked since they returned.
+    /// they left and the window is recorded DISCARDED, and a prompt they came back to but never
+    /// answered is answered with its default, Discard — keeping the time worked since they returned.
     /// </summary>
     public static void Apply(TimeTracker tracker, ManualIdleCoordinator? manual)
     {
-        manual?.AnswerOpenPromptForSessionEnd();
+        manual?.CloseForSessionEnd();
 
         if (tracker.State is not TrackerState.Tracking)
         {
             return;
         }
 
-        tracker.Stop(manual?.AwayStartOfLiveEntry);
+        tracker.Stop();
     }
 }

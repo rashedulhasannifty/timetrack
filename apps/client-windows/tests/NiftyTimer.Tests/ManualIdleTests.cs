@@ -47,6 +47,11 @@ public class ManualIdleMonitorTests
         public void DidExceedAwayLimit(DateTimeOffset awayStart, DateTimeOffset detectedAt) =>
             LimitExceeded.Add((awayStart, detectedAt));
 
+        public List<(DateTimeOffset AwayStart, DateTimeOffset EndedAt)> SessionEnded { get; } = [];
+
+        public void DidEndSessionWhileAway(DateTimeOffset awayStart, DateTimeOffset endedAt) =>
+            SessionEnded.Add((awayStart, endedAt));
+
         public void DidWithdrawPrompt() => Withdrawn++;
     }
 
@@ -121,6 +126,59 @@ public class ManualIdleMonitorTests
         monitor.Deactivate();
 
         Assert.Equal((T0, now), Assert.Single(recorder.Abandoned));
+    }
+
+    /// <summary>
+    /// Session end while away ends the window the away-limit way, not the teardown way: reported
+    /// once as ended, never as abandoned, and the monitor is disarmed so a later teardown is silent.
+    /// </summary>
+    [Fact]
+    public void EndingTheSessionWhileAwayEndsTheWindowRatherThanAbandoningIt()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now);
+        monitor.Activate();
+        monitor.MarkAway();
+
+        now = T0.AddMinutes(20);
+        monitor.EndSession();
+        monitor.Deactivate();
+
+        Assert.Equal((T0, now), Assert.Single(recorder.SessionEnded));
+        Assert.Empty(recorder.Abandoned);
+        Assert.Empty(recorder.LimitExceeded);
+        Assert.Equal(IdleState.Inactive, monitor.State);
+    }
+
+    [Fact]
+    public void EndingTheSessionWithThePromptUpAnswersDiscard()
+    {
+        var now = T0;
+        var (monitor, recorder) = New(() => now);
+        monitor.Activate();
+        monitor.MarkAway();
+        now = T0.AddMinutes(20);
+        monitor.Resume(); // back — awaiting an answer
+
+        monitor.EndSession();
+
+        Assert.Equal((T0, now, false), Assert.Single(recorder.Resolved));
+        Assert.Equal(1, recorder.Withdrawn);
+        Assert.Empty(recorder.SessionEnded);
+        Assert.Equal(IdleState.Active, monitor.State);
+    }
+
+    [Fact]
+    public void EndingTheSessionWhileActiveDoesNothing()
+    {
+        var (monitor, recorder) = New(() => T0);
+        monitor.Activate();
+
+        monitor.EndSession();
+
+        Assert.Empty(recorder.SessionEnded);
+        Assert.Empty(recorder.Resolved);
+        Assert.Equal(IdleState.Active, monitor.State);
     }
 
     /// <summary>
@@ -893,6 +951,52 @@ public class ManualIdleCoordinatorTests
         var closed = Assert.Single(h.TimeEntries());
         Assert.Equal("2026-08-25T09:20:00Z", closed.EndTime);
         Assert.Empty(h.Prompts);
+
+        // None of the away time counted, so the window is DISCARDED — and no notice: the PC is
+        // shutting down, not reporting a timer stopped by the away limit.
+        var idle = Assert.Single(h.IdleEvents());
+        Assert.Equal("DISCARDED", idle.ResolvedAction);
+        Assert.Empty(h.LimitNotices);
+    }
+
+    /// <summary>
+    /// Regression: the exit teardown that follows a session end (Dispose → Deactivate) used to find
+    /// the monitor still away and record the window a second time, UNRESOLVED — for time that was
+    /// never counted. Session end settles it, so the teardown has nothing left to record.
+    /// </summary>
+    [Fact]
+    public void TheExitTeardownAfterASessionEndRecordsNothingMore()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null);
+        h.Coordinator.Tick(0); // arm at 09:00
+
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600); // away since 09:20
+
+        SessionEndClose.Apply(h.Tracker, h.Coordinator);
+        h.Coordinator.Deactivate();
+
+        Assert.Equal("DISCARDED", Assert.Single(h.IdleEvents()).ResolvedAction);
+    }
+
+    /// <summary>The same, for a prompt that was answered by the session end.</summary>
+    [Fact]
+    public void TheExitTeardownAfterAnsweringAPromptRecordsNothingMore()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null);
+        h.Coordinator.Tick(0);
+
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600); // away since 09:20
+        h.Now = T0.AddMinutes(40);
+        h.Coordinator.Tick(0); // back — the prompt is up
+
+        SessionEndClose.Apply(h.Tracker, h.Coordinator);
+        h.Coordinator.Deactivate();
+
+        Assert.Equal("DISCARDED", Assert.Single(h.IdleEvents()).ResolvedAction);
     }
 
     /// <summary>
