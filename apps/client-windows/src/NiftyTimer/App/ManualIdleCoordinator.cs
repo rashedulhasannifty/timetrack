@@ -94,6 +94,33 @@ public sealed class ManualIdleCoordinator : IManualIdleMonitorDelegate, ISignalR
 
     public void Resume() => ReconcileThenRoute(_monitor.Resume);
 
+    /// <summary>
+    /// When the person walked away from the live manual entry, while they are still away; null if
+    /// they are not away, or the away window belongs to an entry that is no longer running.
+    /// </summary>
+    public DateTimeOffset? AwayStartOfLiveEntry =>
+        IsSameManualEntryLive && _monitor.State is IdleState.Away away ? away.Since : null;
+
+    /// <summary>
+    /// The Windows session is ending. Settle the away window of the live manual entry so nothing
+    /// is left waiting for an answer that cannot come — see <see cref="ManualIdleMonitor.EndSession"/>:
+    /// <list type="bullet">
+    ///   <item>Still away: the entry stops where the person left, the window recorded DISCARDED.</item>
+    ///   <item>Back, prompt unanswered: Discard, its default. The entry is trimmed at the away start
+    ///   and reopened at the return, so the time since they came back still counts.</item>
+    /// </list>
+    /// A window belonging to an entry that is no longer running is abandoned UNRESOLVED, as on
+    /// every other path. Whatever is still running afterwards is the caller's to close.
+    /// </summary>
+    public void CloseForSessionEnd()
+    {
+        ReconcileSessionEnd();
+        if (IsSameManualEntryLive)
+        {
+            _monitor.EndSession();
+        }
+    }
+
     public void DidBeginAway(DateTimeOffset awayStart)
     {
         if (_tracker.State is TrackerState.Tracking { Source: TimeTracker.EntrySource.Manual } tracking)
@@ -189,6 +216,28 @@ public sealed class ManualIdleCoordinator : IManualIdleMonitorDelegate, ISignalR
             else
             {
                 Enqueue(awayStart, detectedAt, ResolvedAction.Unresolved);
+            }
+        }
+        finally
+        {
+            _awayEntryId = null;
+        }
+    }
+
+    public void DidEndSessionWhileAway(DateTimeOffset awayStart, DateTimeOffset endedAt)
+    {
+        try
+        {
+            // Only reached for the live entry — CloseForSessionEnd checks first — but re-checked
+            // here for the same reason the away limit re-checks: a stale window is UNRESOLVED.
+            if (IsSameManualEntryLive)
+            {
+                _tracker.Stop(awayStart);
+                Enqueue(awayStart, endedAt, ResolvedAction.Discarded);
+            }
+            else
+            {
+                Enqueue(awayStart, endedAt, ResolvedAction.Unresolved);
             }
         }
         finally

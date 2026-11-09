@@ -121,11 +121,19 @@ public sealed class LiveSpanStore : ILiveSpanRecorder
             UserId = _currentUserId(),
         });
 
-    public void Heartbeat(DateTimeOffset now)
+    /// <param name="now">The heartbeat instant.</param>
+    /// <param name="awayStart">
+    /// When the person walked away from this span, if they are away right now. The record then
+    /// holds at that instant instead of advancing: recovery's Keep closes at <c>LastAlive</c>, and a
+    /// crash or power cut while away would otherwise keep up to an hour nobody confirmed — the same
+    /// time the away limit and a shutdown both refuse to count.
+    /// </param>
+    public void Heartbeat(DateTimeOffset now, DateTimeOffset? awayStart = null)
     {
         if (Load() is { } span)
         {
-            Write(span with { LastAlive = now });
+            var alive = awayStart is { } left && left < now ? left : now;
+            Write(span with { LastAlive = alive < span.StartTime ? span.StartTime : alive });
         }
     }
 

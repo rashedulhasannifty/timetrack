@@ -86,6 +86,38 @@ public class LiveSpanStoreTests
         Assert.Equal(T0.AddMinutes(20), span.LastAlive);
     }
 
+    /// <summary>
+    /// Regression: the heartbeat kept advancing while the person was away, so a crash or power cut
+    /// an hour into an away window offered that hour back on "Recover interrupted time?", and Keep
+    /// counted it. Away, the record holds at the moment they left — even moving back to it.
+    /// </summary>
+    [Fact]
+    public void WhileAwayTheHeartbeatHoldsAtTheMomentThePersonLeft()
+    {
+        using var dir = new TempDirectory();
+        var store = new LiveSpanStore(dir.File("live-span.json"), () => "user-1");
+        store.Begin("entry-1", T0, new TimeTracker.Selection("p1", null), TimeTracker.EntrySource.Manual);
+        store.Heartbeat(T0.AddMinutes(24)); // a beat between the last input and the away detection
+
+        store.Heartbeat(T0.AddMinutes(25), awayStart: T0.AddMinutes(20));
+        store.Heartbeat(T0.AddMinutes(55), awayStart: T0.AddMinutes(20));
+
+        Assert.Equal(T0.AddMinutes(20), store.Load()!.LastAlive);
+    }
+
+    /// <summary>An away start before the span began never moves LastAlive before the start.</summary>
+    [Fact]
+    public void TheHeldHeartbeatNeverPrecedesTheStart()
+    {
+        using var dir = new TempDirectory();
+        var store = new LiveSpanStore(dir.File("live-span.json"), () => "user-1");
+        store.Begin("entry-1", T0, new TimeTracker.Selection("p1", null), TimeTracker.EntrySource.Manual);
+
+        store.Heartbeat(T0.AddMinutes(5), awayStart: T0.AddMinutes(-10));
+
+        Assert.Equal(T0, store.Load()!.LastAlive);
+    }
+
     [Fact]
     public void HeartbeatingWithNoSpanWritesNothing()
     {
