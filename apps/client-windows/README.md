@@ -329,6 +329,19 @@ because the server's row is still open and only a close releases the one-running
 it instead and every future live entry for that user 409s forever while closed entries keep working,
 which is why nobody would notice.
 
+**A shutdown is not a crash.** Shutting down, restarting or signing out of Windows closes the running
+span at that moment (`NiftyTimerApp.OnSessionEnding` → `SessionEndClose`), so the next morning does
+not open on a recovery prompt for a day that ended normally — where Discard would throw the whole
+span away. Away time nobody confirmed does not count: a span the person had walked away from stops
+where they left (the window recorded DISCARDED, as the away limit records it, not UNRESOLVED), and
+an unanswered away prompt is answered with its default, Discard. An unanswered "Recover interrupted
+time?" is answered with **its** default, Keep — closed at its last heartbeat — because the exit
+teardown would otherwise dismiss it, and dismissal is Discard: the whole interrupted span gone
+because nobody was there to answer. WPF shuts the app down itself as soon as `OnSessionEnding`
+returns, so the close is synchronous; the upload drains on the next launch. Quit from the tray, a
+crash and a power cut still leave the span for recovery — and the heartbeat that recovery closes at
+holds at the away start while the person is away, so Keep after a crash never counts away time.
+
 ## One user, two machines
 
 The database allows exactly one running entry per **user**, not per device. If someone is already

@@ -42,6 +42,14 @@ public interface IManualIdleMonitorDelegate
     void DidExceedAwayLimit(DateTimeOffset awayStart, DateTimeOffset detectedAt);
 
     /// <summary>
+    /// The Windows session ended while the person was away. Nobody is left to answer, so it ends
+    /// as <see cref="DidExceedAwayLimit"/> does — stop at <paramref name="awayStart"/>, record the
+    /// window DISCARDED up to <paramref name="endedAt"/> — but without telling anyone: the PC is
+    /// shutting down, and a "your timer stopped" notice would be about the shutdown itself.
+    /// </summary>
+    void DidEndSessionWhileAway(DateTimeOffset awayStart, DateTimeOffset endedAt);
+
+    /// <summary>
     /// The open prompt is being answered by policy: the person went away again without answering
     /// it. Close it. Its own answer on close arrives after the monitor has moved on and is ignored.
     /// </summary>
@@ -193,6 +201,34 @@ public sealed class ManualIdleMonitor
         else
         {
             TransitionToAwaiting(away.Since, now);
+        }
+    }
+
+    /// <summary>
+    /// The Windows session is ending — shut down, restart, signing out of Windows. Nobody is left
+    /// to answer anything, so nothing waits for an answer: an open prompt takes its default,
+    /// Discard, exactly as when the person leaves again without answering it; an away window ends
+    /// the way the away limit ends one, with none of it counted.
+    ///
+    /// Without this the exit teardown's <see cref="Deactivate"/> records the window UNRESOLVED —
+    /// for a window whose time was never counted, which the dashboard would then show as a question
+    /// nobody can answer any more.
+    /// </summary>
+    public void EndSession()
+    {
+        switch (State)
+        {
+            case IdleState.Awaiting awaiting:
+                WithdrawPrompt(awaiting);
+                break;
+
+            case IdleState.Away away:
+                Disarm();
+                Delegate?.DidEndSessionWhileAway(away.Since, _clock());
+                break;
+
+            default:
+                break;
         }
     }
 
