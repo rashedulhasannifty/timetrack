@@ -1029,6 +1029,27 @@ public class ManualIdleCoordinatorTests
         Assert.Equal(1, h.Dismissals);
     }
 
+    /// <summary>
+    /// What the crash-recovery heartbeat holds at: the away start while the person is away from
+    /// the live entry, and nothing once they are back or the entry has changed.
+    /// </summary>
+    [Fact]
+    public void TheAwayStartIsReportedOnlyWhileAwayFromTheLiveEntry()
+    {
+        var h = Harness.Build();
+        h.Tracker.Start("p1", null);
+        h.Coordinator.Tick(0); // arm at 09:00
+        Assert.Null(h.Coordinator.AwayStartOfLiveEntry);
+
+        h.Now = T0.AddMinutes(30);
+        h.Coordinator.Tick(600); // away since 09:20
+        Assert.Equal(T0.AddMinutes(20), h.Coordinator.AwayStartOfLiveEntry);
+
+        h.Now = T0.AddMinutes(40);
+        h.Coordinator.Tick(0); // back — awaiting an answer
+        Assert.Null(h.Coordinator.AwayStartOfLiveEntry);
+    }
+
     [Fact]
     public void SessionEndWithNothingRunningRecordsNothing()
     {

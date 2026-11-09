@@ -56,6 +56,23 @@ public class SessionEndWiringTests
     }
 
     /// <summary>
+    /// The crash-recovery heartbeat is handed the away start, so it holds while the person is away.
+    /// </summary>
+    [Fact]
+    public void TheHeartbeatHoldsAtTheAwayStart()
+    {
+        var beat = typeof(AppDelegate).GetMethod(
+            "HeartbeatLiveSpan",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("AppDelegate.HeartbeatLiveSpan is gone.");
+
+        Assert.True(
+            Calls(beat, "get_" + nameof(ManualIdleCoordinator.AwayStartOfLiveEntry)),
+            "AppDelegate.HeartbeatLiveSpan no longer passes the away start — a crash while away " +
+            "would offer the away time back as work.");
+    }
+
+    /// <summary>
     /// The walk must be able to resolve SOMETHING, or the assertions above pass for the wrong reason
     /// on any future change that breaks token resolution.
     /// </summary>

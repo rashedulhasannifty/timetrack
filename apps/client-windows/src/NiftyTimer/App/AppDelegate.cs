@@ -461,6 +461,14 @@ public sealed class AppDelegate : IDisposable
         }
     }
 
+    /// <summary>
+    /// Bump the crash-recovery record — but not past the moment the person walked away, so a crash
+    /// or power cut while they are away never offers that time back as work. A named method rather
+    /// than inline in the timer so <c>SessionEndWiringTests</c> can assert the away start reaches it.
+    /// </summary>
+    private void HeartbeatLiveSpan() =>
+        _liveSpanStore.Heartbeat(DateTimeOffset.UtcNow, _manualIdleCoordinator?.AwayStartOfLiveEntry);
+
     private void StartTimers()
     {
         // Re-POST the running entry so the server's heartbeatAt stays fresh. There is no
@@ -478,7 +486,7 @@ public sealed class AppDelegate : IDisposable
                 // Bump the local record too. This is what bounds how much a crash can cost: the
                 // recovered span closes at the last heartbeat, so downtime is never counted and at
                 // most one interval of real work is lost.
-                _liveSpanStore.Heartbeat(DateTimeOffset.UtcNow);
+                HeartbeatLiveSpan();
                 _ = _livePublisher.HeartbeatAsync(span, _shutdown.Token);
             }
         };
