@@ -22,8 +22,6 @@ public class LoginItemSyncTests
 
         public int Registers { get; private set; }
 
-        public int Unregisters { get; private set; }
-
         public Exception? Throws { get; init; }
 
         public void Register()
@@ -36,35 +34,35 @@ public class LoginItemSyncTests
             Registers++;
             Status = LoginItemStatus.Registered;
         }
-
-        public void Unregister()
-        {
-            if (Throws is not null)
-            {
-                throw Throws;
-            }
-
-            Unregisters++;
-            Status = LoginItemStatus.NotRegistered;
-        }
     }
 
+    /// <summary>
+    /// Regression: the item used to be registered only when the team's <c>autoStartOnLogin</c> was
+    /// on — and that setting is off by default. A team in manual mode never had the app open after
+    /// a restart, so nobody was reminded to start the clock. The sync no longer takes the setting.
+    /// </summary>
     [Fact]
-    public void TurningTheSettingOnRegistersTheItem()
+    public void AMissingItemIsRegisteredWhateverTheTrackingMode()
     {
         var item = new FakeLoginItem();
 
-        Assert.Equal(LoginItemSync.Outcome.Registered, LoginItemSync.Apply(true, item));
+        Assert.Equal(LoginItemSync.Outcome.Registered, LoginItemSync.Apply(item));
         Assert.Equal(LoginItemStatus.Registered, item.Status);
+        Assert.Equal(1, item.Registers);
     }
 
+    /// <summary>
+    /// Regression: a value left behind by a copy unzipped into another folder read as Registered
+    /// and was never rewritten, so login launched a path that no longer existed — silently.
+    /// </summary>
     [Fact]
-    public void TurningTheSettingOffRemovesTheItem()
+    public void AnItemPointingAtAnotherCopyIsRepaired()
     {
-        var item = new FakeLoginItem(LoginItemStatus.Registered);
+        var item = new FakeLoginItem(LoginItemStatus.PointsElsewhere);
 
-        Assert.Equal(LoginItemSync.Outcome.Unregistered, LoginItemSync.Apply(false, item));
-        Assert.Equal(LoginItemStatus.NotRegistered, item.Status);
+        Assert.Equal(LoginItemSync.Outcome.Repaired, LoginItemSync.Apply(item));
+        Assert.Equal(LoginItemStatus.Registered, item.Status);
+        Assert.Equal(1, item.Registers);
     }
 
     /// <summary>
@@ -74,13 +72,10 @@ public class LoginItemSyncTests
     [Fact]
     public void AnAlreadyCorrectItemIsLeftAlone()
     {
-        var on = new FakeLoginItem(LoginItemStatus.Registered);
-        var off = new FakeLoginItem();
+        var item = new FakeLoginItem(LoginItemStatus.Registered);
 
-        Assert.Equal(LoginItemSync.Outcome.Unchanged, LoginItemSync.Apply(true, on));
-        Assert.Equal(LoginItemSync.Outcome.Unchanged, LoginItemSync.Apply(false, off));
-        Assert.Equal(0, on.Registers);
-        Assert.Equal(0, off.Unregisters);
+        Assert.Equal(LoginItemSync.Outcome.Unchanged, LoginItemSync.Apply(item));
+        Assert.Equal(0, item.Registers);
     }
 
     /// <summary>
@@ -89,11 +84,9 @@ public class LoginItemSyncTests
     /// <c>SMAppService</c> reports a <c>requiresApproval</c> state the client refuses to register
     /// over. Windows exposes no such read — Task Manager's enable/disable lives in an undocumented
     /// blob under <c>Explorer\StartupApproved\Run</c> whose absence is indistinguishable from never
-    /// having registered. But disabling there LEAVES the Run value in place, so "an existing value
-    /// is never rewritten" respects the employee's choice on every subsequent launch without
-    /// parsing anything undocumented.
-    ///
-    /// This is that rule under test: registered + setting on must not touch the item at all.
+    /// having registered. But disabling there LEAVES the Run value in place, so "a value that
+    /// already launches this executable is never rewritten" respects the employee's choice on every
+    /// subsequent launch without parsing anything undocumented.
     /// </summary>
     [Fact]
     public void AnItemDisabledByTheUserIsNeverRewritten()
@@ -104,7 +97,7 @@ public class LoginItemSyncTests
 
         for (var launch = 0; launch < 5; launch++)
         {
-            Assert.Equal(LoginItemSync.Outcome.Unchanged, LoginItemSync.Apply(true, disabledInTaskManager));
+            Assert.Equal(LoginItemSync.Outcome.Unchanged, LoginItemSync.Apply(disabledInTaskManager));
         }
 
         Assert.Equal(0, disabledInTaskManager.Registers);
@@ -115,16 +108,54 @@ public class LoginItemSyncTests
     /// either way; the employee can still open the app by hand.
     /// </summary>
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void ARegistryFailureIsReportedRatherThanThrown(bool autoStart)
+    [InlineData(LoginItemStatus.NotRegistered)]
+    [InlineData(LoginItemStatus.PointsElsewhere)]
+    public void ARegistryFailureIsReportedRatherThanThrown(LoginItemStatus status)
     {
-        var item = new FakeLoginItem(autoStart ? LoginItemStatus.NotRegistered : LoginItemStatus.Registered)
+        var item = new FakeLoginItem(status)
         {
             Throws = new UnauthorizedAccessException("hive is locked"),
         };
 
-        Assert.Equal(LoginItemSync.Outcome.Failed, LoginItemSync.Apply(autoStart, item));
+        Assert.Equal(LoginItemSync.Outcome.Failed, LoginItemSync.Apply(item));
+    }
+}
+
+/// <summary>
+/// How a Run value read from the registry is classified. <see cref="RunKeyLoginItem.StatusOf"/> is
+/// the pure half of the one class that touches HKCU.
+/// </summary>
+public class RunKeyStatusTests
+{
+    private const string Command = "\"C:\\Users\\ada\\NiftyTimer\\NiftyTimer.exe\"";
+
+    [Fact]
+    public void NoValueIsNotRegistered()
+    {
+        Assert.Equal(LoginItemStatus.NotRegistered, RunKeyLoginItem.StatusOf(null, Command));
+    }
+
+    [Fact]
+    public void AValueLaunchingThisExecutableIsRegistered()
+    {
+        Assert.Equal(LoginItemStatus.Registered, RunKeyLoginItem.StatusOf(Command, Command));
+    }
+
+    /// <summary>Windows paths are case-insensitive: a case-only difference launches the same file.</summary>
+    [Fact]
+    public void ACaseOnlyDifferenceIsStillRegistered()
+    {
+        Assert.Equal(
+            LoginItemStatus.Registered,
+            RunKeyLoginItem.StatusOf(Command.ToUpperInvariant(), Command));
+    }
+
+    [Fact]
+    public void AValueLaunchingAnotherCopyPointsElsewhere()
+    {
+        const string oldCopy = "\"C:\\Users\\ada\\Downloads\\NiftyTimer-windows-pilot\\NiftyTimer.exe\"";
+
+        Assert.Equal(LoginItemStatus.PointsElsewhere, RunKeyLoginItem.StatusOf(oldCopy, Command));
     }
 }
 
@@ -191,8 +222,8 @@ public class LoginItemWiringTests
 
         Assert.True(
             Calls(il, proceed.Module, nameof(LoginItemSync.Apply)),
-            "AppDelegate.ProceedToPolicyAsync no longer calls LoginItemSync.Apply — autoStartOnLogin " +
-            "would select the tracking mode of an app that never launches.");
+            "AppDelegate.ProceedToPolicyAsync no longer calls LoginItemSync.Apply — the app would " +
+            "never open at login, and manual mode would have nobody to remind to start the clock.");
     }
 
     /// <summary>

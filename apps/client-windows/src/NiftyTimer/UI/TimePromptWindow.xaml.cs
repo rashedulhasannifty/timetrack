@@ -115,6 +115,7 @@ public sealed class OneShotResolution
 public sealed class TimePrompt
 {
     private TimePromptWindow? _live;
+    private AwayResolution _liveDefault;
 
     public void Present(
         string title,
@@ -134,8 +135,22 @@ public sealed class TimePrompt
         });
 
         _live = window;
+        _liveDefault = defaultChoice;
         window.Show();
         window.Activate();
+    }
+
+    /// <summary>
+    /// Answer the showing prompt with its DEFAULT button, as if the person had pressed Enter, and
+    /// close it. For the end of the Windows session only, when nobody is left to answer and
+    /// <see cref="DismissIfShowing"/>'s Discard would be the wrong answer: for the recovery prompt
+    /// that throws away the whole interrupted span, a day's work, because the PC was shut down.
+    /// </summary>
+    public void AnswerWithDefaultIfShowing()
+    {
+        var window = _live;
+        _live = null;
+        window?.Choose(_liveDefault);
     }
 
     public void DismissIfShowing()

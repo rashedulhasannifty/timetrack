@@ -46,6 +46,14 @@ public interface ILiveSpanRecorder
     void Begin(string entryId, DateTimeOffset startTime, TimeTracker.Selection selection, TimeTracker.EntrySource source);
 
     void Clear();
+
+    /// <summary>
+    /// Clear the record only if it still describes <paramref name="entryId"/>. For recovery, which
+    /// answers for a span from a PREVIOUS run: by the time the person answers, a new span may have
+    /// started — in auto mode the clock opens one at launch, under the prompt — and overwritten the
+    /// record, which is then that new span's only crash copy.
+    /// </summary>
+    void ClearIfStill(string entryId);
 }
 
 /// <summary>The default: record nothing. Used by tests and by any tracker with no store wired.</summary>
@@ -56,6 +64,10 @@ public sealed class NoopLiveSpan : ILiveSpanRecorder
     }
 
     public void Clear()
+    {
+    }
+
+    public void ClearIfStill(string entryId)
     {
     }
 }
@@ -109,11 +121,19 @@ public sealed class LiveSpanStore : ILiveSpanRecorder
             UserId = _currentUserId(),
         });
 
-    public void Heartbeat(DateTimeOffset now)
+    /// <param name="now">The heartbeat instant.</param>
+    /// <param name="awayStart">
+    /// When the person walked away from this span, if they are away right now. The record then
+    /// holds at that instant instead of advancing: recovery's Keep closes at <c>LastAlive</c>, and a
+    /// crash or power cut while away would otherwise keep up to an hour nobody confirmed — the same
+    /// time the away limit and a shutdown both refuse to count.
+    /// </param>
+    public void Heartbeat(DateTimeOffset now, DateTimeOffset? awayStart = null)
     {
         if (Load() is { } span)
         {
-            Write(span with { LastAlive = now });
+            var alive = awayStart is { } left && left < now ? left : now;
+            Write(span with { LastAlive = alive < span.StartTime ? span.StartTime : alive });
         }
     }
 
@@ -140,6 +160,16 @@ public sealed class LiveSpanStore : ILiveSpanRecorder
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
         }
+    }
+
+    public void ClearIfStill(string entryId)
+    {
+        if (Load() is { } span && span.EntryId != entryId)
+        {
+            return;
+        }
+
+        Clear();
     }
 
     private void Write(LiveSpan span)

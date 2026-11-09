@@ -59,6 +59,9 @@ public sealed class LiveSpanRecovery
                 subprojectId: span.SubprojectId);
         }
 
-        _store.Clear();
+        // Only if the record is still this span. A span started since — the auto clock opens one at
+        // launch while this prompt is up — has overwritten it, and clearing would delete the new
+        // span's only crash copy.
+        _store.ClearIfStill(span.EntryId);
     }
 }
