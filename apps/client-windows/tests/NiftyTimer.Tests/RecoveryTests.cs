@@ -111,6 +111,30 @@ public class LiveSpanStoreTests
 
     /// <summary>A crash between the write and the rename must not read back as a plausible span.</summary>
     [Fact]
+    public void ClearIfStillClearsTheSameSpan()
+    {
+        using var dir = new TempDirectory();
+        var store = new LiveSpanStore(dir.File("live-span.json"), () => "user-1");
+        store.Begin("entry-1", T0, new TimeTracker.Selection("p1", null), TimeTracker.EntrySource.Manual);
+
+        store.ClearIfStill("entry-1");
+
+        Assert.Null(store.Load());
+    }
+
+    [Fact]
+    public void ClearIfStillLeavesASpanThatReplacedIt()
+    {
+        using var dir = new TempDirectory();
+        var store = new LiveSpanStore(dir.File("live-span.json"), () => "user-1");
+        store.Begin("entry-2", T0, new TimeTracker.Selection("p1", null), TimeTracker.EntrySource.Auto);
+
+        store.ClearIfStill("entry-1");
+
+        Assert.Equal("entry-2", store.Load()!.EntryId);
+    }
+
+    [Fact]
     public void ATruncatedFileReadsAsNoSpan()
     {
         using var dir = new TempDirectory();
@@ -156,7 +180,13 @@ public class LiveSpanRecoveryTests
         {
         }
 
-        public void Clear() => Cleared++;
+        public void Clear() => throw new InvalidOperationException("recovery must clear only its own span");
+
+        public void ClearIfStill(string entryId)
+        {
+            Assert.Equal("entry-1", entryId);
+            Cleared++;
+        }
     }
 
     private static LiveSpan Span(string? userId = "user-1") => new()
@@ -242,6 +272,27 @@ public class LiveSpanRecoveryTests
         Assert.Equal(1, store.Cleared); // still cleared locally
     }
 
+    /// <summary>
+    /// Regression: answering the prompt cleared live-span.json unconditionally. In auto mode the
+    /// clock opens a new span at launch while the prompt is still up, so by the time the person
+    /// answered, the file was the NEW span's crash copy — and a crash later that day lost it.
+    /// </summary>
+    [Fact]
+    public void AnsweringLeavesTheCrashCopyOfASpanStartedSince()
+    {
+        using var dir = new TempDirectory();
+        var store = new LiveSpanStore(dir.File("live-span.json"), () => "user-1");
+        var buffer = new BufferSpy();
+        var tracker = new TimeTracker(buffer, () => T0.AddHours(20), _ => "entry-2", store);
+        var interrupted = Span();
+
+        tracker.Start("p1", null, source: TimeTracker.EntrySource.Auto); // opened under the prompt
+        new LiveSpanRecovery(tracker, store, () => "user-1").Apply(AwayResolution.Keep, interrupted);
+
+        Assert.Equal("entry-2", store.Load()!.EntryId);
+        Assert.Equal("entry-1", JsonSerializer.Deserialize<TimeEntryPayload>(Assert.Single(buffer.Entries).Payload)!.Id);
+    }
+
     [Fact]
     public void ASpanIsCheckedAgainstWhoeverIsSignedInWhenTheChoiceIsMade()
     {
@@ -273,6 +324,8 @@ public class TimeTrackerLiveSpanTests
             Begun.Add(entryId);
 
         public void Clear() => Cleared++;
+
+        public void ClearIfStill(string entryId) => Cleared++;
     }
 
     private static (TimeTracker Tracker, RecorderSpy Live) New()

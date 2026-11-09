@@ -46,6 +46,14 @@ public interface ILiveSpanRecorder
     void Begin(string entryId, DateTimeOffset startTime, TimeTracker.Selection selection, TimeTracker.EntrySource source);
 
     void Clear();
+
+    /// <summary>
+    /// Clear the record only if it still describes <paramref name="entryId"/>. For recovery, which
+    /// answers for a span from a PREVIOUS run: by the time the person answers, a new span may have
+    /// started — in auto mode the clock opens one at launch, under the prompt — and overwritten the
+    /// record, which is then that new span's only crash copy.
+    /// </summary>
+    void ClearIfStill(string entryId);
 }
 
 /// <summary>The default: record nothing. Used by tests and by any tracker with no store wired.</summary>
@@ -56,6 +64,10 @@ public sealed class NoopLiveSpan : ILiveSpanRecorder
     }
 
     public void Clear()
+    {
+    }
+
+    public void ClearIfStill(string entryId)
     {
     }
 }
@@ -140,6 +152,16 @@ public sealed class LiveSpanStore : ILiveSpanRecorder
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
         }
+    }
+
+    public void ClearIfStill(string entryId)
+    {
+        if (Load() is { } span && span.EntryId != entryId)
+        {
+            return;
+        }
+
+        Clear();
     }
 
     private void Write(LiveSpan span)
