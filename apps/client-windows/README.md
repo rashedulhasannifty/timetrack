@@ -326,9 +326,14 @@ which is why nobody would notice.
 span at that moment (`NiftyTimerApp.OnSessionEnding` → `SessionEndClose`), so the next morning does
 not open on a recovery prompt for a day that ended normally — where Discard would throw the whole
 span away. Away time nobody confirmed does not count: a span the person had walked away from stops
-where they left, and an unanswered away prompt is answered with its default, Discard. WPF shuts the
-app down itself as soon as `OnSessionEnding` returns, so the close is synchronous; the upload drains
-on the next launch. Quit from the tray, a crash and a power cut still leave the span for recovery.
+where they left (the window recorded DISCARDED, as the away limit records it, not UNRESOLVED), and
+an unanswered away prompt is answered with its default, Discard. An unanswered "Recover interrupted
+time?" is answered with **its** default, Keep — closed at its last heartbeat — because the exit
+teardown would otherwise dismiss it, and dismissal is Discard: the whole interrupted span gone
+because nobody was there to answer. WPF shuts the app down itself as soon as `OnSessionEnding`
+returns, so the close is synchronous; the upload drains on the next launch. Quit from the tray, a
+crash and a power cut still leave the span for recovery — and the heartbeat that recovery closes at
+holds at the away start while the person is away, so Keep after a crash never counts away time.
 
 ## One user, two machines
 
