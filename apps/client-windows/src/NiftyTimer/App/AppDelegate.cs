@@ -279,7 +279,16 @@ public sealed class AppDelegate : IDisposable
     /// Windows is ending the session. Close the running span where the day ended, rather than
     /// leaving it for crash recovery to offer back the next morning. See <see cref="SessionEndClose"/>.
     /// </summary>
-    public void CloseForSessionEnd() => SessionEndClose.Apply(_tracker, _manualIdleCoordinator);
+    public void CloseForSessionEnd()
+    {
+        // First, and with its default, Keep: closed at its last heartbeat, so no downtime counts.
+        // Left for the exit teardown, the prompt would be DISMISSED — and dismissal is Discard,
+        // which closes the interrupted span at its start and throws the whole of it away, because
+        // the person shut down before answering.
+        _recoveryPrompt.AnswerWithDefaultIfShowing();
+
+        SessionEndClose.Apply(_tracker, _manualIdleCoordinator);
+    }
 
     public void Dispose()
     {

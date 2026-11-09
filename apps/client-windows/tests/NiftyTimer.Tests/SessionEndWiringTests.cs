@@ -41,6 +41,21 @@ public class SessionEndWiringTests
     }
 
     /// <summary>
+    /// An unanswered "Recover interrupted time?" is answered with its default before the exit
+    /// teardown can dismiss it — dismissal is Discard, which would throw the whole span away.
+    /// </summary>
+    [Fact]
+    public void TheDelegateAnswersAnOpenRecoveryPromptWithItsDefault()
+    {
+        var close = typeof(AppDelegate).GetMethod(nameof(AppDelegate.CloseForSessionEnd))!;
+
+        Assert.True(
+            Calls(close, nameof(NiftyTimer.UI.TimePrompt.AnswerWithDefaultIfShowing)),
+            "AppDelegate.CloseForSessionEnd no longer answers the recovery prompt — a shutdown with it " +
+            "still up would discard the whole interrupted span on the way out.");
+    }
+
+    /// <summary>
     /// The walk must be able to resolve SOMETHING, or the assertions above pass for the wrong reason
     /// on any future change that breaks token resolution.
     /// </summary>

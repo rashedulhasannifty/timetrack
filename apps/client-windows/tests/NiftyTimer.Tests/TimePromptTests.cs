@@ -151,6 +151,53 @@ public class TimePromptWindowTests
         Assert.Equal([AwayResolution.Discard], second);
     }
 
+    /// <summary>
+    /// Regression: shutting Windows down with "Recover interrupted time?" still up used to dismiss
+    /// it on the way out, and dismissal is Discard — the whole interrupted span thrown away because
+    /// nobody was there to answer. At session end the prompt takes its default instead, exactly once.
+    /// </summary>
+    [Fact]
+    public void AnsweringWithTheDefaultKeepsAnUnansweredRecovery()
+    {
+        var answers = Wpf.Run(() =>
+        {
+            var seen = new List<AwayResolution>();
+            var prompt = new TimePrompt();
+            prompt.PresentRecovery(480, seen.Add);
+            prompt.AnswerWithDefaultIfShowing();
+            prompt.DismissIfShowing(); // the exit teardown that follows must not answer again
+            return seen;
+        });
+
+        Assert.Equal([AwayResolution.Keep], answers);
+    }
+
+    /// <summary>The away prompt's default is Discard, and answering with the default says so.</summary>
+    [Fact]
+    public void AnsweringWithTheDefaultDiscardsAnUnansweredAwayWindow()
+    {
+        var answers = Wpf.Run(() =>
+        {
+            var seen = new List<AwayResolution>();
+            var prompt = new TimePrompt();
+            prompt.PresentAway(12, seen.Add);
+            prompt.AnswerWithDefaultIfShowing();
+            return seen;
+        });
+
+        Assert.Equal([AwayResolution.Discard], answers);
+    }
+
+    [Fact]
+    public void AnsweringWithTheDefaultWhenNothingIsShowingIsHarmless()
+    {
+        Wpf.Run(() =>
+        {
+            new TimePrompt().AnswerWithDefaultIfShowing();
+            return 0;
+        });
+    }
+
     [Fact]
     public void DismissingWhenNothingIsShowingIsHarmless()
     {
