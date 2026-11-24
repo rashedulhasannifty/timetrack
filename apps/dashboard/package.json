@@ -13,10 +13,10 @@
   },
   "dependencies": {
     "@timetrack/contracts": "workspace:*",
-    "next": "^16.4.5",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "recharts": "^3.10.1",
+    "next": "^16.4.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "recharts": "^3.11.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
